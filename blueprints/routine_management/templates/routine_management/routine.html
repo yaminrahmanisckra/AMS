@@ -90,7 +90,7 @@
     <div class="text-center mb-4">
         <h3>Law Discipline</h3>
         <h5>Khulna University</h5>
-                </div>
+    </div>
 
     <!-- Controls -->
     <div class="card mb-4">
@@ -172,16 +172,16 @@
             <div id="subjects-sidebar" class="shadow-sm">
                 <div class="header">
                     <h4 class="mb-0">Subjects</h4>
-                    </div>
+                </div>
                 <div class="p-3">
                     <label for="teacher-select" class="form-label fw-bold">Select Teacher:</label>
                     <select id="teacher-select" class="form-select">
                         <option value="">-- Choose a teacher --</option>
                         {% for teacher in teachers %}
                         <option value="{{ teacher.id }}" data-teacher-info='{{ teacher | tojson }}'>{{ teacher.name }} ({{ teacher.short_name }})</option>
-                                {% endfor %}
+                        {% endfor %}
                     </select>
-                        </div>
+                </div>
                 <hr class="my-0">
                 <div id="courses-list" style="height: 400px; overflow-y: auto;">
                     <p class="text-muted p-3">Select a teacher to see their assigned courses.</p>
@@ -599,166 +599,4 @@ document.addEventListener('DOMContentLoaded', function () {
     loadRoutine().then(loadCoursesForTeacher);
 });
 </script>
-{% endblock %} 
-            alert('Routine cleared!');
-            window.location.reload();
-       } catch (error) {
-           console.error(error);
-           alert('Failed to clear routine.');
-       }
-    });
-
-    downloadPdfBtn.addEventListener('click', async () => {
-        const routineTitle = document.getElementById('routine-title-input').value;
-        const effectiveDate = document.getElementById('effective-date-input').value;
-
-        if (!effectiveDate) {
-            alert('Please select an effective date.');
-            return;
-        }
-
-        const routineData = [];
-        document.querySelectorAll('.drop-target').forEach(td => {
-            if (td.children.length > 0) {
-                const cell = td.children[0];
-                let entryDetails = {};
-
-                if (cell.dataset.courseInfo) {
-                    const info = JSON.parse(cell.dataset.courseInfo);
-                    entryDetails.course_code = info.course_code;
-                    entryDetails.teacher_short_name = info.teachers.map(t => t.short_name).join('/');
-                } else if (cell.dataset.eventInfo) {
-                    const info = JSON.parse(cell.dataset.eventInfo);
-                    entryDetails.course_code = info.course_code;
-                    entryDetails.teacher_short_name = info.teacher_short_name;
-                }
-
-                if (entryDetails.course_code) {
-                    routineData.push({
-                        day: td.dataset.day,
-                        slot: td.dataset.slot,
-                        room_id: parseInt(td.dataset.roomId),
-                        ...entryDetails
-                    });
-                }
-            }
-        });
-
-        const url = `/routine-management/download_pdf?title=${encodeURIComponent(routineTitle)}&date=${effectiveDate}`;
-        
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ routine: routineData }),
-            });
-
-            if (!response.ok) throw new Error('PDF generation failed on the server.');
-
-            const blob = await response.blob();
-            const downloadUrl = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = downloadUrl;
-            a.download = `routine_${routineTitle.replace(/\s+/g, '_')}_${effectiveDate.replace(/-/g, '')}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(downloadUrl);
-            a.remove();
-
-        } catch (error) {
-            console.error('Failed to download PDF:', error);
-            alert('Could not download the PDF. See console for details.');
-        }
-    });
-
-    exportBtn.addEventListener('click', () => {
-        const routineData = [];
-        document.querySelectorAll('.drop-target').forEach(td => {
-            if (td.children.length > 0) {
-                const cell = td.children[0];
-                const entry = {
-                    day: td.dataset.day,
-                    slot: td.dataset.slot,
-                    room_id: parseInt(td.dataset.roomId),
-                    type: cell.dataset.courseInfo ? 'course' : 'event',
-                    details: JSON.parse(cell.dataset.courseInfo || cell.dataset.eventInfo)
-                };
-                routineData.push(entry);
-            }
-        });
-
-        const dataStr = JSON.stringify(routineData, null, 2);
-        const dataBlob = new Blob([dataStr], {type: "application/json"});
-        const url = URL.createObjectURL(dataBlob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'routine_export.json';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    });
-
-    importBtn.addEventListener('click', () => {
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.json,application/json';
-        
-        fileInput.onchange = e => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = event => {
-                try {
-                    const importedData = JSON.parse(event.target.result);
-                    if (!Array.isArray(importedData)) {
-                        throw new Error("Invalid format: JSON file should contain an array.");
-                    }
-                    
-                    if (!confirm('This will clear the current routine and load the new one. Are you sure?')) {
-                        return;
-                    }
-
-                    // Clear existing routine
-                    document.querySelectorAll('.course-in-cell').forEach(cell => cell.remove());
-                    
-                    // Render new routine
-                    importedData.forEach(entry => {
-                        const cell = document.querySelector(`td[data-day="${entry.day}"][data-slot="${entry.slot}"][data-room-id="${entry.room_id}"]`);
-                        if (cell) {
-                            let newCell;
-                            if (entry.type === 'course' && entry.details) {
-                                newCell = createCourseCellElement(entry.details);
-                            } else if (entry.type === 'event' && entry.details) {
-                                newCell = createEventCellElement(entry.details);
-                            }
-                            if (newCell) {
-                                cell.appendChild(newCell);
-                            }
-                        }
-                    });
-                    alert('Routine imported successfully!');
-                    loadCoursesForTeacher(); // Update sidebar counts
-                } catch (error) {
-                    console.error("Failed to import routine:", error);
-                    alert(`Error importing routine: ${error.message}`);
-                }
-            };
-            reader.readAsText(file);
-        };
-        
-        fileInput.click();
-    });
-
-    teacherSelect.addEventListener('change', loadCoursesForTeacher);
-    
-    document.getElementById('effective-date-input').valueAsDate = new Date();
-
-    // Initial load
-    loadRoutine().then(loadCoursesForTeacher);
-});
-</script>
-{% endblock %} 
+{% endblock %}
