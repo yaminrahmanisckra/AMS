@@ -21,15 +21,22 @@ def create_app():
     app.config['TEMPLATES_AUTO_RELOAD'] = False
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
 
-    database_url = os.getenv('DATABASE_URL')
-    if database_url:
-        app.config['SQLALCHEMY_DATABASE_URI'] = database_url.replace("postgres://", "postgresql://", 1)
-        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-            'pool_size': 10,
-            'pool_recycle': 300,
-            'pool_pre_ping': True
-        }
+    # Use PostgreSQL only on Render, SQLite for local development
+    if os.environ.get('RENDER'):
+        database_url = os.getenv('DATABASE_URL')
+        if database_url:
+            app.config['SQLALCHEMY_DATABASE_URI'] = database_url.replace("postgres://", "postgresql://", 1)
+            app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+                'pool_size': 10,
+                'pool_recycle': 300,
+                'pool_pre_ping': True
+            }
+        else:
+            db_path = os.path.join(app.instance_path, 'academic_management.db')
+            os.makedirs(app.instance_path, exist_ok=True)
+            app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     else:
+        # Local development - always use SQLite
         db_path = os.path.join(app.instance_path, 'academic_management.db')
         os.makedirs(app.instance_path, exist_ok=True)
         app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'

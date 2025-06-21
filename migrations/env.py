@@ -8,9 +8,9 @@ from alembic import context
 # Import your models here to ensure they are registered with SQLAlchemy's metadata
 from app import db
 from user_models import User
-from blueprints.class_management.models import Class, Student, Attendance
-from blueprints.result_management.models import Session, Assessment, Mark
-from blueprints.routine_management.models import Course, Teacher, Room, TimeSlot, Routine
+from blueprints.class_management.models import Teacher, Session, ClassStudent, ClassAttendance
+from blueprints.result_management.models import RSession, RStudent, RSubject, RMark, RCourseRegistration
+from blueprints.routine_management.models import Course, Teacher as RoutineTeacher, Room, TimeSlot, Routine
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
