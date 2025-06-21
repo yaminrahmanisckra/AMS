@@ -86,6 +86,13 @@ def create_app():
             flash('Test form submitted successfully!', 'success')
         return render_template('test_form.html', test_result=test_result)
 
+    @app.route('/simple-test', methods=['GET', 'POST'])
+    def simple_test():
+        result = None
+        if request.method == 'POST':
+            result = f"Name: {request.form.get('test_name')}, Email: {request.form.get('test_email')}"
+        return render_template('simple_test.html', result=result)
+
     @app.route('/admin')
     @login_required
     def admin_dashboard():

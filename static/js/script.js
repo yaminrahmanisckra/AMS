@@ -1,14 +1,5 @@
 // Academic Management System - JavaScript
 
-// Debug function to track form submissions
-function debugFormSubmission(form) {
-    console.log('Form submission detected:', {
-        action: form.action,
-        method: form.method,
-        formData: new FormData(form)
-    });
-}
-
 document.addEventListener('DOMContentLoaded', function() {
     
     // Auto-hide alerts after 5 seconds
@@ -20,62 +11,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 5000);
     });
 
-    // Enhanced form submission handling
+    // Form validation enhancement (without interfering)
     const forms = document.querySelectorAll('form');
     forms.forEach(form => {
         form.addEventListener('submit', function(e) {
-            // Debug the form submission
-            debugFormSubmission(form);
-            
-            // Check form validity
+            // Only add validation styling, don't prevent submission
             if (!form.checkValidity()) {
-                e.preventDefault();
                 form.classList.add('was-validated');
-                console.log('Form validation failed');
-                return;
-            }
-            
-            console.log('Form is valid, proceeding with submission...');
-            
-            // Show loading state
-            const submitButton = form.querySelector('button[type="submit"]');
-            if (submitButton) {
-                const originalText = submitButton.innerHTML;
-                submitButton.disabled = true;
-                submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Processing...';
-                
-                console.log('Loading state applied to submit button');
-                
-                // Submit form after a short delay to show loading state
-                setTimeout(() => {
-                    console.log('Submitting form...');
-                    form.submit();
-                }, 100);
-            } else {
-                // If no submit button found, submit immediately
-                console.log('No submit button found, submitting immediately');
-                form.submit();
-            }
-        });
-    });
-
-    // Form validation enhancement
-    const allForms = document.querySelectorAll('form');
-    allForms.forEach(form => {
-        form.addEventListener('submit', function(e) {
-            if (!form.checkValidity()) {
-                e.preventDefault();
-                e.stopPropagation();
-            }
-            form.classList.add('was-validated');
-        });
-        
-        // Handle successful form submission
-        form.addEventListener('submit', function(e) {
-            const submitButton = this.querySelector('button[type="submit"]');
-            if (submitButton && submitButton.classList.contains('loading')) {
-                // Form is being submitted, let the loading state continue
-                // The page will redirect/reload, so button state will be reset
             }
         });
     });

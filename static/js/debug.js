@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
             class: form.className
         });
         
-        // Monitor form submission
+        // Monitor form submission WITHOUT interfering
         form.addEventListener('submit', function(e) {
             console.log(`🚀 Form ${index + 1} submission started`);
             console.log('Form details:', {
@@ -26,39 +26,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 formData: new FormData(this)
             });
             
-            // Check if form is valid
-            if (!this.checkValidity()) {
-                console.log('❌ Form validation failed');
-                e.preventDefault();
-                this.classList.add('was-validated');
-                return;
-            }
-            
-            console.log('✅ Form validation passed');
-            
-            // Monitor submit button
-            const submitButton = this.querySelector('button[type="submit"]');
-            if (submitButton) {
-                console.log('🔘 Submit button found:', submitButton.textContent);
-                
-                // Check if button is already disabled
-                if (submitButton.disabled) {
-                    console.log('⚠️ Submit button already disabled');
-                } else {
-                    console.log('🔘 Enabling loading state on submit button');
-                    submitButton.disabled = true;
-                    const originalText = submitButton.innerHTML;
-                    submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
-                    
-                    // Store original text for potential restoration
-                    submitButton.dataset.originalText = originalText;
-                }
-            } else {
-                console.log('⚠️ No submit button found in form');
-            }
-            
-            // Let the form submit normally
-            console.log('📤 Allowing form to submit normally');
+            // Don't prevent default - just monitor
+            console.log('✅ Allowing form to submit normally');
         });
         
         // Monitor form field changes
@@ -67,33 +36,14 @@ document.addEventListener('DOMContentLoaded', function() {
             input.addEventListener('change', function() {
                 console.log(`📝 Input changed: ${this.name} = ${this.value}`);
             });
-            
-            input.addEventListener('input', function() {
-                console.log(`⌨️ Input typing: ${this.name} = ${this.value}`);
-            });
         });
     });
     
-    // Monitor AJAX requests
-    const originalFetch = window.fetch;
-    window.fetch = function(...args) {
-        console.log('🌐 Fetch request:', args);
-        return originalFetch.apply(this, args);
-    };
+    // Monitor page load/unload
+    window.addEventListener('load', function() {
+        console.log('📄 Page fully loaded');
+    });
     
-    const originalXHR = window.XMLHttpRequest;
-    window.XMLHttpRequest = function() {
-        const xhr = new originalXHR();
-        xhr.addEventListener('load', function() {
-            console.log('📡 XHR Response:', {
-                status: this.status,
-                responseText: this.responseText.substring(0, 200) + '...'
-            });
-        });
-        return xhr;
-    };
-    
-    // Monitor page unload
     window.addEventListener('beforeunload', function() {
         console.log('🔄 Page is about to unload');
     });
