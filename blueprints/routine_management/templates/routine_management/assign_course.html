@@ -89,38 +89,3 @@
 <div class="alert alert-info">No courses assigned yet.</div>
 {% endfor %}
 {% endblock %} 
-            <thead>
-                <tr>
-                    <th>Course Name</th>
-                    <th>Code</th>
-                    <th>Part</th>
-                    <th>Credit</th>
-                    <th>Edit</th>
-                    <th>Delete</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in data.assignments %}
-                <tr>
-                    <td>{{ item.assignment_obj.course.course_name }}</td>
-                    <td>{{ item.assignment_obj.course.course_code }}</td>
-                    <td>{{ item.assignment_obj.part }}</td>
-                    <td>{{ "%.2f"|format(item.credit) }}</td>
-                    <td>
-                        <a href="{{ url_for('routine_management.edit_assignment', id=item.assignment_obj.id) }}" class="btn btn-sm btn-warning">Edit</a>
-                    </td>
-                    <td>
-                        <form action="{{ url_for('routine_management.delete_assignment', id=item.assignment_obj.id) }}" method="post" onsubmit="return confirm('Are you sure?');">
-                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% else %}
-<div class="alert alert-info">No courses assigned yet.</div>
-{% endfor %}
-{% endblock %} 
