@@ -142,4 +142,11 @@ app = create_app()
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(host='127.0.0.1', port=5001) 
+    
+    # Get port from environment variable (for Render) or use default
+    port = int(os.environ.get('PORT', 5001))
+    
+    # Use 0.0.0.0 for production (Render) and 127.0.0.1 for development
+    host = '0.0.0.0' if os.environ.get('RENDER') else '127.0.0.1'
+    
+    app.run(host=host, port=port) 
