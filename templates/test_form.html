@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Test Form{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2>Test Form Submission</h2>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Simple Test Form</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('test_form') }}">
+                        <div class="mb-3">
+                            <label for="test_name" class="form-label">Name</label>
+                            <input type="text" class="form-control" id="test_name" name="test_name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="test_email" class="form-label">Email</label>
+                            <input type="email" class="form-control" id="test_email" name="test_email" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Submit Test</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Debug Information</h5>
+                </div>
+                <div class="card-body">
+                    <div id="debug-info">
+                        <p><strong>Form Status:</strong> <span id="form-status">Ready</span></p>
+                        <p><strong>Last Action:</strong> <span id="last-action">None</span></p>
+                        <p><strong>Validation:</strong> <span id="validation-status">Not checked</span></p>
+                    </div>
+                    <hr>
+                    <button class="btn btn-secondary" onclick="clearDebug()">Clear Debug</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% if test_result %}
+    <div class="alert alert-success mt-3">
+        <h5>Form Submitted Successfully!</h5>
+        <p><strong>Name:</strong> {{ test_result.name }}</p>
+        <p><strong>Email:</strong> {{ test_result.email }}</p>
+        <p><strong>Timestamp:</strong> {{ test_result.timestamp }}</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('form');
+    const formStatus = document.getElementById('form-status');
+    const lastAction = document.getElementById('last-action');
+    const validationStatus = document.getElementById('validation-status');
+    
+    form.addEventListener('submit', function(e) {
+        console.log('Form submit event triggered');
+        lastAction.textContent = 'Form submit event triggered';
+        
+        // Check validation
+        if (!form.checkValidity()) {
+            e.preventDefault();
+            validationStatus.textContent = 'Validation failed';
+            formStatus.textContent = 'Validation Error';
+            console.log('Form validation failed');
+            return;
+        }
+        
+        validationStatus.textContent = 'Validation passed';
+        formStatus.textContent = 'Submitting...';
+        lastAction.textContent = 'Form is valid, submitting...';
+        
+        console.log('Form is valid, proceeding with submission');
+        
+        // Show loading state
+        const submitButton = form.querySelector('button[type="submit"]');
+        if (submitButton) {
+            submitButton.disabled = true;
+            submitButton.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+        }
+        
+        // Let the form submit normally
+        console.log('Allowing form to submit normally');
+    });
+    
+    // Track form field changes
+    const inputs = form.querySelectorAll('input');
+    inputs.forEach(input => {
+        input.addEventListener('input', function() {
+            console.log('Input changed:', this.name, this.value);
+            lastAction.textContent = `Input changed: ${this.name}`;
+        });
+    });
+});
+
+function clearDebug() {
+    document.getElementById('form-status').textContent = 'Ready';
+    document.getElementById('last-action').textContent = 'None';
+    document.getElementById('validation-status').textContent = 'Not checked';
+}
+</script>
+{% endblock %} 
