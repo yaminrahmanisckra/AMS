@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block head %}
+{{ super() }}
+<style>
+    .tabulation-sheet {
+        font-family: 'Times New Roman', Times, serif;
+        margin: 20px auto;
+        padding: 20px;
+        border: 1px solid #ccc;
+        max-width: 800px;
+        background-color: #fff;
+    }
+    .header, .footer {
+        text-align: center;
+    }
+    .header h3, .header h4 {
+        margin: 2px 0;
+    }
+    .student-info {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        margin: 20px 0;
+        font-size: 14px;
+    }
+    .student-info div {
+        padding: 2px 0;
+    }
+    .result-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+        font-size: 12px;
+    }
+    .result-table th, .result-table td {
+        border: 1px solid #000;
+        padding: 5px;
+        text-align: center;
+    }
+    .result-table th {
+        background-color: #f2f2f2;
+    }
+    .result-table td:nth-child(2) {
+        text-align: left;
+    }
+    .term-assessment {
+        font-size: 14px;
+        margin-bottom: 30px;
+    }
+    .signatures {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 50px;
+        font-size: 14px;
+    }
+    .signature-block {
+        text-align: center;
+        width: 30%;
+    }
+    .signature-block p {
+        border-top: 1px solid #000;
+        padding-top: 5px;
+        margin-top: 40px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Student-wise Result for {{ session.name }}</h2>
+        <a href="{{ url_for('result_management.view_results', session_id=session.id) }}" class="btn btn-secondary">Back</a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" id="student-select-form">
+                <div class="input-group">
+                    <select class="form-select" name="student_id" onchange="document.getElementById('student-select-form').submit();">
+                        <option value="">-- Select a Student --</option>
+                        {% for student in students %}
+                        <option value="{{ student.id }}" {% if selected_student_id == student.id %}selected{% endif %}>
+                            {{ student.name }} ({{ student.student_id }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% if selected_student_id %}
+                    <a href="{{ url_for('result_management.download_student_result', session_id=session.id, student_id=selected_student_id) }}" class="btn btn-danger">
+                        <i class="bi bi-file-earmark-pdf-fill"></i> Download PDF
+                    </a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if selected_student and results %}
+    <div class="tabulation-sheet">
+        <div class="header">
+            <h3>Khulna University</h3>
+            <h4>Student-wise Tabulation Sheet</h4>
+        </div>
+        
+        <div class="student-info">
+            <div>
+                <div><strong>Year:</strong> LL.M</div>
+                <div><strong>Student No.:</strong> {{ selected_student.student_id }}</div>
+                <div><strong>Discipline:</strong> Law</div>
+            </div>
+            <div>
+                <div><strong>Term:</strong> {{ session.term }}</div>
+                <div><strong>Name of Student:</strong> {{ selected_student.name }}</div>
+                <div><strong>Session:</strong> {{ session.name }}</div>
+                <div><strong>School:</strong> Law</div>
+            </div>
+        </div>
+
+        <table class="result-table">
+            <thead>
+                <tr>
+                    <th>Course No.</th>
+                    <th>Course Title</th>
+                    <th>Registered Credit Hours</th>
+                    <th>Letter Grade</th>
+                    <th>Grade Point (GP)</th>
+                    <th>Earned Credit Hours (CH)</th>
+                    <th>Earned Credit Points (GP*CH)</th>
+                    <th>Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for result in results %}
+                    <tr>
+                    <td>{{ result.subject_code }}</td>
+                    <td>{{ result.subject_name }}</td>
+                    <td>{{ "%.1f"|format(result.registered_credits) }}</td>
+                    <td>{{ result.grade_letter or '' }}</td>
+                    <td>{{ "%.2f"|format(result.grade_point) if result.grade_point is not none else '' }}</td>
+                    <td>{{ "%.1f"|format(result.earned_credits) }}</td>
+                    <td>{{ "%.2f"|format(result.earned_credit_points) }}</td>
+                    <td>{{ result.remarks }}</td>
+                    </tr>
+                {% endfor %}
+                <tr>
+                    <td colspan="2" style="text-align: right; font-weight: bold;">Total =</td>
+                    <td style="font-weight: bold;">{{ "%.1f"|format(term_assessment.total_registered_credits) }}</td>
+                    <td colspan="2"></td>
+                    <td style="font-weight: bold;">{{ "%.1f"|format(term_assessment.total_earned_credits) }}</td>
+                    <td style="font-weight: bold;">{{ "%.2f"|format(term_assessment.total_earned_credit_points) }}</td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="term-assessment">
+            <strong>Term Assessment</strong><br>
+            Total Earned Credit Hours in this Term (TCH) = {{ "%.1f"|format(term_assessment.total_earned_credits) }}<br>
+            Total Registered Credit Hours in this Term (RCH) = {{ "%.1f"|format(term_assessment.total_registered_credits) }}<br>
+            Total Earned Credit Points in this Term (TCP) = {{ "%.2f"|format(term_assessment.total_earned_credit_points) }}<br>
+            TGPA = TCP/RCH = {{ "%.2f"|format(term_assessment.tgpa) }}
+        </div>
+    </div>
+    {% elif selected_student_id %}
+    <p class="text-center">No results found for this student.</p>
+    {% endif %}
+</div>
+{% endblock %} 
+                    <th>Earned Credit Hours (CH)</th>
+                    <th>Earned Credit Points (GP*CH)</th>
+                    <th>Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for result in results %}
+                    <tr>
+                    <td>{{ result.subject_code }}</td>
+                    <td>{{ result.subject_name }}</td>
+                    <td>{{ "%.1f"|format(result.registered_credits) }}</td>
+                    <td>{{ result.grade_letter or '' }}</td>
+                    <td>{{ "%.2f"|format(result.grade_point) if result.grade_point is not none else '' }}</td>
+                    <td>{{ "%.1f"|format(result.earned_credits) }}</td>
+                    <td>{{ "%.2f"|format(result.earned_credit_points) }}</td>
+                    <td>{{ result.remarks }}</td>
+                    </tr>
+                {% endfor %}
+                <tr>
+                    <td colspan="2" style="text-align: right; font-weight: bold;">Total =</td>
+                    <td style="font-weight: bold;">{{ "%.1f"|format(term_assessment.total_registered_credits) }}</td>
+                    <td colspan="2"></td>
+                    <td style="font-weight: bold;">{{ "%.1f"|format(term_assessment.total_earned_credits) }}</td>
+                    <td style="font-weight: bold;">{{ "%.2f"|format(term_assessment.total_earned_credit_points) }}</td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="term-assessment">
+            <strong>Term Assessment</strong><br>
+            Total Earned Credit Hours in this Term (TCH) = {{ "%.1f"|format(term_assessment.total_earned_credits) }}<br>
+            Total Registered Credit Hours in this Term (RCH) = {{ "%.1f"|format(term_assessment.total_registered_credits) }}<br>
+            Total Earned Credit Points in this Term (TCP) = {{ "%.2f"|format(term_assessment.total_earned_credit_points) }}<br>
+            TGPA = TCP/RCH = {{ "%.2f"|format(term_assessment.tgpa) }}
+        </div>
+    </div>
+    {% elif selected_student_id %}
+    <p class="text-center">No results found for this student.</p>
+    {% endif %}
+</div>
+{% endblock %} 

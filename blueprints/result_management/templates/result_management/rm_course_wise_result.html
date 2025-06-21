@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Course-wise Result for {{ session.name }}</h2>
+        <a href="{{ url_for('result_management.view_results', session_id=session.id) }}" class="btn btn-secondary">Back</a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" id="subject-select-form">
+                    <div class="input-group">
+                    <select class="form-select" name="subject_id" onchange="document.getElementById('subject-select-form').submit();">
+                        <option value="">-- Select a Subject --</option>
+                            {% for subject in subjects %}
+                            <option value="{{ subject.id }}" {% if selected_subject_id == subject.id %}selected{% endif %}>
+                                {{ subject.name }} ({{ subject.code }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    {% if selected_subject_id %}
+                    <a href="{{ url_for('result_management.download_course_result', session_id=session.id, subject_id=selected_subject_id) }}" class="btn btn-danger">
+                        <i class="bi bi-file-earmark-pdf-fill"></i> Download PDF
+                    </a>
+                        {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+    {% if results %}
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>Student ID</th>
+                <th>Name</th>
+                <th>Total Marks</th>
+                <th>Grade</th>
+                <th>Grade Point</th>
+                <th>Remarks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for student, mark in results %}
+            <tr>
+                <td>{{ student.student_id }}</td>
+                <td>{{ student.name }}</td>
+                <td>{{ mark.total_marks if mark.total_marks is not none else 'N/A' }}</td>
+                <td>{{ mark.grade_letter if mark.grade_letter is not none else 'N/A' }}</td>
+                <td>{{ "%.2f"|format(mark.grade_point) if mark.grade_point is not none else 'N/A' }}</td>
+                <td>{% if mark.is_retake %}Retake{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% elif selected_subject_id %}
+    <p class="text-center">No results found for this course.</p>
+    {% endif %}
+</div>
+{% endblock %} 

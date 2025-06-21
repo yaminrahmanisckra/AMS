@@ -1,0 +1,427 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-plus me-2"></i>Create New Course
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('class_management.create_session') }}" method="POST">
+                        <div class="mb-3">
+                            <label for="year" class="form-label">
+                                <i class="fas fa-calendar-year me-2"></i>Year
+                            </label>
+                            <input type="text" class="form-control" id="year" name="year" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="term" class="form-label">
+                                <i class="fas fa-calendar me-2"></i>Term
+                            </label>
+                            <input type="text" class="form-control" id="term" name="term" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="academic_session" class="form-label">
+                                <i class="fas fa-graduation-cap me-2"></i>Academic Session
+                            </label>
+                            <input type="text" class="form-control" id="academic_session" name="academic_session" placeholder="e.g. 2025-26">
+                        </div>
+                        <div class="mb-3">
+                            <label for="course_name" class="form-label">
+                                <i class="fas fa-book me-2"></i>Course Name
+                            </label>
+                            <input type="text" class="form-control" id="course_name" name="course_name" placeholder="e.g. Constitutional Law">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="fas fa-tag me-2"></i>Course Type
+                            </label><br>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="course_type" id="theory" value="theory" checked>
+                                <label class="form-check-label" for="theory">Theory</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="course_type" id="sessional" value="sessional">
+                                <label class="form-check-label" for="sessional">Sessional</label>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="fas fa-layer-group me-2"></i>Category
+                            </label><br>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="category" id="ug" value="ug" checked>
+                                <label class="form-check-label" for="ug">Undergraduate</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="category" id="pg" value="pg">
+                                <label class="form-check-label" for="pg">Postgraduate</label>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-plus me-2"></i>Create Session
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            {% if teacher %}
+                <h4 class="mb-3">
+                    <i class="fas fa-chalkboard-teacher me-2 text-primary"></i>
+                    Teacher: {{ teacher.name }}
+                </h4>
+            {% endif %}
+            
+            <div class="card shadow">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-list me-2"></i>Active Courses
+                    </h5>
+                    <a href="{{ url_for('class_management.archive') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-archive me-1"></i>Archived Courses
+                    </a>
+                </div>
+                <div class="card-body">
+                    {% if sessions %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 5%">#</th>
+                                        <th style="width: 10%">Year</th>
+                                        <th style="width: 10%">Term</th>
+                                        <th style="width: 20%">Academic Session</th>
+                                        <th style="width: 20%">Subject</th>
+                                        <th style="width: 15%">Created At</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for session in sessions %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td><span class="badge bg-info">{{ session.year }}</span></td>
+                                        <td><span class="badge bg-success">{{ session.term }}</span></td>
+                                        <td>{{ session.academic_session or '-' }}</td>
+                                        <td><strong>{{ session.course_name or '-' }}</strong></td>
+                                        <td>{{ session.created_at.strftime('%Y-%m-%d') }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="6">
+                                            <div class="d-flex flex-wrap gap-2 justify-content-start py-2">
+                                                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal{{ session.id }}">
+                                                    <i class="fas fa-upload me-1"></i>Upload Students
+                                                </button>
+                                                <a href="{{ url_for('class_management.students_list', session_id=session.id) }}" class="btn btn-warning btn-sm">
+                                                    <i class="fas fa-users me-1"></i>Students
+                                                </a>
+                                                <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
+                                                    <i class="fas fa-clipboard-check me-1"></i>Attendance
+                                                </a>
+                                                <a href="{{ url_for('class_management.view_attendance', session_id=session.id) }}" class="btn btn-info btn-sm">
+                                                    <i class="fas fa-eye me-1"></i>View Report
+                                                </a>
+                                                <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
+                                                    <i class="fas fa-chart-line me-1"></i>Assessment
+                                                </a>
+                                                <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-dark btn-sm" target="_blank">
+                                                    <i class="fas fa-file-pdf me-1"></i>Download PDF
+                                                </a>
+                                                <form action="{{ url_for('class_management.archive_session', session_id=session.id) }}" method="POST" style="display:inline;">
+                                                    <button type="submit" class="btn btn-outline-secondary btn-sm" onclick="return confirm('Are you sure you want to archive this course?');">
+                                                        <i class="fas fa-archive me-1"></i>Archive
+                                                    </button>
+                                                </form>
+                                                <form action="{{ url_for('class_management.delete_session', session_id=session.id) }}" method="POST" style="display:inline;">
+                                                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this session? All related data will be deleted!');">
+                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-book-open fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No courses found</h5>
+                            <p class="text-muted">Create your first course to get started</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if sessions %}
+    {% for session in sessions %}
+    <!-- Upload Modal for this session -->
+    <div class="modal fade" id="uploadModal{{ session.id }}" tabindex="-1" aria-labelledby="uploadModalLabel{{ session.id }}" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="uploadModalLabel{{ session.id }}">
+                <i class="fas fa-upload me-2"></i>Upload Students
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <!-- Excel Upload Form -->
+            <form action="{{ url_for('class_management.upload_students', session_id=session.id) }}" method="POST" enctype="multipart/form-data">
+              <div class="mb-3">
+                <label for="studentsFile{{ session.id }}" class="form-label">
+                    <i class="fas fa-file-excel me-2"></i>Select Excel File (.xlsx)
+                </label>
+                <input class="form-control" type="file" id="studentsFile{{ session.id }}" name="file" accept=".xlsx" required>
+                <small class="form-text text-muted">Excel file must have columns: Student ID, Name</small>
+              </div>
+              <div class="modal-footer p-0 pb-2 border-0">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload me-1"></i>Upload
+                </button>
+              </div>
+            </form>
+            <hr/>
+            <!-- Manual Add Form -->
+            <h6><i class="fas fa-user-plus me-2"></i>Add Student Manually</h6>
+            <form action="{{ url_for('class_management.add_student', session_id=session.id) }}" method="POST" class="d-flex flex-wrap align-items-end gap-2">
+              <div>
+                <label for="student_id_{{ session.id }}" class="form-label mb-0">Student ID</label>
+                <input type="text" name="student_id" id="student_id_{{ session.id }}" class="form-control form-control-sm" required>
+              </div>
+              <div>
+                <label for="name_{{ session.id }}" class="form-label mb-0">Name</label>
+                <input type="text" name="name" id="name_{{ session.id }}" class="form-control form-control-sm" required>
+              </div>
+              <button type="submit" class="btn btn-success btn-sm">
+                  <i class="fas fa-plus me-1"></i>Add Student
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+{% endif %}
+{% endblock %} 
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-plus me-2"></i>Create New Course
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('class_management.create_session') }}" method="POST">
+                        <div class="mb-3">
+                            <label for="year" class="form-label">
+                                <i class="fas fa-calendar-year me-2"></i>Year
+                            </label>
+                            <input type="text" class="form-control" id="year" name="year" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="term" class="form-label">
+                                <i class="fas fa-calendar me-2"></i>Term
+                            </label>
+                            <input type="text" class="form-control" id="term" name="term" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="academic_session" class="form-label">
+                                <i class="fas fa-graduation-cap me-2"></i>Academic Session
+                            </label>
+                            <input type="text" class="form-control" id="academic_session" name="academic_session" placeholder="e.g. 2025-26">
+                        </div>
+                        <div class="mb-3">
+                            <label for="course_name" class="form-label">
+                                <i class="fas fa-book me-2"></i>Course Name
+                            </label>
+                            <input type="text" class="form-control" id="course_name" name="course_name" placeholder="e.g. Constitutional Law">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="fas fa-tag me-2"></i>Course Type
+                            </label><br>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="course_type" id="theory" value="theory" checked>
+                                <label class="form-check-label" for="theory">Theory</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="course_type" id="sessional" value="sessional">
+                                <label class="form-check-label" for="sessional">Sessional</label>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="fas fa-layer-group me-2"></i>Category
+                            </label><br>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="category" id="ug" value="ug" checked>
+                                <label class="form-check-label" for="ug">Undergraduate</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" name="category" id="pg" value="pg">
+                                <label class="form-check-label" for="pg">Postgraduate</label>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-plus me-2"></i>Create Session
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            {% if teacher %}
+                <h4 class="mb-3">
+                    <i class="fas fa-chalkboard-teacher me-2 text-primary"></i>
+                    Teacher: {{ teacher.name }}
+                </h4>
+            {% endif %}
+            
+            <div class="card shadow">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-list me-2"></i>Active Courses
+                    </h5>
+                    <a href="{{ url_for('class_management.archive') }}" class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-archive me-1"></i>Archived Courses
+                    </a>
+                </div>
+                <div class="card-body">
+                    {% if sessions %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 5%">#</th>
+                                        <th style="width: 10%">Year</th>
+                                        <th style="width: 10%">Term</th>
+                                        <th style="width: 20%">Academic Session</th>
+                                        <th style="width: 20%">Subject</th>
+                                        <th style="width: 15%">Created At</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for session in sessions %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td><span class="badge bg-info">{{ session.year }}</span></td>
+                                        <td><span class="badge bg-success">{{ session.term }}</span></td>
+                                        <td>{{ session.academic_session or '-' }}</td>
+                                        <td><strong>{{ session.course_name or '-' }}</strong></td>
+                                        <td>{{ session.created_at.strftime('%Y-%m-%d') }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="6">
+                                            <div class="d-flex flex-wrap gap-2 justify-content-start py-2">
+                                                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal{{ session.id }}">
+                                                    <i class="fas fa-upload me-1"></i>Upload Students
+                                                </button>
+                                                <a href="{{ url_for('class_management.students_list', session_id=session.id) }}" class="btn btn-warning btn-sm">
+                                                    <i class="fas fa-users me-1"></i>Students
+                                                </a>
+                                                <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
+                                                    <i class="fas fa-clipboard-check me-1"></i>Attendance
+                                                </a>
+                                                <a href="{{ url_for('class_management.view_attendance', session_id=session.id) }}" class="btn btn-info btn-sm">
+                                                    <i class="fas fa-eye me-1"></i>View Report
+                                                </a>
+                                                <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
+                                                    <i class="fas fa-chart-line me-1"></i>Assessment
+                                                </a>
+                                                <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-dark btn-sm" target="_blank">
+                                                    <i class="fas fa-file-pdf me-1"></i>Download PDF
+                                                </a>
+                                                <form action="{{ url_for('class_management.archive_session', session_id=session.id) }}" method="POST" style="display:inline;">
+                                                    <button type="submit" class="btn btn-outline-secondary btn-sm" onclick="return confirm('Are you sure you want to archive this course?');">
+                                                        <i class="fas fa-archive me-1"></i>Archive
+                                                    </button>
+                                                </form>
+                                                <form action="{{ url_for('class_management.delete_session', session_id=session.id) }}" method="POST" style="display:inline;">
+                                                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this session? All related data will be deleted!');">
+                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-book-open fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No courses found</h5>
+                            <p class="text-muted">Create your first course to get started</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if sessions %}
+    {% for session in sessions %}
+    <!-- Upload Modal for this session -->
+    <div class="modal fade" id="uploadModal{{ session.id }}" tabindex="-1" aria-labelledby="uploadModalLabel{{ session.id }}" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="uploadModalLabel{{ session.id }}">
+                <i class="fas fa-upload me-2"></i>Upload Students
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <!-- Excel Upload Form -->
+            <form action="{{ url_for('class_management.upload_students', session_id=session.id) }}" method="POST" enctype="multipart/form-data">
+              <div class="mb-3">
+                <label for="studentsFile{{ session.id }}" class="form-label">
+                    <i class="fas fa-file-excel me-2"></i>Select Excel File (.xlsx)
+                </label>
+                <input class="form-control" type="file" id="studentsFile{{ session.id }}" name="file" accept=".xlsx" required>
+                <small class="form-text text-muted">Excel file must have columns: Student ID, Name</small>
+              </div>
+              <div class="modal-footer p-0 pb-2 border-0">
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-upload me-1"></i>Upload
+                </button>
+              </div>
+            </form>
+            <hr/>
+            <!-- Manual Add Form -->
+            <h6><i class="fas fa-user-plus me-2"></i>Add Student Manually</h6>
+            <form action="{{ url_for('class_management.add_student', session_id=session.id) }}" method="POST" class="d-flex flex-wrap align-items-end gap-2">
+              <div>
+                <label for="student_id_{{ session.id }}" class="form-label mb-0">Student ID</label>
+                <input type="text" name="student_id" id="student_id_{{ session.id }}" class="form-control form-control-sm" required>
+              </div>
+              <div>
+                <label for="name_{{ session.id }}" class="form-label mb-0">Name</label>
+                <input type="text" name="name" id="name_{{ session.id }}" class="form-control form-control-sm" required>
+              </div>
+              <button type="submit" class="btn btn-success btn-sm">
+                  <i class="fas fa-plus me-1"></i>Add Student
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+{% endif %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-md-12">
+            <h1 class="text-center mb-4">Main Dashboard</h1>
+            <p class="text-center text-muted">Welcome, {{ current_user.full_name }}! Select a module to get started.</p>
+        </div>
+    </div>
+    <div class="row justify-content-center mt-4">
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm custom-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-chalkboard-teacher fa-3x mb-3 text-primary"></i>
+                    <h5 class="card-title">Class Management</h5>
+                    <p class="card-text">Manage sessions, students, and attendance for your classes.</p>
+                    <a href="{{ url_for('class_management.index') }}" class="btn btn-primary stretched-link">Go to Module</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm custom-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-poll fa-3x mb-3 text-success"></i>
+                    <h5 class="card-title">Result Management</h5>
+                    <p class="card-text">Handle student results, subjects, marks, and generate reports.</p>
+                    <a href="{{ url_for('result_management.index') }}" class="btn btn-success stretched-link">Go to Module</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-4">
+            <div class="card h-100 shadow-sm custom-card">
+                <div class="card-body text-center">
+                    <i class="fas fa-calendar-alt fa-3x mb-3 text-info"></i>
+                    <h5 class="card-title">Routine Management</h5>
+                    <p class="card-text">Create and manage class schedules and teacher assignments.</p>
+                    <a href="{{ url_for('routine_management.index') }}" class="btn btn-info stretched-link">Go to Module</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.custom-card {
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    border: none;
+    border-radius: 15px;
+}
+
+.custom-card:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+}
+</style>
+{% endblock %} 

@@ -1,0 +1,68 @@
+{% extends "routine_management/base.html" %}
+
+{% block title %}Manage Courses{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <h2>Add Course</h2>
+        <form method="POST" action="{{ url_for('routine_management.manage_courses') }}">
+            {{ form.hidden_tag() }}
+            <div class="form-group">
+                {{ form.course_code.label(class="form-control-label") }}
+                {{ form.course_code(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.course_name.label(class="form-control-label") }}
+                {{ form.course_name(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.credit.label(class="form-control-label") }}
+                {{ form.credit(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.course_type.label(class="form-control-label") }}
+                {{ form.course_type(class="form-control") }}
+            </div>
+             <div class="form-group">
+                {{ form.category.label(class="form-control-label") }}
+                {{ form.category(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+    </div>
+    <div class="col-md-8">
+        <h2>Existing Courses</h2>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Credit</th>
+                    <th>Type</th>
+                    <th>Category</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for course in courses %}
+                <tr>
+                    <td>{{ course.course_code }}</td>
+                    <td>{{ course.course_name }}</td>
+                    <td>{{ course.credit }}</td>
+                    <td>{{ course.course_type }}</td>
+                    <td>{{ course.category }}</td>
+                    <td>
+                        <form action="{{ url_for('routine_management.delete_course', id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this course?');">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %} 

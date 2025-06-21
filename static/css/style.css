@@ -1,0 +1,339 @@
+/* Custom styles for Academic Management System */
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+.navbar-brand {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+.hero-section {
+    padding: 2rem 0;
+}
+
+.management-card {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border: none;
+    border-radius: 15px;
+    overflow: hidden;
+}
+
+.management-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+.card-icon {
+    transition: transform 0.3s ease;
+}
+
+.management-card:hover .card-icon {
+    transform: scale(1.1);
+}
+
+.card {
+    border: none;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+}
+
+.card-header {
+    border-radius: 15px 15px 0 0 !important;
+    border-bottom: none;
+}
+
+.btn {
+    border-radius: 10px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.form-control, .form-select {
+    border-radius: 10px;
+    border: 2px solid #e9ecef;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+.table {
+    border-radius: 10px;
+    /* overflow: hidden; */ /* This was preventing sticky headers */
+}
+
+.badge {
+    font-size: 0.8rem;
+    padding: 0.5em 0.8em;
+}
+
+.alert {
+    border-radius: 10px;
+    border: none;
+}
+
+/* Custom colors */
+.text-primary {
+    color: #0d6efd !important;
+}
+
+.bg-primary {
+    background-color: #0d6efd !important;
+}
+
+.text-success {
+    color: #198754 !important;
+}
+
+.bg-success {
+    background-color: #198754 !important;
+}
+
+.text-info {
+    color: #0dcaf0 !important;
+}
+
+.bg-info {
+    background-color: #0dcaf0 !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .hero-section {
+        padding: 1rem 0;
+    }
+    
+    .display-4 {
+        font-size: 2rem;
+    }
+    
+    .management-card {
+        margin-bottom: 1rem;
+    }
+}
+
+/* Animation for loading states */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+    position: relative;
+}
+
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: inherit;
+}
+
+/* Button loading state */
+button.loading {
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+button.loading:hover {
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* Footer styling */
+.footer {
+    margin-top: 3rem;
+    padding: 1rem 0;
+    background-color: #343a40;
+    color: white;
+    text-align: center;
+    position: relative;
+    bottom: 0;
+    width: 100%;
+}
+
+/* Ensure main content has proper spacing */
+main {
+    min-height: calc(100vh - 200px);
+    padding-bottom: 2rem;
+}
+
+/* Card hover effects */
+.card:hover {
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+
+/* Button group styling */
+.btn-group .btn {
+    border-radius: 0;
+}
+
+.btn-group .btn:first-child {
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+}
+
+.btn-group .btn:last-child {
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+
+/* Form validation styling */
+.form-control.is-invalid {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+}
+
+.form-control.is-valid {
+    border-color: #198754;
+    box-shadow: 0 0 0 0.2rem rgba(25, 135, 84, 0.25);
+}
+
+/* Table responsive improvements */
+.table-responsive {
+    border-radius: 10px;
+}
+
+/* Custom navbar styling */
+.navbar {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.navbar-nav .nav-link {
+    border-radius: 8px;
+    margin: 0 2px;
+    transition: background-color 0.3s ease;
+}
+
+.navbar-nav .nav-link:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.result-table th, .result-table td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+.result-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    border: 1px solid #ddd;
+}
+
+.result-table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+/* Styles for Routine Page */
+.routine-table-container {
+    max-height: 80vh;
+    overflow: auto; /* Use auto for both axes */
+    border: 1px solid #dee2e6;
+    border-radius: 10px;
+}
+
+.routine-table-container .table-responsive {
+    overflow: visible; /* Override bootstrap's overflow */
+}
+
+.timetable thead th {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #212529; /* Explicit background */
+}
+
+.timetable { table-layout: fixed; }
+.timetable th, .timetable td {
+    text-align: center;
+    vertical-align: middle;
+    border: 1px solid #dee2e6;
+    height: 60px;
+    font-size: 0.85em;
+    padding: 2px;
+}
+.time-slot { font-weight: bold; }
+.day-header { width: 100px; }
+.room-header { width: 120px; }
+.lunch-break {
+    background-color: #f8f9fa;
+    font-weight: bold;
+    color: #6c757d;
+    vertical-align: middle;
+}
+#subjects-sidebar {
+    background-color: #f1f3f5;
+    border-radius: 5px;
+    padding: 0;
+}
+#subjects-sidebar .header {
+    background-color: #0d6efd;
+    color: white;
+    padding: 1rem;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}
+.course-item-sidebar {
+    cursor: grab;
+    padding: 10px;
+    margin: 0 10px 10px 10px;
+    background-color: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+.delete-box {
+    margin: 10px;
+    padding: 20px;
+    border: 2px dashed #dc3545;
+    border-radius: 5px;
+    text-align: center;
+    color: #6c757d;
+}
+.course-in-cell {
+    padding: 5px;
+    border-radius: 4px;
+    color: white;
+    background-color: #0d6efd;
+    cursor: grab;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    font-size: 0.8em;
+} 

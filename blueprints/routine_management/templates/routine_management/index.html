@@ -1,0 +1,73 @@
+{% extends "routine_management/base.html" %}
+
+{% block title %}Routine Dashboard{% endblock %}
+
+{% block content %}
+<div class="text-center mb-5">
+    <h1 class="display-5 text-primary">Routine Management Dashboard</h1>
+    <p class="lead text-muted">Manage all aspects of the academic routine from here.</p>
+</div>
+
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <div class="card-icon mb-3">
+                    <i class="fas fa-chalkboard-teacher fa-3x text-info"></i>
+                </div>
+                <h5 class="card-title">Manage Teachers</h5>
+                <p class="card-text">Add, view, and manage teacher profiles.</p>
+                <a href="{{ url_for('routine_management.manage_teachers') }}" class="btn btn-info text-white">Go to Teachers</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <div class="card-icon mb-3">
+                    <i class="fas fa-book fa-3x text-success"></i>
+                </div>
+                <h5 class="card-title">Manage Courses</h5>
+                <p class="card-text">Add, view, and manage academic courses.</p>
+                <a href="{{ url_for('routine_management.manage_courses') }}" class="btn btn-success">Go to Courses</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <div class="card-icon mb-3">
+                    <i class="fas fa-door-open fa-3x text-warning"></i>
+                </div>
+                <h5 class="card-title">Manage Rooms</h5>
+                <p class="card-text">Add, view, and manage classrooms and labs.</p>
+                <a href="{{ url_for('routine_management.manage_rooms') }}" class="btn btn-warning text-dark">Go to Rooms</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <div class="card-icon mb-3">
+                    <i class="fas fa-tasks fa-3x text-danger"></i>
+                </div>
+                <h5 class="card-title">Assign Courses</h5>
+                <p class="card-text">Assign courses to teachers for an academic year.</p>
+                <a href="{{ url_for('routine_management.assign_course') }}" class="btn btn-danger">Assign Courses</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-4">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center">
+                <div class="card-icon mb-3">
+                    <i class="fas fa-calendar-check fa-3x text-primary"></i>
+                </div>
+                <h5 class="card-title">Generate Routine</h5>
+                <p class="card-text">Create and publish the final class routine.</p>
+                <a href="{{ url_for('routine_management.generate_routine') }}" class="btn btn-primary">Generate Routine</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

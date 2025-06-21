@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Bulk Course Registration for {{ session.name }}</h2>
+        <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary">Back to Sessions</a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" id="subject-select-form">
+                <label for="subject_id" class="form-label">Select Subject</label>
+                <div class="input-group">
+                    <select class="form-select" id="subject_id" name="subject_id" onchange="document.getElementById('subject-select-form').submit();">
+                        <option value="">-- Select a Subject --</option>
+                        {% for subject in subjects %}
+                            <option value="{{ subject.id }}" {% if selected_subject and selected_subject.id == subject.id %}selected{% endif %}>
+                                {{ subject.code }} - {{ subject.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if selected_subject %}
+    <form method="POST">
+        <input type="hidden" name="subject_id" value="{{ selected_subject.id }}">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover table-striped align-middle">
+                <thead class="table-dark">
+                    <tr class="text-center">
+                        <th class="text-start">Student ID</th>
+                        <th class="text-start">Name</th>
+                        <th>Reg <button type="button" class="btn btn-sm btn-light py-0 ms-2" id="select-all-reg">Select All</button></th>
+                        <th>Retake</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in students %}
+                    <tr>
+                        <td>{{ student.student_id }}</td>
+                        <td>{{ student.name }}</td>
+                        <td class="text-center">
+                            <div class="form-check d-flex justify-content-center">
+                                <input class="form-check-input reg-checkbox" type="checkbox" name="reg_{{ student.id }}" {% if registrations.get(student.id) %}checked{% endif %}>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <div class="form-check d-flex justify-content-center">
+                                <input class="form-check-input" type="checkbox" name="retake_{{ student.id }}" {% if registrations.get(student.id) and registrations.get(student.id).is_retake %}checked{% endif %}>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Save Registrations</button>
+    </form>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const selectAllButton = document.getElementById('select-all-reg');
+    if (selectAllButton) {
+        selectAllButton.addEventListener('click', function () {
+            const checkboxes = document.querySelectorAll('.reg-checkbox');
+            // Check if all are already checked. If so, uncheck all. Otherwise, check all.
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = !allChecked;
+            });
+            this.textContent = allChecked ? 'Select All' : 'Deselect All';
+        });
+    }
+
+    const checkboxes = document.querySelectorAll('.reg-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            selectAllButton.textContent = allChecked ? 'Deselect All' : 'Select All';
+        });
+    });
+
+    // Initial check to set button text correctly on page load
+    const allCheckedInitially = Array.from(checkboxes).every(cb => cb.checked);
+    if (selectAllButton && checkboxes.length > 0) {
+       selectAllButton.textContent = allCheckedInitially ? 'Deselect All' : 'Select All';
+    }
+});
+</script>
+{% endblock %} 
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Bulk Course Registration for {{ session.name }}</h2>
+        <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary">Back to Sessions</a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" id="subject-select-form">
+                <label for="subject_id" class="form-label">Select Subject</label>
+                <div class="input-group">
+                    <select class="form-select" id="subject_id" name="subject_id" onchange="document.getElementById('subject-select-form').submit();">
+                        <option value="">-- Select a Subject --</option>
+                        {% for subject in subjects %}
+                            <option value="{{ subject.id }}" {% if selected_subject and selected_subject.id == subject.id %}selected{% endif %}>
+                                {{ subject.code }} - {{ subject.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if selected_subject %}
+    <form method="POST">
+        <input type="hidden" name="subject_id" value="{{ selected_subject.id }}">
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover table-striped align-middle">
+                <thead class="table-dark">
+                    <tr class="text-center">
+                        <th class="text-start">Student ID</th>
+                        <th class="text-start">Name</th>
+                        <th>Reg <button type="button" class="btn btn-sm btn-light py-0 ms-2" id="select-all-reg">Select All</button></th>
+                        <th>Retake</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in students %}
+                    <tr>
+                        <td>{{ student.student_id }}</td>
+                        <td>{{ student.name }}</td>
+                        <td class="text-center">
+                            <div class="form-check d-flex justify-content-center">
+                                <input class="form-check-input reg-checkbox" type="checkbox" name="reg_{{ student.id }}" {% if registrations.get(student.id) %}checked{% endif %}>
+                            </div>
+                        </td>
+                        <td class="text-center">
+                            <div class="form-check d-flex justify-content-center">
+                                <input class="form-check-input" type="checkbox" name="retake_{{ student.id }}" {% if registrations.get(student.id) and registrations.get(student.id).is_retake %}checked{% endif %}>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Save Registrations</button>
+    </form>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const selectAllButton = document.getElementById('select-all-reg');
+    if (selectAllButton) {
+        selectAllButton.addEventListener('click', function () {
+            const checkboxes = document.querySelectorAll('.reg-checkbox');
+            // Check if all are already checked. If so, uncheck all. Otherwise, check all.
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = !allChecked;
+            });
+            this.textContent = allChecked ? 'Select All' : 'Deselect All';
+        });
+    }
+
+    const checkboxes = document.querySelectorAll('.reg-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            selectAllButton.textContent = allChecked ? 'Deselect All' : 'Select All';
+        });
+    });
+
+    // Initial check to set button text correctly on page load
+    const allCheckedInitially = Array.from(checkboxes).every(cb => cb.checked);
+    if (selectAllButton && checkboxes.length > 0) {
+       selectAllButton.textContent = allCheckedInitially ? 'Deselect All' : 'Select All';
+    }
+});
+</script>
+{% endblock %} 

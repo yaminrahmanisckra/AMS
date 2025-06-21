@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block breadcrumb %}
+<li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-decoration-none">Sessions</a></li>
+<li class="breadcrumb-item active">Add Marks</li>
+{% endblock %}
+
+{% block content %}
+<style>
+    .marks-input {
+        max-width: 90px;
+        margin: auto;
+    }
+    .total-marks-cell, .grade-cell {
+        font-weight: 500;
+        vertical-align: middle;
+    }
+    .remarks-cell {
+        vertical-align: middle;
+    }
+</style>
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Add/Edit Marks for {{ session.name }}</h2>
+        <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary">Back to Sessions</a>
+        </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="GET" id="subject-select-form">
+                <div class="input-group">
+                    <select class="form-select" name="subject_id" onchange="document.getElementById('subject-select-form').submit();">
+                        <option value="">-- Select a Subject --</option>
+            {% for subject in subjects %}
+                            <option value="{{ subject.id }}" {% if selected_subject and selected_subject.id == subject.id %}selected{% endif %}>
+                                {{ subject.name }} ({{ subject.code }})
+                </option>
+            {% endfor %}
+        </select>
+                </div>
+    </form>
+        </div>
+    </div>
+
+    {% if selected_subject %}
+    <form method="POST" action="{{ url_for('result_management.add_marks', session_id=session.id) }}">
+        <input type="hidden" name="subject_id" value="{{ selected_subject.id }}">
+        {% if selected_subject.subject_type == 'Dissertation' %}
+        <input type="hidden" name="dissertation_type" value="{{ selected_subject.dissertation_type }}">
+        {% endif %}
+        <h4>Marks for: <strong>{{ selected_subject.name }}</strong></h4>
+        
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover table-striped align-middle">
+                <thead class="table-dark">
+                <tr>
+                        <th class="text-start" style="width: 15%;">Student ID</th>
+                        <th class="text-start" style="width: 25%;">Name</th>
+                        {% if selected_subject.subject_type == 'Theory' %}
+                    <th>Attendance (10)</th>
+                    <th>Continuous Assessment (40)</th>
+                    <th>Section A (25)</th>
+                    <th>Section B (25)</th>
+                        {% elif selected_subject.subject_type == 'Dissertation' and selected_subject.dissertation_type == 'Type1' %}
+                            <th>Supervisor Assessment (30)</th>
+                            <th>Proposal Presentation (70)</th>
+                        {% elif selected_subject.subject_type == 'Dissertation' and selected_subject.dissertation_type == 'Type2' %}
+                            <th>Supervisor Assessment (20)</th>
+                            <th>Project Report (50)</th>
+                            <th>Defense (30)</th>
+                        {% endif %}
+                    <th>Total Marks</th>
+                    <th>Grade</th>
+                    <th>Remarks</th>
+                </tr>
+            </thead>
+                <tbody class="text-center">
+                    {% for student in students %}
+                    {% set mark = marks_data.get(student.id) %}
+                    {% set is_retake = (mark and mark.is_retake) or False %}
+                    <tr data-student-id="{{ student.id }}" data-is-retake="{{ 1 if is_retake else 0 }}">
+                        <td class="text-start">{{ student.student_id }}</td>
+                        <td class="text-start">{{ student.name }}</td>
+                        
+                        {% if selected_subject.subject_type == 'Theory' %}
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_attendance" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_continuous_assessment" value="{{ mark.continuous_assessment if mark and mark.continuous_assessment is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_part_a" value="{{ mark.part_a if mark and mark.part_a is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_part_b" value="{{ mark.part_b if mark and mark.part_b is not none else '' }}"></td>
+                        {% elif selected_subject.subject_type == 'Dissertation' and selected_subject.dissertation_type == 'Type1' %}
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_supervisor_assessment" value="{{ mark.supervisor_assessment if mark and mark.supervisor_assessment is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_proposal_presentation" value="{{ mark.proposal_presentation if mark and mark.proposal_presentation is not none else '' }}"></td>
+                        {% elif selected_subject.subject_type == 'Dissertation' and selected_subject.dissertation_type == 'Type2' %}
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_supervisor_assessment" value="{{ mark.supervisor_assessment if mark and mark.supervisor_assessment is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_project_report" value="{{ mark.project_report if mark and mark.project_report is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="student_{{ student.id }}_defense" value="{{ mark.defense if mark and mark.defense is not none else '' }}"></td>
+                        {% endif %}
+
+                        <td class="total-marks-cell fw-bold"></td>
+                        <td class="grade-cell"></td>
+                        <td class="remarks-cell"></td>
+                        <input type="hidden" class="total-marks-input" name="student_{{ student.id }}_total_marks" value="{{ mark.total_marks if mark and mark.total_marks is not none else '' }}">
+                        {% if is_retake %}
+                        <input type="hidden" name="student_{{ student.id }}_is_retake" value="on">
+                        {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <button type="submit" class="btn btn-primary mt-3">Save Marks</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Functions to calculate grades and update rows
+    function calculateGradeJS(total, isRetake) {
+        let grade_point, grade_letter;
+        if (total >= 80) { grade_point = 4.0; grade_letter = 'A+'; }
+        else if (total >= 75) { grade_point = 3.75; grade_letter = 'A'; }
+        else if (total >= 70) { grade_point = 3.5; grade_letter = 'A-'; }
+        else if (total >= 65) { grade_point = 3.25; grade_letter = 'B+'; }
+        else if (total >= 60) { grade_point = 3.0; grade_letter = 'B'; }
+        else if (total >= 55) { grade_point = 2.75; grade_letter = 'B-'; }
+        else if (total >= 50) { grade_point = 2.5; grade_letter = 'C+'; }
+        else if (total >= 45) { grade_point = 2.25; grade_letter = 'C'; }
+        else if (total >= 40) { grade_point = 2.0; grade_letter = 'D'; }
+        else { grade_point = 0.0; grade_letter = 'F'; }
+            
+        if (isRetake && grade_letter !== 'F') {
+                if (grade_letter === 'A+') { grade_point = 3.75; grade_letter = 'A'; }
+                else if (grade_letter === 'A') { grade_point = 3.5; grade_letter = 'A-'; }
+                else if (grade_letter === 'A-') { grade_point = 3.25; grade_letter = 'B+'; }
+                else if (grade_letter === 'B+') { grade_point = 3.0; grade_letter = 'B'; }
+                else if (grade_letter === 'B') { grade_point = 2.75; grade_letter = 'B-'; }
+                else if (grade_letter === 'B-') { grade_point = 2.5; grade_letter = 'C+'; }
+                else if (grade_letter === 'C+') { grade_point = 2.25; grade_letter = 'C'; }
+                else if (grade_letter === 'C') { grade_point = 2.0; grade_letter = 'D'; }
+        }
+        return { grade_point, grade_letter };
+    }
+
+    function updateRow(row) {
+        const isRetake = row.dataset.isRetake === '1';
+        let total = 0;
+        
+        row.querySelectorAll('.marks-input').forEach(input => {
+            total += parseFloat(input.value) || 0;
+        });
+
+        const grade = calculateGradeJS(total, isRetake);
+
+        row.querySelector('.total-marks-cell').textContent = total.toFixed(2);
+        row.querySelector('.total-marks-input').value = total.toFixed(2);
+        row.querySelector('.grade-cell').textContent = `${grade.grade_letter} (${grade.grade_point.toFixed(2)})`;
+        
+        const remarksCell = row.querySelector('.remarks-cell');
+        remarksCell.innerHTML = '';
+        if (isRetake && grade.grade_letter !== 'F') {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-warning text-dark';
+            badge.textContent = 'Retake';
+            remarksCell.appendChild(badge);
+        }
+    }
+
+    document.querySelectorAll('tr[data-student-id]').forEach(row => {
+        updateRow(row);
+        row.querySelectorAll('.marks-input').forEach(input => {
+            input.addEventListener('input', () => updateRow(row));
+        });
+    });
+
+    // --- DEBUGGING Tab Navigation ---
+    console.log('Tab navigation script loaded. Awaiting Tab key press...');
+
+    const tableBody = document.querySelector('table > tbody');
+    if (tableBody) {
+        console.log('Table body found. Attaching keydown listener.');
+        tableBody.addEventListener('keydown', function(e) {
+            if (e.key !== 'Tab') return;
+
+            const activeInput = e.target;
+            console.log('Keydown event: Tab pressed. Active element:', activeInput);
+            
+            if (!activeInput.matches('input.marks-input')) {
+                console.log('Event ignored: Active element is not a marks-input.');
+                return;
+            }
+            
+            console.log('%cTab navigation started!', 'color: blue; font-weight: bold;');
+            e.preventDefault();
+
+            const allInputs = Array.from(document.querySelectorAll('input.marks-input'));
+            const currentIndex = allInputs.indexOf(activeInput);
+            console.log(`Current Input Index: ${currentIndex} of ${allInputs.length - 1}`);
+
+            const currentCell = activeInput.closest('td');
+            const cellIndex = Array.from(currentCell.parentElement.children).indexOf(currentCell);
+            
+            const currentRow = currentCell.parentElement;
+            const nextRow = currentRow.nextElementSibling;
+
+            let nextInput = null;
+
+            // 1. Try to move down in the same column
+            if (nextRow) {
+                const nextCell = nextRow.children[cellIndex];
+                if (nextCell) {
+                    nextInput = nextCell.querySelector('input.marks-input');
+                    if (nextInput) console.log('Found next input in the same column, next row.');
+                }
+            }
+
+            // 2. If at the bottom, move to the top of the next column
+            if (!nextInput) {
+                console.log('End of column reached. Searching for next column...');
+                const rows = Array.from(currentRow.parentElement.children);
+                for (let i = cellIndex + 1; i < rows[0].children.length; i++) {
+                    const topCellInNextColumn = rows[0].children[i];
+                    if (topCellInNextColumn) {
+                         nextInput = topCellInNextColumn.querySelector('input.marks-input');
+                         if (nextInput) {
+                             console.log(`Found next input in new column at index ${i}.`);
+                             break;
+                         }
+                    }
+                }
+            }
+            
+            // 3. If at the very last input, cycle to the first one
+            if (!nextInput) {
+                console.log('End of table reached. Cycling to the first input.');
+                nextInput = allInputs[0];
+            }
+
+            if (nextInput) {
+                console.log('%cFocusing next input:', 'color: green;', nextInput);
+                nextInput.focus();
+                nextInput.select();
+            } else {
+                console.error('%cError: Could not find any next input to focus.', 'color: red;');
+            }
+        });
+    } else {
+        console.error('Error: Could not find the table body (table > tbody) to attach listener.');
+    }
+});
+</script>
+{% endblock %}
+

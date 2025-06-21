@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Subjects for {{ session.name }} - Term {{ session.term }}</h2>
+        <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary">Back to Sessions</a>
+            </div>
+
+    <div class="card mb-4">
+        <div class="card-header">Add New Subject</div>
+            <div class="card-body">
+            <form method="POST" action="{{ url_for('result_management.add_subject', session_id=session.id) }}">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="name" class="form-label">Subject Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="code" class="form-label">Subject Code</label>
+                        <input type="text" class="form-control" id="code" name="code" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="credit" class="form-label">Credit</label>
+                        <input type="number" step="0.5" class="form-control" id="credit" name="credit" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="subject_type" class="form-label">Subject Type</label>
+                        <select class="form-select" id="subject_type" name="subject_type">
+                            <option value="Theory">Theory</option>
+                            <option value="Dissertation">Dissertation</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6" id="dissertation-type-div" style="display: none;">
+                        <label for="dissertation_type" class="form-label">Dissertation Type</label>
+                        <select class="form-select" id="dissertation_type" name="dissertation_type" disabled>
+                            <option value="Type1">Type 1 (Supervisor + Presentation)</option>
+                            <option value="Type2">Type 2 (Supervisor + Report + Defense)</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Add Subject</button>
+                    </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    <h4>Existing Subjects</h4>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Name</th>
+                                <th>Credit</th>
+                                <th>Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for subject in subjects %}
+                            <tr>
+                                <td>{{ subject.code }}</td>
+                                <td>{{ subject.name }}</td>
+                                <td>{{ subject.credit }}</td>
+                <td>{{ subject.subject_type }}{% if subject.dissertation_type %} ({{ subject.dissertation_type }}){% endif %}</td>
+                                <td>
+                    <form action="{{ url_for('result_management.delete_subject', subject_id=subject.id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
+                                        <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+</div>
+
+<script>
+document.getElementById('subject_type').addEventListener('change', function() {
+    var dissertationDiv = document.getElementById('dissertation-type-div');
+    var dissertationSelect = document.getElementById('dissertation_type');
+    if (this.value === 'Dissertation') {
+        dissertationDiv.style.display = 'block';
+        dissertationSelect.disabled = false;
+    } else {
+        dissertationDiv.style.display = 'none';
+        dissertationSelect.disabled = true;
+    }
+});
+// Trigger the change event on page load to set initial state
+document.getElementById('subject_type').dispatchEvent(new Event('change'));
+</script>
+{% endblock %}
+

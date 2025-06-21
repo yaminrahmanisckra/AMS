@@ -1,0 +1,764 @@
+{% extends "routine_management/base.html" %}
+
+{% block title %}Routine Maker{% endblock %}
+
+{% block content %}
+<style>
+    .timetable { table-layout: fixed; }
+    .timetable th, .timetable td {
+        text-align: center;
+        vertical-align: middle;
+        border: 1px solid #dee2e6;
+        height: 60px;
+        font-size: 0.85em;
+        padding: 2px;
+    }
+    .routine-table-container {
+        height: 75vh;
+        overflow-y: auto;
+    }
+    .timetable thead th {
+        position: -webkit-sticky; /* for Safari */
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background-color: #343a40; /* Match table-dark background */
+    }
+    .timetable tbody tr:first-child th,
+    .timetable tbody tr:first-child td {
+        border-top: none;
+    }
+    .timetable tr.day-start > td, 
+    .timetable tr.day-start > th {
+        border-top: 2px solid #545b62;
+    }
+    .time-slot { font-weight: bold; }
+    .day-header { width: 100px; }
+    .room-header { width: 120px; }
+    .lunch-break {
+        background-color: #f8f9fa;
+        font-weight: bold;
+        color: #6c757d;
+        vertical-align: middle;
+    }
+    #subjects-sidebar {
+        background-color: #f1f3f5;
+        border-radius: 5px;
+        padding: 0;
+    }
+    #subjects-sidebar .header {
+        background-color: #0d6efd;
+        color: white;
+        padding: 1rem;
+        border-top-left-radius: 5px;
+        border-top-right-radius: 5px;
+    }
+    .course-item-sidebar {
+        cursor: grab;
+        padding: 10px;
+        margin: 0 10px 10px 10px;
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+    }
+    .delete-box {
+        margin: 10px;
+        padding: 20px;
+        border: 2px dashed #dc3545;
+        border-radius: 5px;
+        text-align: center;
+        color: #6c757d;
+    }
+    .course-in-cell {
+        padding: 5px;
+        border-radius: 4px;
+        color: white;
+        background-color: #0d6efd;
+        cursor: grab;
+        height: 100%;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        font-size: 0.8em;
+    }
+</style>
+
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="text-center mb-4">
+        <h3>Law Discipline</h3>
+        <h5>Khulna University</h5>
+                </div>
+
+    <!-- Controls -->
+    <div class="card mb-4">
+        <div class="card-body d-flex flex-wrap justify-content-between align-items-center">
+            <div class="d-flex align-items-center me-3 mb-2 mb-md-0">
+                <span class="fw-bold me-2">Routine Title:</span>
+                <input type="text" id="routine-title-input" class="form-control form-control-sm" value="Class Routine">
+            </div>
+            <div class="d-flex align-items-center me-3 mb-2 mb-md-0">
+                <span class="fw-bold me-2">Effective Date:</span>
+                <input type="date" id="effective-date-input" class="form-control form-control-sm">
+            </div>
+            <div>
+                <button id="save-routine-btn" class="btn btn-success btn-sm me-1">Save Routine</button>
+                <button id="download-pdf-btn" class="btn btn-primary btn-sm me-1">Download PDF</button>
+                <button id="clear-routine-btn" class="btn btn-danger btn-sm me-1">Clear Routine</button>
+                <button id="export-routine-btn" class="btn btn-secondary btn-sm me-1">Export Routine</button>
+                <button id="import-routine-btn" class="btn btn-secondary btn-sm">Import Routine</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- Main Timetable Area -->
+        <div class="col-md-9">
+            <div class="routine-table-container">
+                <div class="table-responsive">
+                    <table class="table table-bordered timetable">
+                        <thead class="table-dark">
+                            <tr>
+                                <th class="day-header">Day</th>
+                                <th class="room-header">Room</th>
+                                <th class="time-slot">09:10 AM<br>10:00 AM</th>
+                                <th class="time-slot">10:10 AM<br>11:00 AM</th>
+                                <th class="time-slot">11:10 AM<br>12:00 PM</th>
+                                <th class="time-slot">12:10 PM<br>01:00 PM</th>
+                                <th class="time-slot lunch-break">01:00 PM<br>01:50 PM<br>Lunch</th>
+                                <th class="time-slot">02:00 PM<br>02:50 PM</th>
+                                <th class="time-slot">03:00 PM<br>03:50 PM</th>
+                                <th class="time-slot">04:00 PM<br>04:50 PM</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for day in days %}
+                                {% for room in rooms %}
+                                    <tr {% if loop.first %}class="day-start"{% endif %}>
+                                        {% if loop.first %}
+                                            <th rowspan="{{ rooms|length }}">{{ day }}</th>
+                                        {% endif %}
+                                        <td><strong>{{ room.room_number }}</strong></td>
+                                        
+                                        {# Regular time slots before lunch #}
+                                        {% for slot in time_slots[:4] %}
+                                        <td class="drop-target" data-day="{{ day }}" data-slot="{{ slot }}" data-room-id="{{ room.id }}"></td>
+                                        {% endfor %}
+                                        
+                                        {# Lunch Break Column - This now appears in the correct visual position #}
+                                        {% if loop.first %}
+                                        <td rowspan="{{ rooms|length }}" class="lunch-break">
+                                            LUNCH
+                                        </td>
+                                        {% endif %}
+
+                                        {# Regular time slots after lunch #}
+                                        {% for slot in time_slots[4:] %}
+                                        <td class="drop-target" data-day="{{ day }}" data-slot="{{ slot }}" data-room-id="{{ room.id }}"></td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar for Subjects -->
+        <div class="col-md-3">
+            <div id="subjects-sidebar" class="shadow-sm">
+                <div class="header">
+                    <h4 class="mb-0">Subjects</h4>
+                    </div>
+                <div class="p-3">
+                    <label for="teacher-select" class="form-label fw-bold">Select Teacher:</label>
+                    <select id="teacher-select" class="form-select">
+                        <option value="">-- Choose a teacher --</option>
+                        {% for teacher in teachers %}
+                        <option value="{{ teacher.id }}" data-teacher-info='{{ teacher | tojson }}'>{{ teacher.name }} ({{ teacher.short_name }})</option>
+                                {% endfor %}
+                    </select>
+                        </div>
+                <hr class="my-0">
+                <div id="courses-list" style="height: 400px; overflow-y: auto;">
+                    <p class="text-muted p-3">Select a teacher to see their assigned courses.</p>
+                </div>
+                <hr class="my-0">
+                <div class="p-3">
+                    <h6 class="fw-bold">Events</h6>
+                    <div class="course-item-sidebar" draggable="true" id="academic-meeting">
+                        <strong>Academic Committee Meeting</strong><br>
+                        <small>(All Teachers)</small><br>
+                        <span class="badge bg-warning text-dark">Meeting</span>
+                    </div>
+                </div>
+                <hr class="my-0">
+                <div id="delete-box" class="delete-box">
+                    Drag here to delete
+                </div>
+                <div class="text-end p-2">
+                    <button id="undo-btn" class="btn btn-sm btn-outline-secondary">Undo</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const teacherSelect = document.getElementById('teacher-select');
+    const coursesList = document.getElementById('courses-list');
+    const timetable = document.querySelector('.timetable');
+    const deleteBox = document.getElementById('delete-box');
+    const saveBtn = document.getElementById('save-routine-btn');
+    const clearBtn = document.getElementById('clear-routine-btn');
+    const downloadPdfBtn = document.getElementById('download-pdf-btn');
+    const exportBtn = document.getElementById('export-routine-btn');
+    const importBtn = document.getElementById('import-routine-btn');
+
+    let draggedElement = null;
+
+    async function loadCoursesForTeacher() {
+        const teacherId = teacherSelect.value;
+        coursesList.innerHTML = '';
+        if (!teacherId) {
+            coursesList.innerHTML = '<p class="text-muted p-3">Select a teacher...</p>';
+            return;
+        }
+
+        const response = await fetch(`/routine-management/api/teacher_courses/${teacherId}`);
+        const courses = await response.json();
+        
+        const placedCourses = getPlacedCourseCounts();
+
+        courses.forEach(course => {
+            const placedCount = placedCourses[course.assigned_id] || 0;
+            const remaining = course.classes_per_week - placedCount;
+            if (remaining > 0) {
+                const courseEl = createCourseSidebarElement(course, remaining);
+                coursesList.appendChild(courseEl);
+            }
+        });
+    }
+
+    function createCourseSidebarElement(course, remaining) {
+        const courseEl = document.createElement('div');
+        courseEl.className = 'course-item-sidebar';
+        courseEl.draggable = true;
+        // Store all course info in dataset
+        courseEl.dataset.courseInfo = JSON.stringify(course);
+
+        const teacherNames = course.teachers.map(t => t.short_name).join(' / ');
+        const partDisplay = course.part !== 'Full' ? `<span class="badge bg-info">${course.part}</span>` : '';
+
+        courseEl.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>${course.course_code}</strong> (${teacherNames})<br>
+                    <small>${course.course_name}</small><br>
+                    <span class="badge bg-secondary">${course.course_type}</span>
+                    ${partDisplay}
+                </div>
+                <span class="badge bg-primary rounded-pill" name="class-count">${remaining}</span>
+            </div>
+        `;
+        return courseEl;
+    }
+    
+    function getPlacedCourseCounts() {
+        const counts = {};
+        document.querySelectorAll('.course-in-cell').forEach(cell => {
+            const courseInfo = JSON.parse(cell.dataset.courseInfo);
+            const id = courseInfo.is_shared_slot ? `shared_${courseInfo.assigned_id}` : courseInfo.assigned_id;
+            counts[id] = (counts[id] || 0) + 1;
+        });
+        return counts;
+    }
+
+    document.addEventListener('dragstart', e => {
+        if (e.target.matches('.course-item-sidebar, .course-in-cell')) {
+            draggedElement = e.target;
+        }
+    });
+
+    timetable.addEventListener('dragover', e => e.preventDefault());
+    deleteBox.addEventListener('dragover', e => e.preventDefault());
+
+    timetable.addEventListener('drop', e => {
+        e.preventDefault();
+        if (!draggedElement) return;
+
+        const dropTarget = e.target.closest('.drop-target');
+        if (!dropTarget) return;
+
+        // If moving from sidebar
+        if (draggedElement.classList.contains('course-item-sidebar')) {
+            if (dropTarget.children.length > 0) return; // Prevent overwriting
+
+            let newCell;
+            if (draggedElement.id === 'academic-meeting') {
+                newCell = createEventCellElement({
+                    course_code: 'Meeting',
+                    teacher_short_name: 'All'
+                });
+            } else {
+                const courseInfo = JSON.parse(draggedElement.dataset.courseInfo);
+                newCell = createCourseCellElement(courseInfo);
+                updateSidebarCount(draggedElement, -1);
+            }
+            dropTarget.appendChild(newCell);
+        } 
+        // If moving within the grid
+        else if (draggedElement.classList.contains('course-in-cell')) {
+            if (dropTarget.children.length > 0 && e.target !== dropTarget) return; // Prevent overwriting
+            dropTarget.appendChild(draggedElement);
+        }
+    });
+
+    deleteBox.addEventListener('drop', e => {
+        e.preventDefault();
+        if (draggedElement && draggedElement.classList.contains('course-in-cell')) {
+            // If it's a course, update sidebar. If it's an event, it's just gone.
+            if (draggedElement.dataset.courseInfo) {
+                 updateSidebarCount(draggedElement, 1);
+            }
+            draggedElement.remove();
+        }
+    });
+    
+    function createCourseCellElement(courseInfo) {
+        const div = document.createElement('div');
+        div.className = 'course-in-cell';
+        div.draggable = true;
+        div.dataset.courseInfo = JSON.stringify(courseInfo);
+
+        const teacherNames = courseInfo.teachers.map(t => t.short_name).join('/');
+        div.innerHTML = `<strong>${courseInfo.course_code}</strong><br><small>(${teacherNames})</small>`;
+        return div;
+    }
+    
+    function createEventCellElement(eventInfo) {
+        const div = document.createElement('div');
+        div.className = 'course-in-cell bg-warning text-dark'; // Different color for events
+        div.draggable = true;
+        div.dataset.eventInfo = JSON.stringify(eventInfo); // Store event info separately
+
+        div.innerHTML = `<strong>${eventInfo.course_code}</strong><br><small>(${eventInfo.teacher_short_name})</small>`;
+        return div;
+    }
+
+    function updateSidebarCount(element, change) {
+        // This function now only reloads courses, which is fine.
+        loadCoursesForTeacher();
+    }
+    
+    async function loadRoutine() {
+        const response = await fetch(`/routine-management/api/routine/load`);
+        const data = await response.json();
+
+        // Clear existing routine cells
+        document.querySelectorAll('.course-in-cell').forEach(cell => cell.remove());
+
+        data.forEach(entry => {
+            const cell = document.querySelector(`td[data-day="${entry.day}"][data-slot="${entry.slot}"][data-room-id="${entry.room_id}"]`);
+            if (cell) {
+                let courseEl;
+                // Differentiate between course and event based on data
+                if (entry.course_code === 'Meeting') {
+                    courseEl = createEventCellElement(entry);
+                } else {
+                    courseEl = createCourseCellElement(entry);
+                }
+                cell.appendChild(courseEl);
+            }
+        });
+    }
+
+    saveBtn.addEventListener('click', async () => {
+        const routineData = [];
+        document.querySelectorAll('.drop-target').forEach(td => {
+            if (td.children.length > 0) {
+                const cell = td.children[0];
+                let entry;
+
+                if (cell.dataset.courseInfo) {
+                    const courseInfo = JSON.parse(cell.dataset.courseInfo);
+                    entry = {
+                        day: td.dataset.day,
+                        slot: td.dataset.slot, // Corrected: sending 'slot'
+                        room_id: parseInt(td.dataset.roomId),
+                        course_code: courseInfo.course_code,
+                        teacher_short_name: courseInfo.teachers.map(t => t.short_name).join('/'),
+                        part: courseInfo.part,
+                        is_shared: courseInfo.is_shared_slot,
+                        shared_with: courseInfo.is_shared_slot ? courseInfo.teachers.map(t => t.short_name).join('/') : null,
+                        teacher_id: courseInfo.teacher_id,
+                    };
+                } else if (cell.dataset.eventInfo) {
+                    const eventInfo = JSON.parse(cell.dataset.eventInfo);
+                     entry = {
+                        day: td.dataset.day,
+                        slot: td.dataset.slot,
+                        room_id: parseInt(td.dataset.roomId),
+                        course_code: eventInfo.course_code,
+                        teacher_short_name: eventInfo.teacher_short_name,
+                        part: null,
+                        is_shared: false,
+                        shared_with: null,
+                        teacher_id: null,
+                    };
+                }
+                
+                if (entry) {
+                    routineData.push(entry);
+                }
+            }
+        });
+
+        try {
+            const response = await fetch(`/routine-management/api/routine/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ routine: routineData }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || "Save failed");
+            alert('Routine saved successfully!');
+        } catch (error) {
+            console.error(error);
+            alert(`Failed to save routine: ${error.message}`);
+        }
+    });
+
+    clearBtn.addEventListener('click', async () => {
+       if (!confirm('Are you sure you want to clear the entire routine? This cannot be undone.')) return;
+       try {
+            const response = await fetch(`/routine-management/api/routine/clear`, { method: 'POST' });
+            if (!response.ok) throw new Error("Clear failed");
+            alert('Routine cleared!');
+            window.location.reload();
+       } catch (error) {
+           console.error(error);
+           alert('Failed to clear routine.');
+       }
+    });
+
+    downloadPdfBtn.addEventListener('click', async () => {
+        const routineTitle = document.getElementById('routine-title-input').value;
+        const effectiveDate = document.getElementById('effective-date-input').value;
+
+        if (!effectiveDate) {
+            alert('Please select an effective date.');
+            return;
+        }
+
+        const routineData = [];
+        document.querySelectorAll('.drop-target').forEach(td => {
+            if (td.children.length > 0) {
+                const cell = td.children[0];
+                let entryDetails = {};
+
+                if (cell.dataset.courseInfo) {
+                    const info = JSON.parse(cell.dataset.courseInfo);
+                    entryDetails.course_code = info.course_code;
+                    entryDetails.teacher_short_name = info.teachers.map(t => t.short_name).join('/');
+                } else if (cell.dataset.eventInfo) {
+                    const info = JSON.parse(cell.dataset.eventInfo);
+                    entryDetails.course_code = info.course_code;
+                    entryDetails.teacher_short_name = info.teacher_short_name;
+                }
+
+                if (entryDetails.course_code) {
+                    routineData.push({
+                        day: td.dataset.day,
+                        slot: td.dataset.slot,
+                        room_id: parseInt(td.dataset.roomId),
+                        ...entryDetails
+                    });
+                }
+            }
+        });
+
+        const url = `/routine-management/download_pdf?title=${encodeURIComponent(routineTitle)}&date=${effectiveDate}`;
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ routine: routineData }),
+            });
+
+            if (!response.ok) throw new Error('PDF generation failed on the server.');
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = downloadUrl;
+            a.download = `routine_${routineTitle.replace(/\s+/g, '_')}_${effectiveDate.replace(/-/g, '')}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(downloadUrl);
+            a.remove();
+
+        } catch (error) {
+            console.error('Failed to download PDF:', error);
+            alert('Could not download the PDF. See console for details.');
+        }
+    });
+
+    exportBtn.addEventListener('click', () => {
+        const routineData = [];
+        document.querySelectorAll('.drop-target').forEach(td => {
+            if (td.children.length > 0) {
+                const cell = td.children[0];
+                const entry = {
+                    day: td.dataset.day,
+                    slot: td.dataset.slot,
+                    room_id: parseInt(td.dataset.roomId),
+                    type: cell.dataset.courseInfo ? 'course' : 'event',
+                    details: JSON.parse(cell.dataset.courseInfo || cell.dataset.eventInfo)
+                };
+                routineData.push(entry);
+            }
+        });
+
+        const dataStr = JSON.stringify(routineData, null, 2);
+        const dataBlob = new Blob([dataStr], {type: "application/json"});
+        const url = URL.createObjectURL(dataBlob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'routine_export.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
+    importBtn.addEventListener('click', () => {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.json,application/json';
+        
+        fileInput.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = event => {
+                try {
+                    const importedData = JSON.parse(event.target.result);
+                    if (!Array.isArray(importedData)) {
+                        throw new Error("Invalid format: JSON file should contain an array.");
+                    }
+                    
+                    if (!confirm('This will clear the current routine and load the new one. Are you sure?')) {
+                        return;
+                    }
+
+                    // Clear existing routine
+                    document.querySelectorAll('.course-in-cell').forEach(cell => cell.remove());
+                    
+                    // Render new routine
+                    importedData.forEach(entry => {
+                        const cell = document.querySelector(`td[data-day="${entry.day}"][data-slot="${entry.slot}"][data-room-id="${entry.room_id}"]`);
+                        if (cell) {
+                            let newCell;
+                            if (entry.type === 'course' && entry.details) {
+                                newCell = createCourseCellElement(entry.details);
+                            } else if (entry.type === 'event' && entry.details) {
+                                newCell = createEventCellElement(entry.details);
+                            }
+                            if (newCell) {
+                                cell.appendChild(newCell);
+                            }
+                        }
+                    });
+                    alert('Routine imported successfully!');
+                    loadCoursesForTeacher(); // Update sidebar counts
+                } catch (error) {
+                    console.error("Failed to import routine:", error);
+                    alert(`Error importing routine: ${error.message}`);
+                }
+            };
+            reader.readAsText(file);
+        };
+        
+        fileInput.click();
+    });
+
+    teacherSelect.addEventListener('change', loadCoursesForTeacher);
+    
+    document.getElementById('effective-date-input').valueAsDate = new Date();
+
+    // Initial load
+    loadRoutine().then(loadCoursesForTeacher);
+});
+</script>
+{% endblock %} 
+            alert('Routine cleared!');
+            window.location.reload();
+       } catch (error) {
+           console.error(error);
+           alert('Failed to clear routine.');
+       }
+    });
+
+    downloadPdfBtn.addEventListener('click', async () => {
+        const routineTitle = document.getElementById('routine-title-input').value;
+        const effectiveDate = document.getElementById('effective-date-input').value;
+
+        if (!effectiveDate) {
+            alert('Please select an effective date.');
+            return;
+        }
+
+        const routineData = [];
+        document.querySelectorAll('.drop-target').forEach(td => {
+            if (td.children.length > 0) {
+                const cell = td.children[0];
+                let entryDetails = {};
+
+                if (cell.dataset.courseInfo) {
+                    const info = JSON.parse(cell.dataset.courseInfo);
+                    entryDetails.course_code = info.course_code;
+                    entryDetails.teacher_short_name = info.teachers.map(t => t.short_name).join('/');
+                } else if (cell.dataset.eventInfo) {
+                    const info = JSON.parse(cell.dataset.eventInfo);
+                    entryDetails.course_code = info.course_code;
+                    entryDetails.teacher_short_name = info.teacher_short_name;
+                }
+
+                if (entryDetails.course_code) {
+                    routineData.push({
+                        day: td.dataset.day,
+                        slot: td.dataset.slot,
+                        room_id: parseInt(td.dataset.roomId),
+                        ...entryDetails
+                    });
+                }
+            }
+        });
+
+        const url = `/routine-management/download_pdf?title=${encodeURIComponent(routineTitle)}&date=${effectiveDate}`;
+        
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ routine: routineData }),
+            });
+
+            if (!response.ok) throw new Error('PDF generation failed on the server.');
+
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = downloadUrl;
+            a.download = `routine_${routineTitle.replace(/\s+/g, '_')}_${effectiveDate.replace(/-/g, '')}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(downloadUrl);
+            a.remove();
+
+        } catch (error) {
+            console.error('Failed to download PDF:', error);
+            alert('Could not download the PDF. See console for details.');
+        }
+    });
+
+    exportBtn.addEventListener('click', () => {
+        const routineData = [];
+        document.querySelectorAll('.drop-target').forEach(td => {
+            if (td.children.length > 0) {
+                const cell = td.children[0];
+                const entry = {
+                    day: td.dataset.day,
+                    slot: td.dataset.slot,
+                    room_id: parseInt(td.dataset.roomId),
+                    type: cell.dataset.courseInfo ? 'course' : 'event',
+                    details: JSON.parse(cell.dataset.courseInfo || cell.dataset.eventInfo)
+                };
+                routineData.push(entry);
+            }
+        });
+
+        const dataStr = JSON.stringify(routineData, null, 2);
+        const dataBlob = new Blob([dataStr], {type: "application/json"});
+        const url = URL.createObjectURL(dataBlob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'routine_export.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+
+    importBtn.addEventListener('click', () => {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.json,application/json';
+        
+        fileInput.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = event => {
+                try {
+                    const importedData = JSON.parse(event.target.result);
+                    if (!Array.isArray(importedData)) {
+                        throw new Error("Invalid format: JSON file should contain an array.");
+                    }
+                    
+                    if (!confirm('This will clear the current routine and load the new one. Are you sure?')) {
+                        return;
+                    }
+
+                    // Clear existing routine
+                    document.querySelectorAll('.course-in-cell').forEach(cell => cell.remove());
+                    
+                    // Render new routine
+                    importedData.forEach(entry => {
+                        const cell = document.querySelector(`td[data-day="${entry.day}"][data-slot="${entry.slot}"][data-room-id="${entry.room_id}"]`);
+                        if (cell) {
+                            let newCell;
+                            if (entry.type === 'course' && entry.details) {
+                                newCell = createCourseCellElement(entry.details);
+                            } else if (entry.type === 'event' && entry.details) {
+                                newCell = createEventCellElement(entry.details);
+                            }
+                            if (newCell) {
+                                cell.appendChild(newCell);
+                            }
+                        }
+                    });
+                    alert('Routine imported successfully!');
+                    loadCoursesForTeacher(); // Update sidebar counts
+                } catch (error) {
+                    console.error("Failed to import routine:", error);
+                    alert(`Error importing routine: ${error.message}`);
+                }
+            };
+            reader.readAsText(file);
+        };
+        
+        fileInput.click();
+    });
+
+    teacherSelect.addEventListener('change', loadCoursesForTeacher);
+    
+    document.getElementById('effective-date-input').valueAsDate = new Date();
+
+    // Initial load
+    loadRoutine().then(loadCoursesForTeacher);
+});
+</script>
+{% endblock %} 

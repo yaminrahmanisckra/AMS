@@ -1,0 +1,46 @@
+{% extends "routine_management/base.html" %}
+
+{% block title %}Manage Rooms{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <h2 class="mb-4">Add Room</h2>
+        <form method="POST" action="{{ url_for('routine_management.manage_rooms') }}">
+            {{ form.hidden_tag() }}
+            <div class="form-group mb-3">
+                {{ form.room_number.label(class="form-control-label") }}
+                {{ form.room_number(class="form-control") }}
+            </div>
+            <div class="form-group">
+                {{ form.submit(class="btn btn-primary") }}
+            </div>
+        </form>
+    </div>
+    <div class="col-md-8">
+        <h2 class="mb-4">Existing Rooms</h2>
+        <table class="table table-striped table-hover">
+            <thead class="table-dark">
+                <tr>
+                    <th>Room Number</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for room in rooms %}
+                <tr>
+                    <td>{{ room.room_number }}</td>
+                    <td>
+                        <form action="{{ url_for('routine_management.delete_room', id=room.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this room?');">
+                            <button type="submit" class="btn btn-danger btn-sm">
+                                <i class="fas fa-trash-alt"></i> Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,51 @@
+{% extends "routine_management/base.html" %}
+
+{% block title %}Edit Teacher{% endblock %}
+
+{% block routine_content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="mb-0">Edit Teacher: {{ teacher.name }}</h3>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{{ url_for('routine_management.edit_teacher', id=teacher.id) }}" novalidate>
+                        {{ form.hidden_tag() }}
+                        
+                        <div class="mb-3">
+                            {{ form.name.label(class="form-label") }}
+                            {{ form.name(class="form-control", placeholder="Enter full name") }}
+                            {% if form.name.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {% for error in form.name.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="mb-3">
+                            {{ form.short_name.label(class="form-label") }}
+                            {{ form.short_name(class="form-control", placeholder="Enter a unique short name or callsign") }}
+                            {% if form.short_name.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {% for error in form.short_name.errors %}
+                                        <span>{{ error }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                            <a href="{{ url_for('routine_management.manage_teachers') }}" class="btn btn-secondary me-md-2">Cancel</a>
+                            <button type="submit" class="btn btn-primary">Update Teacher</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

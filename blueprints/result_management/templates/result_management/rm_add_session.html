@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Add New Session</h2>
+    <form method="POST" action="{{ url_for('result_management.add_session') }}">
+                    <div class="mb-3">
+            <label for="name" class="form-label">Session Name (e.g., LL.M. Final Year)</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+            <label for="term" class="form-label">Term (e.g., 1)</label>
+            <input type="number" class="form-control" id="term" name="term" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Add Session</button>
+        <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary">Back to Sessions</a>
+    </form>
+</div>
+{% endblock %}
+
+
+
+
+
+

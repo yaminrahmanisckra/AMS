@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Result Management - Academic Management System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-graduation-cap me-2"></i>
+                Academic Management System
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3">
+                    Welcome, {{ current_user.username }}
+                </span>
+                <a class="nav-link" href="{{ url_for('logout') }}">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h2 class="mb-1">
+                            <i class="fas fa-chart-line me-2 text-success"></i>
+                            Result Management
+                        </h2>
+                        <p class="text-muted">Manage student results and academic performance</p>
+                    </div>
+                    <div>
+                        <a href="{{ url_for('add_result') }}" class="btn btn-success me-2">
+                            <i class="fas fa-plus me-2"></i>Add Result
+                        </a>
+                        <a href="#" class="btn btn-outline-primary">
+                            <i class="fas fa-download me-2"></i>Export Results
+                        </a>
+                    </div>
+                </div>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <div class="row">
+                    <div class="col-md-6 mb-4">
+                        <div class="card shadow h-100">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-users me-2"></i>
+                                    Students Overview
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-user-graduate fa-3x text-success mb-2"></i>
+                                    <h3 class="text-success">{{ students|length }}</h3>
+                                    <p class="text-muted">Total Students</p>
+                                </div>
+                                <div class="list-group list-group-flush">
+                                    {% for student in students[:5] %}
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong>{{ student.name }}</strong>
+                                            <br>
+                                            <small class="text-muted">{{ student.student_id }} - {{ student.class_name }}</small>
+                                        </div>
+                                        <span class="badge bg-primary rounded-pill">View Results</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6 mb-4">
+                        <div class="card shadow h-100">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-book me-2"></i>
+                                    Subjects Overview
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-book-open fa-3x text-info mb-2"></i>
+                                    <h3 class="text-info">{{ subjects|length }}</h3>
+                                    <p class="text-muted">Total Subjects</p>
+                                </div>
+                                <div class="list-group list-group-flush">
+                                    {% for subject in subjects[:5] %}
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong>{{ subject.name }}</strong>
+                                            <br>
+                                            <small class="text-muted">{{ subject.code }} - {{ subject.credit }} credits</small>
+                                        </div>
+                                        <span class="badge bg-info rounded-pill">{{ subject.credit }}</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-bar me-2"></i>
+                            Recent Results
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center py-5">
+                            <i class="fas fa-chart-line fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No results found</h5>
+                            <p class="text-muted">Add results to see student performance data</p>
+                            <a href="{{ url_for('add_result') }}" class="btn btn-success">
+                                <i class="fas fa-plus me-2"></i>Add Result
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Result Management - Academic Management System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-graduation-cap me-2"></i>
+                Academic Management System
+            </a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3">
+                    Welcome, {{ current_user.username }}
+                </span>
+                <a class="nav-link" href="{{ url_for('logout') }}">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h2 class="mb-1">
+                            <i class="fas fa-chart-line me-2 text-success"></i>
+                            Result Management
+                        </h2>
+                        <p class="text-muted">Manage student results and academic performance</p>
+                    </div>
+                    <div>
+                        <a href="{{ url_for('add_result') }}" class="btn btn-success me-2">
+                            <i class="fas fa-plus me-2"></i>Add Result
+                        </a>
+                        <a href="#" class="btn btn-outline-primary">
+                            <i class="fas fa-download me-2"></i>Export Results
+                        </a>
+                    </div>
+                </div>
+
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <div class="row">
+                    <div class="col-md-6 mb-4">
+                        <div class="card shadow h-100">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-users me-2"></i>
+                                    Students Overview
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-user-graduate fa-3x text-success mb-2"></i>
+                                    <h3 class="text-success">{{ students|length }}</h3>
+                                    <p class="text-muted">Total Students</p>
+                                </div>
+                                <div class="list-group list-group-flush">
+                                    {% for student in students[:5] %}
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong>{{ student.name }}</strong>
+                                            <br>
+                                            <small class="text-muted">{{ student.student_id }} - {{ student.class_name }}</small>
+                                        </div>
+                                        <span class="badge bg-primary rounded-pill">View Results</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6 mb-4">
+                        <div class="card shadow h-100">
+                            <div class="card-header bg-info text-white">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-book me-2"></i>
+                                    Subjects Overview
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-book-open fa-3x text-info mb-2"></i>
+                                    <h3 class="text-info">{{ subjects|length }}</h3>
+                                    <p class="text-muted">Total Subjects</p>
+                                </div>
+                                <div class="list-group list-group-flush">
+                                    {% for subject in subjects[:5] %}
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <strong>{{ subject.name }}</strong>
+                                            <br>
+                                            <small class="text-muted">{{ subject.code }} - {{ subject.credit }} credits</small>
+                                        </div>
+                                        <span class="badge bg-info rounded-pill">{{ subject.credit }}</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-bar me-2"></i>
+                            Recent Results
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center py-5">
+                            <i class="fas fa-chart-line fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No results found</h5>
+                            <p class="text-muted">Add results to see student performance data</p>
+                            <a href="{{ url_for('add_result') }}" class="btn btn-success">
+                                <i class="fas fa-plus me-2"></i>Add Result
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 
