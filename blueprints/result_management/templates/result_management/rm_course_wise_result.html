@@ -35,6 +35,25 @@
             <tr>
                 <th>Student ID</th>
                 <th>Name</th>
+                {% if selected_subject and selected_subject.subject_type in ['Theory', 'Theory (UG)'] %}
+                    <th>Attendance (10)</th>
+                    <th>C.A. (40)</th>
+                    <th>Part A (25)</th>
+                    <th>Part B (25)</th>
+                {% elif selected_subject and selected_subject.subject_type == 'Sessional' %}
+                    <th>Attendance (10)</th>
+                    <th>Report (60)</th>
+                    <th>Viva (30)</th>
+                {% elif selected_subject and selected_subject.subject_type == 'Dissertation' %}
+                    {% if selected_subject.dissertation_type == 'Type1' %}
+                        <th>Supervisor (70)</th>
+                        <th>Presentation (30)</th>
+                    {% else %}
+                        <th>Supervisor (50)</th>
+                        <th>Report (25)</th>
+                        <th>Defense (25)</th>
+                    {% endif %}
+                {% endif %}
                 <th>Total Marks</th>
                 <th>Grade</th>
                 <th>Grade Point</th>
@@ -42,16 +61,76 @@
             </tr>
         </thead>
         <tbody>
-            {% for student, mark in results %}
-            <tr>
-                <td>{{ student.student_id }}</td>
-                <td>{{ student.name }}</td>
-                <td>{{ mark.total_marks if mark.total_marks is not none else 'N/A' }}</td>
-                <td>{{ mark.grade_letter if mark.grade_letter is not none else 'N/A' }}</td>
-                <td>{{ "%.2f"|format(mark.grade_point) if mark.grade_point is not none else 'N/A' }}</td>
-                <td>{% if mark.is_retake %}Retake{% endif %}</td>
-            </tr>
-            {% endfor %}
+            {% if selected_subject and selected_subject.subject_type in ['Theory', 'Theory (UG)'] %}
+                {% for student_id, name, total_marks, grade_letter, grade_point, is_retake, attendance, continuous_assessment, part_a, part_b in results %}
+                <tr>
+                    <td>{{ student_id }}</td>
+                    <td>{{ name }}</td>
+                    <td>{{ "%.1f"|format(attendance) if attendance is not none }}</td>
+                    <td>{{ "%.1f"|format(continuous_assessment) if continuous_assessment is not none }}</td>
+                    <td>{{ "%.1f"|format(part_a) if part_a is not none }}</td>
+                    <td>{{ "%.1f"|format(part_b) if part_b is not none }}</td>
+                    <td>{{ "%.2f"|format(total_marks) if total_marks is not none else 'N/A' }}</td>
+                    <td>{{ grade_letter or 'N/A' }}</td>
+                    <td>{{ "%.2f"|format(grade_point) if grade_point is not none else 'N/A' }}</td>
+                    <td>{% if is_retake %}Retake{% endif %}</td>
+                </tr>
+                {% endfor %}
+            {% elif selected_subject and selected_subject.subject_type == 'Sessional' %}
+                {% for student_id, name, total_marks, grade_letter, grade_point, is_retake, attendance, sessional_report, sessional_viva in results %}
+                <tr>
+                    <td>{{ student_id }}</td>
+                    <td>{{ name }}</td>
+                    <td>{{ "%.1f"|format(attendance) if attendance is not none }}</td>
+                    <td>{{ "%.1f"|format(sessional_report) if sessional_report is not none }}</td>
+                    <td>{{ "%.1f"|format(sessional_viva) if sessional_viva is not none }}</td>
+                    <td>{{ "%.2f"|format(total_marks) if total_marks is not none else 'N/A' }}</td>
+                    <td>{{ grade_letter or 'N/A' }}</td>
+                    <td>{{ "%.2f"|format(grade_point) if grade_point is not none else 'N/A' }}</td>
+                    <td>{% if is_retake %}Retake{% endif %}</td>
+                </tr>
+                {% endfor %}
+            {% elif selected_subject and selected_subject.subject_type == 'Dissertation' %}
+                 {% if selected_subject.dissertation_type == 'Type1' %}
+                    {% for student_id, name, total_marks, grade_letter, grade_point, is_retake, supervisor_assessment, proposal_presentation in results %}
+                    <tr>
+                        <td>{{ student_id }}</td>
+                        <td>{{ name }}</td>
+                        <td>{{ "%.1f"|format(supervisor_assessment) if supervisor_assessment is not none }}</td>
+                        <td>{{ "%.1f"|format(proposal_presentation) if proposal_presentation is not none }}</td>
+                        <td>{{ "%.2f"|format(total_marks) if total_marks is not none else 'N/A' }}</td>
+                        <td>{{ grade_letter or 'N/A' }}</td>
+                        <td>{{ "%.2f"|format(grade_point) if grade_point is not none else 'N/A' }}</td>
+                        <td>{% if is_retake %}Retake{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    {% for student_id, name, total_marks, grade_letter, grade_point, is_retake, supervisor_assessment, project_report, defense in results %}
+                     <tr>
+                        <td>{{ student_id }}</td>
+                        <td>{{ name }}</td>
+                        <td>{{ "%.1f"|format(supervisor_assessment) if supervisor_assessment is not none }}</td>
+                        <td>{{ "%.1f"|format(project_report) if project_report is not none }}</td>
+                        <td>{{ "%.1f"|format(defense) if defense is not none }}</td>
+                        <td>{{ "%.2f"|format(total_marks) if total_marks is not none else 'N/A' }}</td>
+                        <td>{{ grade_letter or 'N/A' }}</td>
+                        <td>{{ "%.2f"|format(grade_point) if grade_point is not none else 'N/A' }}</td>
+                        <td>{% if is_retake %}Retake{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                {% endif %}
+            {% else %}
+                 {% for student_id, name, total_marks, grade_letter, grade_point, is_retake in results %}
+                <tr>
+                    <td>{{ student_id }}</td>
+                    <td>{{ name }}</td>
+                    <td>{{ "%.2f"|format(total_marks) if total_marks is not none else 'N/A' }}</td>
+                    <td>{{ grade_letter or 'N/A' }}</td>
+                    <td>{{ "%.2f"|format(grade_point) if grade_point is not none else 'N/A' }}</td>
+                    <td>{% if is_retake %}Retake{% endif %}</td>
+                </tr>
+                {% endfor %}
+            {% endif %}
         </tbody>
     </table>
     {% elif selected_subject_id %}

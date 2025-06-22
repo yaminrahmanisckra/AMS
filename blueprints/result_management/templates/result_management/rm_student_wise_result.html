@@ -103,9 +103,9 @@
         
         <div class="student-info">
             <div>
-                <div><strong>Year:</strong> LL.M</div>
+                <div><strong>Year:</strong> {{ session.year or selected_student.year or 'N/A' }}</div>
                 <div><strong>Student No.:</strong> {{ selected_student.student_id }}</div>
-                <div><strong>Discipline:</strong> Law</div>
+                <div><strong>Discipline:</strong> {{ selected_student.discipline or 'Law' }}</div>
             </div>
             <div>
                 <div><strong>Term:</strong> {{ session.term }}</div>

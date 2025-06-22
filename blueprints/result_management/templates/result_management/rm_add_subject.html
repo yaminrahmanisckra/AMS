@@ -28,6 +28,8 @@
                         <label for="subject_type" class="form-label">Subject Type</label>
                         <select class="form-select" id="subject_type" name="subject_type">
                             <option value="Theory">Theory</option>
+                            <option value="Theory (UG)">Theory (UG)</option>
+                            <option value="Sessional">Sessional</option>
                             <option value="Dissertation">Dissertation</option>
                         </select>
                     </div>
@@ -63,9 +65,9 @@
                                 <td>{{ subject.code }}</td>
                                 <td>{{ subject.name }}</td>
                                 <td>{{ subject.credit }}</td>
-                <td>{{ subject.subject_type }}{% if subject.dissertation_type %} ({{ subject.dissertation_type }}){% endif %}</td>
+                                <td>{{ subject.subject_type }}{% if subject.dissertation_type %} ({{ subject.dissertation_type }}){% endif %}</td>
                                 <td>
-                    <form action="{{ url_for('result_management.delete_subject', subject_id=subject.id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
+                                    <form action="{{ url_for('result_management.delete_subject', subject_id=subject.id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure?');">
                                         <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                                     </form>
                                 </td>

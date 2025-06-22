@@ -6,6 +6,7 @@ class RSession(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     term = db.Column(db.String(50), nullable=False)
+    year = db.Column(db.String(50), nullable=True)
     is_archived = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     students = db.relationship('RStudent', backref='session', lazy=True, cascade="all, delete-orphan")
@@ -56,6 +57,10 @@ class RMark(db.Model):
     continuous_assessment = db.Column(db.Float, nullable=True)
     part_a = db.Column(db.Float, nullable=True)
     part_b = db.Column(db.Float, nullable=True)
+    
+    # Sessional marks
+    sessional_report = db.Column(db.Float, nullable=True)
+    sessional_viva = db.Column(db.Float, nullable=True)
     
     # Dissertation marks
     supervisor_assessment = db.Column(db.Float, nullable=True)

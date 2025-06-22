@@ -10,7 +10,7 @@ from app import db
 from user_models import User
 from blueprints.class_management.models import Teacher, Session, ClassStudent, ClassAttendance
 from blueprints.result_management.models import RSession, RStudent, RSubject, RMark, RCourseRegistration
-from blueprints.routine_management.models import Course, Teacher as RoutineTeacher, Room, TimeSlot, Routine
+from blueprints.routine_management.models import Course, Teacher as RoutineTeacher, Room, Routine
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
