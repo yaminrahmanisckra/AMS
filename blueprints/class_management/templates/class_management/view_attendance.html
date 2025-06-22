@@ -8,11 +8,14 @@
                 <i class="fas fa-eye me-2"></i>Attendance Report - {{ session.course_name or session.term }}
             </h5>
             <div class="d-flex align-items-center">
-                 <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-light btn-sm me-3" target="_blank">
-                    <i class="fas fa-file-pdf me-1"></i>Download Summary PDF
+                <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-light btn-sm me-2" target="_blank" title="Download Summary PDF">
+                    <i class="fas fa-file-pdf"></i> PDF
+                </a>
+                <a href="{{ url_for('class_management.download_attendance_excel', session_id=session.id) }}" class="btn btn-success btn-sm me-2" title="Download as Excel">
+                    <i class="fas fa-file-excel"></i> Excel
                 </a>
                 <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary btn-sm" title="Back to Dashboard">
-                    <i class="fas fa-arrow-left"></i>
+                    <i class="fas fa-arrow-left"></i> Back
                 </a>
             </div>
         </div>

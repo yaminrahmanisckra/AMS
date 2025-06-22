@@ -437,6 +437,125 @@ def delete_attendance_by_date(session_id, date_str):
         
     return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
+@class_management_bp.route('/download_attendance_excel/<int:session_id>')
+@login_required
+def download_attendance_excel(session_id):
+    """Generate and download an Excel report of the attendance."""
+    session = Session.query.get_or_404(session_id)
+    students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+    all_attendance_records = ClassAttendance.query.filter_by(session_id=session_id).order_by(ClassAttendance.date, ClassAttendance.id).all()
+
+    if not all_attendance_records:
+        flash('No attendance data to download.', 'warning')
+        return redirect(url_for('class_management.view_attendance', session_id=session_id))
+
+    # This logic is similar to view_attendance, consider refactoring in a real app
+    attendance_by_date = defaultdict(list)
+    for record in all_attendance_records:
+        attendance_by_date[record.date].append(record)
+    
+    daily_class_counts = {}
+    for date, records in attendance_by_date.items():
+        student_counts_on_date = defaultdict(int)
+        for record in records:
+            student_counts_on_date[record.student_id] += 1
+        if student_counts_on_date:
+            daily_class_counts[date] = max(student_counts_on_date.values())
+            
+    headers = []
+    sorted_dates = sorted(daily_class_counts.keys())
+    for dt in sorted_dates:
+        count = daily_class_counts.get(dt, 0)
+        if count == 1:
+            headers.append(dt.strftime('%b %d, %Y'))
+        else:
+            for i in range(1, count + 1):
+                headers.append(f"{dt.strftime('%b %d, %Y')} ({i})")
+
+    # Prepare data for Excel
+    data_for_excel = []
+    total_classes_held = sum(daily_class_counts.values())
+
+    for i, student in enumerate(students):
+        student_attendance_records = [r for r in all_attendance_records if r.student_id == student.id]
+        present_count = sum(1 for r in student_attendance_records if r.is_present)
+        
+        percentage = (present_count / total_classes_held * 100) if total_classes_held > 0 else 0
+        
+        marks = 0
+        if percentage >= 90:
+            marks = 10
+        elif percentage >= 85:
+            marks = 9
+        elif percentage >= 80:
+            marks = 8
+        elif percentage >= 75:
+            marks = 7
+        elif percentage >= 70:
+            marks = 6
+        elif percentage >= 65:
+            marks = 5
+        elif percentage >= 60:
+            marks = 4
+
+        student_row = {
+            '#': i + 1, 
+            'Student ID': student.student_id, 
+            'Name': student.name
+        }
+        
+        # Initialize attendance row with placeholders
+        attendance_statuses = ['-'] * len(headers)
+        
+        col_idx = 0
+        for dt in sorted_dates:
+            records_on_date = [r for r in student_attendance_records if r.date == dt]
+            num_classes_on_date = daily_class_counts.get(dt, 0)
+            
+            for class_num in range(num_classes_on_date):
+                if class_num < len(records_on_date):
+                    attendance_statuses[col_idx] = 'P' if records_on_date[class_num].is_present else 'A'
+                col_idx += 1
+
+        for h, status in zip(headers, attendance_statuses):
+            student_row[h] = status
+            
+        student_row['Total Classes'] = total_classes_held
+        student_row['Present'] = present_count
+        student_row['Percentage'] = f"{percentage:.2f}%"
+        student_row['Marks'] = marks
+            
+        data_for_excel.append(student_row)
+
+    df = pd.DataFrame(data_for_excel)
+    
+    # Create an in-memory Excel file
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Attendance Report')
+        # Auto-adjust columns width
+        worksheet = writer.sheets['Attendance Report']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(cell.value)
+                except:
+                    pass
+            adjusted_width = (max_length + 2)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'attendance_report_{session.course_name}_{date.today()}.xlsx'
+    )
+
 @class_management_bp.route('/download_pdf_report/<int:session_id>')
 @login_required
 def download_pdf_report(session_id):
