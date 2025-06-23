@@ -88,6 +88,9 @@
                     <a href="{{ url_for('result_management.download_student_result', session_id=session.id, student_id=selected_student_id) }}" class="btn btn-danger">
                         <i class="bi bi-file-earmark-pdf-fill"></i> Download PDF
                     </a>
+                    <a href="{{ url_for('result_management.download_student_result_docx', session_id=session.id, student_id=selected_student_id) }}" class="btn btn-primary ms-2">
+                        <i class="bi bi-file-earmark-word-fill"></i> Download DOCX
+                    </a>
                     {% endif %}
                 </div>
             </form>

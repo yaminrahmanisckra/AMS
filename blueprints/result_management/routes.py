@@ -13,6 +13,9 @@ from datetime import datetime
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape, A4
 import zipfile
+from docx import Document
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 result_management_bp = Blueprint('result_management', __name__, template_folder='templates/result_management')
 
@@ -356,13 +359,11 @@ def course_wise_result(session_id):
     selected_subject = None
     if selected_subject_id:
         selected_subject = RSubject.query.get(selected_subject_id)
-        
         # Define columns to select
         base_columns = [
             RStudent.student_id, RStudent.name, RMark.total_marks,
             RMark.grade_letter, RMark.grade_point, RMark.is_retake
         ]
-        
         extra_columns = []
         if selected_subject:
             if selected_subject.subject_type in ['Theory', 'Theory (UG)']:
@@ -374,14 +375,12 @@ def course_wise_result(session_id):
                     extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
                 else:  # Type2
                     extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
-        
         all_columns = base_columns + extra_columns
-        
         results = db.session.query(*all_columns)\
             .join(RMark, RStudent.id == RMark.student_id)\
+            .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == selected_subject_id))\
             .filter(RMark.subject_id == selected_subject_id)\
             .order_by(RStudent.student_id).all()
-
     return render_template('rm_course_wise_result.html',
                            session=session,
                            subjects=subjects,
@@ -402,7 +401,7 @@ def student_wise_result(session_id):
 
     if selected_student_id:
         selected_student = RStudent.query.get(selected_student_id)
-        # Fetch results for the selected student
+        # Fetch results for the selected student (ONLY registered courses)
         results = db.session.query(
             RSubject.code.label('subject_code'),
             RSubject.name.label('subject_name'),
@@ -414,6 +413,7 @@ def student_wise_result(session_id):
         ).select_from(RMark)\
          .join(RStudent, RStudent.id == RMark.student_id)\
          .join(RSubject, RSubject.id == RMark.subject_id)\
+         .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))\
          .filter(RStudent.id == selected_student_id)\
          .order_by(RSubject.code).all()
 
@@ -543,26 +543,31 @@ def delete_session(session_id):
 
 class PDFGenerator:
     def __init__(self, buffer, pagesize):
+        from reportlab.platypus import SimpleDocTemplate
+        from reportlab.lib.units import inch
         self.buffer = buffer
-        if pagesize == 'A4':
-            self.pagesize = A4
-        elif pagesize == 'Letter':
-            self.pagesize = letter
-        self.doc = SimpleDocTemplate(buffer, pagesize=self.pagesize)
+        self.doc = SimpleDocTemplate(
+            buffer,
+            pagesize=pagesize,
+            topMargin=0.5*inch,
+            bottomMargin=0.5*inch,
+            leftMargin=0.5*inch,
+            rightMargin=0.5*inch
+        )
         self.story = []
 
     def _footer(self, canvas, doc):
         canvas.saveState()
         canvas.setFont('Helvetica', 9)
         page_number_text = f"Page {doc.page} of {doc.doc.page_count}"
-        canvas.drawRightString(self.pagesize[0] - inch, 0.5 * inch, page_number_text)
+        canvas.drawRightString(letter[0] - 40, 30, page_number_text)
         canvas.restoreState()
 
     def build(self, elements):
         # A two-pass approach to get total page numbers for the footer
         
         # First pass
-        doc_temp = SimpleDocTemplate(BytesIO(), pagesize=self.pagesize)
+        doc_temp = SimpleDocTemplate(BytesIO(), pagesize=letter)
         frame = Frame(doc_temp.leftMargin, doc_temp.bottomMargin, doc_temp.width, doc_temp.height, id='normal')
         template = PageTemplate(id='main_temp', frames=[frame])
         doc_temp.addPageTemplates([template])
@@ -577,7 +582,8 @@ class PDFGenerator:
 
 class CourseTabulationPDF(PDFGenerator):
     def __init__(self, buffer, subject, session):
-        super().__init__(buffer, pagesize='A4')
+        from reportlab.lib.pagesizes import A4
+        super().__init__(buffer, pagesize=A4)
         self.subject = subject
         self.session = session
         self.doc.title = f"Course_Result_{subject.code}"
@@ -589,6 +595,9 @@ class CourseTabulationPDF(PDFGenerator):
         styles.add(ParagraphStyle(name='Right', alignment=TA_RIGHT))
         styles.add(ParagraphStyle(name='Left', alignment=TA_LEFT))
         styles.add(ParagraphStyle(name='Line_Data', parent=styles['Normal'], alignment=TA_CENTER, leading=14))
+        styles.add(ParagraphStyle(name='TableCellCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_CENTER, leading=8))
+        styles.add(ParagraphStyle(name='TableCellLeftCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_LEFT, leading=8))
+        styles.add(ParagraphStyle(name='InfoCompact', parent=styles['Normal'], fontSize=9, leading=10))
         
         # Center align headers
         styles['h1'].alignment = TA_CENTER
@@ -599,27 +608,23 @@ class CourseTabulationPDF(PDFGenerator):
         # Header
         elements.append(Paragraph("Khulna University", styles['h1']))
         elements.append(Paragraph("Course-wise Tabulation Sheet", styles['h2']))
-        elements.append(Spacer(1, 0.2*inch))
+        elements.append(Spacer(1, 0.08*inch))
 
-        # Info Table
+        # Info Table (compact)
         info_data = [
             [
-                Paragraph(f"<b>Year:</b> {self.session.year or 'N/A'}<br/><b>Discipline:</b> Law<br/><b>Course No.:</b> {self.subject.code}<br/><b>Course Title:</b> {self.subject.name}", styles['Left']),
-                Paragraph(f"<b>Term:</b> {self.session.term}<br/><b>School:</b> Law<br/><b>CH:</b> {self.subject.credit:.1f}<br/><br/><b>Session:</b> {self.session.name}", styles['Left'])
+                Paragraph(f"<b>Year:</b> {self.session.year or 'N/A'}<br/><b>Discipline:</b> Law<br/><b>Course No.:</b> {self.subject.code}<br/><b>Course Title:</b> {self.subject.name}", styles['InfoCompact']),
+                Paragraph(f"<b>Term:</b> {self.session.term}<br/><b>School:</b> Law<br/><b>CH:</b> {self.subject.credit:.1f}<br/><br/><b>Session:</b> {self.session.name}", styles['InfoCompact'])
             ]
         ]
-        info_table = Table(info_data, colWidths=[4.5*inch, 2.5*inch])
-        info_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+        info_table = Table(info_data, colWidths=[3.6*inch, 2.0*inch])
+        info_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('FONTSIZE', (0,0), (-1,-1), 9)]))
         elements.append(info_table)
-        elements.append(Spacer(1, 0.2*inch))
+        elements.append(Spacer(1, 0.08*inch))
 
-        # Results Table
-        table_headers = ['Student\nNo.', 'Attendance\n(10)', 'Continuous\nAssessment\n(40)', 'Section A\n(25)', 'Section B\n(25)', 'Total\nMarks\n(100)', 'Grade\nPoint', 'Grade\nLetter', 'Remarks']
-        
         # Base headers
         base_headers = ['Student\nNo.']
         specific_headers = []
-        
         # Specific headers based on subject type
         if self.subject.subject_type in ['Theory', 'Theory (UG)']:
             specific_headers = ['Attendance\n(10)', 'C.A.\n(40)', 'Sec. A\n(25)', 'Sec. B\n(25)']
@@ -630,143 +635,25 @@ class CourseTabulationPDF(PDFGenerator):
                 specific_headers = ['Supervisor\n(70)', 'Presentation\n(30)']
             else:
                 specific_headers = ['Supervisor\n(50)', 'Report\n(25)', 'Defense\n(25)']
-        
         end_headers = ['Total\nMarks\n(100)', 'Grade\nPoint', 'Grade\nLetter', 'Remarks']
         table_headers = base_headers + specific_headers + end_headers
-        data = [table_headers]
-
+        data = [[Paragraph(h.replace('\n', '<br/>'), styles['TableCellCompact']) for h in table_headers]]
         for res in results:
-            row_data = [res.student_id]
-            
-            # Unpack the rest of the data dynamically
-            marks_data = list(res)[6:] # Get the specific mark components
-            
+            row_data = [Paragraph(str(res.student_id), styles['TableCellCompact'])]
+            marks_data = list(res)[6:]
             for mark in marks_data:
-                 row_data.append(f"{mark:.1f}" if mark is not None else '')
-
+                row_data.append(Paragraph(f"{mark:.1f}" if mark is not None else '', styles['TableCellCompact']))
             row_data.extend([
-                f"{res.total_marks:.2f}" if res.total_marks is not None else '',
-                f"{res.grade_point:.2f}" if res.grade_point is not None else '',
-                res.grade_letter or '',
-                'Retake' if res.is_retake else ''
+                Paragraph(f"{res.total_marks:.2f}" if res.total_marks is not None else '', styles['TableCellCompact']),
+                Paragraph(f"{res.grade_point:.2f}" if res.grade_point is not None else '', styles['TableCellCompact']),
+                Paragraph(res.grade_letter or '', styles['TableCellCompact']),
+                Paragraph('Retake' if res.is_retake else '', styles['TableCellCompact'])
             ])
             data.append(row_data)
-
-        # Dynamic column widths
-        base_widths = [1.1*inch]
-        specific_widths = [0.8*inch] * len(specific_headers)
-        end_widths = [0.7*inch, 0.7*inch, 0.7*inch, 0.8*inch]
-        col_widths = base_widths + specific_widths + end_widths
-        
-        table = Table(data, colWidths=col_widths, rowHeights=0.5*inch)
-        style = TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-            ('TOPPADDING', (0, 0), (-1, 0), 6),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ])
-        table.setStyle(style)
-        elements.append(table)
-        elements.append(Spacer(1, 0.5*inch))
-        
-        # Signature section
-        signature_data = [
-            [Paragraph('-----------------------', styles['Center']), Paragraph('-----------------------', styles['Center']), Paragraph('-----------------------', styles['Center'])],
-            [Paragraph('Signature of Scrutinizer', styles['Center']), Paragraph('Signature of Tabulator', styles['Center']), Paragraph('Signature of the Head', styles['Center'])]
-        ]
-        
-        signature_table = Table(signature_data, colWidths=[2.5*inch, 2.5*inch, 2.5*inch])
-        signature_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ]))
-        
-        elements.append(signature_table)
-        
-        return elements
-
-class StudentTabulationPDF(PDFGenerator):
-    def __init__(self, buffer, student, session):
-        super().__init__(buffer)
-        self.student = student
-        self.session = session
-        self.page_count = 0
-        self.doc.title = f"Tabulation_{student.student_id}"
-
-    def _footer(self, canvas, doc):
-        canvas.saveState()
-        canvas.setFont('Helvetica', 9)
-        page_num_text = f"Page {doc.page} of {self.page_count}"
-        canvas.drawCentredString(letter[0]/2.0, 0.5 * inch, page_num_text)
-        canvas.restoreState()
-
-    def generate_pdf(self, results, term_assessment):
-        elements = self.generate_elements(results, term_assessment)
-        
-        # Use a temporary buffer to do a "dry run" of the build, which allows
-        # us to count the total number of pages.
-        from io import BytesIO
-        temp_buffer = BytesIO()
-        temp_doc = SimpleDocTemplate(temp_buffer, pagesize=letter)
-        temp_doc.build(elements)
-        self.page_count = temp_doc.page
-
-        # Now, build the real document, passing the footer function which now
-        # has access to the total page count.
-        self.doc.build(elements, onFirstPage=self._footer, onLaterPages=self._footer)
-
-    def generate_elements(self, results, term_assessment):
-        styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name='Center', parent=styles['Normal'], alignment=TA_CENTER))
-        styles.add(ParagraphStyle(name='Left', parent=styles['Normal'], alignment=TA_LEFT))
-        styles['h1'].alignment = TA_CENTER
-        styles['h3'].alignment = TA_CENTER
-
-        elements = []
-        
-        # Header
-        elements.append(Paragraph("Khulna University", styles['h1']))
-        elements.append(Paragraph("Student-wise Tabulation Sheet", styles['h3']))
-        elements.append(Spacer(1, 0.2*inch))
-        
-        # Student Info Table
-        year_text = self.session.year or (self.student.year or 'N/A')
-        info_data = [
-            [
-                Paragraph(f"<b>Year:</b> {year_text}<br/><b>Student No.:</b> {self.student.student_id}<br/><b>Discipline:</b> {self.student.discipline or 'Law'}", styles['Left']),
-                Paragraph(f"<b>Term:</b> {self.session.term}<br/><b>Name of Student:</b> {self.student.name}<br/><b>Session:</b> {self.session.name}<br/><b>School:</b> {self.student.school or 'Law'}", styles['Left'])
-            ]
-        ]
-        info_table = Table(info_data, colWidths=[3.5*inch, 3.5*inch])
-        info_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('ALIGN', (0, 0), (-1, -1), 'LEFT')]))
-        elements.append(info_table)
-        elements.append(Spacer(1, 0.2*inch))
-
-        # Results Table
-        headers = ['Course No.', 'Course Title', 'Registered<br/>Credit<br/>Hours', 'Letter<br/>Grade', 'Grade<br/>Point<br/>(GP)', 'Earned<br/>Credit<br/>Hours (CH)', 'Earned<br/>Credit<br/>Points<br/>(GP*CH)', 'Remarks']
-        data = [[]]
-        for h in headers:
-            data[0].append(Paragraph(h, styles['Center']))
-
-        for res in results:
-            data.append([
-                Paragraph(res['subject_code'], styles['Center']),
-                Paragraph(res['subject_name'], styles['Normal']),
-                Paragraph(f"{res['registered_credits']:.1f}", styles['Center']),
-                Paragraph(res['grade_letter'] or '', styles['Center']),
-                Paragraph(f"{res['grade_point']:.2f}" if res['grade_point'] is not None else '', styles['Center']),
-                Paragraph(f"{res['earned_credits']:.1f}", styles['Center']),
-                Paragraph(f"{res['earned_credit_points']:.2f}", styles['Center']),
-                Paragraph(res['remarks'], styles['Center'])
-            ])
-
-        col_widths = [1.0*inch, 2.0*inch, 0.7*inch, 0.6*inch, 0.6*inch, 0.7*inch, 0.7*inch, 0.7*inch]
-        table = Table(data, colWidths=col_widths)
+        # Dynamic column widths, reduce by 10%
+        base_widths = [1.1*inch] + [0.8*inch]*len(specific_headers) + [0.7*inch, 0.7*inch, 0.7*inch, 0.8*inch]
+        col_widths = [w * 0.9 for w in base_widths]
+        table = Table(data, colWidths=col_widths, rowHeights=0.35*inch)
         style = TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
@@ -774,39 +661,182 @@ class StudentTabulationPDF(PDFGenerator):
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('ALIGN', (1, 1), (1, -1), 'LEFT'), # Course title left aligned
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 3),
+            ('TOPPADDING', (0, 0), (-1, 0), 3),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ])
         table.setStyle(style)
         elements.append(table)
-        elements.append(Spacer(1, 0.2*inch))
+        elements.append(Spacer(1, 0.5*inch))  # Add more space before signature
         
-        # Term Assessment
-        assessment_text = f"""
-        <b>Term Assessment</b><br/>
-        Total Earned Credit Hours in this Term (TCH) = {term_assessment['total_earned_credits']:.1f}<br/>
-        Total Registered Credit Hours in this Term (RCH) = {term_assessment['total_registered_credits']:.1f}<br/>
-        Total Earned Credit Points in this Term (TCP) = {term_assessment['total_earned_credit_points']:.2f}<br/>
-        <b>TGPA = TCP/RCH = {term_assessment['tgpa']:.2f}</b>
-        """
-        elements.append(Paragraph(assessment_text, styles['Normal']))
-        elements.append(Spacer(1, 0.5*inch))
-
-        # Signature section
-        signature_data = [
+        # Signature section (wider, with space)
+        signature_table = Table([
+            [Paragraph('-----------------------', styles['Center']), '', Paragraph('-----------------------', styles['Center']), '', Paragraph('-----------------------', styles['Center'])],
             [
-                Paragraph('<u>Signature of the First Tabulator</u><br/>Date:', styles['Center']),
-                Paragraph('<u>Signature of the Second Tabulator</u><br/>Date:', styles['Center']),
-                Paragraph('<u>Signature of the Chairman, Examination<br/>Committee</u><br/>Date:', styles['Center'])
+                Paragraph('Signature of the First Tabulator<br/>Date:', styles['Center']), '',
+                Paragraph('Signature of the Chairman of the Examination Committee<br/>Date:', styles['Center']), '',
+                Paragraph('Signature of the Second Tabulator<br/>Date:', styles['Center'])
             ]
-        ]
-        signature_table = Table(signature_data, colWidths=[2.5*inch, 2.5*inch, 2.5*inch])
+        ], colWidths=[2.2*inch, 0.7*inch, 2.2*inch, 0.7*inch, 2.2*inch])
         signature_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 1), (0, 1), 'CENTER'),
+            ('ALIGN', (2, 1), (2, 1), 'CENTER'),
+            ('ALIGN', (4, 1), (4, 1), 'CENTER'),
+            ('FONTNAME', (0, 1), (4, 1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (4, 1), 8),
+            ('TOPPADDING', (0, 1), (4, 1), 10),
         ]))
         elements.append(signature_table)
         
+        return elements
+
+class StudentTabulationPDF(PDFGenerator):
+    def __init__(self, buffer, student, session):
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.platypus import SimpleDocTemplate
+        pagesize = landscape(A4)
+        super().__init__(buffer, pagesize=pagesize)
+        self.student = student
+        self.session = session
+        self.page_count = 1
+        self.doc.title = f"Tabulation_{student.student_id}"
+        # Restore default margins
+        # (no aggressive margin reduction)
+
+    def generate_elements(self, results, term_assessment):
+        from reportlab.platypus import Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.lib.units import inch
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name='Bold', parent=styles['Normal'], fontName='Helvetica-Bold'))
+        styles.add(ParagraphStyle(name='TableCell', parent=styles['Normal'], fontSize=10, wordWrap='CJK', alignment=TA_LEFT))
+        styles.add(ParagraphStyle(name='TableCellCenter', parent=styles['Normal'], fontSize=10, wordWrap='CJK', alignment=TA_CENTER))
+        styles.add(ParagraphStyle(name='TableCellCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_LEFT, leading=8))
+        styles.add(ParagraphStyle(name='TableCellCenterCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_CENTER, leading=8))
+        styles.add(ParagraphStyle(name='InfoCompact', parent=styles['Normal'], fontSize=9, leading=10))
+        elements = []
+
+        # Title
+        elements.append(Paragraph("Khulna University", styles['Title']))
+        elements.append(Paragraph("Student-wise Tabulation Sheet", styles['Title']))
+        elements.append(Spacer(1, 0.08*inch))
+
+        # Two-column info table (compact)
+        info_data = [
+            [Paragraph('<b>Year:</b>', styles['InfoCompact']), str(self.session.year or self.student.year or 'N/A'),
+             Paragraph('<b>Term:</b>', styles['InfoCompact']), str(self.session.term)],
+            [Paragraph('<b>Student No.:</b>', styles['InfoCompact']), str(self.student.student_id),
+             Paragraph('<b>Name of Student:</b>', styles['InfoCompact']), str(self.student.name)],
+            [Paragraph('<b>Discipline:</b>', styles['InfoCompact']), str(self.student.discipline or 'Law'),
+             Paragraph('<b>Session:</b>', styles['InfoCompact']), str(self.session.name)],
+            [Paragraph('<b>School:</b>', styles['InfoCompact']), 'Law', '', '']
+        ]
+        info_table = Table(info_data, colWidths=[0.9*inch, 1.7*inch, 0.9*inch, 1.7*inch])
+        info_table.setStyle(TableStyle([
+            ('FONTNAME', (0,0), (-1,-1), 'Helvetica'),
+            ('FONTSIZE', (0,0), (-1,-1), 9),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+            ('TOPPADDING', (0,0), (-1,-1), 1),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 0.08*inch))
+
+        # If no results, show message and return
+        if not results:
+            elements.append(Paragraph("No results found for this student.", styles['Normal']))
+            return elements
+
+        # Results Table (compact)
+        headers = ['Course No.', 'Course Title', 'Registered Credit Hours', 'Letter Grade', 'Grade Point (GP)', 'Earned Credit Hours (CH)', 'Earned Credit Points (GP*CH)', 'Remarks']
+        data = [[Paragraph(h, styles['TableCellCenterCompact']) for h in headers]]
+        total_registered_credits = 0
+        total_earned_credits = 0
+        total_earned_credit_points = 0
+        for res in results:
+            # Always show 0 for GP, Earned CH, Earned Credit Points if missing/None
+            grade_point = res.get('grade_point', 0)
+            earned_credits = res.get('earned_credits', 0)
+            earned_credit_points = res.get('earned_credit_points', 0)
+            row = [
+                Paragraph(str(res.get('subject_code', '') or ''), styles['TableCellCompact']),
+                Paragraph(str(res.get('subject_name', '') or ''), styles['TableCellCompact']),
+                Paragraph(str(res.get('registered_credits', '') or ''), styles['TableCellCenterCompact']),
+                Paragraph(str(res.get('grade_letter', '') or ''), styles['TableCellCenterCompact']),
+                Paragraph(f"{grade_point}" if grade_point is not None else "0", styles['TableCellCenterCompact']),
+                Paragraph(f"{earned_credits}" if earned_credits is not None else "0", styles['TableCellCenterCompact']),
+                Paragraph(f"{earned_credit_points}" if earned_credit_points is not None else "0", styles['TableCellCenterCompact']),
+                Paragraph(str(res.get('remarks', '') or ''), styles['TableCellCenterCompact'])
+            ]
+            # If mark distribution fields exist, show them (even for F)
+            extra_fields = []
+            for key in ['attendance', 'continuous_assessment', 'part_a', 'part_b', 'sessional_report', 'sessional_viva', 'supervisor_assessment', 'proposal_presentation', 'project_report', 'defense']:
+                if key in res:
+                    val = res.get(key, None)
+                    extra_fields.append(Paragraph(str(val) if val is not None else '', styles['TableCellCenterCompact']))
+            if extra_fields:
+                row = row[:3] + extra_fields + row[3:]
+            data.append(row)
+            total_registered_credits += res['registered_credits'] if res['registered_credits'] else 0
+            total_earned_credits += res['earned_credits'] if res['earned_credits'] else 0
+            total_earned_credit_points += res['earned_credit_points'] if res['earned_credit_points'] else 0
+        # Total row
+        data.append([
+            '', '',
+            Paragraph(f"Total = {total_registered_credits}", styles['TableCellCenterCompact']), '', '',
+            Paragraph(f"{total_earned_credits}", styles['TableCellCenterCompact']),
+            Paragraph(f"{total_earned_credit_points}", styles['TableCellCenterCompact']),
+            ''
+        ])
+        # Reduce column widths by 20% for compactness
+        base_widths = [1.5*inch, 2.5*inch, 1.1*inch, 1.1*inch, 1.2*inch, 1.3*inch, 1.5*inch, 1.1*inch]
+        col_widths = [w * 0.8 for w in base_widths]
+        table = Table(data, colWidths=col_widths)
+        style = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('GRID', (0, 0), (-1, -1), 0.7, colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (1, 1), (1, -1), 'LEFT'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ])
+        table.setStyle(style)
+        elements.append(table)
+        elements.append(Spacer(1, 0.08*inch))
+
+        # Term Assessment (compact)
+        elements.append(Paragraph('<b>Term Assessment</b>', styles['InfoCompact']))
+        elements.append(Paragraph(f"Total Earned Credit Hours in this Term (TCH) = {term_assessment['total_earned_credits']}", styles['InfoCompact']))
+        elements.append(Paragraph(f"Total Registered Credit Hours in this Term (RCH) = {term_assessment['total_registered_credits']}", styles['InfoCompact']))
+        elements.append(Paragraph(f"Total Earned Credit Points in this Term (TCP) = {term_assessment['total_earned_credit_points']}", styles['InfoCompact']))
+        elements.append(Paragraph(f"TGPA = TCP/RCH = {term_assessment['tgpa']:.2f}", styles['InfoCompact']))
+        elements.append(Spacer(1, 0.18*inch))
+
+        # Signature lines (compact, with spacing)
+        sig_col_width = 1.7*inch
+        spacer_col_width = 0.4*inch
+        sig_table = Table([
+            ['', '', '', '', ''],
+            [
+                Paragraph('Signature of the First Tabulator<br/>Date:', styles['TableCellCenterCompact']), '',
+                Paragraph('Signature of the Chairman of the Examination Committee<br/>Date:', styles['TableCellCenterCompact']), '',
+                Paragraph('Signature of the Second Tabulator<br/>Date:', styles['TableCellCenterCompact'])
+            ]
+        ], colWidths=[sig_col_width, spacer_col_width, sig_col_width, spacer_col_width, sig_col_width])
+        sig_table.setStyle(TableStyle([
+            ('ALIGN', (0, 1), (0, 1), 'CENTER'),
+            ('ALIGN', (2, 1), (2, 1), 'CENTER'),
+            ('ALIGN', (4, 1), (4, 1), 'CENTER'),
+            ('FONTNAME', (0, 1), (4, 1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (4, 1), 8),
+            ('TOPPADDING', (0, 1), (4, 1), 10),
+        ]))
+        elements.append(sig_table)
         return elements
 
 
@@ -815,13 +845,11 @@ class StudentTabulationPDF(PDFGenerator):
 def download_course_result(session_id, subject_id):
     subject = RSubject.query.get_or_404(subject_id)
     session = RSession.query.get_or_404(session_id)
-
     # Define columns to select
     base_columns = [
         RStudent.student_id, RStudent.name, RMark.total_marks,
         RMark.grade_letter, RMark.grade_point, RMark.is_retake
     ]
-    
     extra_columns = []
     if subject:
         if subject.subject_type in ['Theory', 'Theory (UG)']:
@@ -833,20 +861,17 @@ def download_course_result(session_id, subject_id):
                 extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
             else:  # Type2
                 extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
-    
     all_columns = base_columns + extra_columns
-    
     results = db.session.query(*all_columns)\
         .join(RMark, RStudent.id == RMark.student_id)\
+        .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject_id))\
         .filter(RMark.subject_id == subject_id)\
         .order_by(RStudent.student_id).all()
-
     buffer = BytesIO()
     pdf = CourseTabulationPDF(buffer, subject, session)
     elements = pdf.generate_elements(results)
     pdf.doc.build(elements)
     buffer.seek(0)
-    
     return send_file(buffer, as_attachment=True, download_name=f'Course_{subject.code}_Result.pdf', mimetype='application/pdf')
 
 @result_management_bp.route('/download/student_result/<int:session_id>/<int:student_id>')
@@ -855,15 +880,75 @@ def download_student_result(session_id, student_id):
     student = RStudent.query.get_or_404(student_id)
     session = RSession.query.get_or_404(session_id)
 
-    # Re-use the logic from student_wise_result
+    # Only include subjects where the student is registered
+    results_query = db.session.query(
+        RSubject.code.label('subject_code'),
+        RSubject.name.label('subject_name'),
+        RSubject.credit.label('registered_credits'),
+        RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type,
+        RMark.total_marks,
+        RMark.grade_point, RMark.grade_letter,
+        RMark.is_retake,
+        RMark.total_marks,
+        RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b,
+        RMark.sessional_report, RMark.sessional_viva,
+        RMark.supervisor_assessment, RMark.proposal_presentation, RMark.project_report, RMark.defense
+    ).select_from(RMark)
+    results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
+    results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
+    results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
+    results_query = results_query.filter(RStudent.id == student_id)
+    results_query = results_query.order_by(RSubject.code)
+    results = results_query.all()
+
+    total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
+    processed_results = []
+    for res in results:
+        earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
+        earned_credit_points = (res.grade_point or 0) * res.registered_credits
+        processed_results.append({
+            'subject_code': res.subject_code, 'subject_name': res.subject_name,
+            'registered_credits': res.registered_credits, 'grade_letter': res.grade_letter,
+            'grade_point': res.grade_point, 'earned_credits': earned_credits,
+            'earned_credit_points': earned_credit_points,
+            'remarks': 'Retake' if res.is_retake else ''
+        })
+        total_registered_credits += res.registered_credits
+        total_earned_credits += earned_credits
+        total_earned_credit_points += earned_credit_points
+
+    tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
+    term_assessment = {
+        'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
+        'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
+    }
+
+    buffer = BytesIO()
+    pdf = StudentTabulationPDF(buffer, student, session)
+    elements = pdf.generate_elements(processed_results, term_assessment)
+    pdf.doc.build(elements)
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f'Student_{student.student_id}_Tabulation.pdf', mimetype='application/pdf')
+
+@result_management_bp.route('/download/student_result_docx/<int:session_id>/<int:student_id>')
+@login_required
+def download_student_result_docx(session_id, student_id):
+    student = RStudent.query.get_or_404(student_id)
+    session = RSession.query.get_or_404(session_id)
+
+    # Only include subjects where the student is registered
     results_query = db.session.query(
         RSubject.code.label('subject_code'),
         RSubject.name.label('subject_name'),
         RSubject.credit.label('registered_credits'),
         RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-    ).select_from(RMark).join(RStudent, RStudent.id == RMark.student_id).join(RSubject, RSubject.id == RMark.subject_id)\
-    .filter(RStudent.id == student_id).order_by(RSubject.code).all()
-        
+    ).select_from(RMark)\
+     .join(RStudent, RStudent.id == RMark.student_id)\
+     .join(RSubject, RSubject.id == RMark.subject_id)\
+     .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))\
+     .filter(RStudent.id == student_id)\
+     .order_by(RSubject.code).all()
+
     total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
     processed_results = []
     for res in results_query:
@@ -886,13 +971,112 @@ def download_student_result(session_id, student_id):
         'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
     }
 
-    buffer = BytesIO()
-    pdf = StudentTabulationPDF(buffer, student, session)
-    pdf.generate_pdf(processed_results, term_assessment)
-    
-    buffer.seek(0)
-    return send_file(buffer, as_attachment=True, download_name=f'Student_{student.student_id}_Tabulation.pdf', mimetype='application/pdf')
+    # Create DOCX
+    doc = Document()
+    # Title
+    doc.add_heading('Khulna University', 0).alignment = 1
+    doc.add_heading('Student-wise Tabulation Sheet', level=1).alignment = 1
 
+    # Two-column info table
+    info_table = doc.add_table(rows=2, cols=4)
+    info_table.autofit = False
+    info_table.columns[0].width = Inches(1.2)
+    info_table.columns[1].width = Inches(2.2)
+    info_table.columns[2].width = Inches(1.2)
+    info_table.columns[3].width = Inches(2.2)
+    # Left column
+    info_table.cell(0,0).text = 'Year:'
+    info_table.cell(0,1).text = str(session.year or student.year or 'N/A')
+    info_table.cell(1,0).text = 'Student No.:'
+    info_table.cell(1,1).text = str(student.student_id)
+    # Right column
+    info_table.cell(0,2).text = 'Term:'
+    info_table.cell(0,3).text = str(session.term)
+    info_table.cell(1,2).text = 'Name of Student:'
+    info_table.cell(1,3).text = str(student.name)
+    # Next row for discipline/session/school
+    row = info_table.add_row().cells
+    row[0].text = 'Discipline:'
+    row[1].text = str(student.discipline or 'Law')
+    row[2].text = 'Session:'
+    row[3].text = str(session.name)
+    row2 = info_table.add_row().cells
+    row2[0].text = 'School:'
+    row2[1].text = 'Law'
+    row2[2].text = ''
+    row2[3].text = ''
+    for row in info_table.rows:
+        for cell in row.cells:
+            for p in cell.paragraphs:
+                p.runs[0].font.size = Pt(11)
+    doc.add_paragraph('')
+
+    # Results Table
+    table = doc.add_table(rows=1, cols=8)
+    table.style = 'Table Grid'
+    hdr_cells = table.rows[0].cells
+    headers = ['Course No.', 'Course Title', 'Registered Credit Hours', 'Letter Grade', 'Grade Point (GP)', 'Earned Credit Hours (CH)', 'Earned Credit Points (GP*CH)', 'Remarks']
+    for i, h in enumerate(headers):
+        hdr_cells[i].text = h
+        for p in hdr_cells[i].paragraphs:
+            p.runs[0].font.bold = True
+            p.alignment = 1
+    for result in processed_results:
+        row_cells = table.add_row().cells
+        row_cells[0].text = str(result['subject_code'])
+        row_cells[1].text = str(result['subject_name'])
+        row_cells[2].text = f"{result['registered_credits']}"
+        row_cells[3].text = result['grade_letter'] or ''
+        row_cells[4].text = f"{result['grade_point']}" if result['grade_point'] is not None else ''
+        row_cells[5].text = f"{result['earned_credits']}"
+        row_cells[6].text = f"{result['earned_credit_points']}"
+        row_cells[7].text = result['remarks']
+    # Total row
+    total_row = table.add_row().cells
+    total_row[0].text = ''
+    total_row[1].text = ''
+    total_row[2].text = f"Total = {total_registered_credits}"
+    total_row[3].text = ''
+    total_row[4].text = ''
+    total_row[5].text = f"{total_earned_credits}"
+    total_row[6].text = f"{total_earned_credit_points}"
+    total_row[7].text = ''
+    for cell in total_row:
+        for p in cell.paragraphs:
+            p.runs[0].font.bold = True
+    doc.add_paragraph('')
+
+    # Term Assessment
+    p = doc.add_paragraph()
+    p.add_run('Term Assessment').bold = True
+    doc.add_paragraph(f"Total Earned Credit Hours in this Term (TCH) = {total_earned_credits}")
+    doc.add_paragraph(f"Total Registered Credit Hours in this Term (RCH) = {total_registered_credits}")
+    doc.add_paragraph(f"Total Earned Credit Points in this Term (TCP) = {total_earned_credit_points}")
+    doc.add_paragraph(f"TGPA = TCP/RCH = {tgpa:.2f}")
+    doc.add_paragraph('')
+
+    # Signature lines (3 columns)
+    sig_table = doc.add_table(rows=2, cols=3)
+    sig_table.autofit = False
+    sig_table.columns[0].width = Inches(2.5)
+    sig_table.columns[1].width = Inches(2.5)
+    sig_table.columns[2].width = Inches(2.5)
+    sig_table.cell(0,0).text = ''
+    sig_table.cell(0,1).text = ''
+    sig_table.cell(0,2).text = ''
+    sig_table.cell(1,0).text = 'Signature of the First Tabulator\nDate:'
+    sig_table.cell(1,1).text = 'Signature of the Second Tabulator\nDate:'
+    sig_table.cell(1,2).text = 'Signature of the Chairman, Examination Committee\nDate:'
+    for i in range(3):
+        for p in sig_table.cell(1,i).paragraphs:
+            p.alignment = 1
+    doc.add_paragraph('')
+
+    # Save to BytesIO
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return send_file(buffer, as_attachment=True, download_name=f'Student_{student.student_id}_Tabulation.docx', mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
 
 @result_management_bp.route('/download/all_student_results/<int:session_id>')
 @login_required
@@ -911,8 +1095,12 @@ def download_all_student_results(session_id):
             results_query = db.session.query(
                 RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
                 RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-            ).select_from(RMark).join(RStudent, RStudent.id == RMark.student_id).join(RSubject, RSubject.id == RMark.subject_id)\
-            .filter(RStudent.id == student.id).order_by(RSubject.code).all()
+            ).select_from(RMark)
+            results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
+            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
+            results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
+            results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
+            results_query = results_query.all()
 
             if not results_query: continue
 
@@ -938,7 +1126,8 @@ def download_all_student_results(session_id):
             
             pdf_buffer = BytesIO()
             pdf = StudentTabulationPDF(pdf_buffer, student, session)
-            pdf.generate_pdf(processed_results, term_assessment)
+            elements = pdf.generate_elements(processed_results, term_assessment)
+            pdf.doc.build(elements)
             pdf_buffer.seek(0)
             zf.writestr(f'Student_{student.student_id}_Tabulation.pdf', pdf_buffer.read())
 
@@ -958,11 +1147,26 @@ def download_all_course_results(session_id):
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
         for subject in subjects:
-            results = db.session.query(
+            base_columns = [
                 RStudent.student_id, RStudent.name, RMark.total_marks,
-                RMark.grade_letter, RMark.grade_point
-            ).join(RMark, RStudent.id == RMark.student_id)\
-            .filter(RMark.subject_id == subject.id).order_by(RStudent.student_id).all()
+                RMark.grade_letter, RMark.grade_point, RMark.is_retake
+            ]
+            extra_columns = []
+            if subject.subject_type in ['Theory', 'Theory (UG)']:
+                extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
+            elif subject.subject_type == 'Sessional':
+                extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
+            elif subject.subject_type == 'Dissertation':
+                if subject.dissertation_type == 'Type1':
+                    extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
+                else:
+                    extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
+            all_columns = base_columns + extra_columns
+            results = db.session.query(*all_columns)\
+                .join(RMark, RStudent.id == RMark.student_id)\
+                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
+                .filter(RMark.subject_id == subject.id)\
+                .order_by(RStudent.student_id).all()
 
             if not results: continue
 
