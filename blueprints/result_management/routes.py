@@ -250,7 +250,13 @@ def add_marks(session_id):
     selected_subject_id = request.args.get('subject_id', type=int)
     selected_subject = RSubject.query.get(selected_subject_id) if selected_subject_id else None
 
-    students = RStudent.query.filter_by(session_id=session_id).order_by(RStudent.student_id).all()
+    # Only show students who are registered for the selected subject
+    if selected_subject:
+        registered_student_ids = db.session.query(RCourseRegistration.student_id).filter_by(subject_id=selected_subject.id).all()
+        registered_student_ids = [sid for (sid,) in registered_student_ids]
+        students = RStudent.query.filter(RStudent.id.in_(registered_student_ids)).order_by(RStudent.student_id).all()
+    else:
+        students = RStudent.query.filter_by(session_id=session_id).order_by(RStudent.student_id).all()
     
     marks_data = {}
     registrations_data = {} # To store retake status
