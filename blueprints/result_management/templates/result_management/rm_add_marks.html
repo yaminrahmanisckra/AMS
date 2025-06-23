@@ -173,8 +173,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const grade = calculateGradeJS(total, isRetake);
 
-        row.querySelector('.total-marks-cell').textContent = total.toFixed(2);
-        row.querySelector('.total-marks-input').value = total.toFixed(2);
+        // Show total marks as rounded integer
+        row.querySelector('.total-marks-cell').textContent = Math.round(total);
+        row.querySelector('.total-marks-input').value = Math.round(total);
         row.querySelector('.grade-cell').textContent = `${grade.grade_letter} (${grade.grade_point.toFixed(2)})`;
         
         const remarksCell = row.querySelector('.remarks-cell');
