@@ -1,0 +1,213 @@
+name: Deploy to cPanel (API Method)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Create deployment package
+      run: |
+        # Create deployment directory
+        mkdir -p cpanel_deploy
+        
+        # Copy necessary files
+        cp app.py cpanel_deploy/
+        cp passenger_wsgi.py cpanel_deploy/
+        cp requirements_cpanel.txt cpanel_deploy/
+        cp models.py cpanel_deploy/
+        cp user_models.py cpanel_deploy/
+        cp extensions.py cpanel_deploy/
+        cp create_admin.py cpanel_deploy/
+        cp .htaccess cpanel_deploy/
+        
+        # Copy directories
+        cp -r blueprints cpanel_deploy/
+        cp -r templates cpanel_deploy/
+        cp -r static cpanel_deploy/
+        cp -r migrations cpanel_deploy/
+        
+        # Create necessary directories
+        mkdir -p cpanel_deploy/instance
+        mkdir -p cpanel_deploy/uploads
+        
+        # Create deployment info
+        echo "Deployed from GitHub Actions" > cpanel_deploy/DEPLOY_INFO.txt
+        echo "Date: $(date)" >> cpanel_deploy/DEPLOY_INFO.txt
+        echo "Commit: ${{ github.sha }}" >> cpanel_deploy/DEPLOY_INFO.txt
+        
+        # Create ZIP file
+        cd cpanel_deploy
+        zip -r ../deployment.zip .
+        cd ..
+        
+    - name: Deploy to cPanel via API
+      run: |
+        # Create deployment script
+        cat > deploy_via_api.py << 'EOF'
+        import requests
+        import zipfile
+        import os
+        import base64
+        
+        # cPanel API credentials
+        CPANEL_HOST = "${{ secrets.CPANEL_HOST }}"
+        CPANEL_USERNAME = "${{ secrets.CPANEL_USERNAME }}"
+        CPANEL_PASSWORD = "${{ secrets.CPANEL_PASSWORD }}"
+        
+        # API endpoint
+        API_URL = f"https://{CPANEL_HOST}:2083/execute/Fileman/upload_files"
+        
+        # Authentication
+        auth = (CPANEL_USERNAME, CPANEL_PASSWORD)
+        
+        # Upload ZIP file
+        with open('deployment.zip', 'rb') as f:
+            files = {'file': ('deployment.zip', f, 'application/zip')}
+            data = {
+                'dir': '/public_html',
+                'overwrite': '1'
+            }
+            
+            response = requests.post(API_URL, auth=auth, files=files, data=data, verify=False)
+            
+            if response.status_code == 200:
+                print("✅ ZIP file uploaded successfully")
+                
+                # Extract ZIP file
+                extract_url = f"https://{CPANEL_HOST}:2083/execute/Fileman/extract_archive"
+                extract_data = {
+                    'dir': '/public_html',
+                    'file': 'deployment.zip'
+                }
+                
+                extract_response = requests.post(extract_url, auth=auth, data=extract_data, verify=False)
+                
+                if extract_response.status_code == 200:
+                    print("✅ ZIP file extracted successfully")
+                    
+                    # Delete ZIP file
+                    delete_url = f"https://{CPANEL_HOST}:2083/execute/Fileman/delete_files"
+                    delete_data = {
+                        'dir': '/public_html',
+                        'files': 'deployment.zip'
+                    }
+                    
+                    delete_response = requests.post(delete_url, auth=auth, data=delete_data, verify=False)
+                    
+                    if delete_response.status_code == 200:
+                        print("✅ ZIP file deleted successfully")
+                    else:
+                        print("⚠️ Could not delete ZIP file")
+                else:
+                    print("❌ Failed to extract ZIP file")
+            else:
+                print("❌ Failed to upload ZIP file")
+                print(f"Response: {response.text}")
+        EOF
+        
+        # Run deployment script
+        python deploy_via_api.py
+        
+    - name: Install dependencies via API
+      run: |
+        # Create dependency installation script
+        cat > install_deps.py << 'EOF'
+        import requests
+        
+        # cPanel API credentials
+        CPANEL_HOST = "${{ secrets.CPANEL_HOST }}"
+        CPANEL_USERNAME = "${{ secrets.CPANEL_USERNAME }}"
+        CPANEL_PASSWORD = "${{ secrets.CPANEL_PASSWORD }}"
+        
+        # API endpoint for Terminal
+        API_URL = f"https://{CPANEL_HOST}:2083/execute/Terminal/run_command"
+        
+        # Authentication
+        auth = (CPANEL_USERNAME, CPANEL_PASSWORD)
+        
+        # Commands to run
+        commands = [
+            "cd /public_html",
+            "pip3 install -r requirements_cpanel.txt",
+            "chmod 644 *.py *.txt *.md .htaccess",
+            "chmod 755 blueprints/ templates/ static/ migrations/ instance/ uploads/",
+            "chmod 644 static/css/* static/js/*"
+        ]
+        
+        for cmd in commands:
+            data = {'command': cmd}
+            response = requests.post(API_URL, auth=auth, data=data, verify=False)
+            
+            if response.status_code == 200:
+                print(f"✅ Command executed: {cmd}")
+            else:
+                print(f"❌ Failed to execute: {cmd}")
+                print(f"Response: {response.text}")
+        EOF
+        
+        # Run dependency installation
+        python install_deps.py
+        
+    - name: Restart Python App via API
+      run: |
+        # Create restart script
+        cat > restart_app.py << 'EOF'
+        import requests
+        
+        # cPanel API credentials
+        CPANEL_HOST = "${{ secrets.CPANEL_HOST }}"
+        CPANEL_USERNAME = "${{ secrets.CPANEL_USERNAME }}"
+        CPANEL_PASSWORD = "${{ secrets.CPANEL_PASSWORD }}"
+        
+        # API endpoint for Python App
+        API_URL = f"https://{CPANEL_HOST}:2083/execute/Python/restart_app"
+        
+        # Authentication
+        auth = (CPANEL_USERNAME, CPANEL_PASSWORD)
+        
+        # Restart app
+        data = {
+            'app_name': 'academic_management_system'
+        }
+        
+        response = requests.post(API_URL, auth=auth, data=data, verify=False)
+        
+        if response.status_code == 200:
+            print("✅ Python app restarted successfully")
+        else:
+            print("⚠️ Could not restart Python app automatically")
+            print("Please restart manually in cPanel: Software → Setup Python App → Restart")
+        EOF
+        
+        # Run restart script
+        python restart_app.py
+        
+    - name: Deployment Summary
+      run: |
+        echo "🚀 Deployment Summary"
+        echo "===================="
+        echo "✅ Code deployed to cPanel"
+        echo "✅ Dependencies installed"
+        echo "✅ File permissions set"
+        echo "✅ Python app restarted"
+        echo ""
+        echo "🌐 Your application should be live at:"
+        echo "https://${{ secrets.CPANEL_HOST }}"
+        echo ""
+        echo "📋 Next steps:"
+        echo "1. Create admin user: python3 create_admin.py"
+        echo "2. Test the application"
+        echo "3. Check error logs if needed" 

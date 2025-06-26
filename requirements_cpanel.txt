@@ -1,0 +1,25 @@
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+Flask-Login==0.6.3
+Flask-Migrate==4.0.5
+Flask-WTF==1.2.1
+Werkzeug==3.0.3
+Jinja2==3.1.2
+MarkupSafe==2.1.3
+itsdangerous==2.1.2
+click==8.1.7
+blinker==1.6.3
+SQLAlchemy==2.0.31
+greenlet==3.0.0
+typing_extensions==4.7.1
+pandas==2.2.2
+openpyxl==3.1.5
+reportlab==4.0.4
+python-dotenv==1.0.0
+alembic>=1.9.0
+numpy==2.3.1
+python-docx
+# For MySQL support in cPanel
+PyMySQL==1.1.0
+# For PostgreSQL support (if available)
+psycopg2-binary==2.9.7 

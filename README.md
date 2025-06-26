@@ -1,585 +1,219 @@
-# Academic Management System
+# 🎓 Academic Management System
 
-A comprehensive Flask-based web application for managing academic operations at Law Discipline, Khulna University. This system provides three main modules: Class Management, Result Management, and Routine Management.
+একটি সম্পূর্ণ Academic Management System যা Flask এবং Python দিয়ে তৈরি করা হয়েছে। এই সিস্টেমটি শিক্ষাপ্রতিষ্ঠানের জন্য ক্লাস ম্যানেজমেন্ট, রেজাল্ট ম্যানেজমেন্ট এবং রুটিন ম্যানেজমেন্ট এর সুবিধা প্রদান করে।
 
-## Features
+## ✨ ফিচারগুলি
 
-### 🎓 Class Management
-- Add and manage student information
-- View student lists with details
-- Organize students by class and section
-- Student ID and contact management
+### 🔐 ইউজার ম্যানেজমেন্ট
+- **অ্যাডমিন প্যানেল** - সম্পূর্ণ সিস্টেম কন্ট্রোল
+- **ইউজার অথেনটিকেশন** - সুরক্ষিত লগইন সিস্টেম
+- **রোল-বেসড অ্যাক্সেস** - অ্যাডমিন এবং সাধারণ ইউজার
 
-### 📊 Result Management
-- Record and manage student results
-- Subject-wise performance tracking
-- Semester and year-wise organization
-- Result analysis and reporting
+### 📚 ক্লাস ম্যানেজমেন্ট
+- **স্টুডেন্ট রেজিস্ট্রেশন** - নতুন স্টুডেন্ট যোগ করা
+- **অ্যাটেনডেন্স ট্র্যাকিং** - দৈনিক উপস্থিতি রেকর্ড
+- **অ্যাসেসমেন্ট ম্যানেজমেন্ট** - পরীক্ষার ফলাফল ট্র্যাক
+- **আর্কাইভ সিস্টেম** - পুরানো ডেটা সংরক্ষণ
 
-### 📅 Routine Management
-- Create and manage class schedules
-- Weekly timetable view
-- Teacher and room assignment
-- Time slot management
+### 📊 রেজাল্ট ম্যানেজমেন্ট
+- **সেশন ম্যানেজমেন্ট** - একাডেমিক সেশন তৈরি
+- **সাবজেক্ট ম্যানেজমেন্ট** - কোর্স এবং বিষয় যোগ করা
+- **মার্কস এন্ট্রি** - পরীক্ষার ফলাফল ইনপুট
+- **রেজাল্ট ভিউ** - স্টুডেন্ট এবং কোর্স-ওয়াইজ ফলাফল
+- **রেজাল্ট আর্কাইভ** - পুরানো ফলাফল সংরক্ষণ
 
-### 🔐 User Authentication
-- Secure login and registration system
-- User session management
-- Role-based access control
+### 📅 রুটিন ম্যানেজমেন্ট
+- **টিচার ম্যানেজমেন্ট** - শিক্ষকদের তথ্য
+- **রুম ম্যানেজমেন্ট** - ক্লাসরুম অ্যাসাইনমেন্ট
+- **কোর্স অ্যাসাইনমেন্ট** - শিক্ষক-কোর্স ম্যাপিং
+- **রুটিন জেনারেশন** - অটোমেটিক রুটিন তৈরি
 
-## Technology Stack
+## 🚀 ইনস্টলেশন
 
-- **Backend**: Python 3.11.6, Flask
-- **Database**: PostgreSQL
-- **Frontend**: HTML5, CSS3, JavaScript, Bootstrap 5
-- **Authentication**: Flask-Login
-- **ORM**: SQLAlchemy
+### স্থানীয় ডেভেলপমেন্ট
 
-## Installation and Setup
-
-### Prerequisites
-
-1. **Python 3.11.6** - [Download here](https://www.python.org/downloads/)
-2. **PostgreSQL** - [Download here](https://www.postgresql.org/download/)
-3. **pip** (Python package manager)
-
-### Step 1: Clone the Repository
-
+1. **Repository ক্লোন করুন**
 ```bash
-git clone <repository-url>
-cd Academic-Management-System
+git clone https://github.com/yourusername/academic-management-system.git
+cd academic-management-system
 ```
 
-### Step 2: Create Virtual Environment
-
+2. **Virtual Environment তৈরি করুন**
 ```bash
-# On Windows
-python -m venv venv
-venv\Scripts\activate
-
-# On macOS/Linux
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # Linux/Mac
+# অথবা
+venv\Scripts\activate  # Windows
 ```
 
-### Step 3: Install Dependencies
-
+3. **Dependencies ইনস্টল করুন**
 ```bash
 pip install -r requirements.txt
 ```
 
-### Step 4: Database Setup
-
-1. **Create PostgreSQL Database**
-   ```sql
-   CREATE DATABASE academic_management;
-   CREATE USER academic_user WITH PASSWORD 'your_password';
-   GRANT ALL PRIVILEGES ON DATABASE academic_management TO academic_user;
-   ```
-
-2. **Update Database Configuration**
-   
-   Edit `app.py` and update the database URI:
-   ```python
-   app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://academic_user:your_password@localhost/academic_management'
-   ```
-
-### Step 5: Environment Variables (Optional)
-
-Create a `.env` file in the root directory:
-```env
-SECRET_KEY=your-secret-key-here
-DATABASE_URL=postgresql://academic_user:your_password@localhost/academic_management
+4. **Environment Variables সেট করুন**
+```bash
+# .env ফাইল তৈরি করুন
+SECRET_KEY=your_secret_key_here
 FLASK_ENV=development
 ```
 
-### Step 6: Run the Application
+5. **ডাটাবেস ইনিশিয়ালাইজ করুন**
+```bash
+python init_db.py
+```
 
+6. **অ্যাডমিন ইউজার তৈরি করুন**
+```bash
+python create_admin.py
+```
+
+7. **অ্যাপ্লিকেশন চালু করুন**
 ```bash
 python app.py
 ```
 
-The application will be available at `http://localhost:5000`
+### Cpanel ডিপ্লয়মেন্ট
 
-## Usage Guide
+#### GitHub Actions এর মাধ্যমে (অটোমেটিক)
+1. **GitHub Secrets সেট করুন**
+   - `CPANEL_HOST`
+   - `CPANEL_USERNAME`
+   - `CPANEL_PASSWORD`
+   - `CPANEL_PORT`
 
-### 1. Registration and Login
-- Visit the application homepage
-- Click "Register" to create a new account
-- Use your credentials to login
-
-### 2. Class Management
-- Click "Class Management" from the dashboard
-- Add new students with their details
-- View and manage student information
-
-### 3. Result Management
-- Access "Result Management" module
-- Add student results for different subjects
-- View performance analytics
-
-### 4. Routine Management
-- Navigate to "Routine Management"
-- Create class schedules and timetables
-- View weekly routine layout
-
-## Database Schema
-
-### Users Table
-- `id` (Primary Key)
-- `username` (Unique)
-- `email` (Unique)
-- `password_hash`
-- `role`
-- `created_at`
-
-### Students Table
-- `id` (Primary Key)
-- `student_id` (Unique)
-- `name`
-- `email` (Unique)
-- `phone`
-- `class_name`
-- `section`
-- `created_at`
-
-### Subjects Table
-- `id` (Primary Key)
-- `name`
-- `code` (Unique)
-- `credit`
-- `created_at`
-
-### Results Table
-- `id` (Primary Key)
-- `student_id` (Foreign Key)
-- `subject_id` (Foreign Key)
-- `marks`
-- `total_marks`
-- `semester`
-- `year`
-- `created_at`
-
-### Class Schedules Table
-- `id` (Primary Key)
-- `class_name`
-- `subject_id` (Foreign Key)
-- `teacher_name`
-- `day`
-- `start_time`
-- `end_time`
-- `room`
-- `created_at`
-
-## API Endpoints
-
-### Authentication
-- `GET /` - Dashboard
-- `GET /login` - Login page
-- `POST /login` - Login form submission
-- `GET /register` - Registration page
-- `POST /register` - Registration form submission
-- `GET /logout` - Logout
-
-### Class Management
-- `GET /class-management` - View students
-- `GET /add-student` - Add student form
-- `POST /add-student` - Add student submission
-
-### Result Management
-- `GET /result-management` - View results
-- `GET /add-result` - Add result form
-- `POST /add-result` - Add result submission
-
-### Routine Management
-- `GET /routine-management` - View schedules
-- `GET /add-schedule` - Add schedule form
-- `POST /add-schedule` - Add schedule submission
-
-## Customization
-
-### Adding New Features
-1. Create new models in `app.py`
-2. Add corresponding routes
-3. Create templates in `templates/` directory
-4. Update navigation and dashboard
-
-### Styling
-- Modify `static/css/style.css` for custom styles
-- Update Bootstrap classes in templates
-- Add custom JavaScript in `static/js/script.js`
-
-### Database Modifications
-- Update models in `app.py`
-- Run database migrations if needed
-- Update templates to reflect new fields
-
-## Security Features
-
-- Password hashing using Werkzeug
-- Session management with Flask-Login
-- CSRF protection
-- Input validation and sanitization
-- SQL injection prevention through SQLAlchemy
-
-## Deployment
-
-### Production Setup
-1. Set `FLASK_ENV=production`
-2. Use a production WSGI server (Gunicorn)
-3. Configure reverse proxy (Nginx)
-4. Set up SSL certificates
-5. Configure database for production
-
-### Using Gunicorn
+2. **Code Push করুন**
 ```bash
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 app:app
+git add .
+git commit -m "Setup deployment"
+git push origin main
 ```
 
-## Troubleshooting
+3. **GitHub Actions অটোমেটিক ডিপ্লয় করবে**
 
-### Common Issues
-
-1. **Database Connection Error**
-   - Verify PostgreSQL is running
-   - Check database credentials
-   - Ensure database exists
-
-2. **Import Errors**
-   - Activate virtual environment
-   - Install all requirements
-   - Check Python version compatibility
-
-3. **Template Errors**
-   - Verify template files exist
-   - Check Jinja2 syntax
-   - Ensure proper file permissions
-
-### Logs
-- Check console output for error messages
-- Review Flask debug information
-- Monitor database logs
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support and questions:
-- Create an issue in the repository
-- Contact the development team
-- Check the documentation
-
-## Version History
-
-- **v1.0.0** - Initial release with basic functionality
-- **v1.1.0** - Added user authentication
-- **v1.2.0** - Enhanced UI and responsive design
-- **v1.3.0** - Added result management features
-- **v1.4.0** - Implemented routine management
-
----
-
-**Developed for Law Discipline, Khulna University** 
-
-A comprehensive Flask-based web application for managing academic operations at Law Discipline, Khulna University. This system provides three main modules: Class Management, Result Management, and Routine Management.
-
-## Features
-
-### 🎓 Class Management
-- Add and manage student information
-- View student lists with details
-- Organize students by class and section
-- Student ID and contact management
-
-### 📊 Result Management
-- Record and manage student results
-- Subject-wise performance tracking
-- Semester and year-wise organization
-- Result analysis and reporting
-
-### 📅 Routine Management
-- Create and manage class schedules
-- Weekly timetable view
-- Teacher and room assignment
-- Time slot management
-
-### 🔐 User Authentication
-- Secure login and registration system
-- User session management
-- Role-based access control
-
-## Technology Stack
-
-- **Backend**: Python 3.11.6, Flask
-- **Database**: PostgreSQL
-- **Frontend**: HTML5, CSS3, JavaScript, Bootstrap 5
-- **Authentication**: Flask-Login
-- **ORM**: SQLAlchemy
-
-## Installation and Setup
-
-### Prerequisites
-
-1. **Python 3.11.6** - [Download here](https://www.python.org/downloads/)
-2. **PostgreSQL** - [Download here](https://www.postgresql.org/download/)
-3. **pip** (Python package manager)
-
-### Step 1: Clone the Repository
-
+#### ম্যানুয়াল ডিপ্লয়
+1. **Deployment Package ডাউনলোড করুন**
 ```bash
-git clone <repository-url>
-cd Academic-Management-System
+./deploy_cpanel.sh
 ```
 
-### Step 2: Create Virtual Environment
+2. **ZIP ফাইল Cpanel এ আপলোড করুন**
+3. **Python App সেটআপ করুন**
+4. **ডাটাবেস কনফিগার করুন**
 
-```bash
-# On Windows
-python -m venv venv
-venv\Scripts\activate
+## 📁 প্রজেক্ট স্ট্রাকচার
 
-# On macOS/Linux
-python3 -m venv venv
-source venv/bin/activate
+```
+academic-management-system/
+├── app.py                          # মূল Flask অ্যাপ্লিকেশন
+├── models.py                       # ডাটাবেস মডেল
+├── user_models.py                  # ইউজার মডেল
+├── extensions.py                   # Flask এক্সটেনশন
+├── requirements.txt                # Python dependencies
+├── requirements_cpanel.txt         # Cpanel dependencies
+├── passenger_wsgi.py              # Cpanel entry point
+├── create_admin.py                # অ্যাডমিন ইউজার স্ক্রিপ্ট
+├── .htaccess                      # Apache configuration
+├── .github/
+│   └── workflows/
+│       └── deploy-cpanel.yml      # GitHub Actions workflow
+├── blueprints/                    # Flask blueprints
+│   ├── auth/                      # অথেনটিকেশন
+│   ├── class_management/          # ক্লাস ম্যানেজমেন্ট
+│   ├── result_management/         # রেজাল্ট ম্যানেজমেন্ট
+│   └── routine_management/        # রুটিন ম্যানেজমেন্ট
+├── templates/                     # HTML templates
+├── static/                        # CSS, JS, Images
+├── migrations/                    # Database migrations
+├── instance/                      # Instance-specific files
+└── uploads/                       # Uploaded files
 ```
 
-### Step 3: Install Dependencies
+## 🔧 কনফিগারেশন
 
-```bash
-pip install -r requirements.txt
-```
-
-### Step 4: Database Setup
-
-1. **Create PostgreSQL Database**
-   ```sql
-   CREATE DATABASE academic_management;
-   CREATE USER academic_user WITH PASSWORD 'your_password';
-   GRANT ALL PRIVILEGES ON DATABASE academic_management TO academic_user;
-   ```
-
-2. **Update Database Configuration**
-   
-   Edit `app.py` and update the database URI:
-   ```python
-   app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://academic_user:your_password@localhost/academic_management'
-   ```
-
-### Step 5: Environment Variables (Optional)
-
-Create a `.env` file in the root directory:
+### Environment Variables
 ```env
-SECRET_KEY=your-secret-key-here
-DATABASE_URL=postgresql://academic_user:your_password@localhost/academic_management
-FLASK_ENV=development
+SECRET_KEY=your_secret_key_here
+DATABASE_URL=mysql://username:password@localhost/database_name
+FLASK_ENV=production
+CPANEL=1
 ```
 
-### Step 6: Run the Application
+### ডাটাবেস সেটআপ
+- **Local**: SQLite (default)
+- **Production**: MySQL/PostgreSQL
 
+## 📊 ডাটাবেস স্কিমা
+
+### মূল টেবিলগুলি
+- **users** - ইউজার অ্যাকাউন্ট
+- **students** - স্টুডেন্ট তথ্য
+- **teachers** - শিক্ষক তথ্য
+- **classes** - ক্লাস তথ্য
+- **subjects** - বিষয় তথ্য
+- **sessions** - একাডেমিক সেশন
+- **marks** - পরীক্ষার ফলাফল
+- **attendance** - উপস্থিতি রেকর্ড
+- **routines** - ক্লাস রুটিন
+
+## 🛠️ ডেভেলপমেন্ট
+
+### নতুন ফিচার যোগ করা
+1. **Blueprint তৈরি করুন**
+2. **মডেল ডিফাইন করুন**
+3. **রাউটস যোগ করুন**
+4. **টেমপ্লেট তৈরি করুন**
+5. **মাইগ্রেশন রান করুন**
+
+### টেস্টিং
 ```bash
-python app.py
+# Unit tests
+python -m pytest tests/
+
+# Integration tests
+python -m pytest tests/integration/
 ```
 
-The application will be available at `http://localhost:5000`
+## 🔒 সিকিউরিটি
 
-## Usage Guide
+- **Password Hashing** - bcrypt ব্যবহার
+- **Session Management** - Flask-Login
+- **CSRF Protection** - Flask-WTF
+- **Input Validation** - Form validation
+- **SQL Injection Protection** - SQLAlchemy ORM
 
-### 1. Registration and Login
-- Visit the application homepage
-- Click "Register" to create a new account
-- Use your credentials to login
+## 📈 পারফরম্যান্স
 
-### 2. Class Management
-- Click "Class Management" from the dashboard
-- Add new students with their details
-- View and manage student information
+- **Database Optimization** - Indexed queries
+- **Static File Caching** - Browser caching
+- **Template Caching** - Jinja2 optimization
+- **Database Connection Pooling** - Production ready
 
-### 3. Result Management
-- Access "Result Management" module
-- Add student results for different subjects
-- View performance analytics
+## 🤝 কন্ট্রিবিউশন
 
-### 4. Routine Management
-- Navigate to "Routine Management"
-- Create class schedules and timetables
-- View weekly routine layout
+1. **Fork করুন** এই repository
+2. **Feature branch** তৈরি করুন (`git checkout -b feature/AmazingFeature`)
+3. **Commit করুন** আপনার changes (`git commit -m 'Add some AmazingFeature'`)
+4. **Push করুন** branch এ (`git push origin feature/AmazingFeature`)
+5. **Pull Request** তৈরি করুন
 
-## Database Schema
+## 📝 লাইসেন্স
 
-### Users Table
-- `id` (Primary Key)
-- `username` (Unique)
-- `email` (Unique)
-- `password_hash`
-- `role`
-- `created_at`
+এই প্রজেক্টটি MIT লাইসেন্সের অধীনে লাইসেন্সকৃত। দেখুন `LICENSE` ফাইলটি বিস্তারিত তথ্যের জন্য।
 
-### Students Table
-- `id` (Primary Key)
-- `student_id` (Unique)
-- `name`
-- `email` (Unique)
-- `phone`
-- `class_name`
-- `section`
-- `created_at`
+## 📞 সাপোর্ট
 
-### Subjects Table
-- `id` (Primary Key)
-- `name`
-- `code` (Unique)
-- `credit`
-- `created_at`
+- **Issues**: GitHub Issues ব্যবহার করুন
+- **Documentation**: `docs/` ফোল্ডার দেখুন
+- **Email**: your-email@example.com
 
-### Results Table
-- `id` (Primary Key)
-- `student_id` (Foreign Key)
-- `subject_id` (Foreign Key)
-- `marks`
-- `total_marks`
-- `semester`
-- `year`
-- `created_at`
+## 🙏 ধন্যবাদ
 
-### Class Schedules Table
-- `id` (Primary Key)
-- `class_name`
-- `subject_id` (Foreign Key)
-- `teacher_name`
-- `day`
-- `start_time`
-- `end_time`
-- `room`
-- `created_at`
-
-## API Endpoints
-
-### Authentication
-- `GET /` - Dashboard
-- `GET /login` - Login page
-- `POST /login` - Login form submission
-- `GET /register` - Registration page
-- `POST /register` - Registration form submission
-- `GET /logout` - Logout
-
-### Class Management
-- `GET /class-management` - View students
-- `GET /add-student` - Add student form
-- `POST /add-student` - Add student submission
-
-### Result Management
-- `GET /result-management` - View results
-- `GET /add-result` - Add result form
-- `POST /add-result` - Add result submission
-
-### Routine Management
-- `GET /routine-management` - View schedules
-- `GET /add-schedule` - Add schedule form
-- `POST /add-schedule` - Add schedule submission
-
-## Customization
-
-### Adding New Features
-1. Create new models in `app.py`
-2. Add corresponding routes
-3. Create templates in `templates/` directory
-4. Update navigation and dashboard
-
-### Styling
-- Modify `static/css/style.css` for custom styles
-- Update Bootstrap classes in templates
-- Add custom JavaScript in `static/js/script.js`
-
-### Database Modifications
-- Update models in `app.py`
-- Run database migrations if needed
-- Update templates to reflect new fields
-
-## Security Features
-
-- Password hashing using Werkzeug
-- Session management with Flask-Login
-- CSRF protection
-- Input validation and sanitization
-- SQL injection prevention through SQLAlchemy
-
-## Deployment
-
-### Production Setup
-1. Set `FLASK_ENV=production`
-2. Use a production WSGI server (Gunicorn)
-3. Configure reverse proxy (Nginx)
-4. Set up SSL certificates
-5. Configure database for production
-
-### Using Gunicorn
-```bash
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 app:app
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Database Connection Error**
-   - Verify PostgreSQL is running
-   - Check database credentials
-   - Ensure database exists
-
-2. **Import Errors**
-   - Activate virtual environment
-   - Install all requirements
-   - Check Python version compatibility
-
-3. **Template Errors**
-   - Verify template files exist
-   - Check Jinja2 syntax
-   - Ensure proper file permissions
-
-### Logs
-- Check console output for error messages
-- Review Flask debug information
-- Monitor database logs
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For support and questions:
-- Create an issue in the repository
-- Contact the development team
-- Check the documentation
-
-## Version History
-
-- **v1.0.0** - Initial release with basic functionality
-- **v1.1.0** - Added user authentication
-- **v1.2.0** - Enhanced UI and responsive design
-- **v1.3.0** - Added result management features
-- **v1.4.0** - Implemented routine management
+- **Flask** - Web framework
+- **SQLAlchemy** - Database ORM
+- **Bootstrap** - CSS framework
+- **Font Awesome** - Icons
 
 ---
 
-**Developed for Law Discipline, Khulna University** 
+⭐ যদি এই প্রজেক্টটি আপনার কাছে ভালো লাগে, তাহলে একটি star দিন!
