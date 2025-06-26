@@ -46,11 +46,62 @@ def create_app():
             db_path = os.path.join(app.instance_path, 'academic_management.db')
             os.makedirs(app.instance_path, exist_ok=True)
             app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+    elif os.environ.get('MYSQL'):
+        # MySQL deployment
+        mysql_host = os.getenv('MYSQL_HOST', 'localhost')
+        mysql_port = os.getenv('MYSQL_PORT', '3306')
+        mysql_user = os.getenv('MYSQL_USER', 'root')
+        mysql_password = os.getenv('MYSQL_PASSWORD', '')
+        mysql_database = os.getenv('MYSQL_DATABASE', 'academic_management')
+        
+        app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}:{mysql_port}/{mysql_database}'
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_size': 10,
+            'pool_recycle': 300,
+            'pool_pre_ping': True,
+            'charset': 'utf8mb4'
+        }
     else:
-        # Local development - always use SQLite
-        db_path = os.path.join(app.instance_path, 'academic_management.db')
-        os.makedirs(app.instance_path, exist_ok=True)
-        app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+        # Local development - check for MySQL first, then fallback to SQLite
+        mysql_host = os.getenv('MYSQL_HOST', 'localhost')
+        mysql_port = os.getenv('MYSQL_PORT', '3306')
+        mysql_user = os.getenv('MYSQL_USER', 'root')
+        mysql_password = os.getenv('MYSQL_PASSWORD', '')
+        mysql_database = os.getenv('MYSQL_DATABASE', 'academic_management')
+        
+        if mysql_host and mysql_user and mysql_database:
+            # Try MySQL connection
+            try:
+                import pymysql
+                test_connection = pymysql.connect(
+                    host=mysql_host,
+                    port=int(mysql_port),
+                    user=mysql_user,
+                    password=mysql_password,
+                    database=mysql_database
+                )
+                test_connection.close()
+                
+                app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+pymysql://{mysql_user}:{mysql_password}@{mysql_host}:{mysql_port}/{mysql_database}'
+                app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+                    'pool_size': 10,
+                    'pool_recycle': 300,
+                    'pool_pre_ping': True,
+                    'charset': 'utf8mb4'
+                }
+                print(f"✅ MySQL database connected: {mysql_database}")
+            except Exception as e:
+                print(f"⚠️ MySQL connection failed: {e}")
+                print("🔄 Falling back to SQLite...")
+                # Fallback to SQLite
+                db_path = os.path.join(app.instance_path, 'academic_management.db')
+                os.makedirs(app.instance_path, exist_ok=True)
+                app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
+        else:
+            # Use SQLite by default
+            db_path = os.path.join(app.instance_path, 'academic_management.db')
+            os.makedirs(app.instance_path, exist_ok=True)
+            app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
         
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

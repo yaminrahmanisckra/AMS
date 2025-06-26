@@ -1,28 +1,52 @@
+# Academic Management System - Shared Hosting Configuration
+# This file handles static files and routes all other requests to the Python app
+
+# Enable rewrite engine
 RewriteEngine On
 
 # Handle static files directly
-RewriteCond %{REQUEST_FILENAME} -f
-RewriteRule ^static/(.*)$ static/$1 [L]
+RewriteCond %{REQUEST_URI} !^/static/
+RewriteCond %{REQUEST_URI} !^/uploads/
+RewriteCond %{REQUEST_URI} !^/favicon.ico
+RewriteCond %{REQUEST_URI} !^/robots.txt
 
-# Handle all other requests through passenger_wsgi.py
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ passenger_wsgi.py/$1 [L]
+# Route all other requests to passenger_wsgi.py
+RewriteRule ^(.*)$ passenger_wsgi.py/$1 [QSA,L]
+
+# Set proper MIME types for static files
+<FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
+    Header set Cache-Control "max-age=31536000, public"
+</FilesMatch>
 
 # Security headers
-<IfModule mod_headers.c>
-    Header always set X-Content-Type-Options nosniff
-    Header always set X-Frame-Options DENY
-    Header always set X-XSS-Protection "1; mode=block"
-</IfModule>
+Header always set X-Content-Type-Options nosniff
+Header always set X-Frame-Options DENY
+Header always set X-XSS-Protection "1; mode=block"
 
-# Cache static files
-<IfModule mod_expires.c>
-    ExpiresActive On
-    ExpiresByType text/css "access plus 1 month"
-    ExpiresByType application/javascript "access plus 1 month"
-    ExpiresByType image/png "access plus 1 month"
-    ExpiresByType image/jpg "access plus 1 month"
-    ExpiresByType image/jpeg "access plus 1 month"
-    ExpiresByType image/gif "access plus 1 month"
+# Prevent access to sensitive files
+<FilesMatch "\.(py|pyc|env|ini|log|sqlite|db)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow access to passenger_wsgi.py
+<Files "passenger_wsgi.py">
+    Order allow,deny
+    Allow from all
+</Files>
+
+# Set default character encoding
+AddDefaultCharset UTF-8
+
+# Enable compression
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE application/xhtml+xml
+    AddOutputFilterByType DEFLATE application/rss+xml
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
 </IfModule> 

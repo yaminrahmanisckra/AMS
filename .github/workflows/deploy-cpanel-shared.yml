@@ -1,0 +1,253 @@
+name: Deploy to Shared Hosting cPanel
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Create deployment package
+      run: |
+        # Create deployment directory
+        mkdir -p cpanel_deploy
+        
+        # Copy necessary files
+        cp app.py cpanel_deploy/
+        cp passenger_wsgi.py cpanel_deploy/
+        cp requirements_cpanel.txt cpanel_deploy/
+        cp models.py cpanel_deploy/
+        cp user_models.py cpanel_deploy/
+        cp extensions.py cpanel_deploy/
+        cp create_admin.py cpanel_deploy/
+        cp .htaccess cpanel_deploy/
+        
+        # Copy directories
+        cp -r blueprints cpanel_deploy/
+        cp -r templates cpanel_deploy/
+        cp -r static cpanel_deploy/
+        cp -r migrations cpanel_deploy/
+        
+        # Create necessary directories
+        mkdir -p cpanel_deploy/instance
+        mkdir -p cpanel_deploy/uploads
+        
+        # Create deployment info
+        echo "Deployed from GitHub Actions" > cpanel_deploy/DEPLOY_INFO.txt
+        echo "Date: $(date)" >> cpanel_deploy/DEPLOY_INFO.txt
+        echo "Commit: ${{ github.sha }}" >> cpanel_deploy/DEPLOY_INFO.txt
+        echo "Python Version: 3.9.22" >> cpanel_deploy/DEPLOY_INFO.txt
+        
+        # Create ZIP file
+        cd cpanel_deploy
+        zip -r ../deployment.zip .
+        cd ..
+        
+    - name: Deploy to cPanel via File Manager API
+      run: |
+        # Create deployment script using cPanel File Manager API
+        cat > deploy_via_filemanager.py << 'EOF'
+        import requests
+        import zipfile
+        import os
+        import base64
+        
+        # cPanel API credentials
+        CPANEL_HOST = "${{ secrets.CPANEL_HOST }}"
+        CPANEL_USERNAME = "${{ secrets.CPANEL_USERNAME }}"
+        CPANEL_PASSWORD = "${{ secrets.CPANEL_PASSWORD }}"
+        CPANEL_PORT = "${{ secrets.CPANEL_PORT }}"
+        
+        # API endpoint for File Manager
+        API_URL = f"https://{CPANEL_HOST}:{CPANEL_PORT}/execute/Fileman/upload_files"
+        
+        # Authentication
+        auth = (CPANEL_USERNAME, CPANEL_PASSWORD)
+        
+        # Upload ZIP file
+        with open('deployment.zip', 'rb') as f:
+            files = {'file': ('deployment.zip', f, 'application/zip')}
+            data = {
+                'dir': '/public_html',
+                'overwrite': '1'
+            }
+            
+            response = requests.post(API_URL, auth=auth, files=files, data=data, verify=False)
+            
+            if response.status_code == 200:
+                print("✅ ZIP file uploaded successfully")
+                
+                # Extract ZIP file
+                extract_url = f"https://{CPANEL_HOST}:{CPANEL_PORT}/execute/Fileman/extract_archive"
+                extract_data = {
+                    'dir': '/public_html',
+                    'file': 'deployment.zip'
+                }
+                
+                extract_response = requests.post(extract_url, auth=auth, data=extract_data, verify=False)
+                
+                if extract_response.status_code == 200:
+                    print("✅ ZIP file extracted successfully")
+                    
+                    # Delete ZIP file
+                    delete_url = f"https://{CPANEL_HOST}:{CPANEL_PORT}/execute/Fileman/delete_files"
+                    delete_data = {
+                        'dir': '/public_html',
+                        'files': 'deployment.zip'
+                    }
+                    
+                    delete_response = requests.post(delete_url, auth=auth, data=delete_data, verify=False)
+                    
+                    if delete_response.status_code == 200:
+                        print("✅ ZIP file deleted successfully")
+                    else:
+                        print("⚠️ Could not delete ZIP file")
+                else:
+                    print("❌ Failed to extract ZIP file")
+            else:
+                print("❌ Failed to upload ZIP file")
+                print(f"Response: {response.text}")
+        EOF
+        
+        # Run deployment script
+        python deploy_via_filemanager.py
+        
+    - name: Set file permissions via API
+      run: |
+        # Create permission setting script
+        cat > set_permissions.py << 'EOF'
+        import requests
+        
+        # cPanel API credentials
+        CPANEL_HOST = "${{ secrets.CPANEL_HOST }}"
+        CPANEL_USERNAME = "${{ secrets.CPANEL_USERNAME }}"
+        CPANEL_PASSWORD = "${{ secrets.CPANEL_PASSWORD }}"
+        CPANEL_PORT = "${{ secrets.CPANEL_PORT }}"
+        
+        # API endpoint for File Manager
+        API_URL = f"https://{CPANEL_HOST}:{CPANEL_PORT}/execute/Fileman/change_permissions"
+        
+        # Authentication
+        auth = (CPANEL_USERNAME, CPANEL_PASSWORD)
+        
+        # Set permissions for files
+        file_permissions = [
+            {'file': 'app.py', 'permissions': '644'},
+            {'file': 'passenger_wsgi.py', 'permissions': '644'},
+            {'file': 'requirements_cpanel.txt', 'permissions': '644'},
+            {'file': '.htaccess', 'permissions': '644'},
+            {'file': 'models.py', 'permissions': '644'},
+            {'file': 'user_models.py', 'permissions': '644'},
+            {'file': 'extensions.py', 'permissions': '644'},
+            {'file': 'create_admin.py', 'permissions': '644'}
+        ]
+        
+        # Set permissions for directories
+        dir_permissions = [
+            {'dir': 'blueprints', 'permissions': '755'},
+            {'dir': 'templates', 'permissions': '755'},
+            {'dir': 'static', 'permissions': '755'},
+            {'dir': 'migrations', 'permissions': '755'},
+            {'dir': 'instance', 'permissions': '755'},
+            {'dir': 'uploads', 'permissions': '755'}
+        ]
+        
+        # Set file permissions
+        for file_info in file_permissions:
+            data = {
+                'dir': '/public_html',
+                'file': file_info['file'],
+                'permissions': file_info['permissions']
+            }
+            
+            response = requests.post(API_URL, auth=auth, data=data, verify=False)
+            
+            if response.status_code == 200:
+                print(f"✅ Set permissions {file_info['permissions']} for {file_info['file']}")
+            else:
+                print(f"⚠️ Failed to set permissions for {file_info['file']}")
+        
+        # Set directory permissions
+        for dir_info in dir_permissions:
+            data = {
+                'dir': f"/public_html/{dir_info['dir']}",
+                'permissions': dir_info['permissions']
+            }
+            
+            response = requests.post(API_URL, auth=auth, data=data, verify=False)
+            
+            if response.status_code == 200:
+                print(f"✅ Set permissions {dir_info['permissions']} for {dir_info['dir']}")
+            else:
+                print(f"⚠️ Failed to set permissions for {dir_info['dir']}")
+        EOF
+        
+        # Run permission setting script
+        python set_permissions.py
+        
+    - name: Create deployment instructions
+      run: |
+        echo "🚀 Deployment Summary" > DEPLOYMENT_INSTRUCTIONS.md
+        echo "====================" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "✅ Code deployed to cPanel" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "✅ File permissions set" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "📋 Manual Steps Required:" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "1. Go to cPanel → Software → Setup Python App" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "2. Create new Python application:" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - Python version: 3.9.22" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - Application startup file: passenger_wsgi.py" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - Application entry point: application" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - Application URL: your domain" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "3. Go to cPanel → Terminal" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "4. Run: cd public_html && pip3 install -r requirements_cpanel.txt" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "5. Go to cPanel → Software → Environment Variables" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "6. Add these variables:" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - CPANEL=1" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - SECRET_KEY=your_secret_key" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - DATABASE_URL=mysql://username:password@localhost/database_name" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "7. Go back to Setup Python App and click 'Restart'" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "8. Create admin user:" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - Go to Terminal" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "   - Run: cd public_html && python3 create_admin.py" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "" >> DEPLOYMENT_INSTRUCTIONS.md
+        echo "🌐 Your application will be available at your domain" >> DEPLOYMENT_INSTRUCTIONS.md
+        
+    - name: Upload deployment instructions
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-instructions
+        path: DEPLOYMENT_INSTRUCTIONS.md
+        
+    - name: Deployment Summary
+      run: |
+        echo "🚀 Deployment to Shared Hosting cPanel Completed!"
+        echo "================================================"
+        echo ""
+        echo "✅ Files uploaded to cPanel"
+        echo "✅ File permissions set"
+        echo "✅ Deployment instructions created"
+        echo ""
+        echo "📋 Next Steps:"
+        echo "1. Check the deployment instructions artifact"
+        echo "2. Follow the manual setup steps in cPanel"
+        echo "3. Test your application"
+        echo ""
+        echo "🔗 Your application will be available at:"
+        echo "https://${{ secrets.CPANEL_HOST }}" 
