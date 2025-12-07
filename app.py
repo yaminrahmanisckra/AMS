@@ -7738,17 +7738,50 @@ def create_app():
             if new_password or confirm_password:
                 if not current_user.check_password(current_password):
                     flash('Current password is incorrect.', 'danger')
-                    return render_template('profile.html')
+                    return redirect(url_for('profile'))
                 if new_password != confirm_password:
                     flash('New passwords do not match.', 'danger')
-                    return render_template('profile.html')
+                    return redirect(url_for('profile'))
                 if new_password:
                     current_user.set_password(new_password)
+
+            # Update teacher information if user is a teacher
+            user_roles = parse_roles(current_user.role)
+            if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+                teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+                if not teacher:
+                    # Create teacher record if it doesn't exist
+                    short_name = (current_user.username or current_user.full_name.split()[0].lower())[:10]
+                    counter = 1
+                    base_short = short_name
+                    while Teacher.query.filter_by(short_name=short_name).first():
+                        short_name = f"{base_short[:10-len(str(counter))]}{counter}"
+                        counter += 1
+                    teacher = Teacher(name=current_user.full_name, short_name=short_name)
+                    db.session.add(teacher)
+                    db.session.flush()
+                
+                # Update teacher name if it changed
+                if teacher.name != current_user.full_name:
+                    teacher.name = current_user.full_name
+                
+                # Update call_sign and bank_account_no
+                call_sign = request.form.get('call_sign', '').strip()
+                bank_account_no = request.form.get('bank_account_no', '').strip()
+                teacher.call_sign = call_sign if call_sign else None
+                teacher.bank_account_no = bank_account_no if bank_account_no else None
 
             db.session.commit()
             flash('Profile updated successfully!', 'success')
             return redirect(url_for('profile'))
-        return render_template('profile.html')
+        
+        # Get teacher record for display
+        teacher_record = None
+        user_roles = parse_roles(current_user.role)
+        if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+            teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+        
+        return render_template('profile.html', teacher_record=teacher_record)
 
     return app
 

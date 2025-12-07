@@ -32,6 +32,23 @@
                             <label for="email" class="form-label">Email</label>
                             <input type="email" class="form-control" id="email" name="email" value="{{ current_user.email }}" required>
                         </div>
+                        
+                        {% set user_roles = parse_roles(current_user.role) %}
+                        {% if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles %}
+                        <hr>
+                        <h5>Teacher Information</h5>
+                        <div class="mb-3">
+                            <label for="call_sign" class="form-label">Call Sign</label>
+                            <input type="text" class="form-control" id="call_sign" name="call_sign" value="{% if teacher_record and teacher_record.call_sign %}{{ teacher_record.call_sign }}{% endif %}" placeholder="Enter your call sign">
+                            <small class="text-muted">Your call sign for routine and other purposes</small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="bank_account_no" class="form-label">Bank Account No</label>
+                            <input type="text" class="form-control" id="bank_account_no" name="bank_account_no" value="{% if teacher_record and teacher_record.bank_account_no %}{{ teacher_record.bank_account_no }}{% endif %}" placeholder="Enter your bank account number">
+                            <small class="text-muted">Bank account number for remuneration purposes</small>
+                        </div>
+                        {% endif %}
+                        
                         <hr>
                         <h5>Change Password</h5>
                         <div class="mb-3">

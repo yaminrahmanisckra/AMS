@@ -34,7 +34,7 @@
 ### ১. সিস্টেমে প্রবেশ
 
 1. আপনার ওয়েব ব্রাউজার খুলুন
-2. সিস্টেমের URL-এ যান (যেমন: `https://yourdomain.com`)
+2. সিস্টেমের URL-এ যান (যেমন: `https://kulawams.xyz`)
 3. লগইন পেজে পৌঁছবেন
 
 ### ২. প্রথম লগইন
@@ -446,7 +446,18 @@
    - **Confirm New Password** দিন
 2. **"Update Profile"** ক্লিক করুন
 
-**নোট:** Photo upload করলে সেটা Course Registration PDF-এ automatically যুক্ত হবে (স্টুডেন্টদের জন্য)।
+### ৩. শিক্ষকদের জন্য Call Sign এবং Bank Account No
+
+**শিক্ষক, Dean, বা Head of Discipline** হিসেবে লগইন করলে Profile পেজে অতিরিক্ত সেকশন দেখবেন:
+
+1. **"Teacher Information"** সেকশনে:
+   - **Call Sign** - আপনার Call Sign দিন (routine এবং অন্যান্য কাজে ব্যবহৃত হবে)
+   - **Bank Account No** - আপনার ব্যাংক একাউন্ট নম্বর দিন (remuneration-এর জন্য)
+2. **"Update Profile"** ক্লিক করুন
+
+**নোট:** 
+- Photo upload করলে সেটা Course Registration PDF-এ automatically যুক্ত হবে (স্টুডেন্টদের জন্য)
+- Call Sign এবং Bank Account No Admin Dashboard-এও দেখা যাবে
 
 ---
 
