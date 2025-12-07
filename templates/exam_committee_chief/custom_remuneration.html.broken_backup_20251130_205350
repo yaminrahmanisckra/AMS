@@ -1,0 +1,172 @@
+// Save form function - SIMPLIFIED VERSION
+function saveForm() {
+    console.log('🚀 saveForm() called - Using simplified save method');
+    
+    // First, save to localStorage as backup
+    try {
+        const formData = collectFormData();
+        localStorage.setItem('custom_remuneration_draft', JSON.stringify(formData));
+        localStorage.setItem('custom_remuneration_draft_timestamp', new Date().toISOString());
+        console.log('✅ Data saved to localStorage as backup');
+    } catch (error) {
+        console.error('❌ Error saving to localStorage:', error);
+    }
+    
+    // Collect form data
+    let formData;
+    try {
+        formData = collectFormData();
+        console.log('📝 Form data collected');
+    } catch (error) {
+        console.error('❌ Error in collectFormData():', error);
+        alert('❌ Error collecting form data: ' + error.message);
+        return;
+    }
+    
+    // Show loading indicator
+    const saveBtn = document.querySelector('button[onclick="saveForm()"]');
+    if (!saveBtn) {
+        console.error('❌ Save button not found!');
+        alert('❌ Save button not found. Please refresh the page.');
+        return;
+    }
+    
+    const originalText = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    
+    // Use a simpler approach: Create a hidden form and submit it
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/exam-committee-chief/custom-remuneration/save-simple';
+    form.style.display = 'none';
+    
+    // Add form data as hidden input
+    const dataInput = document.createElement('input');
+    dataInput.type = 'hidden';
+    dataInput.name = 'form_data';
+    dataInput.value = JSON.stringify(formData);
+    form.appendChild(dataInput);
+    
+    // Add form_id if exists
+    const formIdInput = document.getElementById('form_id');
+    if (formIdInput && formIdInput.value) {
+        const hiddenFormId = document.createElement('input');
+        hiddenFormId.type = 'hidden';
+        hiddenFormId.name = 'form_id';
+        hiddenFormId.value = formIdInput.value;
+        form.appendChild(hiddenFormId);
+    }
+    
+    // Add CSRF token if available
+    const csrfToken = document.querySelector('meta[name="csrf-token"]');
+    if (csrfToken) {
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrf_token';
+        csrfInput.value = csrfToken.content;
+        form.appendChild(csrfInput);
+    }
+    
+    document.body.appendChild(form);
+    
+    // Submit using fetch first, fallback to form submit
+    fetch('/exam-committee-chief/custom-remuneration/save-simple', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            'form_data': JSON.stringify(formData),
+            'form_id': formIdInput?.value || ''
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.body.removeChild(form);
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+        
+        if (data.success) {
+            console.log('✅ Save successful! Form ID:', data.form_id);
+            alert('✅ Form saved successfully! Form ID: ' + (data.form_id || 'N/A'));
+            
+            // Store form_id
+            if (data.form_id) {
+                let formIdElement = document.getElementById('form_id');
+                if (!formIdElement) {
+                    formIdElement = document.createElement('input');
+                    formIdElement.type = 'hidden';
+                    formIdElement.id = 'form_id';
+                    formIdElement.name = 'form_id';
+                    const container = document.querySelector('.remuneration-form-container') || document.body;
+                    container.appendChild(formIdElement);
+                }
+                formIdElement.value = data.form_id;
+                
+                // Update URL
+                const newUrl = `/exam-committee-chief/custom-remuneration/${data.form_id}`;
+                window.history.replaceState({}, '', newUrl);
+                console.log('✅ URL updated to:', newUrl);
+            }
+            
+            // Clear localStorage backup after successful save
+            localStorage.removeItem('custom_remuneration_draft');
+            localStorage.removeItem('custom_remuneration_draft_timestamp');
+        } else {
+            throw new Error(data.message || 'Save failed');
+        }
+    })
+    .catch(error => {
+        document.body.removeChild(form);
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+        console.error('❌ Error saving form:', error);
+        alert('❌ Error saving form: ' + error.message + '\n\nNote: Your data has been saved to browser storage as backup.');
+    });
+}
+
+// Auto-load from localStorage if available
+document.addEventListener('DOMContentLoaded', function() {
+    // Check for saved draft in localStorage
+    const savedDraft = localStorage.getItem('custom_remuneration_draft');
+    if (savedDraft) {
+        const timestamp = localStorage.getItem('custom_remuneration_draft_timestamp');
+        const savedDate = timestamp ? new Date(timestamp) : null;
+        const hoursAgo = savedDate ? (Date.now() - savedDate.getTime()) / (1000 * 60 * 60) : 0;
+        
+        if (hoursAgo < 24) { // Only restore if less than 24 hours old
+            const confirmRestore = confirm(
+                `You have unsaved changes from ${savedDate ? savedDate.toLocaleString() : 'recently'}.\n\n` +
+                'Would you like to restore them?'
+            );
+            
+            if (confirmRestore) {
+                try {
+                    const draftData = JSON.parse(savedDraft);
+                    populateFormData(draftData);
+                    console.log('✅ Draft data restored from localStorage');
+                } catch (error) {
+                    console.error('❌ Error restoring draft:', error);
+                }
+            }
+        }
+    }
+    
+    // Check for form_id in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const formIdFromUrl = urlParams.get('form_id') || window.location.pathname.split('/').pop();
+    if (formIdFromUrl && /^\d+$/.test(formIdFromUrl)) {
+        fetch(`/exam-committee-chief/custom-remuneration/load/${formIdFromUrl}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    populateFormData(data.data);
+                    console.log('✅ Form data loaded from server');
+                }
+            })
+            .catch(error => {
+                console.error('❌ Error loading form data:', error);
+            });
+    }
+});

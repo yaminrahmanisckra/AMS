@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="card shadow">
+    <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+      <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>Classroom Teaching Observation Report</h5>
+      <a class="btn btn-light btn-sm" href="{{ url_for('class_management.my_invitations') }}"><i class="fas fa-list me-1"></i>My Invitations</a>
+    </div>
+    <div class="card-body">
+      <form method="POST">
+        <h6 class="mb-2">A. General Information</h6>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Name of the program</label>
+            <input name="program_name" class="form-control" value="{{ general_data.get('program_name','') }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Name of Teacher</label>
+            <input name="teacher_name" class="form-control" value="{{ general_data.get('teacher_name', session.teacher.name) }}" readonly>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Name of Observer</label>
+            <input name="observer_name" class="form-control" value="{{ general_data.get('observer_name', current_user.full_name) }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Course Name</label>
+            <input name="course_name" class="form-control" value="{{ general_data.get('course_name','') }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Course Code</label>
+            <input name="course_code" class="form-control" value="{{ general_data.get('course_code','') }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Year</label>
+            <input name="course_year" class="form-control" value="{{ general_data.get('course_year','') }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Term</label>
+            <input name="course_term" class="form-control" value="{{ general_data.get('course_term','') }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Academic Session</label>
+            <input name="academic_session" class="form-control" value="{{ general_data.get('academic_session','') }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Venue</label>
+            <input name="venue" class="form-control" value="{{ general_data.get('venue','') }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Date</label>
+            <input type="date" name="session_date" class="form-control" value="{{ general_data.get('session_date') or current_date }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Time</label>
+            <input type="time" name="session_time" class="form-control" value="{{ general_data.get('session_time') or current_time }}">
+          </div>
+        </div>
+
+        <h6 class="mb-2">B. Aspects Evaluated and Scoring (5=Excellent ... 1=Poor)</h6>
+        <p class="text-muted" style="font-size: 0.9rem;">Score Scale: 5 = Excellent, 4 = Very Good, 3 = Good, 2 = Fair, 1 = Poor</p>
+{% macro score_row(label, name) %}
+          <tr>
+            <td>{{ label }}</td>
+            {% for v in [5,4,3,2,1] %}
+      <td class="text-center"><input type="radio" name="{{ name }}" value="{{ v }}" {% if score_data.get(name) == v %}checked{% endif %} required></td>
+            {% endfor %}
+          </tr>
+        {% endmacro %}
+        <div class="table-responsive">
+          <table class="table table-bordered align-middle evaluation-score-table">
+            <thead class="table-light">
+              <tr>
+                <th style="width:60%">Description</th>
+                <th class="text-center">5</th>
+                <th class="text-center">4</th>
+                <th class="text-center">3</th>
+                <th class="text-center">2</th>
+                <th class="text-center">1</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="table-secondary"><td colspan="6"><strong>1. Set Induction</strong></td></tr>
+              {{ score_row('a) Clarity of objectives', 'b1_a') }}
+              {{ score_row('b) Relevance to topic', 'b1_b') }}
+              {{ score_row('c) Appropriateness of introduction', 'b1_c') }}
+
+              <tr class="table-secondary"><td colspan="6"><strong>2. Content</strong></td></tr>
+              {{ score_row('a) Knowledge', 'b2_a') }}
+              {{ score_row('b) Extend of coverage', 'b2_b') }}
+              {{ score_row('c) Level of interest generated', 'b2_c') }}
+              {{ score_row('d) Logical flow of presentation', 'b2_d') }}
+              {{ score_row('e) Correctness of language used', 'b2_e') }}
+              {{ score_row('f) Clear and relevant use of analogies/examples', 'b2_f') }}
+
+              <tr class="table-secondary"><td colspan="6"><strong>3. Presentation</strong></td></tr>
+              {{ score_row('a) Appropriate pacing', 'b3_a') }}
+              {{ score_row('b) Confidence', 'b3_b') }}
+              {{ score_row('c) Enthusiasm', 'b3_c') }}
+              {{ score_row('d) Provoking students to think', 'b3_d') }}
+              {{ score_row('e) Clarity of presentation', 'b3_e') }}
+              {{ score_row('f) Interaction with students', 'b3_f') }}
+              {{ score_row('g) Effective use of teaching/learning aids', 'b3_g') }}
+              {{ score_row('h) Effective class management', 'b3_h') }}
+
+              <tr class="table-secondary"><td colspan="6"><strong>4. Closure</strong></td></tr>
+              {{ score_row('a) Appropriateness of closure', 'b4_a') }}
+              {{ score_row('b) Use of effective questions to gain feedback', 'b4_b') }}
+              {{ score_row('c) Appropriate links to the next lesson', 'b4_c') }}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="row g-3 mt-3">
+          <div class="col-md-12">
+            <label class="form-label">C. Observer's Overall Comments and Suggestions for Improvement</label>
+            <textarea name="comments_observer" class="form-control" rows="3">{{ submission.comments_observer if submission else '' }}</textarea>
+          </div>
+          <div class="col-md-12">
+            <label class="form-label">D. Presenter's Comment/Remarks (to be filled later by the presenter)</label>
+            <textarea class="form-control" rows="3" disabled>{{ submission.comments_presenter if submission else '' }}</textarea>
+          </div>
+        </div>
+
+        <div class="d-flex justify-content-end mt-3">
+          <button type="submit" class="btn btn-success"><i class="fas fa-save me-1"></i>Submit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+

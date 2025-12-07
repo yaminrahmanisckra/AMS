@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Student Dashboard{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="text-center mb-5">
+        <h1 class="mb-2">Hi {{ current_user.full_name or 'Student' }} 👋</h1>
+        <p class="text-muted mb-0">Please complete your course registration to proceed with academic activities.</p>
+    </div>
+
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-4 mb-4">
+            <a href="{{ url_for('course_management.student_course_registration') }}" class="text-decoration-none">
+                <div class="card shadow-sm text-center course-card">
+                    <div class="card-body py-5">
+                        <div class="icon-circle mb-3">
+                            <i class="fas fa-clipboard-check fa-2x text-primary"></i>
+                        </div>
+                        <h4 class="card-title mb-2">Course Registration</h4>
+                        <p class="text-muted mb-0">Select session, year, term and download your registration form.</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-4 mb-4">
+            <a href="{{ url_for('class_management.student_view_scores') }}" class="text-decoration-none">
+                <div class="card shadow-sm text-center course-card">
+                    <div class="card-body py-5">
+                        <div class="icon-circle mb-3" style="background-color: rgba(40,167,69,0.12);">
+                            <i class="fas fa-chart-line fa-2x text-success"></i>
+                        </div>
+                        <h4 class="card-title mb-2">My Scores</h4>
+                        <p class="text-muted mb-0">View your assessment and attendance scores.</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+</div>
+
+<style>
+.course-card {
+    border: none;
+    border-radius: 16px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.course-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+}
+.icon-circle {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background-color: rgba(13,110,253,0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+}
+</style>
+{% endblock %}
+

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <h4><i class="bi bi-plus-circle-fill me-2"></i>Add New Session</h4>
+        </div>
+        <div class="card-body">
+            <form method="post">
+                <div class="mb-3">
+                    <label for="name" class="form-label">Academic Session<span class="text-danger">*</span></label>
+                    <select class="form-select" id="name" name="name" required>
+                        <option value="">Select Session</option>
+                        {% for option in session_options %}
+                        <option value="{{ option }}" {% if option == selected_session %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if not session_options %}
+                    <div class="form-text text-danger">No sessions found. Create class sessions first.</div>
+                    {% endif %}
+                </div>
+                <div class="mb-3">
+                    <label for="year" class="form-label">Year</label>
+                    <select class="form-select" id="year" name="year">
+                        <option value="">Select Year</option>
+                        {% for option in year_options %}
+                        <option value="{{ option }}" {% if option == selected_year %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="term" class="form-label">Term<span class="text-danger">*</span></label>
+                    <select class="form-select" id="term" name="term" required>
+                        <option value="">Select Term</option>
+                        {% for option in term_options %}
+                        <option value="{{ option }}" {% if option == selected_term %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Add Session</button>
+                <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Back to Sessions</a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+
+
+
+
+
+                        <option value="{{ option }}" {% if option == selected_term %}selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Add Session</button>
+                <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Back to Sessions</a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+
+
+
+

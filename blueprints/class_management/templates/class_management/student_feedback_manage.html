@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="fas fa-comments me-2 text-info"></i>Student Feedback</h4>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.evaluation', session_id=session.id) }}">
+      <i class="fas fa-arrow-left me-1"></i>Back to Evaluation
+    </a>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-lg-5">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-info text-white">
+          <h6 class="mb-0">Access Settings</h6>
+        </div>
+        <div class="card-body">
+          {% if feedback_link %}
+            <form method="POST" class="mb-3">
+              <input type="hidden" name="action" value="update">
+              <div class="mb-3">
+                <label class="form-label">Title</label>
+                <input type="text" name="title" class="form-control" value="{{ feedback_link.title }}" placeholder="Optional title for the form">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Instructions / Description</label>
+                <textarea name="description" class="form-control" rows="3" placeholder="Optional instructions for students">{{ feedback_link.description }}</textarea>
+              </div>
+              <div class="row g-2">
+                <div class="col-sm-6">
+                  <label class="form-label">Expires On</label>
+                  <input type="date" name="expires_at" class="form-control" value="{{ feedback_link.expires_at.strftime('%Y-%m-%d') if feedback_link.expires_at else '' }}">
+                </div>
+                <div class="col-sm-6 d-flex align-items-end">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="allow_multiple" id="allowMultiple" {% if feedback_link.allow_multiple %}checked{% endif %}>
+                    <label class="form-check-label" for="allowMultiple">
+                      Allow multiple submits
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <button type="submit" class="btn btn-info text-white w-100 mt-3">
+                <i class="fas fa-save me-1"></i>Update Settings
+              </button>
+            </form>
+
+            <div class="border rounded p-3 bg-light">
+              <p class="small text-muted mb-1">Access Code</p>
+              <div class="d-flex gap-2">
+                <input type="text" class="form-control form-control-sm" value="{{ feedback_link.access_code }}" readonly>
+                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="navigator.clipboard.writeText('{{ feedback_link.access_code }}'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy',1500);">
+                  Copy
+                </button>
+              </div>
+              {% if feedback_url %}
+              <p class="small text-muted mt-3 mb-1">Shareable Link</p>
+              <div class="d-flex gap-2">
+                <input type="text" class="form-control form-control-sm" value="{{ feedback_url }}" readonly>
+                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="navigator.clipboard.writeText('{{ feedback_url }}'); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy',1500);">
+                  Copy
+                </button>
+              </div>
+              {% endif %}
+            </div>
+
+            <div class="d-flex gap-2 mt-3">
+              <form method="POST" class="flex-grow-1">
+                <input type="hidden" name="action" value="regenerate">
+                <button type="submit" class="btn btn-warning w-100" onclick="return confirm('Generate a new code? পুরনো লিঙ্ক কাজ করবে না।');">
+                  <i class="fas fa-sync-alt me-1"></i>New Code
+                </button>
+              </form>
+              <form method="POST">
+                <input type="hidden" name="action" value="delete">
+                <button type="submit" class="btn btn-outline-danger" onclick="return confirm('সতর্কতা: লিঙ্ক ও সমস্ত ফিডব্যাক মুছে যাবে। নিশ্চিত?');">
+                  <i class="fas fa-trash me-1"></i>
+                </button>
+              </form>
+            </div>
+          {% else %}
+            <p class="text-muted">কোন ফিডব্যাক লিঙ্ক তৈরি হয়নি। নিচের ফর্ম থেকে নতুন লিঙ্ক তৈরি করতে পারেন।</p>
+            <form method="POST">
+              <input type="hidden" name="action" value="create">
+              <div class="mb-3">
+                <label class="form-label">Title</label>
+                <input type="text" name="title" class="form-control" placeholder="যেমন: Final Term Feedback">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Instructions / Description</label>
+                <textarea name="description" class="form-control" rows="3" placeholder="Optional instructions for students"></textarea>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Expires On</label>
+                <input type="date" name="expires_at" class="form-control">
+              </div>
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="allow_multiple" id="allowMultipleCreate">
+                <label class="form-check-label" for="allowMultipleCreate">
+                  Allow multiple submits
+                </label>
+              </div>
+              <button type="submit" class="btn btn-info text-white w-100">
+                <i class="fas fa-link me-1"></i>Create Feedback Link
+              </button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-7">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white border-bottom">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="mb-0 text-secondary">Responses ({{ feedback_responses|length }})</h6>
+            <div class="d-flex gap-2">
+              {% if feedback_link and feedback_responses %}
+                <a class="btn btn-outline-primary btn-sm" href="{{ url_for('class_management.student_feedback_responses_pdf', session_id=session.id) }}" target="_blank">
+                  <i class="fas fa-file-pdf me-1"></i>Download PDF
+                </a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.student_feedback_responses_docx', session_id=session.id) }}">
+                  <i class="fas fa-file-word me-1"></i>Download DOCX
+                </a>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="card-body">
+          {% if feedback_responses %}
+            <div class="accordion" id="feedbackResponses">
+              {% for item in feedback_responses %}
+                {% set data = item.data or {} %}
+                {% set academic = data.get('academic_info', {}) %}
+                {% set section_a = data.get('section_a', {}) %}
+                {% set section_b = data.get('section_b', {}) %}
+                {% set section_c = data.get('section_c', {}) %}
+                {% set section_d = data.get('section_d', {}) %}
+                <div class="accordion-item">
+                  <h2 class="accordion-header" id="heading{{ loop.index }}">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
+                      <div class="w-100 d-flex justify-content-between">
+                        <span class="fw-semibold">{{ item.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                        <span class="text-muted small">Academic Session: {{ academic.get('academic_session') or 'N/A' }} | Course: {{ academic.get('course_title') or 'N/A' }}</span>
+                      </div>
+                    </button>
+                  </h2>
+                  <div id="collapse{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="heading{{ loop.index }}" data-bs-parent="#feedbackResponses">
+                    <div class="accordion-body">
+                      <div class="row g-3">
+                        <div class="col-md-6">
+                          <div class="border rounded p-3 mb-3">
+                            <h6 class="text-secondary mb-2">A. Satisfaction</h6>
+                            <ul class="list-unstyled small mb-0">
+                              {% for key, label in section_a_labels %}
+                                <li class="mb-2">
+                                  <span class="text-muted">{{ label }}</span><br>
+                                  <strong>{{ section_a.get(key) or '—' }}</strong>
+                                </li>
+                              {% endfor %}
+                            </ul>
+                          </div>
+                        </div>
+                        <div class="col-md-6">
+                          <div class="border rounded p-3 mb-3">
+                            <h6 class="text-secondary mb-2">B. Teaching Methods</h6>
+                            {% if section_b.get('teaching_methods') %}
+                              <p class="small mb-2"><strong>Methods:</strong> {{ section_b.get('teaching_methods')|join(', ') }}</p>
+                            {% endif %}
+                            <ul class="list-unstyled small mb-0">
+                              {% for key, label in section_b_likert %}
+                                <li class="mb-2">
+                                  <span class="text-muted">{{ label }}</span><br>
+                                  <strong>{{ section_b.get(key) or '—' }}</strong>
+                                </li>
+                              {% endfor %}
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="border rounded p-3 mb-3">
+                        <h6 class="text-secondary mb-2">C. Engagement &amp; Workload</h6>
+                        <div class="small mb-2">Study Time: <strong>{{ section_c.get('study_time') or '—' }}</strong></div>
+                        <div class="small mb-2">Attendance: <strong>{{ section_c.get('attendance_percent') or '—' }}</strong></div>
+                        {% if section_c.get('effort_focus') %}
+                          <div class="small">Effort Focus: {{ section_c.get('effort_focus')|join(', ') }}</div>
+                        {% endif %}
+                      </div>
+                      <div class="border rounded p-3">
+                        <h6 class="text-secondary mb-2">D. Praise &amp; Suggestions</h6>
+                        {% if section_d.get('likes') %}
+                          <div class="small mb-2"><strong>Liked:</strong> {{ section_d.get('likes') }}</div>
+                        {% endif %}
+                        {% if section_d.get('challenges') %}
+                          <div class="small mb-2"><strong>Challenges:</strong> {{ section_d.get('challenges') }}</div>
+                        {% endif %}
+                        {% if section_d.get('suggestions') %}
+                          <div class="small"><strong>Suggestions:</strong> {{ section_d.get('suggestions') }}</div>
+                        {% endif %}
+                        {% if not section_d.get('likes') and not section_d.get('challenges') and not section_d.get('suggestions') %}
+                          <div class="small text-muted">No open feedback.</div>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-center text-muted py-4">
+              <i class="fas fa-inbox-open fa-2x mb-2"></i>
+              <p class="mb-0">এখনও কোনো ফিডব্যাক আসেনি।</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

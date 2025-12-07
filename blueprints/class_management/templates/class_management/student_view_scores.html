@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block title %}My Assessment & Attendance Scores{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-chart-line me-2"></i>My Assessment & Attendance Scores
+            </h5>
+        </div>
+        <div class="card-body">
+            {% if courses_data %}
+                {% for course in courses_data %}
+                <div class="card mb-3 border">
+                    <div class="card-header bg-light" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#course-{{ loop.index }}" aria-expanded="false" aria-controls="course-{{ loop.index }}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="mb-0">
+                                    <strong>{{ course.session.course_name or 'Course' }}</strong>
+                                    {% if course.session.course_code %}
+                                        <span class="badge bg-secondary ms-2">{{ course.session.course_code }}</span>
+                                    {% endif %}
+                                </h6>
+                                <small class="text-muted">
+                                    Session: {{ course.session.year }}-{{ course.session.term }} | 
+                                    Type: {{ course.session.course_type|title }} | 
+                                    Category: {{ course.session.category|upper }}
+                                </small>
+                            </div>
+                            <i class="fas fa-chevron-right collapse-icon" style="transition: transform 0.3s;"></i>
+                        </div>
+                    </div>
+                    <div class="collapse" id="course-{{ loop.index }}">
+                        <div class="card-body">
+                        {% if course.assessment_scores or course.attendance_data %}
+                            
+                            {% if course.session.course_type == 'theory' and course.session.category == 'ug' %}
+                                <!-- Theory Course Assessment Scores -->
+                                <div class="mb-3">
+                                    <h6 class="text-primary"><i class="fas fa-clipboard-check me-1"></i>Assessment Scores</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered table-sm">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Assessment 1</th>
+                                                    <th>Assessment 2</th>
+                                                    <th>Assessment 3</th>
+                                                    <th>Assessment 4</th>
+                                                    <th>Best 3 Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment1', False) %}
+                                                            {% if course.assessment_scores.get('assessment1') is not none %}
+                                                                {{ course.assessment_scores.get('assessment1') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment2', False) %}
+                                                            {% if course.assessment_scores.get('assessment2') is not none %}
+                                                                {{ course.assessment_scores.get('assessment2') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment3', False) %}
+                                                            {% if course.assessment_scores.get('assessment3') is not none %}
+                                                                {{ course.assessment_scores.get('assessment3') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment4', False) %}
+                                                            {% if course.assessment_scores.get('assessment4') is not none %}
+                                                                {{ course.assessment_scores.get('assessment4') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td class="fw-bold">
+                                                        {% if course.best3_total is not none %}
+                                                            {{ course.best3_total }}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            
+                            {% elif course.session.course_type == 'theory' and course.session.category == 'pg' %}
+                                <!-- PG Theory Course Assessment Scores -->
+                                <div class="mb-3">
+                                    <h6 class="text-primary"><i class="fas fa-clipboard-check me-1"></i>Assessment Scores</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered table-sm">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Assessment 1</th>
+                                                    <th>Assessment 2</th>
+                                                    <th>Assessment 3</th>
+                                                    <th>Assessment 4</th>
+                                                    <th>Total (40)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment1', False) %}
+                                                            {% if course.assessment_scores.get('assessment1') is not none %}
+                                                                {{ course.assessment_scores.get('assessment1') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment2', False) %}
+                                                            {% if course.assessment_scores.get('assessment2') is not none %}
+                                                                {{ course.assessment_scores.get('assessment2') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment3', False) %}
+                                                            {% if course.assessment_scores.get('assessment3') is not none %}
+                                                                {{ course.assessment_scores.get('assessment3') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if course.reveal_status.get('assessment4', False) %}
+                                                            {% if course.assessment_scores.get('assessment4') is not none %}
+                                                                {{ course.assessment_scores.get('assessment4') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td class="fw-bold">
+                                                        {% if course.pg_total is not none %}
+                                                            {{ course.pg_total }}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            
+                            {% elif course.session.course_type == 'sessional' and course.session.category == 'ug' %}
+                                <!-- Sessional Course Assessment Scores -->
+                                <div class="mb-3">
+                                    <h6 class="text-primary"><i class="fas fa-clipboard-check me-1"></i>Sessional Assessment Scores</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered table-sm">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>Sessional Report (60)</th>
+                                                    <th>Sessional Viva (30)</th>
+                                                    <th>Total (90)</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td>
+                                                        {% if course.reveal_status.get('sessional_report', False) %}
+                                                            {% if course.assessment_scores.get('sessional_report') is not none %}
+                                                                {{ course.assessment_scores.get('sessional_report') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td>
+                                                        {% if course.reveal_status.get('sessional_viva', False) %}
+                                                            {% if course.assessment_scores.get('sessional_viva') is not none %}
+                                                                {{ course.assessment_scores.get('sessional_viva') }}
+                                                            {% else %}
+                                                                <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                    <td class="fw-bold">
+                                                        {% set report_score = course.assessment_scores.get('sessional_report') or 0 %}
+                                                        {% set viva_score = course.assessment_scores.get('sessional_viva') or 0 %}
+                                                        {% if (course.reveal_status.get('sessional_report', False) or report_score) and (course.reveal_status.get('sessional_viva', False) or viva_score) %}
+                                                            {{ report_score + viva_score }}
+                                                        {% else %}
+                                                            <span class="text-muted">-</span>
+                                                        {% endif %}
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            {% endif %}
+                            
+                            <!-- Attendance Data -->
+                            {% if course.attendance_data %}
+                            <div class="mt-3">
+                                <h6 class="text-success"><i class="fas fa-calendar-check me-1"></i>Attendance</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-sm">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Present</th>
+                                                <th>Total Classes</th>
+                                                <th>Percentage</th>
+                                                <th>Marks</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td>{{ course.attendance_data.present_count }}</td>
+                                                <td>{{ course.attendance_data.total_classes }}</td>
+                                                <td>{{ "%.2f"|format(course.attendance_data.percentage) }}%</td>
+                                                <td class="fw-bold">{{ course.attendance_data.marks }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                        {% else %}
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                No scores have been revealed yet by your teacher.
+                            </div>
+                        {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    You are not enrolled in any courses yet.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+    .card-header:hover {
+        background-color: #e9ecef !important;
+    }
+    .collapse-icon {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+    .collapsed .collapse-icon {
+        transform: rotate(-90deg);
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle collapse icon rotation
+    document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(function(element) {
+        const icon = element.querySelector('.collapse-icon');
+        
+        // Update icon based on initial state (collapsed by default)
+        icon.style.transform = 'rotate(0deg)';
+        
+        // Listen for Bootstrap collapse events
+        const targetSelector = element.getAttribute('data-bs-target');
+        const target = document.querySelector(targetSelector);
+        
+        if (target) {
+            target.addEventListener('shown.bs.collapse', function() {
+                // When expanded, rotate chevron down
+                icon.classList.remove('fa-chevron-right');
+                icon.classList.add('fa-chevron-down');
+            });
+            
+            target.addEventListener('hidden.bs.collapse', function() {
+                // When collapsed, rotate chevron right
+                icon.classList.remove('fa-chevron-down');
+                icon.classList.add('fa-chevron-right');
+            });
+        }
+    });
+});
+</script>
+{% endblock %}
+

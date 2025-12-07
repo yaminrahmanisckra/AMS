@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Exam Committee Management{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="mb-4">
+        <h1 class="mb-1">Exam Committee Management</h1>
+        <p class="text-muted mb-0">Select your role to access the dashboard</p>
+    </div>
+
+    <div class="row g-3 justify-content-center">
+        {% if is_chief %}
+        <div class="col-12 {% if is_member %}col-md-5 col-lg-4{% else %}col-md-6 col-lg-5{% endif %}">
+            <div class="card shadow-sm exam-committee-card">
+                <div class="card-header bg-warning text-dark py-1">
+                    <h6 class="mb-0 small"><i class="fas fa-crown me-1"></i>Exam Committee Chief</h6>
+                </div>
+                <div class="card-body p-2">
+                    {% if chief_assignments %}
+                    <div class="row g-1">
+                        {% for assignment in chief_assignments %}
+                        <div class="col-12">
+                            <div class="card border-warning">
+                                <div class="card-body p-2">
+                                    <div class="mb-1">
+                                        <small><strong>Session:</strong> {{ assignment.academic_session }}</small>
+                                    </div>
+                                    <div class="mb-1">
+                                        <small><strong>Year:</strong> {{ assignment.year }}</small>
+                                    </div>
+                                    <div class="mb-1">
+                                        <small><strong>Term:</strong> {{ assignment.term }}</small>
+                                    </div>
+                                    
+                                    {% set key = assignment.academic_session ~ "_" ~ assignment.year ~ "_" ~ assignment.term %}
+                                    {% set forms = chief_saved_forms.get(key, []) %}
+                                    
+                                    {% if forms %}
+                                    <div class="mb-1">
+                                        <small class="text-muted">Saved Forms: {{ forms|length }}</small>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    <a href="{{ url_for('exam_committee_chief_dashboard') }}" class="btn btn-sm btn-warning w-100" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                                        <i class="fas fa-cog me-1"></i>Manage Dashboard
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0 small">
+                        You are not assigned to any exam committees yet.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if is_member %}
+        <div class="col-12 {% if is_chief %}col-md-5 col-lg-4{% else %}col-md-6 col-lg-5{% endif %}">
+            <div class="card shadow-sm exam-committee-card">
+                <div class="card-header bg-primary text-white py-1">
+                    <h6 class="mb-0 small"><i class="fas fa-user-tie me-1"></i>Exam Committee Member</h6>
+                </div>
+                <div class="card-body p-2">
+                    {% if member_assignments %}
+                    <div class="row g-1">
+                        {% for assignment in member_assignments %}
+                        <div class="col-12">
+                            <div class="card border-primary">
+                                <div class="card-body p-2">
+                                    <div class="mb-1">
+                                        <small><strong>Session:</strong> {{ assignment.academic_session }}</small>
+                                    </div>
+                                    <div class="mb-1">
+                                        <small><strong>Year:</strong> {{ assignment.year }}</small>
+                                    </div>
+                                    <div class="mb-1">
+                                        <small><strong>Term:</strong> {{ assignment.term }}</small>
+                                    </div>
+                                    
+                                    {% set key = assignment.academic_session ~ "_" ~ assignment.year ~ "_" ~ assignment.term %}
+                                    {% set forms = member_saved_forms.get(key, []) %}
+                                    
+                                    {% if forms and forms|length > 0 %}
+                                    <div class="mb-2 border-top pt-2">
+                                        <small class="text-primary d-block mb-2"><strong><i class="fas fa-file-invoice-dollar me-1"></i>Chief's Saved Forms ({{ forms|length }}):</strong></small>
+                                        <div class="list-group" style="max-height: 180px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 0.25rem;">
+                                            {% for form in forms %}
+                                            <div class="list-group-item list-group-item-action p-2 d-flex justify-content-between align-items-center" style="font-size: 0.7rem; border-left: none; border-right: none;">
+                                                <div class="flex-grow-1">
+                                                    <div class="fw-bold text-dark mb-1" style="font-size: 0.8rem;">
+                                                        <i class="fas fa-file-alt me-1 text-primary"></i>{{ form.title or 'Untitled Form' }}
+                                                    </div>
+                                                    <div class="d-flex gap-2">
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-calendar me-1"></i>
+                                                            {% if form.created_at %}
+                                                            {{ form.created_at.strftime('%Y-%m-%d') }}
+                                                            {% else %}
+                                                            -
+                                                            {% endif %}
+                                                        </small>
+                                                        {% if form.status %}
+                                                        <small class="badge bg-{% if form.status == 'draft' %}warning{% else %}secondary{% endif %} text-dark" style="font-size: 0.65rem;">
+                                                            {{ form.status|title }}
+                                                        </small>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                                <a href="{{ url_for('exam_committee_chief_custom_remuneration', form_id=form.id) }}" class="btn btn-sm btn-primary ms-2" style="font-size: 0.7rem; padding: 0.2rem 0.5rem; white-space: nowrap;" title="Edit Chief's Form">
+                                                    <i class="fas fa-edit me-1"></i>Edit
+                                                </a>
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    {% else %}
+                                    <div class="mb-2">
+                                        <small class="text-muted"><i class="fas fa-info-circle me-1"></i>No saved forms yet</small>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    <a href="{{ url_for('exam_committee_member_remuneration', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-primary w-100" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                                        <i class="fas fa-file-invoice-dollar me-1"></i>
+                                        {% if forms %}Create New{% else %}Create{% endif %} Remuneration
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0 small" style="font-size: 0.75rem;">
+                        You are not assigned to any exam committees yet.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.exam-committee-card {
+    border-radius: 0.5rem;
+    min-height: 280px;
+    display: flex;
+    flex-direction: column;
+}
+
+.exam-committee-card .card-header {
+    border-radius: 0.5rem 0.5rem 0 0 !important;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+}
+
+.exam-committee-card .card-body {
+    font-size: 0.875rem;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.exam-committee-card .card-body > .row {
+    flex-grow: 1;
+}
+
+.card.border-warning,
+.card.border-primary {
+    border-width: 1px;
+    border-radius: 0.25rem;
+    min-height: 140px;
+    display: flex;
+    flex-direction: column;
+}
+
+.card.border-warning .card-body,
+.card.border-primary .card-body {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.exam-committee-card .btn {
+    margin-top: auto;
+}
+
+.list-group {
+    border-radius: 0.25rem;
+}
+
+.list-group-item {
+    border-left: none;
+    border-right: none;
+    border-top: 1px solid rgba(0,0,0,.125);
+}
+
+.list-group-item:first-child {
+    border-top: none;
+    border-top-left-radius: 0.25rem;
+    border-top-right-radius: 0.25rem;
+}
+
+.list-group-item:last-child {
+    border-bottom-left-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
+}
+
+.list-group-item:hover {
+    background-color: #f8f9fa;
+}
+</style>
+{% endblock %}
+

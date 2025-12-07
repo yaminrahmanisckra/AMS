@@ -1,0 +1,1633 @@
+{% extends "base.html" %}
+
+{% block title %}Curriculum Management{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-book me-2"></i>Curriculum Management
+            </h5>
+            <div>
+                <button type="button" class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#addCurriculumModal">
+                    <i class="fas fa-plus me-1"></i>Add Curriculum
+                </button>
+                <a href="{{ url_for('index') }}" class="btn btn-light btn-sm">
+                    <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="row">
+                <!-- Left Sidebar: Curriculum List -->
+                <div class="col-md-3 mb-4">
+                    <div class="card">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-list me-2"></i>Curricula</h6>
+                        </div>
+                        <div class="list-group list-group-flush">
+                            <a href="{{ url_for('course_management.index') }}" class="list-group-item list-group-item-action {% if not curriculum %}active{% endif %}">
+                                <i class="fas fa-home me-2"></i>All Curricula
+                            </a>
+                            {% for curr in curricula %}
+                            <a href="{{ url_for('course_management.view_curriculum', curriculum_id=curr.id) }}" 
+                               class="list-group-item list-group-item-action {% if curriculum and curriculum.id == curr.id %}active{% endif %}">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">{{ curr.name }}</h6>
+                                </div>
+                                {% if curr.date %}
+                                    <small class="text-muted"><i class="fas fa-calendar me-1"></i>{{ curr.date }}</small>
+                                {% endif %}
+                                {% if curr.get_batches_list() %}
+                                    <small class="text-muted d-block"><i class="fas fa-users me-1"></i>{{ curr.get_batches_list()|join(', ') }}</small>
+                                {% endif %}
+                                <small class="text-muted d-block">{{ curr.courses.count() }} courses</small>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Content: Courses or Curriculum Info -->
+                <div class="col-md-9">
+                    {% if curriculum %}
+                        <!-- Viewing a specific curriculum -->
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <h4>{{ curriculum.name }}</h4>
+                                {% if curriculum.date %}
+                                    <p class="text-muted mb-0"><i class="fas fa-calendar me-1"></i>{{ curriculum.date }}</p>
+                                {% endif %}
+                                {% if curriculum.get_batches_list() %}
+                                    <p class="text-muted mb-0"><i class="fas fa-users me-1"></i>Applicable for: {{ curriculum.get_batches_list()|join(', ') }}</p>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCourseModal">
+                                    <i class="fas fa-plus me-1"></i>Add Course
+                                </button>
+                                <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editCurriculumModal">
+                                    <i class="fas fa-edit me-1"></i>Edit Curriculum
+                                </button>
+                                <form action="{{ url_for('course_management.delete_curriculum', curriculum_id=curriculum.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this curriculum? All courses will be deleted!');" style="display:inline;">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i class="fas fa-trash me-1"></i>Delete Curriculum
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        {% if courses %}
+                            {% if courses_by_year_term %}
+                                {% for (year, term), group_courses in courses_by_year_term %}
+                                <div class="card mb-3 shadow-sm">
+                                    <div class="card-header bg-primary text-white" 
+                                         style="cursor: pointer;" 
+                                         data-bs-toggle="collapse" 
+                                         data-bs-target="#yearTermCollapse{{ loop.index }}"
+                                         aria-expanded="true"
+                                         aria-controls="yearTermCollapse{{ loop.index }}">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <h6 class="mb-0">
+                                                <i class="fas fa-calendar-alt me-2"></i>
+                                                <strong>{{ year }} Year - {{ term }} Term</strong>
+                                                <span class="badge bg-light text-dark ms-2">{{ group_courses|length }} course{{ 's' if group_courses|length != 1 else '' }}</span>
+                                            </h6>
+                                            <i class="fas fa-chevron-down"></i>
+                                        </div>
+                                        <div class="mt-2 pt-2 border-top border-light border-opacity-25" onclick="event.stopPropagation();">
+                                            {% set year_term_config = curriculum.get_year_term_config(year, term) if curriculum else None %}
+                                            <div class="row g-2">
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-white-50 small mb-1">Academic Session</label>
+                                                    <input type="text" 
+                                                           class="form-control form-control-sm year-term-session" 
+                                                           data-year="{{ year }}" 
+                                                           data-term="{{ term }}"
+                                                           placeholder="e.g., 2023-2024"
+                                                           value="{{ year_term_config.academic_session if year_term_config else '' }}">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label text-white-50 small mb-1">Batch</label>
+                                                    <select class="form-select form-select-sm year-term-batch" 
+                                                            data-year="{{ year }}" 
+                                                            data-term="{{ term }}">
+                                                        <option value="">Select Batch</option>
+                                                        <option value="None" {% if year_term_config and year_term_config.batch == 'None' %}selected{% endif %}>
+                                                            None (Not Running)
+                                                        </option>
+                                                        {% for batch in curriculum_batches %}
+                                                        <option value="{{ batch }}" {% if year_term_config and year_term_config.batch == batch %}selected{% endif %}>
+                                                            {{ batch }}
+                                                        </option>
+                                                        {% endfor %}
+                                                    </select>
+                                                    <small class="form-text text-white-50 d-block mt-1">
+                                                        <i class="fas fa-info-circle me-1"></i>Select "None" if this term is not running
+                                                    </small>
+                                                </div>
+                                                <div class="col-md-4 d-flex align-items-end">
+                                                    <button type="button" 
+                                                            class="btn btn-sm btn-light year-term-save-btn" 
+                                                            data-year="{{ year }}" 
+                                                            data-term="{{ term }}"
+                                                            style="display: none;">
+                                                        <i class="fas fa-save me-1"></i>Save
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="collapse show" id="yearTermCollapse{{ loop.index }}">
+                                        <div class="card-body p-0">
+                                            <div class="table-responsive">
+                                                <table class="table table-hover mb-0">
+                                                    <thead class="table-light">
+                                                        <tr>
+                                                            <th>Code</th>
+                                                            <th>Name</th>
+                                                            <th>Credit</th>
+                                                            <th>Type</th>
+                                                            <th>Category</th>
+                                                        <th>Core/Optional</th>
+                                                        <th>Offered</th>
+                                                        <th>Assigned</th>
+                                                            <th>Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {% for course in group_courses %}
+                                                        <tr>
+                                                            <td><strong>{{ course.course_code }}</strong></td>
+                                                            <td>{{ course.course_name }}</td>
+                                                            <td>{{ course.credit }}</td>
+                                                            <td>
+                                                                <span class="badge bg-info">{{ course.course_type }}</span>
+                                                            </td>
+                                                            <td>
+                                                                <span class="badge bg-secondary">{{ course.category.upper() }}</span>
+                                                            </td>
+                                                            <td>
+                                                                {% if course.core_optional %}
+                                                                    <span class="badge bg-{{ 'success' if course.core_optional == 'Core' else 'warning' }}">
+                                                                        {{ course.core_optional }}
+                                                                    </span>
+                                                                {% else %}
+                                                                    <span class="text-muted">-</span>
+                                                                {% endif %}
+                                                            </td>
+                                                            <td>
+                                                                <div class="form-check form-switch">
+                                                                    <input class="form-check-input offered-toggle" type="checkbox" 
+                                                                           id="offered_{{ course.id }}" 
+                                                                           data-course-id="{{ course.id }}"
+                                                                           {% if course.offered %}checked{% endif %}>
+                                                                    <label class="form-check-label" for="offered_{{ course.id }}">
+                                                                        <span class="badge bg-{{ 'success' if course.offered else 'secondary' }}">
+                                                                            {{ 'ON' if course.offered else 'OFF' }}
+                                                                        </span>
+                                                                    </label>
+                                                                </div>
+                                                            </td>
+                                                            <td>
+                                                                {% set existing_assignments = course_assignments.get(course.id, []) %}
+                                                                {% if existing_assignments %}
+                                                        <div class="d-flex flex-column gap-1">
+                                                            {% for assignment in existing_assignments %}
+                                                            <div class="d-flex align-items-center gap-2 bg-light border rounded px-2 py-1">
+                                                                <span class="badge bg-secondary mb-0">
+                                                                    {{ teacher_map.get(assignment.teacher_id, 'Teacher ID: ' ~ assignment.teacher_id) }}
+                                                                    {% if assignment.section %} ({{ assignment.section }}){% endif %}
+                                                                </span>
+                                                                <button type="button"
+                                                                        class="btn btn-sm btn-outline-danger"
+                                                                        onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }})"
+                                                                        title="Unassign">
+                                                                    <i class="fas fa-trash-alt"></i>
+                                                                </button>
+                                                            </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                                {% else %}
+                                                                    <span class="text-muted small">Not assigned</span>
+                                                                {% endif %}
+                                                            </td>
+                                                            <td>
+                                                                <button type="button" class="btn btn-success btn-sm me-1" data-bs-toggle="modal" data-bs-target="#assignTeacherModal{{ course.id }}">
+                                                                    <i class="fas fa-user-plus me-1"></i>Assign Teacher
+                                                                </button>
+                                                                {% set existing_assignments = course_assignments.get(course.id, []) %}
+                                                                {% if existing_assignments %}
+                                                                    <span class="badge bg-info" title="Has {{ existing_assignments|length }} assignment(s)">
+                                                                        <i class="fas fa-check-circle me-1"></i>{{ existing_assignments|length }}
+                                                                    </span>
+                                                                {% endif %}
+                                                                <button type="button" class="btn btn-warning btn-sm me-1" data-bs-toggle="modal" data-bs-target="#editCourseModal{{ course.id }}">
+                                                                    <i class="fas fa-edit me-1"></i>Edit
+                                                                </button>
+                                                                <button type="button" class="btn btn-info btn-sm me-1" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}">
+                                                                    <i class="fas fa-info-circle me-1"></i>Info
+                                                                </button>
+                                                                <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
+                                                                    <button type="submit" class="btn btn-danger btn-sm">
+                                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                                    </button>
+                                                                </form>
+                                                            </td>
+                                                        </tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-hover">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Code</th>
+                                                <th>Name</th>
+                                                <th>Credit</th>
+                                                <th>Type</th>
+                                                <th>Category</th>
+                                                <th>Core/Optional</th>
+                                                <th>Offered</th>
+                                                <th>Assigned</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for course in courses %}
+                                            <tr>
+                                                <td><strong>{{ course.course_code }}</strong></td>
+                                                <td>{{ course.course_name }}</td>
+                                                <td>{{ course.credit }}</td>
+                                                <td>
+                                                    <span class="badge bg-info">{{ course.course_type }}</span>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-secondary">{{ course.category.upper() }}</span>
+                                                </td>
+                                                <td>
+                                                    {% if course.core_optional %}
+                                                        <span class="badge bg-{{ 'success' if course.core_optional == 'Core' else 'warning' }}">
+                                                            {{ course.core_optional }}
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="text-muted">-</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    <div class="form-check form-switch">
+                                                        <input class="form-check-input offered-toggle" type="checkbox" 
+                                                               id="offered_{{ course.id }}" 
+                                                               data-course-id="{{ course.id }}"
+                                                               {% if course.offered %}checked{% endif %}>
+                                                        <label class="form-check-label" for="offered_{{ course.id }}">
+                                                            <span class="badge bg-{{ 'success' if course.offered else 'secondary' }}">
+                                                                {{ 'ON' if course.offered else 'OFF' }}
+                                                            </span>
+                                                        </label>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {% set existing_assignments = course_assignments.get(course.id, []) %}
+                                                    {% if existing_assignments %}
+                                                        <div class="d-flex flex-column gap-1">
+                                                            {% for assignment in existing_assignments %}
+                                                            <div class="d-flex align-items-center gap-2 bg-light border rounded px-2 py-1">
+                                                                <span class="badge bg-secondary mb-0">
+                                                                    {{ teacher_map.get(assignment.teacher_id, 'Teacher ID: ' ~ assignment.teacher_id) }}
+                                                                    {% if assignment.section %} ({{ assignment.section }}){% endif %}
+                                                                </span>
+                                                                <button type="button"
+                                                                        class="btn btn-sm btn-outline-danger"
+                                                                        onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }})"
+                                                                        title="Unassign">
+                                                                    <i class="fas fa-trash-alt"></i>
+                                                                </button>
+                                                            </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    {% else %}
+                                                        <span class="text-muted small">Not assigned</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    <button type="button" class="btn btn-warning btn-sm me-1" data-bs-toggle="modal" data-bs-target="#editCourseModal{{ course.id }}">
+                                                        <i class="fas fa-edit me-1"></i>Edit
+                                                    </button>
+                                                    <button type="button" class="btn btn-info btn-sm me-1" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}">
+                                                        <i class="fas fa-info-circle me-1"></i>Info
+                                                    </button>
+                                                    <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
+                                                        <button type="submit" class="btn btn-danger btn-sm">
+                                                            <i class="fas fa-trash me-1"></i>Delete
+                                                        </button>
+                                                    </form>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="text-center py-5">
+                                <i class="fas fa-book fa-3x text-muted mb-3"></i>
+                                <h5 class="text-muted">No courses in this curriculum</h5>
+                                <p class="text-muted">Click "Add Course" to add courses to this curriculum</p>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <!-- Viewing all curricula -->
+                        {% if curricula %}
+                            <div class="row">
+                                {% for curr in curricula %}
+                                <div class="col-md-6 mb-3">
+                                    <div class="card h-100">
+                                        <div class="card-body">
+                                            <h5 class="card-title">{{ curr.name }}</h5>
+                                            {% if curr.date %}
+                                                <p class="text-muted mb-2"><i class="fas fa-calendar me-1"></i>{{ curr.date }}</p>
+                                            {% endif %}
+                                            {% if curr.get_batches_list() %}
+                                                <p class="text-muted mb-2"><i class="fas fa-users me-1"></i>Applicable for: {{ curr.get_batches_list()|join(', ') }}</p>
+                                            {% endif %}
+                                            <p class="text-muted"><strong>{{ curr.courses.count() }}</strong> courses</p>
+                                            <a href="{{ url_for('course_management.view_curriculum', curriculum_id=curr.id) }}" class="btn btn-primary btn-sm">
+                                                <i class="fas fa-eye me-1"></i>View Courses
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="text-center py-5">
+                                <i class="fas fa-book fa-3x text-muted mb-3"></i>
+                                <h5 class="text-muted">No curricula found</h5>
+                                <p class="text-muted">Click "Add Curriculum" to create your first curriculum</p>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Curriculum Modal -->
+<div class="modal fade" id="addCurriculumModal" tabindex="-1" aria-labelledby="addCurriculumModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="addCurriculumModalLabel">
+                    <i class="fas fa-plus me-2"></i>Add New Curriculum
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="POST" action="{{ url_for('course_management.add_curriculum') }}" id="addCurriculumForm">
+                    {{ curriculum_form.hidden_tag() }}
+                    <div class="mb-3">
+                        {{ curriculum_form.name.label(class="form-label") }}
+                        {{ curriculum_form.name(class="form-control") }}
+                        {% if curriculum_form.name.errors %}
+                            <div class="text-danger small">{{ curriculum_form.name.errors[0] }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        {{ curriculum_form.date.label(class="form-label") }}
+                        {{ curriculum_form.date(class="form-control") }}
+                        {% if curriculum_form.date.errors %}
+                            <div class="text-danger small">{{ curriculum_form.date.errors[0] }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-users me-2"></i>{{ curriculum_form.applicable_batches.label.text }}
+                        </label>
+                        <!-- Hidden select field for form submission -->
+                        <select name="applicable_batches" id="applicable_batches_hidden" multiple style="display: none;">
+                            {% for value, label in curriculum_form.applicable_batches.choices %}
+                            <option value="{{ value }}"></option>
+                            {% endfor %}
+                        </select>
+                        <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa;">
+                            <div class="row g-2" id="batchCheckboxes">
+                                {% for value, label in curriculum_form.applicable_batches.choices %}
+                                <div class="col-md-4 col-sm-6">
+                                    <div class="form-check batch-checkbox-card">
+                                        <input class="form-check-input batch-checkbox" type="checkbox" 
+                                               value="{{ value }}" 
+                                               id="batch_{{ loop.index }}"
+                                               data-batch-value="{{ value }}"
+                                               {% if value in (curriculum_form.applicable_batches.data or []) %}checked{% endif %}>
+                                        <label class="form-check-label w-100 p-2 rounded batch-label" for="batch_{{ loop.index }}">
+                                            <i class="fas fa-graduation-cap me-2 text-primary"></i>
+                                            <strong>{{ label }}</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% if not curriculum_form.applicable_batches.choices %}
+                            <p class="text-muted text-center mb-0">
+                                <i class="fas fa-info-circle me-1"></i>No batches available. Add batches in Students Management first.
+                            </p>
+                            {% endif %}
+                        </div>
+                        <small class="form-text text-muted d-block mt-2">
+                            <i class="fas fa-hand-pointer me-1"></i>Select one or more batches that this curriculum applies to
+                        </small>
+                        {% if curriculum_form.applicable_batches.errors %}
+                            <div class="text-danger small mt-1">{{ curriculum_form.applicable_batches.errors[0] }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        {{ curriculum_form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Curriculum Modal (only shown when viewing a curriculum) -->
+{% if curriculum and edit_curriculum_form %}
+<div class="modal fade" id="editCurriculumModal" tabindex="-1" aria-labelledby="editCurriculumModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title" id="editCurriculumModalLabel">
+                    <i class="fas fa-edit me-2"></i>Edit Curriculum: {{ curriculum.name }}
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="POST" action="{{ url_for('course_management.edit_curriculum', curriculum_id=curriculum.id) }}" id="editCurriculumForm">
+                    {{ edit_curriculum_form.hidden_tag() }}
+                    <div class="mb-3">
+                        {{ edit_curriculum_form.name.label(class="form-label") }}
+                        {{ edit_curriculum_form.name(class="form-control") }}
+                        {% if edit_curriculum_form.name.errors %}
+                            <div class="text-danger small">{{ edit_curriculum_form.name.errors[0] }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        {{ edit_curriculum_form.date.label(class="form-label") }}
+                        {{ edit_curriculum_form.date(class="form-control") }}
+                        {% if edit_curriculum_form.date.errors %}
+                            <div class="text-danger small">{{ edit_curriculum_form.date.errors[0] }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-users me-2"></i>{{ edit_curriculum_form.applicable_batches.label.text }}
+                        </label>
+                        <!-- Hidden select field for form submission -->
+                        <select name="applicable_batches" id="edit_applicable_batches_hidden" multiple style="display: none;">
+                            {% for value, label in edit_curriculum_form.applicable_batches.choices %}
+                            <option value="{{ value }}"></option>
+                            {% endfor %}
+                        </select>
+                        <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa;">
+                            <div class="row g-2" id="editBatchCheckboxes">
+                                {% for value, label in edit_curriculum_form.applicable_batches.choices %}
+                                <div class="col-md-4 col-sm-6">
+                                    <div class="form-check batch-checkbox-card">
+                                        <input class="form-check-input edit-batch-checkbox" type="checkbox" 
+                                               value="{{ value }}" 
+                                               id="edit_batch_{{ loop.index }}"
+                                               data-batch-value="{{ value }}"
+                                               {% if value in (edit_curriculum_form.applicable_batches.data or []) %}checked{% endif %}>
+                                        <label class="form-check-label w-100 p-2 rounded batch-label" for="edit_batch_{{ loop.index }}">
+                                            <i class="fas fa-graduation-cap me-2 text-primary"></i>
+                                            <strong>{{ label }}</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% if not edit_curriculum_form.applicable_batches.choices %}
+                            <p class="text-muted text-center mb-0">
+                                <i class="fas fa-info-circle me-1"></i>No batches available. Add batches in Students Management first.
+                            </p>
+                            {% endif %}
+                        </div>
+                        <small class="form-text text-muted d-block mt-2">
+                            <i class="fas fa-hand-pointer me-1"></i>Select one or more batches that this curriculum applies to
+                        </small>
+                        {% if edit_curriculum_form.applicable_batches.errors %}
+                            <div class="text-danger small mt-1">{{ edit_curriculum_form.applicable_batches.errors[0] }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-warning">
+                            <i class="fas fa-save me-1"></i>Update Curriculum
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Add Course Modal (only shown when viewing a curriculum) -->
+{% if curriculum %}
+<div class="modal fade" id="addCourseModal" tabindex="-1" aria-labelledby="addCourseModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="addCourseModalLabel">
+                    <i class="fas fa-plus me-2"></i>Add New Course to {{ curriculum.name }}
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="POST" action="{{ url_for('course_management.add_course', curriculum_id=curriculum.id) }}" id="addCourseForm">
+                    {{ course_form.hidden_tag() }}
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            {{ course_form.course_code.label(class="form-label") }}
+                            {{ course_form.course_code(class="form-control") }}
+                            {% if course_form.course_code.errors %}
+                                <div class="text-danger small">{{ course_form.course_code.errors[0] }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            {{ course_form.course_name.label(class="form-label") }}
+                            {{ course_form.course_name(class="form-control") }}
+                            {% if course_form.course_name.errors %}
+                                <div class="text-danger small">{{ course_form.course_name.errors[0] }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            {{ course_form.credit.label(class="form-label") }}
+                            {{ course_form.credit(class="form-control") }}
+                            {% if course_form.credit.errors %}
+                                <div class="text-danger small">{{ course_form.credit.errors[0] }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            {{ course_form.course_type.label(class="form-label") }}
+                            {{ course_form.course_type(class="form-select") }}
+                            {% if course_form.course_type.errors %}
+                                <div class="text-danger small">{{ course_form.course_type.errors[0] }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            {{ course_form.category.label(class="form-label") }}
+                            {{ course_form.category(class="form-select") }}
+                            {% if course_form.category.errors %}
+                                <div class="text-danger small">{{ course_form.category.errors[0] }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            {{ course_form.core_optional.label(class="form-label") }}
+                            {{ course_form.core_optional(class="form-select") }}
+                            {% if course_form.core_optional.errors %}
+                                <div class="text-danger small">{{ course_form.core_optional.errors[0] }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            {{ course_form.year.label(class="form-label") }}
+                            {{ course_form.year(class="form-control") }}
+                            {% if course_form.year.errors %}
+                                <div class="text-danger small">{{ course_form.year.errors[0] }}</div>
+                            {% endif %}
+                            <small class="text-muted">Auto-filled from course code</small>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            {{ course_form.term.label(class="form-label") }}
+                            {{ course_form.term(class="form-control") }}
+                            {% if course_form.term.errors %}
+                                <div class="text-danger small">{{ course_form.term.errors[0] }}</div>
+                            {% endif %}
+                            <small class="text-muted">Auto-filled from course code</small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        {{ course_form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Edit Course Modals (one for each course) -->
+{% if courses %}
+    {% for course in courses %}
+    <div class="modal fade" id="editCourseModal{{ course.id }}" tabindex="-1" aria-labelledby="editCourseModalLabel{{ course.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="editCourseModalLabel{{ course.id }}">
+                        <i class="fas fa-edit me-2"></i>Edit Course: {{ course.course_code }} - {{ course.course_name }}
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form method="POST" action="{{ url_for('course_management.edit_course', course_id=course.id) }}" id="editCourseForm{{ course.id }}">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="course_code_{{ course.id }}" class="form-label">Course Code</label>
+                                <input type="text" class="form-control" id="course_code_{{ course.id }}" name="course_code" value="{{ course.course_code }}" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="course_name_{{ course.id }}" class="form-label">Course Name</label>
+                                <input type="text" class="form-control" id="course_name_{{ course.id }}" name="course_name" value="{{ course.course_name }}" required>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label for="credit_{{ course.id }}" class="form-label">Credit</label>
+                                <input type="number" step="0.5" class="form-control" id="credit_{{ course.id }}" name="credit" value="{{ course.credit }}" required>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="course_type_{{ course.id }}" class="form-label">Type</label>
+                                <select class="form-select" id="course_type_{{ course.id }}" name="course_type" required>
+                                    <option value="Theory" {% if course.course_type == 'Theory' %}selected{% endif %}>Theory</option>
+                                    <option value="Sessional" {% if course.course_type == 'Sessional' %}selected{% endif %}>Sessional</option>
+                                    <option value="Viva" {% if course.course_type == 'Viva' %}selected{% endif %}>Viva</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label for="category_{{ course.id }}" class="form-label">Category</label>
+                                <select class="form-select" id="category_{{ course.id }}" name="category" required>
+                                    <option value="ug" {% if course.category == 'ug' %}selected{% endif %}>Undergraduate</option>
+                                    <option value="pg" {% if course.category == 'pg' %}selected{% endif %}>Postgraduate</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="core_optional_{{ course.id }}" class="form-label">Core/Optional</label>
+                                <select class="form-select" id="core_optional_{{ course.id }}" name="core_optional" required>
+                                    <option value="Core" {% if course.core_optional == 'Core' %}selected{% endif %}>Core</option>
+                                    <option value="Optional" {% if course.core_optional == 'Optional' %}selected{% endif %}>Optional</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-warning">
+                                <i class="fas fa-save me-1"></i>Update Course
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+<!-- Course Info Modals (one for each course) -->
+{% if courses %}
+    {% for course in courses %}
+    <div class="modal fade" id="courseInfoModal{{ course.id }}" tabindex="-1" aria-labelledby="courseInfoModalLabel{{ course.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title" id="courseInfoModalLabel{{ course.id }}">
+                        <i class="fas fa-info-circle me-2"></i>Course Information: {{ course.course_code }} - {{ course.course_name }}
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
+                    <form method="POST" action="{{ url_for('course_management.course_info', course_id=course.id) }}" id="courseInfoForm{{ course.id }}">
+                        {% if course_info_forms and course_info_forms[course.id] %}
+                            {{ course_info_forms[course.id].hidden_tag() }}
+                        {% endif %}
+                        
+                        <!-- Course Information Section -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-primary text-white">
+                                <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>Course Information</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-2">
+                                    <div class="col-md-3"><strong>Course Code:</strong></div>
+                                    <div class="col-md-9">{{ course.course_code }}</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-3"><strong>Course Title:</strong></div>
+                                    <div class="col-md-9">{{ course.course_name }}</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-3"><strong>Course Status:</strong></div>
+                                    <div class="col-md-9">{{ course.core_optional or '-' }}</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-3"><strong>Credit:</strong></div>
+                                    <div class="col-md-9">{{ course.credit }}</div>
+                                </div>
+                                <div class="row mb-2">
+                                    <div class="col-md-3"><strong>Year:</strong></div>
+                                    <div class="col-md-9">
+                                        <input type="text" class="form-control" id="year{{ course.id }}" name="year" 
+                                               value="{{ course.display_year }}" placeholder="e.g., First, Second">
+                                    </div>
+                                </div>
+                                <div class="row mb-0">
+                                    <div class="col-md-3"><strong>Term:</strong></div>
+                                    <div class="col-md-9">
+                                        <input type="text" class="form-control" id="term{{ course.id }}" name="term" 
+                                               value="{{ course.display_term }}" placeholder="e.g., First, Second">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Rationale Section -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Rationale</h6>
+                            </div>
+                            <div class="card-body">
+                                <textarea class="form-control" id="rationale{{ course.id }}" name="rationale" rows="4" placeholder="Enter course rationale...">{{ course.rationale or '' }}</textarea>
+                            </div>
+                        </div>
+                        
+                        <!-- Course Contents Section -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-success text-white">
+                                <h6 class="mb-0"><i class="fas fa-book-open me-2"></i>Course Contents</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label for="content_section_a{{ course.id }}" class="form-label fw-bold">
+                                        Section A
+                                    </label>
+                                    <textarea class="form-control" id="content_section_a{{ course.id }}" name="content_section_a" rows="6" placeholder="Enter Section A content...">{{ course.content_section_a or '' }}</textarea>
+                                </div>
+                                <div class="mb-0">
+                                    <label for="content_section_b{{ course.id }}" class="form-label fw-bold">
+                                        Section B
+                                    </label>
+                                    <textarea class="form-control" id="content_section_b{{ course.id }}" name="content_section_b" rows="6" placeholder="Enter Section B content...">{{ course.content_section_b or '' }}</textarea>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Course Learning Outcomes Section -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-info text-white">
+                                <h6 class="mb-0"><i class="fas fa-list-check me-2"></i>Course Learning Outcomes (CLOs)</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold">Add CLO:</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="newCloInput{{ course.id }}" placeholder="Type CLO and press Enter to add...">
+                                        <button type="button" class="btn btn-primary" onclick="addCLO({{ course.id }})">
+                                            <i class="fas fa-plus me-1"></i>Add
+                                        </button>
+                                    </div>
+                                </div>
+                                <div id="closContainer{{ course.id }}">
+                                    <!-- CLOs will be dynamically added here -->
+                                </div>
+                                <input type="hidden" id="closJson{{ course.id }}" name="clos_json" value="">
+                            </div>
+                        </div>
+                        
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-1"></i>Save Information
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+<!-- Assign Teacher Modals (one for each course) -->
+{% if courses %}
+    {% for course in courses %}
+    <div class="modal fade" id="assignTeacherModal{{ course.id }}" tabindex="-1" aria-labelledby="assignTeacherModalLabel{{ course.id }}" aria-hidden="true" data-course-id="{{ course.id }}">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="assignTeacherModalLabel{{ course.id }}">
+                        <i class="fas fa-user-plus me-2"></i>Assign Teacher: {{ course.course_code }} - {{ course.course_name }}
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    {% set year_term_config = curriculum.get_year_term_config(course.display_year or course.year, course.display_term or course.term) if curriculum else None %}
+                    <form id="assignTeacherForm{{ course.id }}">
+                        <input type="hidden" name="course_id" value="{{ course.id }}">
+                        <input type="hidden" name="curriculum_id" value="{{ curriculum.id }}">
+                        <input type="hidden" name="year" value="{{ course.display_year or course.year }}">
+                        <input type="hidden" name="term" value="{{ course.display_term or course.term }}">
+                        <input type="hidden" name="batch" value="{{ year_term_config.batch if year_term_config else '' }}">
+                        <input type="hidden" name="academic_session" value="{{ year_term_config.academic_session if year_term_config else '' }}">
+                        
+                        <div class="mb-3">
+                            <label for="teacher_id{{ course.id }}" class="form-label">
+                                <i class="fas fa-user me-2"></i>Teacher <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select" id="teacher_id{{ course.id }}" name="teacher_id" required>
+                                <option value="">Select Teacher</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.id }}">{{ teacher.name }} ({{ teacher.short_name }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="section{{ course.id }}" class="form-label">
+                                <i class="fas fa-layer-group me-2"></i>Section
+                            </label>
+                            <select class="form-select" id="section{{ course.id }}" name="section">
+                                <option value="">Full Course</option>
+                                <option value="A">Section A</option>
+                                <option value="B">Section B</option>
+                            </select>
+                            <small class="form-text text-muted">Leave blank for full course</small>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Note:</strong> This will automatically create a session in Class Management for the assigned teacher.
+                            {% if year_term_config and year_term_config.batch %}
+                                <br>Batch: <strong>{{ year_term_config.batch }}</strong>
+                            {% endif %}
+                            {% if year_term_config and year_term_config.academic_session %}
+                                <br>Academic Session: <strong>{{ year_term_config.academic_session }}</strong>
+                            {% endif %}
+                        </div>
+                        
+                        {% set existing_assignments = course_assignments.get(course.id, []) %}
+                        <div class="alert alert-warning" id="assignmentListContainer{{ course.id }}" style="display:block !important;">
+                            <h6 class="alert-heading"><i class="fas fa-list me-2"></i>Existing Assignments:</h6>
+                            <div class="list-group" id="assignmentList{{ course.id }}">
+                                {% for assignment in existing_assignments %}
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{ teacher_map.get(assignment.teacher_id, 'Teacher ID: ' ~ assignment.teacher_id) }}</strong>
+                                        <span class="ms-2">
+                                            {% if assignment.section %}Section {{ assignment.section }}{% else %}Full Course{% endif %}
+                                            {% if assignment.batch %} | Batch: {{ assignment.batch }}{% endif %}
+                                            {% if assignment.session_created %}<span class="badge bg-success ms-2">Session Created</span>{% endif %}
+                                        </span>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }})">
+                                        <i class="fas fa-trash-alt me-1"></i>Unassign
+                                    </button>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <div class="text-muted small mt-2" id="assignmentEmpty{{ course.id }}" style="{% if existing_assignments %}display:none{% else %}display:block{% endif %};">
+                                No assignments yet for this course.
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="assignTeacherToCourse({{ course.id }})">
+                        <i class="fas fa-save me-1"></i>Assign & Create Session
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+<style>
+.clo-item {
+    background-color: #f8f9fa;
+    transition: all 0.2s ease;
+}
+
+.clo-item:hover {
+    background-color: #e9ecef;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.batch-checkbox-card {
+    margin-bottom: 0;
+}
+
+.batch-label {
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 2px solid #dee2e6;
+    background-color: white;
+    display: block;
+    text-align: center;
+}
+
+.batch-label:hover {
+    background-color: #e7f3ff;
+    border-color: #0d6efd;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.batch-checkbox-card input[type="checkbox"]:checked + .batch-label {
+    background-color: #0d6efd;
+    color: white;
+    border-color: #0d6efd;
+    box-shadow: 0 2px 8px rgba(13, 110, 253, 0.3);
+}
+
+.batch-checkbox-card input[type="checkbox"]:checked + .batch-label i {
+    color: white !important;
+}
+
+.batch-checkbox-card input[type="checkbox"] {
+    display: none;
+}
+
+#batchCheckboxes::-webkit-scrollbar {
+    width: 6px;
+}
+
+#batchCheckboxes::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+#batchCheckboxes::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+#batchCheckboxes::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Year/Term Collapse Animation */
+.card-header[data-bs-toggle="collapse"] .fa-chevron-down {
+    transition: transform 0.3s ease;
+}
+
+.card-header[data-bs-toggle="collapse"][aria-expanded="true"] .fa-chevron-down {
+    transform: rotate(180deg);
+}
+</style>
+
+<script>
+function getYearTermFromCourseCode(courseCode) {
+    if (!courseCode) {
+        return { year: '', term: '' };
+    }
+    const digits = courseCode.match(/\d+/g);
+    if (!digits || digits.length === 0) {
+        return { year: '', term: '' };
+    }
+    const lastDigits = digits[digits.length - 1];
+    if (!lastDigits || lastDigits.length < 4) {
+        return { year: '', term: '' };
+    }
+    
+    const yearDigit = parseInt(lastDigits.charAt(lastDigits.length - 4));
+    const termDigit = parseInt(lastDigits.charAt(lastDigits.length - 3));
+    
+    let year = '';
+    if (yearDigit === 1) {
+        year = 'First';
+    } else if (yearDigit === 2) {
+        year = 'Second';
+    } else if (yearDigit === 3) {
+        year = 'Third';
+    } else if (yearDigit === 4) {
+        year = 'Fourth';
+    } else if (yearDigit === 5) {
+        year = 'LLM';
+    }
+    
+    let term = '';
+    if (termDigit === 1) {
+        term = 'First';
+    } else if (termDigit === 2) {
+        term = 'Second';
+    }
+    
+    return { year, term };
+}
+
+    document.addEventListener('DOMContentLoaded', function() {
+    const addCurriculumModal = document.getElementById('addCurriculumModal');
+    const addCurriculumForm = document.getElementById('addCurriculumForm');
+    const addCourseModal = document.getElementById('addCourseModal');
+    const addCourseForm = document.getElementById('addCourseForm');
+    
+    // Reset curriculum form when modal is closed
+    if (addCurriculumModal && addCurriculumForm) {
+        addCurriculumModal.addEventListener('hidden.bs.modal', function () {
+            addCurriculumForm.reset();
+            // Uncheck all batch checkboxes
+            document.querySelectorAll('#batchCheckboxes input[type="checkbox"]').forEach(cb => {
+                cb.checked = false;
+            });
+        });
+    }
+    
+    // Reset course form when modal is closed
+    if (addCourseModal && addCourseForm) {
+        addCourseModal.addEventListener('hidden.bs.modal', function () {
+            addCourseForm.reset();
+        });
+    }
+    
+    // Auto-fill Year and Term from Course Code
+    // Find fields by name attribute (more reliable than ID for Flask-WTF)
+    const courseCodeInput = addCourseForm ? addCourseForm.querySelector('input[name="course_code"]') : null;
+    const yearInput = addCourseForm ? addCourseForm.querySelector('input[name="year"]') : null;
+    const termInput = addCourseForm ? addCourseForm.querySelector('input[name="term"]') : null;
+    
+    if (courseCodeInput && yearInput && termInput) {
+        courseCodeInput.addEventListener('input', function() {
+            const courseCode = this.value.trim();
+            const { year, term } = getYearTermFromCourseCode(courseCode);
+            yearInput.value = year || '';
+            termInput.value = term || '';
+        });
+    }
+    
+    // Sync checkbox values to hidden select field
+    function syncBatchesToSelect() {
+        const hiddenSelect = document.getElementById('applicable_batches_hidden');
+        if (!hiddenSelect) return;
+        
+        // Clear all selections
+        Array.from(hiddenSelect.options).forEach(opt => opt.selected = false);
+        
+        // Get checked checkboxes
+        const checkedBatches = Array.from(document.querySelectorAll('.batch-checkbox:checked'))
+            .map(cb => cb.getAttribute('data-batch-value'));
+        
+        // Select corresponding options in hidden select
+        checkedBatches.forEach(batchValue => {
+            const option = Array.from(hiddenSelect.options).find(opt => opt.value === batchValue);
+            if (option) option.selected = true;
+        });
+    }
+    
+    // Update hidden select when checkboxes change
+    document.querySelectorAll('.batch-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', syncBatchesToSelect);
+    });
+    
+    // Edit Curriculum Modal - Sync checkboxes to hidden select
+    function syncEditBatchesToSelect() {
+        const hiddenSelect = document.getElementById('edit_applicable_batches_hidden');
+        if (!hiddenSelect) return;
+        
+        // Clear all selections
+        Array.from(hiddenSelect.options).forEach(opt => opt.selected = false);
+        
+        // Get checked checkboxes
+        const checkedBatches = Array.from(document.querySelectorAll('.edit-batch-checkbox:checked'))
+            .map(cb => cb.getAttribute('data-batch-value'));
+        
+        // Select corresponding options in hidden select
+        checkedBatches.forEach(batchValue => {
+            const option = Array.from(hiddenSelect.options).find(opt => opt.value === batchValue);
+            if (option) option.selected = true;
+        });
+    }
+    
+    // Update hidden select when edit checkboxes change
+    document.querySelectorAll('.edit-batch-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', syncEditBatchesToSelect);
+    });
+    
+    // Reset edit curriculum form when modal is closed
+    const editCurriculumModal = document.getElementById('editCurriculumModal');
+    const editCurriculumForm = document.getElementById('editCurriculumForm');
+    if (editCurriculumModal && editCurriculumForm) {
+        editCurriculumModal.addEventListener('hidden.bs.modal', function () {
+            // Don't reset - keep the form data for re-editing
+            // Just sync the checkboxes
+            syncEditBatchesToSelect();
+        });
+    }
+    
+    // Handle edit form submission - ensure at least one batch is selected
+    if (editCurriculumForm) {
+        editCurriculumForm.addEventListener('submit', function(e) {
+            syncEditBatchesToSelect();
+            const checkedBatches = Array.from(document.querySelectorAll('.edit-batch-checkbox:checked'));
+            if (checkedBatches.length === 0) {
+                e.preventDefault();
+                alert('Please select at least one batch for this curriculum.');
+                return false;
+            }
+        });
+    }
+    
+    // Handle form submission - ensure at least one batch is selected
+    if (addCurriculumForm) {
+        addCurriculumForm.addEventListener('submit', function(e) {
+            syncBatchesToSelect(); // Sync before submission
+            
+            const checkedBatches = Array.from(document.querySelectorAll('.batch-checkbox:checked'));
+            
+            if (checkedBatches.length === 0) {
+                e.preventDefault();
+                alert('Please select at least one batch for this curriculum.');
+                return false;
+            }
+        });
+    }
+    
+    // Initial sync
+    syncBatchesToSelect();
+    syncEditBatchesToSelect();
+    
+    // Initialize CLOs for each course when modal is shown
+    {% if courses %}
+        {% for course in courses %}
+        const courseInfoModal{{ course.id }} = document.getElementById('courseInfoModal{{ course.id }}');
+        if (courseInfoModal{{ course.id }}) {
+            const fillYearTerm{{ course.id }} = (force = false) => {
+                autoFillYearTerm({{ course.id }}, '{{ course.course_code }}', force);
+            };
+            
+            // Auto-fill immediately on page load if fields are empty
+            fillYearTerm{{ course.id }}();
+            
+            courseInfoModal{{ course.id }}.addEventListener('shown.bs.modal', function () {
+                initializeCLOs({{ course.id }}, {{ course.get_clos_list()|tojson }});
+                fillYearTerm{{ course.id }}();
+            });
+        }
+        {% endfor %}
+    {% endif %}
+});
+
+// Function to auto-fill Year and Term from course code
+function autoFillYearTerm(courseId, courseCode, force = false) {
+    const yearField = document.getElementById('year' + courseId);
+    const termField = document.getElementById('term' + courseId);
+    if (!yearField || !termField) return;
+    
+    const { year, term } = getYearTermFromCourseCode(courseCode);
+    if (force || !yearField.value) {
+        yearField.value = year || '';
+    }
+    if (force || !termField.value) {
+        termField.value = term || '';
+    }
+}
+
+// CLO Management Functions
+function initializeCLOs(courseId, existingClos) {
+    const container = document.getElementById('closContainer' + courseId);
+    if (!container) return;
+    
+    container.innerHTML = '';
+    const clos = existingClos || [];
+    
+    clos.forEach((clo, index) => {
+        // Handle both old format (string) and new format (object)
+        if (typeof clo === 'string') {
+            addCLOItem(courseId, clo, '', '', index);
+        } else {
+            addCLOItem(courseId, clo.text || '', clo.teaching_strategy || '', clo.assessment_strategy || '', index);
+        }
+    });
+    
+    updateCLOsJson(courseId);
+}
+
+function addCLO(courseId) {
+    const input = document.getElementById('newCloInput' + courseId);
+    if (!input || !input.value.trim()) return;
+    
+    const container = document.getElementById('closContainer' + courseId);
+    const index = container.children.length;
+    
+    addCLOItem(courseId, input.value.trim(), '', '', index);
+    input.value = '';
+    updateCLOsJson(courseId);
+}
+
+function addCLOItem(courseId, text, teachingStrategy, assessmentStrategy, index) {
+    const container = document.getElementById('closContainer' + courseId);
+    if (!container) return;
+    
+    const cloDiv = document.createElement('div');
+    cloDiv.className = 'clo-item mb-3 p-3 border rounded bg-light';
+    cloDiv.setAttribute('data-index', index);
+    const cloNumber = index + 1;
+    cloDiv.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start">
+            <div class="flex-grow-1">
+                <label class="form-label fw-bold mb-2">
+                    <i class="fas fa-check-circle me-2 text-success"></i>CLO${cloNumber}
+                </label>
+                <input type="text" class="form-control clo-text mb-2" value="${escapeHtml(text)}" placeholder="Enter CLO text...">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Teaching-Learning Strategy:</label>
+                        <input type="text" class="form-control form-control-sm clo-teaching" value="${escapeHtml(teachingStrategy)}" placeholder="e.g., Lecturing, Group Discussion">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small fw-bold">Assessment Strategy:</label>
+                        <input type="text" class="form-control form-control-sm clo-assessment" value="${escapeHtml(assessmentStrategy)}" placeholder="e.g., Quiz, Assignment, Final exam">
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-danger ms-2" onclick="removeCLOItem(this, ${courseId})">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `;
+    
+    container.appendChild(cloDiv);
+    
+    // Add event listeners for real-time updates
+    const textInput = cloDiv.querySelector('.clo-text');
+    const teachingInput = cloDiv.querySelector('.clo-teaching');
+    const assessmentInput = cloDiv.querySelector('.clo-assessment');
+    
+    [textInput, teachingInput, assessmentInput].forEach(input => {
+        input.addEventListener('input', () => updateCLOsJson(courseId));
+    });
+}
+
+function removeCLOItem(button, courseId) {
+    const item = button.closest('.clo-item');
+    if (item) {
+        item.remove();
+        // Reindex remaining items
+        const container = document.getElementById('closContainer' + courseId);
+        if (container) {
+            const items = container.querySelectorAll('.clo-item');
+            items.forEach((item, newIndex) => {
+                item.setAttribute('data-index', newIndex);
+                const label = item.querySelector('label');
+                if (label) {
+                    label.innerHTML = `<i class="fas fa-check-circle me-2 text-success"></i>CLO${newIndex + 1}`;
+                }
+            });
+            updateCLOsJson(courseId);
+        }
+    }
+}
+
+function updateCLOsJson(courseId) {
+    const container = document.getElementById('closContainer' + courseId);
+    const jsonInput = document.getElementById('closJson' + courseId);
+    if (!container || !jsonInput) return;
+    
+    const clos = [];
+    const items = container.querySelectorAll('.clo-item');
+    
+    items.forEach(item => {
+        const text = item.querySelector('.clo-text').value.trim();
+        if (text) {
+            clos.push({
+                text: text,
+                teaching_strategy: item.querySelector('.clo-teaching').value.trim(),
+                assessment_strategy: item.querySelector('.clo-assessment').value.trim()
+            });
+        }
+    });
+    
+    jsonInput.value = JSON.stringify(clos);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Handle Enter key in CLO input
+{% if courses %}
+    {% for course in courses %}
+    const newCloInput{{ course.id }} = document.getElementById('newCloInput{{ course.id }}');
+    if (newCloInput{{ course.id }}) {
+        newCloInput{{ course.id }}.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addCLO({{ course.id }});
+            }
+        });
+    }
+    {% endfor %}
+{% endif %}
+
+// Offered toggle functionality
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.offered-toggle').forEach(toggle => {
+        toggle.addEventListener('change', function() {
+            const courseId = this.dataset.courseId;
+            const isOffered = this.checked;
+            const label = this.nextElementSibling;
+            const badge = label.querySelector('.badge');
+            
+            // Optimistic UI update
+            if (isOffered) {
+                badge.className = 'badge bg-success';
+                badge.textContent = 'ON';
+            } else {
+                badge.className = 'badge bg-secondary';
+                badge.textContent = 'OFF';
+            }
+            
+            // Send AJAX request
+            fetch(`/course-management/course/${courseId}/toggle-offered`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ offered: isOffered })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    // Revert on error
+                    this.checked = !isOffered;
+                    if (isOffered) {
+                        badge.className = 'badge bg-secondary';
+                        badge.textContent = 'OFF';
+                    } else {
+                        badge.className = 'badge bg-success';
+                        badge.textContent = 'ON';
+                    }
+                    alert(data.message || 'Error updating offered status');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                // Revert on error
+                this.checked = !isOffered;
+                if (isOffered) {
+                    badge.className = 'badge bg-secondary';
+                    badge.textContent = 'OFF';
+                } else {
+                    badge.className = 'badge bg-success';
+                    badge.textContent = 'ON';
+                }
+                alert('Error updating offered status');
+            });
+        });
+    });
+});
+    // Year/Term Configuration handlers
+    {% if curriculum %}
+    const yearTermSessionInputs = document.querySelectorAll('.year-term-session');
+    const yearTermBatchSelects = document.querySelectorAll('.year-term-batch');
+    const curriculumId = {{ curriculum.id }};
+    
+    function toggleSaveButton(year, term) {
+        const saveBtn = document.querySelector(`.year-term-save-btn[data-year="${year}"][data-term="${term}"]`);
+        if (saveBtn) {
+            saveBtn.style.display = 'inline-block';
+        }
+    }
+    
+    yearTermSessionInputs.forEach(input => {
+        input.addEventListener('input', function() {
+            const year = this.dataset.year;
+            const term = this.dataset.term;
+            toggleSaveButton(year, term);
+        });
+    });
+    
+    yearTermBatchSelects.forEach(select => {
+        select.addEventListener('change', function() {
+            const year = this.dataset.year;
+            const term = this.dataset.term;
+            toggleSaveButton(year, term);
+        });
+    });
+    
+    // Save Year/Term Configuration
+    document.querySelectorAll('.year-term-save-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const year = this.dataset.year;
+            const term = this.dataset.term;
+            
+            const sessionInput = document.querySelector(`.year-term-session[data-year="${year}"][data-term="${term}"]`);
+            const batchSelect = document.querySelector(`.year-term-batch[data-year="${year}"][data-term="${term}"]`);
+            
+            const academicSession = sessionInput ? sessionInput.value.trim() : '';
+            const batch = batchSelect ? batchSelect.value : '';
+            
+            const btnElement = this;
+            btnElement.disabled = true;
+            btnElement.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
+            
+            fetch(`/course-management/curriculum/${curriculumId}/year-term-config`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    year: year,
+                    term: term,
+                    academic_session: academicSession,
+                    batch: batch
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    btnElement.style.display = 'none';
+                    // Show success message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-success alert-dismissible fade show';
+                    alertDiv.innerHTML = `
+                        <i class="fas fa-check-circle me-2"></i>Configuration saved successfully!
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    const cardHeader = btnElement.closest('.card-header');
+                    cardHeader.insertBefore(alertDiv, cardHeader.firstChild);
+                    setTimeout(() => {
+                        alertDiv.remove();
+                    }, 3000);
+                } else {
+                    alert(data.message || 'Failed to save configuration');
+                    btnElement.disabled = false;
+                    btnElement.innerHTML = '<i class="fas fa-save me-1"></i>Save';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error saving configuration');
+                btnElement.disabled = false;
+                btnElement.innerHTML = '<i class="fas fa-save me-1"></i>Save';
+            });
+        });
+    });
+    {% endif %}
+    
+    // Assign Teacher to Course function
+    function assignTeacherToCourse(courseId) {
+        const form = document.getElementById(`assignTeacherForm${courseId}`);
+        if (!form) return;
+        
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData.entries());
+        
+        // Validate required fields
+        if (!data.teacher_id) {
+            alert('Please select a teacher.');
+            return;
+        }
+        
+        // Show loading state
+        const submitBtn = form.closest('.modal').querySelector('.btn-success');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Creating...';
+        
+        fetch('/course-management/api/assign-teacher-session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                alert(result.message || 'Teacher assigned and session created successfully!');
+                // Close modal and reload page
+                const modal = bootstrap.Modal.getInstance(form.closest('.modal'));
+                if (modal) modal.hide();
+                location.reload();
+            } else {
+                alert(result.message || 'Failed to assign teacher. Please try again.');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred. Please try again.');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+    }
+
+    // Unassign teacher from course assignment
+    function unassignTeacherAssignment(assignmentId, courseId) {
+        if (!confirm('Are you sure you want to remove this assignment?')) {
+            return;
+        }
+
+        fetch('/course-management/api/unassign-teacher-session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ assignment_id: assignmentId })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                alert(result.message || 'Assignment removed successfully.');
+                const modal = bootstrap.Modal.getInstance(document.getElementById(`assignTeacherModal${courseId}`));
+                if (modal) modal.hide();
+                location.reload();
+            } else {
+                alert(result.message || 'Failed to unassign teacher. Please try again.');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while unassigning teacher.');
+        });
+    }
+
+    function loadCourseAssignments(courseId) {
+        const container = document.getElementById(`assignmentListContainer${courseId}`);
+        const list = document.getElementById(`assignmentList${courseId}`);
+        const emptyText = document.getElementById(`assignmentEmpty${courseId}`);
+        if (!container || !list || !emptyText) return;
+
+        container.style.display = 'block';
+
+        fetch(`/course-management/api/course/${courseId}/assignments`)
+            .then(response => response.json())
+            .then(data => {
+                list.innerHTML = '';
+                if (data.success && data.assignments.length > 0) {
+                    container.style.display = 'block';
+                    emptyText.style.display = 'none';
+                    data.assignments.forEach(assignment => {
+                        const item = document.createElement('div');
+                        item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                        const teacherLabel = assignment.teacher_name || `Teacher ID: ${assignment.teacher_id}`;
+                        const sectionLabel = assignment.section ? `Section ${assignment.section}` : 'Full Course';
+                        const batchLabel = assignment.batch ? ` | Batch: ${assignment.batch}` : '';
+                        const badge = assignment.session_created ? '<span class="badge bg-success ms-2">Session Created</span>' : '';
+                        item.innerHTML = `
+                            <div>
+                                <strong>${teacherLabel}</strong>
+                                <span class="ms-2">${sectionLabel}${batchLabel}${badge}</span>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment(${assignment.id}, ${courseId})">
+                                <i class="fas fa-trash-alt me-1"></i>Unassign
+                            </button>
+                        `;
+                        list.appendChild(item);
+                    });
+                } else {
+                    container.style.display = 'block';
+                    emptyText.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('Failed to load assignments:', error);
+                container.style.display = 'block';
+                emptyText.style.display = 'block';
+                emptyText.textContent = 'Failed to load assignments.';
+            });
+    }
+
+    // Load assignments whenever modal is shown
+    const assignTeacherModals = document.querySelectorAll('[id^=\"assignTeacherModal\"]');
+    assignTeacherModals.forEach(modalEl => {
+        modalEl.addEventListener('shown.bs.modal', function () {
+            const courseId = this.getAttribute('data-course-id');
+            if (courseId) {
+                loadCourseAssignments(courseId);
+            }
+        });
+    });
+</script>
+{% endblock %}

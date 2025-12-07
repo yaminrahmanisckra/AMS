@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-edit me-2"></i>Edit Course - {{ session.course_name or session.term }}
+                        {% if session.course_code %}
+                            <span class="badge bg-info text-dark ms-2">{{ session.course_code }}</span>
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('class_management.edit_session', session_id=session.id) }}" method="POST">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="year" class="form-label">
+                                        <i class="fas fa-calendar-year me-2"></i>Year
+                                    </label>
+                                    <input type="text" class="form-control" id="year" name="year" value="{{ session.year }}" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="term" class="form-label">
+                                        <i class="fas fa-calendar me-2"></i>Term
+                                    </label>
+                                    <input type="text" class="form-control" id="term" name="term" value="{{ session.term }}" required>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Course Scope: {{ session.course_scope|upper }}{% if session.split_group_id %} (linked split course; scope adjustments are managed from the course creation page){% endif %}
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="academic_session" class="form-label">
+                                        <i class="fas fa-graduation-cap me-2"></i>Academic Session
+                                    </label>
+                                    <input type="text" class="form-control" id="academic_session" name="academic_session" value="{{ session.academic_session or '' }}" placeholder="e.g. 2025-26">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="course_code" class="form-label">
+                                        <i class="fas fa-hashtag me-2"></i>Course Code
+                                    </label>
+                                    <input type="text" class="form-control" id="course_code" name="course_code" value="{{ session.course_code or '' }}" placeholder="e.g. LAW-101">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="course_name" class="form-label">
+                                <i class="fas fa-book me-2"></i>Course Name
+                            </label>
+                            <input type="text" class="form-control" id="course_name" name="course_name" value="{{ session.course_name or '' }}" placeholder="e.g. Constitutional Law">
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">
+                                        <i class="fas fa-tag me-2"></i>Course Type
+                                    </label><br>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="course_type" id="theory" value="theory" {% if session.course_type == 'theory' %}checked{% endif %}>
+                                        <label class="form-check-label" for="theory">Theory</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="course_type" id="sessional" value="sessional" {% if session.course_type == 'sessional' %}checked{% endif %}>
+                                        <label class="form-check-label" for="sessional">Sessional</label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">
+                                        <i class="fas fa-layer-group me-2"></i>Category
+                                    </label><br>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="category" id="ug" value="ug" {% if session.category == 'ug' %}checked{% endif %}>
+                                        <label class="form-check-label" for="ug">Undergraduate</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="category" id="pg" value="pg" {% if session.category == 'pg' %}checked{% endif %}>
+                                        <label class="form-check-label" for="pg">Postgraduate</label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-warning">
+                                <i class="fas fa-save me-2"></i>Update Course
+                            </button>
+                            <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary">
+                                <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,719 @@
+{% extends "base.html" %}
+{% block title %}Register Courses for Student{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-1">Register Courses for Student</h1>
+            <p class="text-muted mb-0">Register courses on behalf of a student</p>
+        </div>
+        <a href="{{ url_for('course_management.coordinator_registrations') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Review
+        </a>
+    </div>
+
+    <!-- Student Selection Form -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-user me-2"></i>Select Student & Session Details</h5>
+        </div>
+        <div class="card-body">
+            <form id="filterForm">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="student" class="form-label">Student <span class="text-danger">*</span></label>
+                        <select class="form-select" id="student" name="student" required>
+                            <option value="">Select Student</option>
+                            {% for student in students %}
+                            <option value="{{ student.id }}" data-batch="{{ student.batch or '' }}">
+                                {{ student.student_id }} - {{ student.name }} {% if student.batch %}(Batch: {{ student.batch }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="session" class="form-label">Academic Session <span class="text-danger">*</span></label>
+                        <select class="form-select" id="session" name="session" required>
+                            <option value="">Select Session</option>
+                            {% for session in academic_sessions %}
+                            <option value="{{ session }}">{{ session }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="year" class="form-label">Year <span class="text-danger">*</span></label>
+                        <select class="form-select" id="year" name="year" required>
+                            <option value="">Select Year</option>
+                            <option value="First">First</option>
+                            <option value="Second">Second</option>
+                            <option value="Third">Third</option>
+                            <option value="Fourth">Fourth</option>
+                            <option value="Fifth">Fifth</option>
+                            <option value="LLM">LLM</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="term" class="form-label">Term <span class="text-danger">*</span></label>
+                        <select class="form-select" id="term" name="term" required>
+                            <option value="">Select Term</option>
+                            <option value="First">First</option>
+                            <option value="Second">Second</option>
+                            <option value="Thesis Term">Thesis Term</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search me-2"></i>Load Courses
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Available Courses -->
+    <div class="card shadow-sm mb-4" id="coursesCard" style="display: none;">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="fas fa-book me-2"></i>Available Courses</h5>
+        </div>
+        <div class="card-body">
+            <div id="coursesLoading" class="text-center py-4" style="display: none;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+            <div id="coursesList" class="table-responsive">
+                <!-- Courses will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <div id="registrationStatus"></div>
+
+    <!-- Selected Courses -->
+    <div class="card shadow-sm" id="selectedCard" style="display: none;">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Selected Courses</h5>
+            <div>
+                <strong>Total Credits: <span id="totalCredits">0</span></strong>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>SL</th>
+                            <th>Course Code</th>
+                            <th>Course Name</th>
+                            <th>Credit</th>
+                            <th>Type</th>
+                            <th>Nature</th>
+                            <th>Remarks</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="selectedCoursesTable">
+                        <!-- Selected courses will be added here -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-3 text-end">
+                <button type="button" class="btn btn-primary" id="saveRegistrationBtn" disabled>
+                    <i class="fas fa-save me-2"></i>Save Registration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let selectedCourses = [];
+let currentStudentId = '';
+let currentSession = '';
+let currentYear = '';
+let currentTerm = '';
+const statusBox = document.getElementById('registrationStatus');
+const saveBtn = document.getElementById('saveRegistrationBtn');
+
+function showStatus(message, type = 'info') {
+    statusBox.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
+}
+
+document.getElementById('filterForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const studentId = document.getElementById('student').value;
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    
+    if (!studentId || !session || !year || !term) {
+        alert('Please select Student, Session, Year, and Term');
+        return;
+    }
+    
+    currentStudentId = studentId;
+    currentSession = session;
+    currentYear = year;
+    currentTerm = term;
+    
+    loadCourses(year, term);
+});
+
+function loadCourses(year, term) {
+    const coursesCard = document.getElementById('coursesCard');
+    const coursesList = document.getElementById('coursesList');
+    const coursesLoading = document.getElementById('coursesLoading');
+    
+    coursesCard.style.display = 'block';
+    coursesList.innerHTML = '';
+    coursesLoading.style.display = 'block';
+    
+    fetch(`/course-management/student/registration/api/courses?year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            coursesLoading.style.display = 'none';
+            if (data.success && data.courses.length > 0) {
+                let html = '<table class="table table-hover"><thead class="table-light"><tr><th>Select</th><th>Code</th><th>Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Remarks</th></tr></thead><tbody>';
+                data.courses.forEach(course => {
+                    const isSelected = selectedCourses.some(c => c.id === course.id);
+                    html += `
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input course-checkbox" 
+                                       data-id="${course.id}" 
+                                       data-code="${course.course_code}" 
+                                       data-name="${course.course_name}" 
+                                       data-credit="${course.credit}" 
+                                       data-type="${course.course_type}"
+                                       data-nature="${course.nature}"
+                                       ${isSelected ? 'checked' : ''}
+                                       onchange="toggleCourse(this)">
+                            </td>
+                            <td><strong>${course.course_code}</strong></td>
+                            <td>${course.course_name}</td>
+                            <td>${course.credit}</td>
+                            <td><span class="badge bg-info">${course.course_type}</span></td>
+                            <td><span class="badge bg-${course.nature === 'Core' ? 'success' : 'warning'}">${course.nature}</span></td>
+                            <td>
+                                <select class="form-select form-select-sm remark-select" data-id="${course.id}">
+                                    <option value="Regular">Regular</option>
+                                    <option value="Retake">Retake</option>
+                                    <option value="Re-retake">Re-retake</option>
+                                </select>
+                            </td>
+                        </tr>
+                    `;
+                });
+                html += '</tbody></table>';
+                coursesList.innerHTML = html;
+            } else {
+                coursesList.innerHTML = '<div class="alert alert-info">No courses available for the selected Year and Term.</div>';
+            }
+        })
+        .catch(error => {
+            coursesLoading.style.display = 'none';
+            console.error('Error loading courses:', error);
+            coursesList.innerHTML = '<div class="alert alert-danger">Error loading courses. Please try again.</div>';
+        });
+}
+
+function toggleCourse(checkbox) {
+    const id = parseInt(checkbox.dataset.id);
+    const code = checkbox.dataset.code;
+    const name = checkbox.dataset.name;
+    const credit = parseFloat(checkbox.dataset.credit);
+    const type = checkbox.dataset.type;
+    const nature = checkbox.dataset.nature;
+    const remarkSelect = document.querySelector(`.remark-select[data-id="${id}"]`);
+    const remark = remarkSelect ? remarkSelect.value : 'Regular';
+    
+    if (checkbox.checked) {
+        selectedCourses.push({ id, code, name, credit, type, nature, remark });
+    } else {
+        selectedCourses = selectedCourses.filter(c => c.id !== id);
+    }
+    
+    updateSelectedTable();
+}
+
+function updateSelectedTable() {
+    const table = document.getElementById('selectedCoursesTable');
+    const selectedCard = document.getElementById('selectedCard');
+    const totalCreditsSpan = document.getElementById('totalCredits');
+    
+    if (selectedCourses.length === 0) {
+        selectedCard.style.display = 'none';
+        saveBtn.disabled = true;
+        return;
+    }
+    
+    selectedCard.style.display = 'block';
+    saveBtn.disabled = false;
+    
+    let html = '';
+    let totalCredits = 0;
+    
+    selectedCourses.forEach((course, index) => {
+        totalCredits += course.credit;
+        html += `
+            <tr>
+                <td>${index + 1}</td>
+                <td><strong>${course.code}</strong></td>
+                <td>${course.name}</td>
+                <td>${course.credit}</td>
+                <td><span class="badge bg-info">${course.type}</span></td>
+                <td><span class="badge bg-${course.nature === 'Core' ? 'success' : 'warning'}">${course.nature}</span></td>
+                <td>
+                    <select class="form-select form-select-sm" onchange="updateRemark(${course.id}, this.value)">
+                        <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
+                        <option value="Retake" ${course.remark === 'Retake' ? 'selected' : ''}>Retake</option>
+                        <option value="Re-retake" ${course.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
+                    </select>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-danger" onclick="removeCourse(${course.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    table.innerHTML = html;
+    totalCreditsSpan.textContent = totalCredits.toFixed(1);
+}
+
+function updateRemark(courseId, remark) {
+    const course = selectedCourses.find(c => c.id === courseId);
+    if (course) {
+        course.remark = remark;
+    }
+}
+
+function removeCourse(courseId) {
+    selectedCourses = selectedCourses.filter(c => c.id !== courseId);
+    const checkbox = document.querySelector(`.course-checkbox[data-id="${courseId}"]`);
+    if (checkbox) {
+        checkbox.checked = false;
+    }
+    updateSelectedTable();
+}
+
+saveBtn.addEventListener('click', function() {
+    if (!currentStudentId || !currentSession || !currentYear || !currentTerm) {
+        alert('Please select student, session, year, and term first.');
+        return;
+    }
+    if (selectedCourses.length === 0) {
+        alert('Please select at least one course.');
+        return;
+    }
+    
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    
+    fetch('/course-management/coordinator/register-student/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentStudentId,
+            session: currentSession,
+            year: currentYear,
+            term: currentTerm,
+            courses: selectedCourses
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showStatus(data.message, 'success');
+            setTimeout(() => {
+                window.location.href = '/course-management/coordinator/registrations';
+            }, 1500);
+        } else {
+            showStatus(data.message || 'Failed to save registration.', 'danger');
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Registration';
+        }
+    })
+    .catch(error => {
+        console.error('Error saving registration:', error);
+        showStatus('Error saving registration.', 'danger');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Registration';
+    });
+});
+</script>
+{% endblock %}
+
+
+
+
+
+
+{% block title %}Register Courses for Student{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-1">Register Courses for Student</h1>
+            <p class="text-muted mb-0">Register courses on behalf of a student</p>
+        </div>
+        <a href="{{ url_for('course_management.coordinator_registrations') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Review
+        </a>
+    </div>
+
+    <!-- Student Selection Form -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-user me-2"></i>Select Student & Session Details</h5>
+        </div>
+        <div class="card-body">
+            <form id="filterForm">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="student" class="form-label">Student <span class="text-danger">*</span></label>
+                        <select class="form-select" id="student" name="student" required>
+                            <option value="">Select Student</option>
+                            {% for student in students %}
+                            <option value="{{ student.id }}" data-batch="{{ student.batch or '' }}">
+                                {{ student.student_id }} - {{ student.name }} {% if student.batch %}(Batch: {{ student.batch }}){% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="session" class="form-label">Academic Session <span class="text-danger">*</span></label>
+                        <select class="form-select" id="session" name="session" required>
+                            <option value="">Select Session</option>
+                            {% for session in academic_sessions %}
+                            <option value="{{ session }}">{{ session }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="year" class="form-label">Year <span class="text-danger">*</span></label>
+                        <select class="form-select" id="year" name="year" required>
+                            <option value="">Select Year</option>
+                            <option value="First">First</option>
+                            <option value="Second">Second</option>
+                            <option value="Third">Third</option>
+                            <option value="Fourth">Fourth</option>
+                            <option value="Fifth">Fifth</option>
+                            <option value="LLM">LLM</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="term" class="form-label">Term <span class="text-danger">*</span></label>
+                        <select class="form-select" id="term" name="term" required>
+                            <option value="">Select Term</option>
+                            <option value="First">First</option>
+                            <option value="Second">Second</option>
+                            <option value="Thesis Term">Thesis Term</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search me-2"></i>Load Courses
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Available Courses -->
+    <div class="card shadow-sm mb-4" id="coursesCard" style="display: none;">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="fas fa-book me-2"></i>Available Courses</h5>
+        </div>
+        <div class="card-body">
+            <div id="coursesLoading" class="text-center py-4" style="display: none;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+            <div id="coursesList" class="table-responsive">
+                <!-- Courses will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <div id="registrationStatus"></div>
+
+    <!-- Selected Courses -->
+    <div class="card shadow-sm" id="selectedCard" style="display: none;">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Selected Courses</h5>
+            <div>
+                <strong>Total Credits: <span id="totalCredits">0</span></strong>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>SL</th>
+                            <th>Course Code</th>
+                            <th>Course Name</th>
+                            <th>Credit</th>
+                            <th>Type</th>
+                            <th>Nature</th>
+                            <th>Remarks</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="selectedCoursesTable">
+                        <!-- Selected courses will be added here -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-3 text-end">
+                <button type="button" class="btn btn-primary" id="saveRegistrationBtn" disabled>
+                    <i class="fas fa-save me-2"></i>Save Registration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let selectedCourses = [];
+let currentStudentId = '';
+let currentSession = '';
+let currentYear = '';
+let currentTerm = '';
+const statusBox = document.getElementById('registrationStatus');
+const saveBtn = document.getElementById('saveRegistrationBtn');
+
+function showStatus(message, type = 'info') {
+    statusBox.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
+}
+
+document.getElementById('filterForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const studentId = document.getElementById('student').value;
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    
+    if (!studentId || !session || !year || !term) {
+        alert('Please select Student, Session, Year, and Term');
+        return;
+    }
+    
+    currentStudentId = studentId;
+    currentSession = session;
+    currentYear = year;
+    currentTerm = term;
+    
+    loadCourses(year, term);
+});
+
+function loadCourses(year, term) {
+    const coursesCard = document.getElementById('coursesCard');
+    const coursesList = document.getElementById('coursesList');
+    const coursesLoading = document.getElementById('coursesLoading');
+    
+    coursesCard.style.display = 'block';
+    coursesList.innerHTML = '';
+    coursesLoading.style.display = 'block';
+    
+    fetch(`/course-management/student/registration/api/courses?year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            coursesLoading.style.display = 'none';
+            if (data.success && data.courses.length > 0) {
+                let html = '<table class="table table-hover"><thead class="table-light"><tr><th>Select</th><th>Code</th><th>Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Remarks</th></tr></thead><tbody>';
+                data.courses.forEach(course => {
+                    const isSelected = selectedCourses.some(c => c.id === course.id);
+                    html += `
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="form-check-input course-checkbox" 
+                                       data-id="${course.id}" 
+                                       data-code="${course.course_code}" 
+                                       data-name="${course.course_name}" 
+                                       data-credit="${course.credit}" 
+                                       data-type="${course.course_type}"
+                                       data-nature="${course.nature}"
+                                       ${isSelected ? 'checked' : ''}
+                                       onchange="toggleCourse(this)">
+                            </td>
+                            <td><strong>${course.course_code}</strong></td>
+                            <td>${course.course_name}</td>
+                            <td>${course.credit}</td>
+                            <td><span class="badge bg-info">${course.course_type}</span></td>
+                            <td><span class="badge bg-${course.nature === 'Core' ? 'success' : 'warning'}">${course.nature}</span></td>
+                            <td>
+                                <select class="form-select form-select-sm remark-select" data-id="${course.id}">
+                                    <option value="Regular">Regular</option>
+                                    <option value="Retake">Retake</option>
+                                    <option value="Re-retake">Re-retake</option>
+                                </select>
+                            </td>
+                        </tr>
+                    `;
+                });
+                html += '</tbody></table>';
+                coursesList.innerHTML = html;
+            } else {
+                coursesList.innerHTML = '<div class="alert alert-info">No courses available for the selected Year and Term.</div>';
+            }
+        })
+        .catch(error => {
+            coursesLoading.style.display = 'none';
+            console.error('Error loading courses:', error);
+            coursesList.innerHTML = '<div class="alert alert-danger">Error loading courses. Please try again.</div>';
+        });
+}
+
+function toggleCourse(checkbox) {
+    const id = parseInt(checkbox.dataset.id);
+    const code = checkbox.dataset.code;
+    const name = checkbox.dataset.name;
+    const credit = parseFloat(checkbox.dataset.credit);
+    const type = checkbox.dataset.type;
+    const nature = checkbox.dataset.nature;
+    const remarkSelect = document.querySelector(`.remark-select[data-id="${id}"]`);
+    const remark = remarkSelect ? remarkSelect.value : 'Regular';
+    
+    if (checkbox.checked) {
+        selectedCourses.push({ id, code, name, credit, type, nature, remark });
+    } else {
+        selectedCourses = selectedCourses.filter(c => c.id !== id);
+    }
+    
+    updateSelectedTable();
+}
+
+function updateSelectedTable() {
+    const table = document.getElementById('selectedCoursesTable');
+    const selectedCard = document.getElementById('selectedCard');
+    const totalCreditsSpan = document.getElementById('totalCredits');
+    
+    if (selectedCourses.length === 0) {
+        selectedCard.style.display = 'none';
+        saveBtn.disabled = true;
+        return;
+    }
+    
+    selectedCard.style.display = 'block';
+    saveBtn.disabled = false;
+    
+    let html = '';
+    let totalCredits = 0;
+    
+    selectedCourses.forEach((course, index) => {
+        totalCredits += course.credit;
+        html += `
+            <tr>
+                <td>${index + 1}</td>
+                <td><strong>${course.code}</strong></td>
+                <td>${course.name}</td>
+                <td>${course.credit}</td>
+                <td><span class="badge bg-info">${course.type}</span></td>
+                <td><span class="badge bg-${course.nature === 'Core' ? 'success' : 'warning'}">${course.nature}</span></td>
+                <td>
+                    <select class="form-select form-select-sm" onchange="updateRemark(${course.id}, this.value)">
+                        <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
+                        <option value="Retake" ${course.remark === 'Retake' ? 'selected' : ''}>Retake</option>
+                        <option value="Re-retake" ${course.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
+                    </select>
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-danger" onclick="removeCourse(${course.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    table.innerHTML = html;
+    totalCreditsSpan.textContent = totalCredits.toFixed(1);
+}
+
+function updateRemark(courseId, remark) {
+    const course = selectedCourses.find(c => c.id === courseId);
+    if (course) {
+        course.remark = remark;
+    }
+}
+
+function removeCourse(courseId) {
+    selectedCourses = selectedCourses.filter(c => c.id !== courseId);
+    const checkbox = document.querySelector(`.course-checkbox[data-id="${courseId}"]`);
+    if (checkbox) {
+        checkbox.checked = false;
+    }
+    updateSelectedTable();
+}
+
+saveBtn.addEventListener('click', function() {
+    if (!currentStudentId || !currentSession || !currentYear || !currentTerm) {
+        alert('Please select student, session, year, and term first.');
+        return;
+    }
+    if (selectedCourses.length === 0) {
+        alert('Please select at least one course.');
+        return;
+    }
+    
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    
+    fetch('/course-management/coordinator/register-student/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentStudentId,
+            session: currentSession,
+            year: currentYear,
+            term: currentTerm,
+            courses: selectedCourses
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showStatus(data.message, 'success');
+            setTimeout(() => {
+                window.location.href = '/course-management/coordinator/registrations';
+            }, 1500);
+        } else {
+            showStatus(data.message || 'Failed to save registration.', 'danger');
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Registration';
+        }
+    })
+    .catch(error => {
+        console.error('Error saving registration:', error);
+        showStatus('Error saving registration.', 'danger');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Registration';
+    });
+});
+</script>
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

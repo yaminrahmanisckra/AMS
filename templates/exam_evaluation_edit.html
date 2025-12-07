@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h3 class="mb-0"><i class="fas fa-edit me-2 text-warning"></i>Edit Subject Entry</h3>
+        <div>
+            <a href="{{ url_for('exam_evaluation') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back</a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="POST">
+                <div class="mb-3">
+                    <label class="form-label">Course Name</label>
+                    <input type="text" name="course_name" class="form-control" value="{{ entry.course_name }}" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Course Code</label>
+                    <input type="text" name="course_code" class="form-control" value="{{ entry.course_code }}" required>
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Batch</label>
+                        <input type="text" name="batch" class="form-control" value="{{ entry.batch }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Academic Session</label>
+                        <input type="text" name="academic_session" class="form-control" value="{{ entry.academic_session }}">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Discipline</label>
+                    <input type="text" name="discipline" class="form-control" value="{{ entry.discipline }}">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">School</label>
+                    <input type="text" name="school" class="form-control" value="{{ entry.school }}">
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Year</label>
+                        <input type="text" name="year" class="form-control" value="{{ entry.year }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Term</label>
+                        <input type="text" name="term" class="form-control" value="{{ entry.term }}">
+                    </div>
+                </div>
+                <div class="mb-3 mt-3">
+                    <label class="form-label">Section</label>
+                    <input type="text" name="section" class="form-control" value="{{ entry.section }}">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label d-block">Program Level</label>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="program_level" id="levelUG" value="ug" {% if entry.program_level == 'ug' %}checked{% endif %}>
+                        <label class="form-check-label" for="levelUG">Undergraduate</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="program_level" id="levelPG" value="pg" {% if entry.program_level == 'pg' %}checked{% endif %}>
+                        <label class="form-check-label" for="levelPG">Postgraduate</label>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{{ url_for('exam_evaluation') }}" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i>Update Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{{ url_for('exam_evaluation') }}" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i>Update Entry</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

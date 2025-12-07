@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Exam Info{% endblock %}
+{% block extra_css %}
+<style>
+    .exam-info-container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+    .page-header {
+        margin-bottom: 2rem;
+    }
+    .info-card {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        background: #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .info-card h5 {
+        color: #495057;
+        margin-bottom: 1rem;
+        border-bottom: 2px solid #0d6efd;
+        padding-bottom: 0.5rem;
+    }
+    .info-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+    }
+    .info-table th,
+    .info-table td {
+        padding: 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid #dee2e6;
+    }
+    .info-table th {
+        background-color: #f8f9fa;
+        font-weight: 600;
+        color: #495057;
+    }
+    .info-table tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+    .badge {
+        display: inline-block;
+        padding: 0.35rem 0.65rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        border-radius: 0.25rem;
+    }
+    .badge-success {
+        background-color: #198754;
+        color: #fff;
+    }
+    .badge-warning {
+        background-color: #ffc107;
+        color: #000;
+    }
+    .badge-danger {
+        background-color: #dc3545;
+        color: #fff;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="exam-info-container">
+    <div class="page-header">
+        <h1 class="h3 mb-3">Exam Information</h1>
+        <p class="text-muted">View and manage examination schedules and related information.</p>
+    </div>
+
+    <div class="info-card">
+        <h5><i class="fas fa-calendar-alt me-2"></i>Upcoming Examinations</h5>
+        <table class="info-table">
+            <thead>
+                <tr>
+                    <th>Exam Date</th>
+                    <th>Course Code</th>
+                    <th>Course Name</th>
+                    <th>Academic Session</th>
+                    <th>Year</th>
+                    <th>Term</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td colspan="7" class="text-center text-muted">
+                        <i class="fas fa-info-circle me-2"></i>No upcoming examinations found.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="info-card">
+        <h5><i class="fas fa-list-alt me-2"></i>Exam Schedule Overview</h5>
+        <p class="text-muted">View exam schedules by session, year, and term.</p>
+        <!-- Content will be added here -->
+    </div>
+
+    <div class="info-card">
+        <h5><i class="fas fa-file-alt me-2"></i>Exam Related Documents</h5>
+        <p class="text-muted">Access examination-related documents and forms.</p>
+        <!-- Content will be added here -->
+    </div>
+</div>
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+
+

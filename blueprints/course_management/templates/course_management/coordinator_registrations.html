@@ -1,0 +1,823 @@
+{% extends "base.html" %}
+{% block title %}Course Registration Review{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-1">Course Registration Review</h1>
+            <p class="text-muted mb-0">Review and finalize student course registrations</p>
+        </div>
+        <div>
+            <a href="{{ url_for('course_management.coordinator_register_student') }}" class="btn btn-primary">
+                <i class="fas fa-user-plus me-2"></i>Register Courses for Student
+            </a>
+        </div>
+    </div>
+
+    <!-- Pending Registrations -->
+    {% if pending_registrations %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Pending Registrations</h5>
+        </div>
+        <div class="card-body">
+            {% for key, data in pending_registrations.items() %}
+            <div class="card mb-3 border-warning">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ data.student.name }}</strong> ({{ data.student.student_id }})
+                        <br>
+                        <small class="text-muted">
+                            Batch: {{ data.student.batch or 'N/A' }} | 
+                            Session: {{ data.session }} | 
+                            Year: {{ data.year }} | 
+                            Term: {{ data.term }}
+                        </small>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-primary me-2" onclick="viewRegistration({{ data.student.id }}, '{{ data.session }}', '{{ data.year }}', '{{ data.term }}')">
+                            <i class="fas fa-eye me-1"></i>View & Edit
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>SL</th>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Credit</th>
+                                    <th>Type</th>
+                                    <th>Nature</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reg in data.registrations %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ reg.course_code }}</td>
+                                    <td>{{ reg.course_name }}</td>
+                                    <td>{{ reg.credit }}</td>
+                                    <td>{{ reg.course_type }}</td>
+                                    <td>{{ reg.nature }}</td>
+                                    <td>{{ reg.remark }}</td>
+                                </tr>
+                                {% endfor %}
+                                <tr class="table-info fw-bold">
+                                    <td colspan="3" class="text-end">Total Credits:</td>
+                                    <td>{{ data.registrations | sum(attribute='credit') | round(1) }}</td>
+                                    <td colspan="3"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>No pending registrations at the moment.
+    </div>
+    {% endif %}
+
+    <!-- Finalized Registrations -->
+    {% if finalized_registrations %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Finalized Registrations</h5>
+        </div>
+        <div class="card-body">
+            {% for key, data in finalized_registrations.items() %}
+            <div class="card mb-3 border-success">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ data.student.name }}</strong> ({{ data.student.student_id }})
+                        <br>
+                        <small class="text-muted">
+                            Batch: {{ data.student.batch or 'N/A' }} | 
+                            Session: {{ data.session }} | 
+                            Year: {{ data.year }} | 
+                            Term: {{ data.term }}
+                        </small>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-primary me-2" onclick="viewRegistration({{ data.student.id }}, '{{ data.session }}', '{{ data.year }}', '{{ data.term }}')">
+                            <i class="fas fa-edit me-1"></i>Edit
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>SL</th>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Credit</th>
+                                    <th>Type</th>
+                                    <th>Nature</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reg in data.registrations %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ reg.course_code }}</td>
+                                    <td>{{ reg.course_name }}</td>
+                                    <td>{{ reg.credit }}</td>
+                                    <td>{{ reg.course_type }}</td>
+                                    <td>{{ reg.nature }}</td>
+                                    <td>{{ reg.remark }}</td>
+                                </tr>
+                                {% endfor %}
+                                <tr class="table-info fw-bold">
+                                    <td colspan="3" class="text-end">Total Credits:</td>
+                                    <td>{{ data.registrations | sum(attribute='credit') | round(1) }}</td>
+                                    <td colspan="3"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- View/Edit Modal -->
+<div class="modal fade" id="registrationModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">View/Edit Registration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="registrationContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="saveEditBtn" style="display: none;">
+                    <i class="fas fa-save me-2"></i>Save Changes
+                </button>
+                <button type="button" class="btn btn-success" id="finalizeBtn" style="display: none;">
+                    <i class="fas fa-check me-2"></i>Finalize Registration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentEditData = null;
+
+function viewRegistration(studentId, session, year, term) {
+    const modal = new bootstrap.Modal(document.getElementById('registrationModal'));
+    const content = document.getElementById('registrationContent');
+    const saveBtn = document.getElementById('saveEditBtn');
+    const finalizeBtn = document.getElementById('finalizeBtn');
+    
+    content.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+    saveBtn.style.display = 'none';
+    finalizeBtn.style.display = 'none';
+    modal.show();
+    
+    fetch(`/course-management/coordinator/registration/${studentId}/view?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                content.innerHTML = `<div class="alert alert-danger">${data.message || 'Error loading registration'}</div>`;
+                return;
+            }
+            
+            currentEditData = data;
+            
+            let html = `
+                <div class="mb-3">
+                    <h6>Student Information</h6>
+                    <p><strong>Name:</strong> ${data.student.name}</p>
+                    <p><strong>Student ID:</strong> ${data.student.student_id}</p>
+                    <p><strong>Batch:</strong> ${data.student.batch || 'N/A'}</p>
+                    <p><strong>Session:</strong> ${data.session} | <strong>Year:</strong> ${data.year} | <strong>Term:</strong> ${data.term}</p>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-bordered" id="editTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>SL</th>
+                                <th>Course Code</th>
+                                <th>Course Name</th>
+                                <th>Credit</th>
+                                <th>Type</th>
+                                <th>Nature</th>
+                                <th>Remarks</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="editTableBody">
+            `;
+            
+            data.courses.forEach((course, index) => {
+                html += `
+                    <tr data-course-id="${course.id}">
+                        <td>${index + 1}</td>
+                        <td>${course.course_code}</td>
+                        <td>${course.course_name}</td>
+                        <td>${course.credit}</td>
+                        <td>${course.course_type}</td>
+                        <td>
+                            <select class="form-select form-select-sm" data-field="nature">
+                                <option value="Core" ${course.nature === 'Core' ? 'selected' : ''}>Core</option>
+                                <option value="Optional" ${course.nature === 'Optional' ? 'selected' : ''}>Optional</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm" data-field="remark">
+                                <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
+                                <option value="Retake" ${course.remark === 'Retake' ? 'selected' : ''}>Retake</option>
+                                <option value="Re-retake" ${course.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
+                            </select>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="removeCourseFromEdit(${course.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-info fw-bold">
+                                <td colspan="3" class="text-end">Total Credits:</td>
+                                <td id="totalCreditsEdit">${data.total_credits.toFixed(1)}</td>
+                                <td colspan="4"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            `;
+            
+            content.innerHTML = html;
+            saveBtn.style.display = 'inline-block';
+            finalizeBtn.style.display = 'inline-block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            content.innerHTML = '<div class="alert alert-danger">Error loading registration</div>';
+        });
+}
+
+function removeCourseFromEdit(courseId) {
+    if (!confirm('Are you sure you want to remove this course?')) {
+        return;
+    }
+    const row = document.querySelector(`tr[data-course-id="${courseId}"]`);
+    if (row) {
+        row.remove();
+        updateTotalCredits();
+    }
+}
+
+function updateTotalCredits() {
+    const rows = document.querySelectorAll('#editTableBody tr');
+    let total = 0;
+    rows.forEach(row => {
+        const creditCell = row.cells[3];
+        if (creditCell) {
+            total += parseFloat(creditCell.textContent) || 0;
+        }
+    });
+    const totalCell = document.getElementById('totalCreditsEdit');
+    if (totalCell) {
+        totalCell.textContent = total.toFixed(1);
+    }
+}
+
+document.getElementById('saveEditBtn').addEventListener('click', function() {
+    if (!currentEditData) return;
+    
+    const rows = document.querySelectorAll('#editTableBody tr');
+    const courses = [];
+    
+    rows.forEach(row => {
+        const courseId = row.getAttribute('data-course-id');
+        const natureSelect = row.querySelector('select[data-field="nature"]');
+        const remarkSelect = row.querySelector('select[data-field="remark"]');
+        
+        courses.push({
+            id: courseId,
+            course_id: courseId,
+            course_code: row.cells[1].textContent.trim(),
+            course_name: row.cells[2].textContent.trim(),
+            credit: parseFloat(row.cells[3].textContent) || 0,
+            course_type: row.cells[4].textContent.trim(),
+            nature: natureSelect ? natureSelect.value : 'Core',
+            remark: remarkSelect ? remarkSelect.value : 'Regular'
+        });
+    });
+    
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    
+    fetch('/course-management/coordinator/registration/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentEditData.student.id,
+            session: currentEditData.session,
+            year: currentEditData.year,
+            term: currentEditData.term,
+            courses: courses
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Registration updated successfully.');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to update registration.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating registration.');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+    });
+});
+
+document.getElementById('finalizeBtn').addEventListener('click', function() {
+    if (!currentEditData) return;
+    
+    if (!confirm('Are you sure you want to finalize this registration? It will be marked as finalized.')) {
+        return;
+    }
+    
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Finalizing...';
+    
+    fetch('/course-management/coordinator/registration/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentEditData.student.id,
+            session: currentEditData.session,
+            year: currentEditData.year,
+            term: currentEditData.term
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Registration finalized successfully.');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to finalize registration.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error finalizing registration.');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>Finalize Registration';
+    });
+});
+</script>
+{% endblock %}
+
+
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-1">Course Registration Review</h1>
+            <p class="text-muted mb-0">Review and finalize student course registrations</p>
+        </div>
+        <div>
+            <a href="{{ url_for('course_management.coordinator_register_student') }}" class="btn btn-primary">
+                <i class="fas fa-user-plus me-2"></i>Register Courses for Student
+            </a>
+        </div>
+    </div>
+
+    <!-- Pending Registrations -->
+    {% if pending_registrations %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Pending Registrations</h5>
+        </div>
+        <div class="card-body">
+            {% for key, data in pending_registrations.items() %}
+            <div class="card mb-3 border-warning">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ data.student.name }}</strong> ({{ data.student.student_id }})
+                        <br>
+                        <small class="text-muted">
+                            Batch: {{ data.student.batch or 'N/A' }} | 
+                            Session: {{ data.session }} | 
+                            Year: {{ data.year }} | 
+                            Term: {{ data.term }}
+                        </small>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-primary me-2" onclick="viewRegistration({{ data.student.id }}, '{{ data.session }}', '{{ data.year }}', '{{ data.term }}')">
+                            <i class="fas fa-eye me-1"></i>View & Edit
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>SL</th>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Credit</th>
+                                    <th>Type</th>
+                                    <th>Nature</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reg in data.registrations %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ reg.course_code }}</td>
+                                    <td>{{ reg.course_name }}</td>
+                                    <td>{{ reg.credit }}</td>
+                                    <td>{{ reg.course_type }}</td>
+                                    <td>{{ reg.nature }}</td>
+                                    <td>{{ reg.remark }}</td>
+                                </tr>
+                                {% endfor %}
+                                <tr class="table-info fw-bold">
+                                    <td colspan="3" class="text-end">Total Credits:</td>
+                                    <td>{{ data.registrations | sum(attribute='credit') | round(1) }}</td>
+                                    <td colspan="3"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>No pending registrations at the moment.
+    </div>
+    {% endif %}
+
+    <!-- Finalized Registrations -->
+    {% if finalized_registrations %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Finalized Registrations</h5>
+        </div>
+        <div class="card-body">
+            {% for key, data in finalized_registrations.items() %}
+            <div class="card mb-3 border-success">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ data.student.name }}</strong> ({{ data.student.student_id }})
+                        <br>
+                        <small class="text-muted">
+                            Batch: {{ data.student.batch or 'N/A' }} | 
+                            Session: {{ data.session }} | 
+                            Year: {{ data.year }} | 
+                            Term: {{ data.term }}
+                        </small>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-primary me-2" onclick="viewRegistration({{ data.student.id }}, '{{ data.session }}', '{{ data.year }}', '{{ data.term }}')">
+                            <i class="fas fa-edit me-1"></i>Edit
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>SL</th>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Credit</th>
+                                    <th>Type</th>
+                                    <th>Nature</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reg in data.registrations %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ reg.course_code }}</td>
+                                    <td>{{ reg.course_name }}</td>
+                                    <td>{{ reg.credit }}</td>
+                                    <td>{{ reg.course_type }}</td>
+                                    <td>{{ reg.nature }}</td>
+                                    <td>{{ reg.remark }}</td>
+                                </tr>
+                                {% endfor %}
+                                <tr class="table-info fw-bold">
+                                    <td colspan="3" class="text-end">Total Credits:</td>
+                                    <td>{{ data.registrations | sum(attribute='credit') | round(1) }}</td>
+                                    <td colspan="3"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- View/Edit Modal -->
+<div class="modal fade" id="registrationModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">View/Edit Registration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="registrationContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="saveEditBtn" style="display: none;">
+                    <i class="fas fa-save me-2"></i>Save Changes
+                </button>
+                <button type="button" class="btn btn-success" id="finalizeBtn" style="display: none;">
+                    <i class="fas fa-check me-2"></i>Finalize Registration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentEditData = null;
+
+function viewRegistration(studentId, session, year, term) {
+    const modal = new bootstrap.Modal(document.getElementById('registrationModal'));
+    const content = document.getElementById('registrationContent');
+    const saveBtn = document.getElementById('saveEditBtn');
+    const finalizeBtn = document.getElementById('finalizeBtn');
+    
+    content.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+    saveBtn.style.display = 'none';
+    finalizeBtn.style.display = 'none';
+    modal.show();
+    
+    fetch(`/course-management/coordinator/registration/${studentId}/view?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                content.innerHTML = `<div class="alert alert-danger">${data.message || 'Error loading registration'}</div>`;
+                return;
+            }
+            
+            currentEditData = data;
+            
+            let html = `
+                <div class="mb-3">
+                    <h6>Student Information</h6>
+                    <p><strong>Name:</strong> ${data.student.name}</p>
+                    <p><strong>Student ID:</strong> ${data.student.student_id}</p>
+                    <p><strong>Batch:</strong> ${data.student.batch || 'N/A'}</p>
+                    <p><strong>Session:</strong> ${data.session} | <strong>Year:</strong> ${data.year} | <strong>Term:</strong> ${data.term}</p>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-bordered" id="editTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>SL</th>
+                                <th>Course Code</th>
+                                <th>Course Name</th>
+                                <th>Credit</th>
+                                <th>Type</th>
+                                <th>Nature</th>
+                                <th>Remarks</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="editTableBody">
+            `;
+            
+            data.courses.forEach((course, index) => {
+                html += `
+                    <tr data-course-id="${course.id}">
+                        <td>${index + 1}</td>
+                        <td>${course.course_code}</td>
+                        <td>${course.course_name}</td>
+                        <td>${course.credit}</td>
+                        <td>${course.course_type}</td>
+                        <td>
+                            <select class="form-select form-select-sm" data-field="nature">
+                                <option value="Core" ${course.nature === 'Core' ? 'selected' : ''}>Core</option>
+                                <option value="Optional" ${course.nature === 'Optional' ? 'selected' : ''}>Optional</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm" data-field="remark">
+                                <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
+                                <option value="Retake" ${course.remark === 'Retake' ? 'selected' : ''}>Retake</option>
+                                <option value="Re-retake" ${course.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
+                            </select>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="removeCourseFromEdit(${course.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-info fw-bold">
+                                <td colspan="3" class="text-end">Total Credits:</td>
+                                <td id="totalCreditsEdit">${data.total_credits.toFixed(1)}</td>
+                                <td colspan="4"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            `;
+            
+            content.innerHTML = html;
+            saveBtn.style.display = 'inline-block';
+            finalizeBtn.style.display = 'inline-block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            content.innerHTML = '<div class="alert alert-danger">Error loading registration</div>';
+        });
+}
+
+function removeCourseFromEdit(courseId) {
+    if (!confirm('Are you sure you want to remove this course?')) {
+        return;
+    }
+    const row = document.querySelector(`tr[data-course-id="${courseId}"]`);
+    if (row) {
+        row.remove();
+        updateTotalCredits();
+    }
+}
+
+function updateTotalCredits() {
+    const rows = document.querySelectorAll('#editTableBody tr');
+    let total = 0;
+    rows.forEach(row => {
+        const creditCell = row.cells[3];
+        if (creditCell) {
+            total += parseFloat(creditCell.textContent) || 0;
+        }
+    });
+    const totalCell = document.getElementById('totalCreditsEdit');
+    if (totalCell) {
+        totalCell.textContent = total.toFixed(1);
+    }
+}
+
+document.getElementById('saveEditBtn').addEventListener('click', function() {
+    if (!currentEditData) return;
+    
+    const rows = document.querySelectorAll('#editTableBody tr');
+    const courses = [];
+    
+    rows.forEach(row => {
+        const courseId = row.getAttribute('data-course-id');
+        const natureSelect = row.querySelector('select[data-field="nature"]');
+        const remarkSelect = row.querySelector('select[data-field="remark"]');
+        
+        courses.push({
+            id: courseId,
+            course_id: courseId,
+            course_code: row.cells[1].textContent.trim(),
+            course_name: row.cells[2].textContent.trim(),
+            credit: parseFloat(row.cells[3].textContent) || 0,
+            course_type: row.cells[4].textContent.trim(),
+            nature: natureSelect ? natureSelect.value : 'Core',
+            remark: remarkSelect ? remarkSelect.value : 'Regular'
+        });
+    });
+    
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    
+    fetch('/course-management/coordinator/registration/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentEditData.student.id,
+            session: currentEditData.session,
+            year: currentEditData.year,
+            term: currentEditData.term,
+            courses: courses
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Registration updated successfully.');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to update registration.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating registration.');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+    });
+});
+
+document.getElementById('finalizeBtn').addEventListener('click', function() {
+    if (!currentEditData) return;
+    
+    if (!confirm('Are you sure you want to finalize this registration? It will be marked as finalized.')) {
+        return;
+    }
+    
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Finalizing...';
+    
+    fetch('/course-management/coordinator/registration/finalize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentEditData.student.id,
+            session: currentEditData.session,
+            year: currentEditData.year,
+            term: currentEditData.term
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Registration finalized successfully.');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to finalize registration.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error finalizing registration.');
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-check me-2"></i>Finalize Registration';
+    });
+});
+</script>
+{% endblock %}
+

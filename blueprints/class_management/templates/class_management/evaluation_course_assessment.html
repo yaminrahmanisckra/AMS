@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow">
+        <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-clipboard-list me-2"></i>Peer Review Form</h5>
+            <a class="btn btn-light btn-sm" href="{{ url_for('class_management.evaluation', session_id=session.id) }}">
+                <i class="fas fa-arrow-left me-1"></i> Back to Evaluation
+            </a>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <h6 class="mb-2">Invite a Teacher</h6>
+                    <form action="{{ url_for('class_management.course_assessment', session_id=session.id) }}" method="POST" class="d-flex gap-2 align-items-end">
+                        <div class="flex-grow-1">
+                            <label class="form-label mb-1">Select Teacher</label>
+                            <select name="evaluator_teacher_id" class="form-select" required>
+                                <option value="" disabled selected>Choose a teacher to invite</option>
+                                {% for t in other_teachers %}
+                                    <option value="{{ t.id }}">{{ t.name }} ({{ t.short_name.upper() }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-paper-plane me-1"></i>Invite
+                        </button>
+                    </form>
+                    <p class="text-muted mt-2" style="font-size: 0.9rem;">The invited teacher will be able to submit peer review feedback for this course.</p>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="mb-2">Invitations</h6>
+                    {% if invites %}
+                        <ul class="list-group invitation-list">
+                            {% for inv in invites %}
+                                {% set eval_teacher = teachers_by_id.get(inv.evaluator_teacher_id) %}
+                                {% set s = sessions_by_id.get(inv.session_id) %}
+                                <li class="list-group-item invitation-item">
+                                    <div class="invitation-info">
+                                        <div class="fw-semibold"><i class="fas fa-user-check me-2 text-secondary"></i>{{ eval_teacher.name if eval_teacher else 'Teacher #' ~ inv.evaluator_teacher_id }}</div>
+                                        {% if s %}
+                                            <div class="badge bg-light text-dark invitation-course-badge">{{ s.course_name }}{% if s.course_code %} ({{ s.course_code }}){% endif %}</div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="invitation-actions">
+                                        <span class="badge bg-secondary">{{ inv.status|capitalize }}</span>
+                                        {% if inv.status == 'submitted' %}
+                                          <a href="{{ url_for('class_management.course_assessment_view', session_id=inv.session_id, invite_id=inv.id) }}" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-eye me-1"></i>View
+                                          </a>
+                                          <a href="{{ url_for('class_management.course_assessment_pdf', session_id=inv.session_id, invite_id=inv.id) }}" class="btn btn-sm btn-outline-dark" target="_blank">
+                                            <i class="fas fa-file-pdf me-1"></i>PDF
+                                          </a>
+                                        {% endif %}
+                                        {% if inv.status != 'cancelled' %}
+                                        <form action="{{ url_for('class_management.cancel_invitation', invite_id=inv.id) }}" method="POST" class="m-0">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Cancel this invitation?');">
+                                                <i class="fas fa-times me-1"></i>Cancel
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="text-muted">No invitations yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+

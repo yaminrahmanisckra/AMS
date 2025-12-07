@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+
+{% macro likert_block(name, label) -%}
+  <tr class="statement-row">
+    <td colspan="5" class="question-text">{{ label }}</td>
+  </tr>
+  <tr class="options-row">
+    {% for value, text in [
+      ('strongly_disagree', 'Strongly disagree'),
+      ('disagree', 'Disagree'),
+      ('neutral', 'Neutral'),
+      ('agree', 'Agree'),
+      ('strongly_agree', 'Strongly Agree')
+    ] %}
+      <td class="option-cell">
+        <label class="option-label">
+          <input type="radio" name="{{ name }}" value="{{ text }}" aria-label="{{ text }}">
+          <span>{{ text }}</span>
+        </label>
+      </td>
+    {% endfor %}
+  </tr>
+{%- endmacro %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="feedback-form-card mx-auto">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ 'warning' if category == 'warning' else category }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% if status == 'not_found' %}
+      <p class="text-muted text-center mb-0">Sorry, this feedback link is invalid.</p>
+    {% elif status == 'expired' %}
+      <p class="text-muted text-center mb-0">This feedback form is no longer accepting responses.</p>
+    {% elif submitted %}
+      <div class="submitted-state text-center py-4">
+        <i class="fas fa-check-circle text-success fa-3x mb-3"></i>
+        <h5 class="mb-2">ধন্যবাদ!</h5>
+        <p class="text-muted mb-0">আপনার ফিডব্যাক সফলভাবে পাওয়া গেছে।</p>
+        {% if already_submitted %}
+          <p class="small text-muted mt-2">একই ব্রাউজার থেকে পুনরায় জমা দিতে পারবেন না।</p>
+        {% endif %}
+      </div>
+    {% else %}
+      <form method="POST" class="feedback-form">
+        <header class="feedback-header text-center mb-3">
+          <div class="logo-placeholder">STUDENT FEEDBACK FORM<br><span>KHULNA UNIVERSITY</span></div>
+        </header>
+
+      <section class="info-table mb-4">
+        <div class="row g-0 border border-dark border-2">
+          <div class="col-lg-4 col-md-6 border-end border-dark border-2 p-3 info-label">Academic Session</div>
+          <div class="col-lg-8 col-md-6 p-3 border-bottom border-dark border-2">
+            <input type="text" name="academic_session" class="form-control form-control-lg" value="{{ prefill.academic_session if prefill else '' }}">
+          </div>
+          <div class="col-lg-4 col-md-6 border-end border-dark border-2 p-3 info-label">Title of the Course</div>
+          <div class="col-lg-8 col-md-6 p-3 border-bottom border-dark border-2">
+            <input type="text" name="course_title" class="form-control form-control-lg" value="{{ prefill.course_title if prefill else '' }}">
+          </div>
+          <div class="col-lg-4 col-md-6 border-end border-dark border-2 p-3 info-label">Course Code</div>
+          <div class="col-lg-8 col-md-6 p-3">
+            <input type="text" name="course_code" class="form-control form-control-lg" value="{{ prefill.course_code if prefill else '' }}">
+          </div>
+        </div>
+      </section>
+
+      <section class="section-block mb-4">
+        <div class="section-title">A. Satisfaction with the Course</div>
+        <table class="table table-bordered border-dark border-2 mb-0 likert-table">
+          {{ likert_block('course_structure', 'Course content is structured in a comprehensible manner.') }}
+          {{ likert_block('course_goals', 'The goals of the course are clear.') }}
+          {{ likert_block('course_content_guidance', 'The course contents are explained in an understandable fashion.') }}
+          {{ likert_block('course_interest', 'The course fosters my interest in the discussed topics.') }}
+        </table>
+      </section>
+
+      <section class="section-block mb-4">
+        <div class="section-title">B. Teaching-Learning Methods</div>
+        <table class="table table-bordered border-dark border-2 mb-3 likert-table">
+          {{ likert_block('course_plan_discussed', 'Course plan (assessment criteria/ content) was discussed in advance.') }}
+        </table>
+        <div class="border border-dark border-2 p-3 mb-3 small">
+          <p class="fw-semibold mb-2">Which teaching methods and approaches used by the instructor contributed significantly to your learning? (Select all that apply)</p>
+          <div class="row g-2">
+            {% set method_options = [
+              'Lectures (including online lectures)',
+              'Class discussions (including online discussion boards)',
+              'In-class learning activities (other than discussion)',
+              'In-class clickers or other quick response methods',
+              'Homework (readings and assignments)',
+              'Labs',
+              'Projects or portfolios',
+              'Teamwork or group activities',
+              'Student presentations',
+              'Guest lecturers',
+              'Fieldwork/field trips',
+              'Mentoring outside of the classroom',
+              'Support from Teaching/ Research Assistants',
+              'Others'
+            ] %}
+            {% for option in method_options %}
+              <div class="col-md-6">
+                <label class="form-check small">
+                  <input class="form-check-input" type="checkbox" name="teaching_methods" value="{{ option }}">
+                  <span class="form-check-label">{{ option }}</span>
+                </label>
+                {% if option == 'Others' %}
+                  <input type="text" name="teaching_methods_other" class="form-control form-control-sm mt-1" placeholder="Please specify">
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        <table class="table table-bordered border-dark border-2 mb-0 likert-table">
+          {{ likert_block('guidelines_received', 'Received oral instruction and written guidelines for continuous assessment.') }}
+          {{ likert_block('assessment_helpful', 'Course projects/assignments/tests were helpful to demonstrate an understanding of the course material.') }}
+          {{ likert_block('feedback_timely', 'Received feedback and grades of continuous assessments from course teacher in due time.') }}
+        </table>
+      </section>
+
+      <section class="section-block mb-4">
+        <div class="section-title">C. Engagement and Workload</div>
+        <div class="border border-dark border-2 mb-3">
+          <div class="row g-0">
+            <div class="col-12 col-lg-4 border-end border-dark border-2 p-3 small fw-semibold">How much time do you devote to this course before and after each lecture?</div>
+            <div class="col-12 col-lg-8 p-3">
+              {% for value in ['0 – 1 hrs/wk', '> 1 – 2 hrs/wk', '> 2 – 3 hrs/wk', '> 3 – 4 hrs/wk', '> 4 hrs/wk'] %}
+                <label class="form-check form-check-inline small me-3">
+                  <input class="form-check-input" type="radio" name="study_time" value="{{ value }}">
+                  <span class="form-check-label">{{ value }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="row g-0 border-top border-dark border-2">
+            <div class="col-12 col-lg-4 border-end border-dark border-2 p-3 small fw-semibold">About what percent of the class meetings (including discussions) did you attend?</div>
+            <div class="col-12 col-lg-8 p-3">
+              {% for value in ['0-20%', '20-40%', '40-60%', '60-80%', '80-100%'] %}
+                <label class="form-check form-check-inline small me-3">
+                  <input class="form-check-input" type="radio" name="attendance_percent" value="{{ value }}">
+                  <span class="form-check-label">{{ value }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="border border-dark border-2 p-3 mb-0 small">
+          <p class="fw-semibold mb-2">Which of the following were significant aspects of the efforts you put in for the course? (Select all that apply)</p>
+          <div class="row g-2">
+            {% set efforts = [
+              'Memorizing facts and repeating ideas from the readings and lectures.',
+              'Making judgments about the value of information, arguments, or methods.',
+              'Applying basic elements of an idea, experience, or theory.',
+              'Applying theories or concepts to practical problems or in new situations.',
+              'Synthesizing and organizing ideas, information, or experiences.',
+              'Solving problems.',
+              'Thinking creatively or critically.',
+              'Teamwork or group activities.',
+              'Doing lab work.',
+              'Presenting in person or via a recording.',
+              'Reading and writing for deep understanding.',
+              'Others'
+            ] %}
+            {% for option in efforts %}
+              <div class="col-md-6">
+                <label class="form-check small">
+                  <input class="form-check-input" type="checkbox" name="effort_focus" value="{{ option }}">
+                  <span class="form-check-label">{{ option }}</span>
+                </label>
+                {% if option == 'Others' %}
+                  <input type="text" name="effort_other" class="form-control form-control-sm mt-1" placeholder="Please specify">
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="section-block mb-4">
+        <div class="section-title">D. Praise and Suggestions</div>
+        <div class="border border-dark border-2 p-3 mb-3">
+          <label class="form-label small fw-semibold">What did you like especially about this course?</label>
+          <textarea name="likes" class="form-control" rows="3"></textarea>
+        </div>
+        <div class="border border-dark border-2 p-3 mb-3">
+          <label class="form-label small fw-semibold">What are the challenges you have faced in attending the course?</label>
+          <textarea name="challenges" class="form-control" rows="3"></textarea>
+        </div>
+        <div class="border border-dark border-2 p-3">
+          <label class="form-label small fw-semibold">Suggestions on how to improve the course:</label>
+          <textarea name="suggestions" class="form-control" rows="3"></textarea>
+        </div>
+      </section>
+
+      <div class="text-end">
+        <button type="submit" class="btn btn-primary px-4">Submit Feedback</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<style>
+  .feedback-form-card {
+    max-width: 900px;
+    background: #fff;
+    border: 2px solid #111;
+    padding: 2rem;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+  }
+  .feedback-header .logo-placeholder {
+    font-weight: 800;
+    font-size: 1.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04rem;
+  }
+  .feedback-header .logo-placeholder span {
+    display: inline-block;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .feedback-form .section-title {
+    background: #111;
+    color: #fff;
+    font-weight: 700;
+    padding: 0.35rem 0.75rem;
+    text-transform: uppercase;
+    border: 2px solid #111;
+  }
+  .feedback-form .likert-table .statement-row td {
+    background: #f1f1f1;
+    font-weight: 600;
+    padding: 0.6rem 0.8rem;
+    text-align: left;
+  }
+  .feedback-form .likert-table .options-row td {
+    padding: 0.4rem 0.35rem;
+    text-align: center;
+    width: 20%;
+  }
+  .feedback-form .option-label span {
+    font-size: 0.7rem;
+    text-transform: capitalize;
+    font-weight: 600;
+  }
+  .feedback-form .option-label input[type="radio"] {
+    margin: 0;
+  }
+  .feedback-form .form-check-inline {
+    margin-bottom: 0.4rem;
+  }
+  .feedback-form .info-table input {
+    height: 3.5rem;
+    font-size: 1rem;
+    width: 100%;
+  }
+  .feedback-form .info-label {
+    background: #f1f1f1;
+    font-weight: 700;
+    text-transform: capitalize;
+    display: flex;
+    align-items: center;
+  }
+</style>
+{% endblock %}
+

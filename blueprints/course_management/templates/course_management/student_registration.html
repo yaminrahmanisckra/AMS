@@ -1,0 +1,489 @@
+{% extends "base.html" %}
+{% block title %}Course Registration{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-1">Course Registration</h1>
+            <p class="text-muted mb-0">Select your courses for the academic session</p>
+        </div>
+        <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+        </a>
+    </div>
+
+    <!-- Selection Form -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Select Session, Year & Term</h5>
+        </div>
+        <div class="card-body">
+            <form id="filterForm">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label for="session" class="form-label">Academic Session <span class="text-danger">*</span></label>
+                        <select class="form-select" id="session" name="session" required>
+                            <option value="">Select Session</option>
+                            {% for session in academic_sessions %}
+                            <option value="{{ session }}">{{ session }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="year" class="form-label">Year <span class="text-danger">*</span></label>
+                        <select class="form-select" id="year" name="year" required>
+                            <option value="">Select Year</option>
+                            <option value="First">First</option>
+                            <option value="Second">Second</option>
+                            <option value="Third">Third</option>
+                            <option value="Fourth">Fourth</option>
+                            <option value="Fifth">Fifth</option>
+                            <option value="LLM">LLM</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="term" class="form-label">Term <span class="text-danger">*</span></label>
+                        <select class="form-select" id="term" name="term" required>
+                            <option value="">Select Term</option>
+                            <option value="First">First</option>
+                            <option value="Second">Second</option>
+                            <option value="Thesis Term">Thesis Term</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search me-2"></i>Load Courses
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Available Courses -->
+    <div class="card shadow-sm mb-4" id="coursesCard" style="display: none;">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="fas fa-book me-2"></i>Available Courses</h5>
+        </div>
+        <div class="card-body">
+            <div id="coursesLoading" class="text-center py-4" style="display: none;">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+            <div id="coursesList" class="table-responsive">
+                <!-- Courses will be loaded here -->
+            </div>
+        </div>
+    </div>
+
+    <div id="registrationStatus"></div>
+
+    <!-- Selected Courses -->
+    <div class="card shadow-sm" id="selectedCard" style="display: none;">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Selected Courses</h5>
+            <div>
+                <strong>Total Credits: <span id="totalCredits">0</span></strong>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>SL</th>
+                            <th>Course Code</th>
+                            <th>Course Name</th>
+                            <th>Credit</th>
+                            <th>Type</th>
+                            <th>Nature</th>
+                            <th>Remarks</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="selectedCoursesTable">
+                        <!-- Selected courses will be added here -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-3 text-end">
+                <button type="button" class="btn btn-primary me-2" id="saveRegistrationBtn" disabled>
+                    <i class="fas fa-save me-2"></i>Save Registration
+                </button>
+                <button type="button" class="btn btn-warning me-2" id="sendToCoordinatorBtn" disabled>
+                    <i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator
+                </button>
+                <button type="button" class="btn btn-success" id="downloadPdfBtn" disabled>
+                    <i class="fas fa-file-pdf me-2"></i>Download Registration PDF
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let selectedCourses = [];
+let currentSession = '';
+let currentYear = '';
+let currentTerm = '';
+const statusBox = document.getElementById('registrationStatus');
+const saveBtn = document.getElementById('saveRegistrationBtn');
+const downloadBtn = document.getElementById('downloadPdfBtn');
+const sendToCoordinatorBtn = document.getElementById('sendToCoordinatorBtn');
+
+function showStatus(message, type = 'info') {
+    if (!statusBox) return;
+    const alertClass = type === 'error' ? 'alert-danger' : type === 'success' ? 'alert-success' : 'alert-info';
+    statusBox.innerHTML = `
+        <div class="alert ${alertClass} alert-dismissible fade show shadow-sm" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    `;
+}
+
+function isSameCourse(existing, course) {
+    if (existing.id && course.id) {
+        return existing.id === course.id;
+    }
+    return existing.course_code === course.course_code;
+}
+
+document.getElementById('filterForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    
+    if (!session || !year || !term) {
+        alert('Please select Session, Year, and Term');
+        return;
+    }
+    
+    currentSession = session;
+    currentYear = year;
+    currentTerm = term;
+    
+    selectedCourses = [];
+    updateSelectedTable();
+    loadSavedRegistrations(session, year, term)
+        .finally(() => loadCourses(year, term));
+});
+
+function loadSavedRegistrations(session, year, term) {
+    return fetch(`/course-management/student/registration/api/registrations?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.registrations) {
+                selectedCourses = data.registrations.map(course => ({
+                    id: course.id,
+                    course_code: course.course_code,
+                    course_name: course.course_name,
+                    credit: course.credit,
+                    course_type: course.course_type,
+                    nature: course.nature || 'Core',
+                    remark: course.remark || 'Regular'
+                }));
+                updateSelectedTable();
+                if (selectedCourses.length > 0) {
+                    showStatus('Loaded previously saved courses for this session.', 'info');
+                } else {
+                    showStatus('No saved registration found for this session.', 'info');
+                }
+            } else if (!data.success) {
+                showStatus(data.message || 'Failed to load saved registrations.', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error loading saved registrations:', error);
+            showStatus('Error loading saved registrations.', 'error');
+        });
+}
+
+function loadCourses(year, term) {
+    const coursesCard = document.getElementById('coursesCard');
+    const coursesList = document.getElementById('coursesList');
+    const coursesLoading = document.getElementById('coursesLoading');
+    
+    coursesCard.style.display = 'block';
+    coursesLoading.style.display = 'block';
+    coursesList.innerHTML = '';
+    
+    fetch(`/course-management/student/registration/api/courses?year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            coursesLoading.style.display = 'none';
+            if (data.success && data.courses.length > 0) {
+                let html = '<table class="table table-bordered table-hover"><thead class="table-light"><tr>';
+                html += '<th>Course Code</th><th>Course Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Remarks</th><th>Action</th>';
+                html += '</tr></thead><tbody>';
+                
+                data.courses.forEach(course => {
+                    const isSelected = selectedCourses.some(c => isSameCourse(c, { id: course.id, course_code: course.course_code }));
+                    const remarkSelectId = `remark-${course.id}`;
+                    html += `<tr>
+                        <td>${course.course_code}</td>
+                        <td>${course.course_name}</td>
+                        <td>${course.credit}</td>
+                        <td>${course.course_type}</td>
+                        <td>${course.nature || 'Core'}</td>
+                        <td>
+                            <select id="${remarkSelectId}" class="form-select form-select-sm">
+                                <option value="Regular">Regular</option>
+                                <option value="Retake">Retake</option>
+                                <option value="Re-retake">Re-retake</option>
+                            </select>
+                        </td>
+                        <td>
+                            ${isSelected ? 
+                                '<span class="badge bg-success">Selected</span>' : 
+                                `<button class="btn btn-sm btn-primary" onclick="addCourse(${course.id}, '${course.course_code.replace(/'/g, "\\'")}', '${course.course_name.replace(/'/g, "\\'")}', ${course.credit}, '${course.course_type}', '${course.nature || 'Core'}', document.getElementById('${remarkSelectId}').value)">
+                                    <i class="fas fa-plus me-1"></i>Add
+                                </button>`
+                            }
+                        </td>
+                    </tr>`;
+                });
+                
+                html += '</tbody></table>';
+                coursesList.innerHTML = html;
+            } else {
+                coursesList.innerHTML = '<div class="alert alert-info">No courses available for the selected Year and Term.</div>';
+            }
+        })
+        .catch(error => {
+            coursesLoading.style.display = 'none';
+            coursesList.innerHTML = '<div class="alert alert-danger">Error loading courses. Please try again.</div>';
+            console.error('Error:', error);
+        });
+}
+
+function addCourse(id, code, name, credit, type, nature, remark) {
+    if (selectedCourses.some(c => isSameCourse(c, { id: id, course_code: code }))) {
+        return;
+    }
+    
+    selectedCourses.push({
+        id: id,
+        course_code: code,
+        course_name: name,
+        credit: credit,
+        course_type: type,
+        nature: nature,
+        remark: remark || 'Regular'
+    });
+    
+    updateSelectedTable();
+    loadCourses(currentYear, currentTerm); // Refresh to update "Selected" badges
+}
+
+function removeCourse(id, code) {
+    selectedCourses = selectedCourses.filter(c => {
+        if (c.id && id) {
+            return c.id !== id;
+        }
+        return c.course_code !== code;
+    });
+    updateSelectedTable();
+    loadCourses(currentYear, currentTerm); // Refresh to update "Add" buttons
+}
+
+function updateSelectedTable() {
+    const selectedCard = document.getElementById('selectedCard');
+    const selectedTable = document.getElementById('selectedCoursesTable');
+    const totalCreditsSpan = document.getElementById('totalCredits');
+    
+    if (selectedCourses.length === 0) {
+        selectedCard.style.display = 'none';
+        saveBtn.disabled = true;
+        downloadBtn.disabled = true;
+        sendToCoordinatorBtn.disabled = true;
+        return;
+    }
+    
+    selectedCard.style.display = 'block';
+    saveBtn.disabled = false;
+    downloadBtn.disabled = false;
+    sendToCoordinatorBtn.disabled = false;
+    
+    let html = '';
+    let totalCredits = 0;
+    
+    selectedCourses.forEach((course, index) => {
+        html += `<tr>
+            <td>${index + 1}</td>
+            <td>${course.course_code}</td>
+            <td>${course.course_name}</td>
+            <td>${course.credit}</td>
+            <td>${course.course_type}</td>
+            <td>${course.nature || 'Core'}</td>
+            <td>${course.remark || 'Regular'}</td>
+            <td>
+                <button class="btn btn-sm btn-danger" onclick="removeCourse(${course.id || 'null'}, '${course.course_code.replace(/'/g, "\\'")}')">
+                    <i class="fas fa-trash me-1"></i>Remove
+                </button>
+            </td>
+        </tr>`;
+        totalCredits += parseFloat(course.credit);
+    });
+    
+    // Add total credits row
+    html += `<tr class="table-info fw-bold">
+        <td colspan="3" class="text-end">Total Credits:</td>
+        <td>${totalCredits.toFixed(1)}</td>
+        <td colspan="4"></td>
+    </tr>`;
+    
+    selectedTable.innerHTML = html;
+    totalCreditsSpan.textContent = totalCredits.toFixed(1);
+}
+
+saveBtn.addEventListener('click', function() {
+    if (!currentSession || !currentYear || !currentTerm) {
+        alert('Please select session, year, and term first.');
+        return;
+    }
+    if (selectedCourses.length === 0) {
+        alert('Please select at least one course to save.');
+        return;
+    }
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    fetch('/course-management/student/registration/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session: currentSession,
+            year: currentYear,
+            term: currentTerm,
+            courses: selectedCourses
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showStatus('Registration saved successfully.', 'success');
+        } else {
+            showStatus(data.message || 'Failed to save registration.', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving registration:', error);
+        showStatus('Error saving registration.', 'error');
+    })
+    .finally(() => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Registration';
+    });
+});
+
+downloadBtn.addEventListener('click', function() {
+    if (selectedCourses.length === 0) {
+        alert('Please select at least one course');
+        return;
+    }
+    
+    const data = {
+        session: currentSession,
+        year: currentYear,
+        term: currentTerm,
+        courses: selectedCourses
+    };
+    
+    fetch('/course-management/student/registration/download-pdf', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        if (response.ok) {
+            return response.blob();
+        }
+        return response.json().then(err => Promise.reject(err));
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `course_registration_${new Date().toISOString().split('T')[0]}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+    })
+    .catch(error => {
+        alert('Error downloading PDF: ' + (error.message || 'Unknown error'));
+        console.error('Error:', error);
+    });
+});
+
+sendToCoordinatorBtn.addEventListener('click', function() {
+    if (!currentSession || !currentYear || !currentTerm) {
+        alert('Please select session, year, and term first.');
+        return;
+    }
+    if (selectedCourses.length === 0) {
+        alert('Please select at least one course to send.');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to send this registration to the coordinator for review?')) {
+        return;
+    }
+    
+    // First save the registration
+    saveBtn.disabled = true;
+    sendToCoordinatorBtn.disabled = true;
+    sendToCoordinatorBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
+    
+    // Save first
+    fetch('/course-management/student/registration/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session: currentSession,
+            year: currentYear,
+            term: currentTerm,
+            courses: selectedCourses
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            throw new Error(data.message || 'Failed to save registration.');
+        }
+        // Then send to coordinator
+        return fetch('/course-management/student/registration/send-to-coordinator', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session: currentSession,
+                year: currentYear,
+                term: currentTerm
+            })
+        });
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showStatus('Registration sent to coordinator successfully.', 'success');
+        } else {
+            showStatus(data.message || 'Failed to send registration.', 'error');
+        }
+    })
+    .catch(error => {
+        console.error('Error sending to coordinator:', error);
+        showStatus('Error sending registration to coordinator.', 'error');
+    })
+    .finally(() => {
+        saveBtn.disabled = false;
+        sendToCoordinatorBtn.disabled = false;
+        sendToCoordinatorBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator';
+    });
+});
+</script>
+{% endblock %}
+

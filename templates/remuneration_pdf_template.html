@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>পরীক্ষা পারিতোষিক বিল ফরম</title>
+    <style>
+        @page {
+            size: 8.5in 14in; /* Legal size */
+            margin: 0.5in 0.6in;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: {% if font_path %}'Kalpurush', {% endif %}'Noto Sans Bengali', 'Hind Siliguri', 'SolaimanLipi', 'Mukti', 'Siyam Rupali', sans-serif;
+            font-size: 7pt;
+            line-height: 1.2;
+            color: #000;
+            background: #fff;
+            unicode-bidi: embed;
+            direction: ltr;
+        }
+        
+        .pdf-container {
+            width: 100%;
+            max-width: 100%;
+            position: relative;
+        }
+        
+        .rem-heading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 0.3rem;
+            width: 100%;
+            position: relative;
+        }
+        
+        .rem-heading-logo {
+            flex-shrink: 0;
+            order: -1;
+        }
+        
+        .rem-heading-logo img {
+            height: 113.75px;
+            width: auto;
+            object-fit: contain;
+        }
+        
+        .rem-heading-content {
+            text-align: center;
+            flex: 0 1 auto;
+            max-width: calc(100% - 2.6in);
+            margin-right: 0.3in;
+        }
+        
+        .rem-heading .office {
+            font-size: 11pt;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 0.2rem;
+        }
+        
+        .rem-heading h4 {
+            font-weight: 700;
+            font-size: 16pt;
+            margin: 0.2rem 0;
+        }
+        
+        .rem-heading .title {
+            font-size: 13pt;
+            font-weight: 600;
+            margin: 0.15rem 0;
+        }
+        
+        .rem-heading .note {
+            font-size: 9pt;
+            color: #555;
+            margin-top: 0.15rem;
+        }
+        
+        .voucher-box {
+            border: 1px solid #000;
+            padding: 0.24rem 0.4rem;
+            font-size: 5.6pt;
+            position: absolute;
+            top: 0;
+            right: 0;
+            margin: 0;
+            width: 2.16in;
+            min-height: 0.64in;
+        }
+        
+        .voucher-box div {
+            margin-bottom: 0.2rem;
+        }
+        
+        .voucher-box .voucher-label {
+            display: inline-block;
+            min-width: 0.8in;
+        }
+        
+        .voucher-box .voucher-input {
+            display: inline-block;
+            min-width: 1.36in;
+            min-height: 0.16in;
+            border-bottom: 1px solid #000;
+            vertical-align: bottom;
+        }
+        
+        .meta-grid {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.3rem 0;
+            font-size: 7pt;
+        }
+        
+        .meta-grid td {
+            border: 1px solid #000;
+            padding: 0.2rem 0.3rem;
+            vertical-align: middle;
+        }
+        
+        .meta-grid .meta-label {
+            font-weight: 600;
+            width: 25%;
+            background: #f8f8f8;
+        }
+        
+        .rem-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.35rem 0;
+            font-size: 6pt;
+            table-layout: fixed;
+        }
+        
+        .rem-table th,
+        .rem-table td {
+            border: 1px solid #000;
+            padding: 0.2rem 0.25rem;
+            vertical-align: middle;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .rem-table th {
+            text-align: center;
+            font-weight: 600;
+            background: #f8f8f8;
+            font-size: 5.5pt;
+        }
+        
+        .rem-table td {
+            font-size: 6pt;
+        }
+        
+        .rem-table th:first-child,
+        .rem-table td:first-child {
+            text-align: center;
+            width: 4%;
+            padding: 0.1rem 0.03rem;
+        }
+        
+        .rem-table th:nth-child(2),
+        .rem-table td:nth-child(2) {
+            text-align: left;
+            width: 22%;
+        }
+        
+        .rem-table th:nth-child(3),
+        .rem-table td:nth-child(3) {
+            text-align: left;
+            width: 25%;
+        }
+        
+        .rem-table th:nth-child(4),
+        .rem-table td:nth-child(4) {
+            text-align: center;
+            width: 17%;
+        }
+        
+        .rem-table th:nth-child(5),
+        .rem-table td:nth-child(5) {
+            text-align: center;
+            width: 8%;
+        }
+        
+        .rem-table th:nth-child(6),
+        .rem-table td:nth-child(6) {
+            text-align: center;
+            width: 12%;
+        }
+        
+        .rem-table th:nth-child(7),
+        .rem-table td:nth-child(7) {
+            text-align: right;
+            width: 12%;
+        }
+        
+        .foot-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.35rem 0;
+        }
+        
+        .foot-table td {
+            border: 1px solid #000;
+            padding: 0.25rem 0.3rem;
+            font-size: 7pt;
+        }
+        
+        .foot-table td:first-child {
+            width: 30%;
+            font-weight: 500;
+        }
+        
+        .bank-declaration {
+            border: 1px solid #000;
+            padding: 0.3rem;
+            margin-top: 0.3rem;
+            font-size: 6pt;
+            line-height: 1.3;
+            background: #fdfdf8;
+        }
+        
+        .revenue-ticket {
+            display: inline-block;
+            border: 1px solid #000;
+            width: 42.25px;
+            height: 42.25px;
+            margin-left: 0.5rem;
+            margin-top: 0.3rem;
+            vertical-align: top;
+        }
+        
+        .signature-section {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.5rem;
+            margin-top: 0.4rem;
+        }
+        
+        .signature-box {
+            border: 1px solid #000;
+            min-height: 60px;
+            padding: 0.3rem;
+            font-size: 7pt;
+            flex: 1;
+        }
+        
+        .signature-box strong {
+            display: block;
+            margin-bottom: 1.2rem;
+        }
+        
+        .signature-box span {
+            display: block;
+            text-align: center;
+            border-top: 1px solid #000;
+            padding-top: 0.2rem;
+        }
+        
+        .section-title {
+            font-size: 8pt;
+            font-weight: 700;
+            margin-top: 0.5rem;
+            margin-bottom: 0.2rem;
+            text-align: center;
+            text-decoration: underline;
+        }
+        
+        .section-title.finance {
+            margin-top: 1.2rem;
+        }
+        
+        .section-title.audit {
+            margin-top: 0.8rem;
+        }
+        
+        .info-note {
+            font-size: 6pt;
+            padding: 0.2rem 0;
+            margin: 0.2rem 0;
+            line-height: 1.3;
+        }
+        
+        .controller-signature-section,
+        .finance-signature-section,
+        .audit-approval-section {
+            display: flex;
+            justify-content: space-between;
+            gap: 0.4rem;
+            margin: 0.3rem 0;
+        }
+        
+        .controller-signature-box,
+        .finance-signature-box,
+        .audit-signature-box-single {
+            flex: 1;
+            border: 1px solid #000;
+            min-height: 55px;
+            padding: 0.3rem 0.25rem;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .controller-designation,
+        .finance-designation,
+        .audit-designation {
+            font-size: 6pt;
+            font-weight: 500;
+            text-align: center;
+            margin-bottom: 0.4rem;
+            padding-bottom: 0.2rem;
+            border-bottom: 1px solid #000;
+            line-height: 1.2;
+        }
+        
+        .controller-signature-line,
+        .finance-signature-line,
+        .audit-signature-line {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            margin-top: 0.3rem;
+            font-size: 6pt;
+        }
+        
+        .controller-signature-line span,
+        .finance-signature-line span,
+        .audit-signature-line span {
+            font-weight: 500;
+            min-width: 40px;
+            font-size: 6pt;
+        }
+        
+        .finance-release-note {
+            font-size: 6pt;
+            padding: 0.2rem 0;
+            margin: 0.6rem 0 0.2rem 0;
+            line-height: 1.3;
+        }
+        
+        .finance-amount-space {
+            display: inline-block;
+            min-width: 1.5in;
+            border-bottom: 1px solid #000;
+            margin: 0 0.2rem;
+        }
+        
+        .finance-words-space {
+            display: inline-block;
+            min-width: 2.5in;
+            border-bottom: 1px solid #000;
+            margin: 0 0.2rem;
+        }
+        
+        .audit-approval-text {
+            font-size: 6pt;
+            padding: 0.6rem 0 0.2rem 0;
+            margin: 0 0 0.3rem 0;
+            line-height: 1.3;
+            text-align: left;
+        }
+        
+        .audit-amount-space {
+            display: inline-block;
+            min-width: 3.5in;
+            border-bottom: 1px solid #000;
+            margin: 0 0.2rem;
+        }
+        
+        .statement-note {
+            font-size: 6pt;
+            padding: 0;
+            margin: 0.2rem 0;
+            line-height: 1.3;
+        }
+        
+        .text-center {
+            text-align: center;
+        }
+        
+        .text-right {
+            text-align: right;
+        }
+        
+        .text-left {
+            text-align: left;
+        }
+        
+        .mt-1 { margin-top: 0.2rem; }
+        .mt-2 { margin-top: 0.3rem; }
+        .mb-1 { margin-bottom: 0.2rem; }
+        .mb-2 { margin-bottom: 0.3rem; }
+    </style>
+</head>
+<body>
+    <div class="pdf-container">
+        <div class="rem-heading">
+            <div class="rem-heading-logo">
+                <img src="{{ url_for('static', filename='Images/KU_logo_2.png') }}" alt="Khulna University Logo" style="max-height: 113.75px; width: auto;">
+            </div>
+            <div class="rem-heading-content">
+                <div class="office">পরীক্ষা নিয়ন্ত্রকের কার্যালয়</div>
+                <h4>খুলনা বিশ্ববিদ্যালয়</h4>
+                <div class="title">পরীক্ষা পারিতোষিক বিল ফরম</div>
+                <div class="note">(প্রতি বর্ষের প্রতি টার্মের জন্য পৃথক বিল ফরম ব্যবহার করতে হবে)</div>
+            </div>
+        </div>
+        
+        <div class="voucher-box">
+            <div>
+                <span class="voucher-label">ভাউচার নং:</span>
+                <span class="voucher-input">{{ voucher_no or '' }}</span>
+            </div>
+            <div>
+                <span class="voucher-label">তারিখ:</span>
+                <span class="voucher-input">{{ voucher_date or '' }}</span>
+            </div>
+        </div>
+        
+        <table class="meta-grid">
+            <tr>
+                <td class="meta-label">নাম:</td>
+                <td colspan="3">{{ applicant_name or '' }}</td>
+            </tr>
+            <tr>
+                <td class="meta-label">পদবী:</td>
+                <td>{{ designation or '' }}</td>
+                <td class="meta-label">ডিসিপ্লিন / বিভাগ:</td>
+                <td>{{ discipline or 'Law' }}</td>
+            </tr>
+            <tr>
+                <td class="meta-label">ঠিকানা:</td>
+                <td colspan="3">{{ address or '' }}</td>
+            </tr>
+            <tr>
+                <td class="meta-label">যে ডিসিপ্লিনের পরীক্ষা:</td>
+                <td>{{ exam_discipline or 'Law' }}</td>
+                <td class="meta-label">বর্ষ:</td>
+                <td>{{ year or '' }}</td>
+            </tr>
+            <tr>
+                <td class="meta-label">শিক্ষাবর্ষ:</td>
+                <td>{{ academic_year or '' }}</td>
+                <td class="meta-label">টার্ম:</td>
+                <td>{{ term or '' }}</td>
+            </tr>
+            <tr>
+                <td class="meta-label">পরীক্ষা অনুষ্ঠানের তারিখ:</td>
+                <td>{{ exam_start_date or '' }} থেকে</td>
+                <td colspan="2">{{ exam_end_date or '' }} পর্যন্ত</td>
+            </tr>
+        </table>
+        
+        <div class="section-title text-center">পরীক্ষা সংক্রান্ত কাজের বিবরণ</div>
+        <table class="rem-table">
+            <thead>
+                <tr>
+                    <th>ক্রমিক নম্বর</th>
+                    <th>বিবরণ</th>
+                    <th>কোর্স নম্বর</th>
+                    <th>প্রশ্ন/খাতা/ছাত্র/<br>কোর্স/পরীক্ষক/দিনের সংখ্যা</th>
+                    <th>অর্ধ/ পূর্ণপত্র</th>
+                    <th>পারিতোষিকের হার</th>
+                    <th>মোট টাকা</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job_data in jobs_data %}
+                <tr>
+                    <td class="text-center">{{ job_data.serial }}</td>
+                    <td>{{ job_data.description }}</td>
+                    <td>{{ job_data.courses }}</td>
+                    <td>{{ job_data.quantity }}</td>
+                    <td>{{ job_data.paper_type }}</td>
+                    <td>{{ job_data.rate }}</td>
+                    <td class="text-right">{{ job_data.amount }}</td>
+                </tr>
+                {% endfor %}
+                <tr>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td class="text-right"><strong>সর্বমোট টাকার পরিমাণ</strong></td>
+                    <td class="text-right"><strong>{{ total_amount or '' }}</strong></td>
+                </tr>
+            </tbody>
+        </table>
+        
+        <table class="foot-table">
+            <tr>
+                <td><strong>সর্বমোট টাকার পরিমাণ (কথায়):</strong></td>
+                <td>{{ total_in_words or '' }}</td>
+            </tr>
+        </table>
+        
+        <div class="bank-declaration">
+            এই বিলের প্রাপ্য অর্থ অগ্রণী ব্যাংক, খুলনা বিশ্ববিদ্যালয় শাখায় আমার নামে রক্ষিত নং {{ bank_account or '' }} হিসাবে/চেকের মাধ্যমে পরিশোধের অনুরোধ করছি এবং এই মর্মে অঙ্গীকার করছি যে, এই বিলে আমি কোন অতিরিক্ত অর্থ দাবী করিনি। যদি ভবিষ্যতে এই বিলে কোন আপত্তি উত্থাপিত হয় তাহলে গৃহীত অতিরিক্ত অর্থ ফেরৎ দিতে বাধ্য থাকব।
+            <div class="revenue-ticket"></div>
+            <div style="margin-top: 0.2rem; font-size: 6pt;">
+                <strong>বিঃ দ্রঃ-</strong> প্রত্যেক বিলে রাজস্ব টিকিট লাগাতে হবে।
+            </div>
+        </div>
+        
+        <div class="signature-section">
+            <div class="signature-box">
+                <strong>ডিসিপ্লিন প্রধান</strong>
+                <span>(স্বাক্ষর ও সিল)</span>
+            </div>
+            <div class="signature-box">
+                <strong>সভাপতি, পরীক্ষা কমিটি</strong>
+                <span>(স্বাক্ষর ও সিল)</span>
+            </div>
+            <div class="signature-box">
+                <strong>প্রাপকের স্বাক্ষর ও তারিখ</strong>
+                <span></span>
+            </div>
+        </div>
+        
+        <div class="section-title">পরীক্ষা নিয়ন্ত্রকের কার্যালয়ের ব্যবহারের জন্য</div>
+        <div class="info-note">
+            পরীক্ষার পারিতোষিকের হার এবং ডিসিপ্লিন থেকে প্রাপ্ত স্টেটমেন্ট অনুযায়ী বিলসমূহ নিরীক্ষান্তে বিলের অর্থ পরিশোধের জন্য সুপারিশ করা হলো।
+        </div>
+        <div class="controller-signature-section">
+            <div class="controller-signature-box">
+                <div class="controller-designation">বিল নিরীক্ষক/সেকশন অফিসার/সহকারী পরীক্ষা নিয়ন্ত্রক</div>
+                <div class="controller-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ auditor_sign or '' }}</span>
+                </div>
+            </div>
+            <div class="controller-signature-box">
+                <div class="controller-designation">উপ-পরীক্ষা নিয়ন্ত্রক</div>
+                <div class="controller-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ deputy_sign or '' }}</span>
+                </div>
+            </div>
+            <div class="controller-signature-box">
+                <div class="controller-designation">পরীক্ষা নিয়ন্ত্রক</div>
+                <div class="controller-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ controller_sign or '' }}</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section-title finance">অর্থ ও হিসাব বিভাগের ব্যবহারের জন্য</div>
+        <div class="finance-release-note">
+            পরীক্ষান্তে বর্ণিত পারিতোষিক বিল বাবদ টাকার পরিমাণ <span class="finance-amount-space">{{ finance_amount or '' }}</span> টাকা কথায় <span class="finance-words-space">{{ finance_amount_words or '' }}</span> মাত্র পরিশোধের জন্য ছাড়া হলো।
+        </div>
+        <div class="finance-signature-section">
+            <div class="finance-signature-box">
+                <div class="finance-designation">সেকশন অফিসার/সহকারী পরিচালক</div>
+                <div class="finance-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ section_officer_sign or '' }}</span>
+                </div>
+            </div>
+            <div class="finance-signature-box">
+                <div class="finance-designation">উপ-পরিচালক</div>
+                <div class="finance-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ deputy_director_sign or '' }}</span>
+                </div>
+            </div>
+            <div class="finance-signature-box">
+                <div class="finance-designation">পরিচালক (অঃহিঃ)</div>
+                <div class="finance-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ director_sign or '' }}</span>
+                </div>
+            </div>
+        </div>
+        
+        <div style="height: 0.6rem;"></div>
+        <div class="audit-approval-text">
+            এই বিল পরিশোধে কোন আপত্তি নেই নিরীক্ষান্তে <span class="audit-amount-space"></span> টাকার বিলটি পরিশোধের সুপারিশ করা হলো।
+        </div>
+        <div class="audit-approval-section">
+            <div class="audit-signature-box-single">
+                <div class="audit-designation">সহকারী পরিচালক (অডিট)</div>
+                <div class="audit-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ audit_assistant_sign or '' }}</span>
+                </div>
+            </div>
+            <div class="audit-signature-box-single">
+                <div class="audit-designation">উপ-পরিচালক/ প্রধান (অডিট সেল)</div>
+                <div class="audit-signature-line">
+                    <span>স্বাক্ষর:</span>
+                    <span>{{ audit_head_sign or '' }}</span>
+                </div>
+            </div>
+        </div>
+        
+        <table class="foot-table" style="margin-top: 0.8rem;">
+            <tr>
+                <td>ব্যাংক এ্যাডভাইস/ চেক নং:-</td>
+                <td>{{ bank_advice_no or '' }}</td>
+            </tr>
+            <tr>
+                <td>তারিখ:</td>
+                <td>{{ payment_date or '' }}</td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>

@@ -1,0 +1,41 @@
+{% extends "routine_management/base.html" %}
+
+{% block title %}Edit Assignment{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Edit Course Assignment</h2>
+
+<div class="card">
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('routine_management.edit_assignment', id=assignment_id) }}">
+            {{ form.hidden_tag() }}
+            <div class="row">
+                <div class="col-md-4">
+                    <div class="form-group mb-3">
+                        {{ form.teacher.label(class="form-control-label") }}
+                        {{ form.teacher(class="form-control", disabled=True) }}
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group mb-3">
+                        {{ form.course.label(class="form-control-label") }}
+                        {{ form.course(class="form-control") }}
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="form-group mb-3">
+                        {{ form.part.label(class="form-control-label") }}
+                        {{ form.part(class="form-control") }}
+                    </div>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <div class="form-group w-100">
+                        <button type="submit" class="btn btn-primary w-100">Update</button>
+                    </div>
+                </div>
+            </div>
+             <a href="{{ url_for('routine_management.assign_course') }}" class="btn btn-secondary mt-3">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,867 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h3 class="mb-1"><i class="fas fa-clipboard-check me-2 text-primary"></i>Marks Entry</h3>
+            <div class="text-muted">{{ entry.course_name }} ({{ entry.course_code }}) &middot; Year {{ entry.year or '—' }} / Term {{ entry.term or '—' }}</div>
+            <span class="badge bg-info-subtle text-info role-badge">{{ role|capitalize }} Mode</span>
+        </div>
+        <a href="{{ url_for('exam_evaluation') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Evaluation</a>
+    </div>
+
+    <div class="alert alert-info small">
+        <i class="fas fa-lightbulb me-2"></i>
+        Add questions and optional sub-parts (a, b, c…) as needed. Totals always round to whole numbers. Student ID can only be entered in Scrutinizer mode.
+    </div>
+
+    <form id="marks-form" method="POST">
+        <input type="hidden" name="marks_payload" id="marks_payload">
+        <input type="hidden" name="action_type" id="action_type" value="save">
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="fas fa-info-circle me-2 text-primary"></i>Exam Information</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="border rounded p-2 bg-light">
+                            <ul class="list-unstyled mb-0 small">
+                                <li><strong>Course:</strong> {{ entry.course_name }}</li>
+                                <li><strong>Course Code:</strong> {{ entry.course_code }}</li>
+                                <li><strong>Discipline:</strong> {{ entry.discipline or '—' }}</li>
+                                <li><strong>School:</strong> {{ entry.school or '—' }}</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="border rounded p-2 bg-light">
+                            <ul class="list-unstyled mb-0 small">
+                                <li><strong>Year:</strong> {{ entry.year or '—' }}</li>
+                                <li><strong>Term:</strong> {{ entry.term or '—' }}</li>
+                                <li><strong>Section:</strong> {{ entry.section or '—' }}</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-light d-flex flex-wrap justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <h5 class="mb-0 me-2"><i class="fas fa-table me-2 text-primary"></i>Marks Table</h5>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button" class="btn btn-primary" id="btn-add-question"><i class="fas fa-plus me-1"></i>Add Question</button>
+                        <button type="button" class="btn btn-outline-primary" id="btn-add-student"><i class="fas fa-user-plus me-1"></i>Add Student Row</button>
+                        <button type="button" class="btn btn-outline-danger" id="btn-clear-table"><i class="fas fa-trash-alt me-1"></i>Clear Table</button>
+                    </div>
+                </div>
+                <div class="btn-group btn-group-sm marks-export-group" role="group">
+                    <button type="button" class="btn btn-outline-secondary" id="btn-download-pdf"><i class="fas fa-file-pdf me-1"></i>PDF</button>
+                    <button type="button" class="btn btn-outline-success" id="btn-download-excel"><i class="fas fa-file-excel me-1"></i>Excel</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="marks-table-wrapper table-responsive">
+                    <table class="table table-bordered table-sm align-middle" id="marks-table">
+                        <thead>
+                            <tr id="marks-header-main"></tr>
+                            <tr id="marks-header-sub"></tr>
+                        </thead>
+                        <tbody id="marks-body"></tbody>
+                    </table>
+                </div>
+                <p class="small text-muted mt-2 mb-0">* Student ID column is editable only by the assigned scrutinizer.</p>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 align-items-center">
+            <div id="auto-save-status" class="me-2" style="display: none;">
+                <small class="text-muted">
+                    <i class="fas fa-spinner fa-spin" id="save-spinner" style="display: none;"></i>
+                    <span id="save-message"></span>
+                </small>
+            </div>
+            <a href="{{ url_for('exam_evaluation') }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" class="btn btn-primary" id="btn-save"><i class="fas fa-save me-2"></i>Save Marks</button>
+        </div>
+    </form>
+</div>
+
+<style>
+#marks-table {
+    min-width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.marks-table-wrapper {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: 70vh;
+}
+
+#marks-table thead th {
+    position: sticky;
+    background-color: #fff;
+    z-index: 5;
+    box-shadow: inset 0 -1px 0 rgba(0,0,0,0.1);
+}
+
+#marks-table thead tr:first-child th {
+    top: 0;
+}
+
+#marks-table thead tr:nth-child(2) th {
+    top: 42px;
+    z-index: 4;
+}
+
+#marks-table th,
+#marks-table td {
+    vertical-align: middle;
+    text-align: center;
+}
+#marks-table .mark-input {
+    min-width: 68px;
+    width: 100%;
+}
+.marks-band-1 {
+    background-color: rgba(0, 123, 255, 0.18);
+}
+.marks-band-2 {
+    background-color: rgba(40, 167, 69, 0.18);
+}
+.code-input {
+    min-width: 200px;
+    width: 100%;
+}
+.code-cell {
+    width: 220px;
+    min-width: 220px;
+    max-width: 220px;
+    white-space: nowrap;
+}
+.student-id-input {
+    min-width: 140px;
+}
+.total-field {
+    min-width: 90px;
+    font-weight: 600;
+}
+.question-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+.question-header .question-toggle {
+    padding: 0.15rem 0.4rem;
+}
+.question-actions {
+    display: none;
+    gap: 0.25rem;
+}
+.question-header.show-actions .question-actions {
+    display: flex;
+}
+.subpart-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    font-size: 0.9rem;
+}
+.field-readonly {
+    background-color: #f8f9fa;
+    cursor: not-allowed;
+}
+.role-badge {
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+    display: inline-block;
+}
+.marks-export-group .btn {
+    min-width: 90px;
+}
+</style>
+
+<script>
+(function() {
+    const initialData = {{ (initial_marks_data or {})|tojson }};
+    const metadata = {{ {
+        'course_name': entry.course_name,
+        'course_code': entry.course_code,
+        'discipline': entry.discipline,
+        'school': entry.school,
+        'year': entry.year,
+        'term': entry.term,
+        'section': entry.section
+    }|tojson }};
+    const pageRole = {{ role|tojson }};
+    const programLevel = {{ (entry.program_level or 'ug')|tojson }};
+    const defaultQuestionCount = programLevel === 'pg' ? 3 : 4;
+
+    const questions = [];
+    const headerMain = document.getElementById('marks-header-main');
+    const headerSub = document.getElementById('marks-header-sub');
+    const tbody = document.getElementById('marks-body');
+    const addQuestionBtn = document.getElementById('btn-add-question');
+    const addStudentBtn = document.getElementById('btn-add-student');
+    const clearTableBtn = document.getElementById('btn-clear-table');
+    const pdfBtn = document.getElementById('btn-download-pdf');
+    const excelBtn = document.getElementById('btn-download-excel');
+    const saveBtn = document.getElementById('btn-save');
+    const marksForm = document.getElementById('marks-form');
+    const payloadInput = document.getElementById('marks_payload');
+    const actionInput = document.getElementById('action_type');
+    const STUDENT_SORT_BTN_CLASS = 'student-sort-btn';
+    const entryId = {{ entry.id }};
+    
+    // Auto-save functionality variables
+    let autoSaveTimeout = null;
+    const saveStatusEl = document.getElementById('auto-save-status');
+    const saveSpinner = document.getElementById('save-spinner');
+    const saveMessage = document.getElementById('save-message');
+    
+    function showSaveStatus(message, isSaving = false) {
+        if (!saveStatusEl) return;
+        saveStatusEl.style.display = 'block';
+        if (saveSpinner) saveSpinner.style.display = isSaving ? 'inline-block' : 'none';
+        if (saveMessage) {
+            saveMessage.textContent = message;
+            saveMessage.className = isSaving ? 'text-info' : (message.includes('saved') ? 'text-success' : 'text-danger');
+        }
+        if (!isSaving && message.includes('saved')) {
+            setTimeout(() => {
+                if (saveStatusEl) saveStatusEl.style.display = 'none';
+            }, 2000);
+        }
+    }
+    
+    function autoSave() {
+        buildPayload();
+        const payload = payloadInput.value;
+        if (!payload) return;
+        
+        try {
+            const data = JSON.parse(payload);
+            if (!data.rows || data.rows.length === 0) return;
+        } catch (e) {
+            return;
+        }
+        
+        showSaveStatus('Saving...', true);
+        
+        fetch(`/exam-evaluation/${entryId}/marks/auto-save`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ marks_payload: payload })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                showSaveStatus('✓ Saved automatically', false);
+            } else {
+                showSaveStatus('✗ Save failed', false);
+            }
+        })
+        .catch(error => {
+            console.error('Auto-save error:', error);
+            showSaveStatus('✗ Save failed', false);
+        });
+    }
+    
+    function debounceAutoSave() {
+        if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+        autoSaveTimeout = setTimeout(autoSave, 1500); // Wait 1.5 seconds after user stops typing
+    }
+
+    function generateId(prefix) {
+        return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function attachMarkInputEvents(input, row) {
+        if (!input || input.dataset.eventsAttached === '1') {
+            return;
+        }
+        input.addEventListener('input', () => {
+            updateRowTotal(row);
+            debounceAutoSave(); // Trigger auto-save when marks are typed
+        });
+        input.addEventListener('keydown', event => handleEnterKey(event, row, input));
+        input.dataset.eventsAttached = '1';
+    }
+
+    function createSerialCell() {
+        const td = document.createElement('td');
+        td.classList.add('serial-cell', 'fw-semibold');
+        td.textContent = '#';
+        return td;
+    }
+
+    function createCodeCell() {
+        const td = document.createElement('td');
+        td.classList.add('code-cell');
+        td.innerHTML = `
+            <div class="input-group input-group-sm">
+                <input type="text" class="form-control code-input" placeholder="Code No.">
+                <button type="button" class="btn btn-outline-danger remove-student" title="Remove row"><i class="fas fa-times"></i></button>
+            </div>
+        `;
+        td.querySelector('.remove-student').addEventListener('click', () => {
+            if (confirm('Remove this student row?')) {
+                const row = td.closest('tr');
+                if (row) {
+                    row.remove();
+                    refreshSerialNumbers();
+                }
+            }
+        });
+        return td;
+    }
+
+    function createStudentIdCell() {
+        const td = document.createElement('td');
+        td.classList.add('student-id-cell');
+        td.innerHTML = '<input type="text" class="form-control form-control-sm student-id-input" placeholder="Student ID">';
+        return td;
+    }
+
+    function createTotalCell() {
+        const td = document.createElement('td');
+        td.classList.add('total-cell');
+        td.innerHTML = '<input type="number" class="form-control form-control-sm total-field" value="0" readonly>';
+        return td;
+    }
+
+    function applyRolePermissions(row) {
+        const codeInput = row.querySelector('.code-input');
+        const studentIdInput = row.querySelector('.student-id-input');
+        const markInputs = row.querySelectorAll('.mark-input');
+
+        if (codeInput) {
+            codeInput.readOnly = false;
+            codeInput.classList.remove('field-readonly');
+            codeInput.tabIndex = 0;
+        }
+        markInputs.forEach(input => {
+            input.readOnly = false;
+            input.classList.remove('field-readonly');
+            input.tabIndex = 0;
+        });
+        if (studentIdInput) {
+            studentIdInput.readOnly = pageRole !== 'scrutinizer';
+            studentIdInput.classList.toggle('field-readonly', pageRole !== 'scrutinizer');
+            studentIdInput.placeholder = pageRole === 'scrutinizer' ? 'Student ID' : 'Only Scrutinizer';
+            studentIdInput.tabIndex = pageRole === 'scrutinizer' ? 0 : -1;
+        }
+    }
+
+    function updateRowTotal(row) {
+        let total = 0;
+        row.querySelectorAll('.mark-input').forEach(input => {
+            const value = parseFloat(input.value);
+            if (!isNaN(value)) {
+                total += value;
+            }
+        });
+        const totalField = row.querySelector('.total-field');
+        if (totalField) {
+            totalField.value = String(Math.round(total));
+        }
+    }
+
+    function handleEnterKey(event, row, input) {
+        if (event.key !== 'Enter' || pageRole !== 'evaluator') {
+            return;
+        }
+        event.preventDefault();
+        const editableInputs = Array.from(row.querySelectorAll('.mark-input')).filter(el => !el.readOnly);
+        if (!editableInputs.length) {
+            return;
+        }
+        const index = editableInputs.indexOf(input);
+        if (index === editableInputs.length - 1) {
+            updateRowTotal(row);
+            const isLastRow = row === tbody.querySelector('.marks-row:last-child');
+            if (isLastRow) {
+                const newRow = addStudentRow({});
+                const codeField = newRow.querySelector('.code-input');
+                if (codeField && !codeField.readOnly) {
+                    codeField.focus();
+                    codeField.select();
+                }
+            } else {
+                const nextRow = row.nextElementSibling;
+                if (nextRow) {
+                    const codeField = nextRow.querySelector('.code-input');
+                    if (codeField && !codeField.readOnly) {
+                        codeField.focus();
+                        codeField.select();
+                    }
+                }
+            }
+        } else if (index > -1 && index < editableInputs.length - 1) {
+            const nextInput = editableInputs[index + 1];
+            if (nextInput) {
+                nextInput.focus();
+                nextInput.select();
+            }
+        }
+    }
+
+    function sortRowsByStudentId() {
+        if (pageRole !== 'scrutinizer') return;
+        const rows = Array.from(tbody.querySelectorAll('.marks-row'));
+        rows.sort((rowA, rowB) => {
+            const valueA = (rowA.querySelector('.student-id-input')?.value || '').trim();
+            const valueB = (rowB.querySelector('.student-id-input')?.value || '').trim();
+            if (!valueA && !valueB) return 0;
+            if (!valueA) return 1;
+            if (!valueB) return -1;
+
+            const numericA = Number(valueA);
+            const numericB = Number(valueB);
+            const numericComparable = !Number.isNaN(numericA) && !Number.isNaN(numericB);
+            if (numericComparable) {
+                if (numericA === numericB) {
+                    return valueA.localeCompare(valueB);
+                }
+                return numericA - numericB;
+            }
+            return valueA.localeCompare(valueB);
+        });
+        rows.forEach(row => tbody.appendChild(row));
+        refreshSerialNumbers();
+    }
+
+    function attachStudentSortEvent() {
+        if (pageRole !== 'scrutinizer') return;
+        const button = document.querySelector(`.${STUDENT_SORT_BTN_CLASS}`);
+        if (button && !button.dataset.listenerAttached) {
+            button.addEventListener('click', sortRowsByStudentId);
+            button.dataset.listenerAttached = '1';
+        }
+    }
+
+    function syncRowLayout(row) {
+        let serialCell = row.querySelector('.serial-cell');
+        if (!serialCell) {
+            serialCell = createSerialCell();
+        }
+        if (row.firstChild !== serialCell) {
+            row.insertBefore(serialCell, row.firstChild);
+        }
+
+        let codeCell = row.querySelector('.code-cell');
+        if (!codeCell) {
+            codeCell = createCodeCell();
+        }
+        if (serialCell.nextSibling !== codeCell) {
+            row.insertBefore(codeCell, serialCell.nextSibling);
+        }
+
+        let studentCell = row.querySelector('.student-id-cell');
+        if (!studentCell) {
+            studentCell = createStudentIdCell();
+        }
+        row.appendChild(studentCell);
+
+        let totalCell = row.querySelector('.total-cell');
+        if (!totalCell) {
+            totalCell = createTotalCell();
+        }
+        row.insertBefore(totalCell, studentCell);
+
+        row.querySelectorAll('td[data-question-id]').forEach(cell => {
+            const exists = questions.some(q => q.id === cell.dataset.questionId && q.parts.some(p => p.id === cell.dataset.partId));
+            if (!exists) {
+                cell.remove();
+            }
+        });
+
+        questions.forEach((question, index) => {
+            question.parts.forEach(part => {
+                let cell = row.querySelector(`td[data-question-id="${question.id}"][data-part-id="${part.id}"]`);
+                if (!cell) {
+                    cell = document.createElement('td');
+                    cell.dataset.questionId = question.id;
+                    cell.dataset.partId = part.id;
+                    cell.innerHTML = '<input type="number" step="0.5" class="form-control form-control-sm mark-input">';
+                }
+                const bandClass = `marks-band-${(index % 2) + 1}`;
+                cell.classList.add(bandClass);
+                row.insertBefore(cell, totalCell);
+                attachMarkInputEvents(cell.querySelector('input'), row);
+            });
+        });
+
+        updateRowTotal(row);
+        applyRolePermissions(row);
+    }
+
+    function renderHeaders() {
+        const showSubHeader = questions.some(q => q.parts.length > 1);
+        headerMain.innerHTML = '';
+        headerSub.innerHTML = '';
+        headerSub.style.display = showSubHeader ? '' : 'none';
+
+        const serialTh = document.createElement('th');
+        serialTh.rowSpan = showSubHeader ? 2 : 1;
+        serialTh.textContent = '#';
+        serialTh.classList.add('bg-light');
+        headerMain.appendChild(serialTh);
+
+        const codeTh = document.createElement('th');
+        codeTh.rowSpan = showSubHeader ? 2 : 1;
+        codeTh.textContent = 'Code';
+        codeTh.classList.add('bg-light');
+        headerMain.appendChild(codeTh);
+
+        questions.forEach((question, index) => {
+            const th = document.createElement('th');
+            th.dataset.questionId = question.id;
+            th.colSpan = showSubHeader ? question.parts.length : 1;
+            const bandClass = `marks-band-${(index % 2) + 1}`;
+            th.innerHTML = `
+                <div class="question-header ${bandClass}" data-question-id="${question.id}">
+                    <span class="fw-semibold question-title">${question.label}</span>
+                    <div class="d-flex align-items-center gap-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm question-toggle" data-question-id="${question.id}" title="Show question actions"><i class="fas fa-ellipsis-h"></i></button>
+                        <div class="question-actions btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary question-rename" data-question-id="${question.id}" title="Rename question"><i class="fas fa-edit"></i></button>
+                            <button type="button" class="btn btn-outline-secondary question-add-part" data-question-id="${question.id}" title="Add sub-part"><i class="fas fa-th-large"></i></button>
+                            <button type="button" class="btn btn-outline-danger question-remove" data-question-id="${question.id}" title="Remove question"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            headerMain.appendChild(th);
+
+            if (showSubHeader) {
+                question.parts.forEach(part => {
+                    const subTh = document.createElement('th');
+                    subTh.dataset.questionId = question.id;
+                    subTh.dataset.partId = part.id;
+                    subTh.innerHTML = `
+                        <div class="subpart-header">
+                            <span class="subpart-label" data-question-id="${question.id}" data-part-id="${part.id}" title="Click to rename">${part.label}</span>
+                            ${question.parts.length > 1 ? `<button type="button" class="btn btn-link text-danger p-0 subpart-remove" data-question-id="${question.id}" data-part-id="${part.id}" title="Remove sub-part"><i class="fas fa-times-circle"></i></button>` : ''}
+                        </div>
+                    `;
+                    headerSub.appendChild(subTh);
+                });
+            }
+        });
+
+        const totalTh = document.createElement('th');
+        totalTh.rowSpan = showSubHeader ? 2 : 1;
+        totalTh.textContent = 'Total';
+        totalTh.classList.add('bg-light');
+        headerMain.appendChild(totalTh);
+
+        const studentTh = document.createElement('th');
+        studentTh.rowSpan = showSubHeader ? 2 : 1;
+        studentTh.classList.add('bg-light');
+        if (pageRole === 'scrutinizer') {
+            studentTh.innerHTML = `
+                <div class="d-flex align-items-center justify-content-center gap-2">
+                    <span>Student ID</span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm ${STUDENT_SORT_BTN_CLASS}" title="Sort by Student ID">
+                        <i class="fas fa-sort-alpha-down"></i>
+                    </button>
+                </div>
+            `;
+        } else {
+            studentTh.textContent = 'Student ID';
+        }
+        headerMain.appendChild(studentTh);
+
+        attachHeaderEvents();
+        tbody.querySelectorAll('.marks-row').forEach(syncRowLayout);
+        attachStudentSortEvent();
+    }
+
+    function addQuestion(options = {}) {
+        const {
+            promptForLabel = true,
+            initialLabel,
+            initialParts,
+            questionId,
+        } = options;
+
+        let label = initialLabel || `Question ${questions.length + 1}`;
+        if (promptForLabel) {
+            const userLabel = prompt('Question title:', label);
+            if (userLabel === null) {
+                return null;
+            }
+            if (userLabel.trim()) {
+                label = userLabel.trim();
+            }
+        }
+
+        const id = questionId || generateId('q');
+        const partsSource = Array.isArray(initialParts) && initialParts.length
+            ? initialParts
+            : [{ id: `${id}-p1`, label: 'Marks' }];
+        const parts = partsSource.map((part, index) => ({
+            id: part.id || generateId(`${id}-p${index + 1}`),
+            label: part.label && part.label.trim() ? part.label.trim() : `Part ${index + 1}`,
+        }));
+
+        questions.push({ id, label, parts });
+        renderHeaders();
+        return id;
+    }
+
+    function addStudentRow(rowData = {}) {
+        const row = document.createElement('tr');
+        row.classList.add('marks-row');
+        tbody.appendChild(row);
+        syncRowLayout(row);
+
+        const codeInput = row.querySelector('.code-input');
+        if (codeInput) {
+            const codeValue = rowData.code ?? rowData.student_code ?? '';
+            codeInput.value = codeValue;
+        }
+
+        const studentInput = row.querySelector('.student-id-input');
+        if (studentInput) {
+            studentInput.value = rowData.student_id ?? rowData.studentId ?? '';
+        }
+
+        questions.forEach(question => {
+            question.parts.forEach(part => {
+                const input = row.querySelector(`td[data-question-id="${question.id}"][data-part-id="${part.id}"] input`);
+                if (!input) {
+                    return;
+                }
+                const questionMarks = rowData.marks && rowData.marks[question.label];
+                const value = questionMarks ? questionMarks[part.label] : '';
+                input.value = value ?? '';
+            });
+        });
+
+        const totalField = row.querySelector('.total-field');
+        if (totalField) {
+            const totalValue = rowData.total;
+            if (totalValue !== undefined && totalValue !== null && `${totalValue}` !== '') {
+                totalField.value = rowData.total;
+            }
+        }
+
+        updateRowTotal(row);
+        refreshSerialNumbers();
+        return row;
+    }
+
+    function refreshSerialNumbers() {
+        tbody.querySelectorAll('.marks-row').forEach((row, index) => {
+            const cell = row.querySelector('.serial-cell');
+            if (cell) {
+                cell.textContent = index + 1;
+            }
+        });
+    }
+
+    function clearTable() {
+        if (!confirm('Clear all questions and student rows?')) {
+            return;
+        }
+        questions.splice(0, questions.length);
+        tbody.innerHTML = '';
+        for (let i = 1; i <= defaultQuestionCount; i++) {
+            addQuestion({ promptForLabel: false, initialLabel: `Question ${i}` });
+        }
+        addStudentRow({});
+    }
+
+    function attachHeaderEvents() {
+        document.querySelectorAll('.question-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const header = btn.closest('.question-header');
+                if (!header) return;
+                const isShown = header.classList.toggle('show-actions');
+                btn.setAttribute('aria-expanded', isShown ? 'true' : 'false');
+                btn.innerHTML = isShown ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-ellipsis-h"></i>';
+            });
+        });
+
+        document.querySelectorAll('.question-rename').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const question = questions.find(q => q.id === btn.dataset.questionId);
+                if (!question) {
+                    return;
+                }
+                const newLabel = prompt('Question title:', question.label);
+                if (newLabel && newLabel.trim()) {
+                    question.label = newLabel.trim();
+                    renderHeaders();
+                }
+            });
+        });
+
+        document.querySelectorAll('.question-add-part').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const question = questions.find(q => q.id === btn.dataset.questionId);
+                if (!question) {
+                    return;
+                }
+                if (question.parts.length === 1 && question.parts[0].label === 'Marks') {
+                    question.parts[0].label = 'a';
+                }
+                const defaultLabel = String.fromCharCode(97 + question.parts.length);
+                const label = prompt('Sub-part label (a, b, c …):', defaultLabel) || defaultLabel;
+                question.parts.push({ id: generateId(`${question.id}-p`), label: label.trim() });
+                renderHeaders();
+            });
+        });
+
+        document.querySelectorAll('.question-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const qId = btn.dataset.questionId;
+                const index = questions.findIndex(q => q.id === qId);
+                if (index === -1) {
+                    return;
+                }
+                if (!confirm('Remove this question and all its columns?')) {
+                    return;
+                }
+                questions.splice(index, 1);
+                renderHeaders();
+            });
+        });
+
+        document.querySelectorAll('.subpart-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const { questionId, partId } = btn.dataset;
+                const question = questions.find(q => q.id === questionId);
+                if (!question || question.parts.length === 1) {
+                    alert('At least one column is required for each question.');
+                    return;
+                }
+                question.parts = question.parts.filter(p => p.id !== partId);
+                renderHeaders();
+            });
+        });
+
+        document.querySelectorAll('.subpart-label').forEach(span => {
+            span.addEventListener('click', () => {
+                const { questionId, partId } = span.dataset;
+                const question = questions.find(q => q.id === questionId);
+                if (!question) {
+                    return;
+                }
+                const part = question.parts.find(p => p.id === partId);
+                if (!part) {
+                    return;
+                }
+                const newLabel = prompt('Sub-part label:', part.label);
+                if (newLabel && newLabel.trim()) {
+                    part.label = newLabel.trim();
+                    renderHeaders();
+                }
+            });
+        });
+    }
+
+    function buildPayload() {
+        const data = {
+            metadata,
+            role: pageRole,
+            questions: questions.map(question => ({
+                id: question.id,
+                label: question.label,
+                parts: question.parts.map(part => ({ id: part.id, label: part.label })),
+            })),
+            rows: [],
+        };
+
+        tbody.querySelectorAll('.marks-row').forEach(row => {
+            const codeInput = row.querySelector('.code-input');
+            const studentInput = row.querySelector('.student-id-input');
+            const rowData = {
+                code: codeInput ? codeInput.value : '',
+                student_id: studentInput ? studentInput.value : '',
+                marks: {},
+                total: row.querySelector('.total-field') ? row.querySelector('.total-field').value : '',
+            };
+
+            questions.forEach(question => {
+                const questionMarks = {};
+                question.parts.forEach(part => {
+                    const input = row.querySelector(`td[data-question-id="${question.id}"][data-part-id="${part.id}"] input`);
+                    questionMarks[part.label] = input ? input.value : '';
+                });
+                rowData.marks[question.label] = questionMarks;
+            });
+
+            data.rows.push(rowData);
+        });
+
+        payloadInput.value = JSON.stringify(data);
+    }
+
+    function submitWithAction(action) {
+        actionInput.value = action;
+        buildPayload();
+        if (typeof marksForm.requestSubmit === 'function') {
+            marksForm.requestSubmit();
+        } else {
+            marksForm.submit();
+        }
+    }
+
+    function initializeTable() {
+        if (initialData && Array.isArray(initialData.questions) && initialData.questions.length) {
+            initialData.questions.forEach(question => {
+                addQuestion({
+                    promptForLabel: false,
+                    initialLabel: question.label || `Question ${questions.length + 1}`,
+                    initialParts: question.parts || [],
+                    questionId: question.id,
+                });
+            });
+        } else {
+            for (let i = 1; i <= defaultQuestionCount; i++) {
+                addQuestion({ promptForLabel: false, initialLabel: `Question ${i}` });
+            }
+        }
+
+        if (initialData && Array.isArray(initialData.rows) && initialData.rows.length) {
+            initialData.rows.forEach(row => addStudentRow(row));
+        } else {
+            addStudentRow({});
+        }
+    }
+
+    addQuestionBtn.addEventListener('click', () => addQuestion());
+    addStudentBtn.addEventListener('click', () => addStudentRow({}));
+    clearTableBtn.addEventListener('click', clearTable);
+    pdfBtn.addEventListener('click', () => submitWithAction('pdf'));
+    excelBtn.addEventListener('click', () => submitWithAction('excel'));
+    saveBtn.addEventListener('click', () => {
+        actionInput.value = 'save';
+    });
+
+    marksForm.addEventListener('submit', buildPayload);
+    
+    // Add auto-save to code and student ID inputs (delegated event listener)
+    document.addEventListener('input', function(e) {
+        if (e.target.classList.contains('code-input') || e.target.classList.contains('student-id-input')) {
+            debounceAutoSave();
+        }
+    });
+
+    initializeTable();
+})();
+</script>
+{% endblock %}
+

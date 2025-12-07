@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Academic Management System{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-graduation-cap me-2"></i>
+                Academic Management System
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                {% if current_user.is_authenticated %}
+                {% set active_role = current_user.active_role %}
+                {% set head_active = (active_role == 'head') %}
+                <div class="flex-grow-1">
+                    <div class="d-none d-lg-flex flex-wrap alignments-center w-100">
+                        <ul class="navbar-nav flex-wrap me-auto">
+                            {% if has_teacher_privileges(current_user) or is_admin(current_user) %}
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="fas fa-compass me-2"></i>Modules
+                                </a>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="{{ url_for('index') }}"><i class="fas fa-home me-2"></i>Dashboard</a></li>
+                                    {% if has_teacher_privileges(current_user) %}
+                                    {% if not head_active %}
+                                    <li><a class="dropdown-item" href="{{ url_for('class_management.index') }}"><i class="fas fa-chalkboard-teacher me-2"></i>Class Management</a></li>
+                                    {% endif %}
+                                    <li><a class="dropdown-item" href="{{ url_for('result_management.index') }}"><i class="fas fa-poll me-2"></i>Result Management</a></li>
+                                    {% if not head_active %}
+                                    <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
+                                    {% endif %}
+                                    <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration Review</a></li>
+                                    {% if not head_active %}
+                                    <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
+                                    {% endif %}
+                                    {% if is_exam_committee_chief() %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('exam_committee_chief_dashboard') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Chief</a></li>
+                                    {% endif %}
+                                    {% endif %}
+                                    {% if is_admin(current_user) %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-user-shield me-2"></i>Admin</a></li>
+                                    {% endif %}
+                                </ul>
+                            </li>
+                            {% endif %}
+                            {% if 'student' in parse_roles(current_user.role) and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'student_dashboard' else '' }}" href="{{ url_for('student_dashboard') }}">
+                                    <i class="fas fa-home me-2"></i>Student Dashboard
+                                </a>
+                            </li>
+                            {% endif %}
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint and 'class_management.my_invitations' in request.endpoint else '' }}" href="{{ url_for('class_management.my_invitations') }}">
+                                    <i class="fas fa-envelope-open-text me-2"></i>Invitations
+                                    {% if pending_invites_count and pending_invites_count > 0 %}
+                                        <span class="badge bg-warning text-dark ms-1">{{ pending_invites_count }}</span>
+                                    {% endif %}
+                                </a>
+                            </li>
+                        </ul>
+                        <div class="navbar-nav ms-auto align-items-center">
+                            <a class="navbar-text me-3 text-decoration-none text-white" href="{{ url_for('profile') }}">
+                                <i class="fas fa-user me-1"></i>Welcome, {{ current_user.full_name or current_user.username }}
+                            </a>
+                            <a class="nav-link" href="{{ url_for('auth.logout') }}">
+                                <i class="fas fa-sign-out-alt me-1"></i>Logout
+                            </a>
+                        </div>
+                    </div>
+                    <div class="d-flex d-lg-none mt-3">
+                        <div class="dropdown w-100">
+                            <button class="btn btn-light w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-compass me-2"></i>Modules Menu
+                            </button>
+                            <ul class="dropdown-menu w-100">
+                                <li><a class="dropdown-item" href="{{ url_for('index') }}"><i class="fas fa-home me-2"></i>Dashboard</a></li>
+                                {% if 'student' in parse_roles(current_user.role) and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
+                                <li><a class="dropdown-item" href="{{ url_for('student_dashboard') }}"><i class="fas fa-user-graduate me-2"></i>Student Dashboard</a></li>
+                                {% endif %}
+                                {% if has_teacher_privileges(current_user) %}
+                                {% if not head_active %}
+                                <li><a class="dropdown-item" href="{{ url_for('class_management.index') }}"><i class="fas fa-chalkboard-teacher me-2"></i>Class Management</a></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="{{ url_for('result_management.index') }}"><i class="fas fa-poll me-2"></i>Result Management</a></li>
+                                {% if not head_active %}
+                                <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration Review</a></li>
+                                {% if not head_active %}
+                                <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
+                                {% endif %}
+                                {% if is_exam_committee_chief() %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="{{ url_for('exam_committee_chief_dashboard') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Chief</a></li>
+                                {% endif %}
+                                <li><a class="dropdown-item" href="{{ url_for('class_management.my_invitations') }}"><i class="fas fa-envelope-open-text me-2"></i>Invitations
+                                    {% if pending_invites_count and pending_invites_count > 0 %}
+                                        <span class="badge bg-warning text-dark ms-1">{{ pending_invites_count }}</span>
+                                    {% endif %}
+                                </a></li>
+                                {% endif %}
+                                {% if is_admin(current_user) %}
+                                <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-user-shield me-2"></i>Admin</a></li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="{{ url_for('auth.login') }}">
+                        <i class="fas fa-sign-in-alt me-1"></i>Login
+                    </a>
+                    <a class="nav-link" href="{{ url_for('auth.register') }}">
+                        <i class="fas fa-user-plus me-1"></i>Register
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</nav>
+
+    <main>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="container mt-3">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                            <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'info-circle' }} me-2"></i>
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer mt-auto py-3 bg-dark text-white">
+        <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center text-center text-md-start gap-2">
+            <span>&copy; 2025, Academic Management System (AMS), Law Discipline, Khulna University</span>
+            <span>Version 2.0.0</span>
+        </div>
+    </footer>
+
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Debug Script for Form Monitoring -->
+    <script src="{{ url_for('static', filename='js/debug.js') }}"></script>
+    <!-- Custom App-wide JS -->
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    
+    <!-- Page-specific scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+</html> 

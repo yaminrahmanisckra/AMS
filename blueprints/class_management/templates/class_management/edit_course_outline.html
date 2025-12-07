@@ -1,0 +1,596 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="mb-0">
+                <i class="fas fa-edit me-2 text-primary"></i>Edit Course Outline
+            </h4>
+            <p class="text-muted mb-0">
+                {{ session.course_name or 'Course' }}
+                {% if session.course_code %}
+                    <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
+                {% endif %}
+            </p>
+        </div>
+        <div class="btn-group">
+            <a href="{{ url_for('class_management.course_file', session_id=session.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left me-1"></i>Back
+            </a>
+            <a href="{{ url_for('class_management.download_course_outline_docx', session_id=session.id) }}" class="btn btn-success btn-sm">
+                <i class="fas fa-file-word me-1"></i>Download DOCX
+            </a>
+            <a href="{{ url_for('class_management.download_course_outline_pdf', session_id=session.id) }}" class="btn btn-danger btn-sm">
+                <i class="fas fa-file-pdf me-1"></i>Download PDF
+            </a>
+        </div>
+    </div>
+
+    <form id="courseOutlineForm">
+        <input type="hidden" name="session_id" value="{{ session.id }}">
+        
+        <!-- Part A: Introduction -->
+        <div class="card shadow mb-3">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">PART A: INTRODUCTION</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>Course Objectives</strong> (one per line)</label>
+                    <textarea class="form-control" name="course_objectives" rows="5" placeholder="1. First objective&#10;2. Second objective&#10;3. Third objective">{{ outline_data.course_objectives|join('&#10;') if outline_data.course_objectives else '' }}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Course Summary</strong></label>
+                    <textarea class="form-control" name="course_summary" rows="4">{{ course_outline.course_summary or '' }}</textarea>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label"><strong>Prerequisites</strong></label>
+                        <input type="text" class="form-control" name="prerequisites" value="{{ course_outline.prerequisites or 'None' }}">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label"><strong>Contact Hours</strong></label>
+                        <input type="text" class="form-control" name="contact_hours" value="{{ course_outline.contact_hours or '' }}">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label"><strong>CIE Marks</strong></label>
+                        <input type="text" class="form-control" name="cie_marks" value="{{ course_outline.cie_marks or '40' }}">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label"><strong>SMEE Marks</strong></label>
+                        <input type="text" class="form-control" name="smee_marks" value="{{ course_outline.smee_marks or '60' }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part B: Course Content Summary (Optional) -->
+        <div class="card shadow mb-3">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">PART B: COURSE CONTENT SUMMARY (Optional)</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>Course Content Summary</strong> (Section A and B breakdown with hours and CLOs)</label>
+                    <textarea class="form-control" name="course_content_summary" rows="6" placeholder="Section A:&#10;1. Topic 1 - 6 hours, CLOs 1, 2&#10;2. Topic 2 - 6 hours, CLOs 2, 3&#10;&#10;Section B:&#10;1. Topic 1 - 6.5 hours, CLO 2"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>CLO-PLO Mapping</strong> (Optional - JSON format or description)</label>
+                    <textarea class="form-control" name="clo_plo_mapping" rows="4" placeholder="CLO 1 maps to PLO 1, PLO 2, PLO 13, PLO 17"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lesson Plan -->
+        <div class="card shadow mb-3">
+            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Class Schedule / Lesson Plan / Weekly Plan</h5>
+                <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI()" title="AI-powered weekly plan generation">
+                    <i class="fas fa-robot me-1"></i>Generate with AI
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-3">
+                    <i class="fas fa-lightbulb me-2"></i>
+                    <strong>AI Assistant:</strong> Click "Generate with AI" to automatically organize your weekly plan based on course content, learning outcomes, and best practices.
+                </div>
+                <div id="lessonPlanContainer">
+                    <!-- Lesson plan entries will be added here via JavaScript -->
+                </div>
+                <button type="button" class="btn btn-outline-success btn-sm" onclick="addLessonPlanRow()">
+                    <i class="fas fa-plus me-1"></i>Add Week
+                </button>
+            </div>
+        </div>
+
+        <!-- Part C: Assessment and Evaluation -->
+        <div class="card shadow mb-3">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">PART C: ASSESSMENT AND EVALUATION</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>Assessment Strategy Description</strong></label>
+                    <textarea class="form-control" name="assessment_strategy_desc" rows="2" placeholder="e.g., Bloom's Taxonomy and Rubric based, Quiz, Mid Term, Assignment, Project, Report, Class Test, Presentation, Semester Final"></textarea>
+                </div>
+                
+                <h6 class="mt-4 mb-3">Marks Distribution for Theory Courses</h6>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Attendance (%)</label>
+                        <input type="text" class="form-control" name="attendance_percent" value="10" placeholder="10">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Continuous Assessment (%)</label>
+                        <input type="text" class="form-control" name="ca_percent" value="30" placeholder="30">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Final Exam (%)</label>
+                        <input type="text" class="form-control" name="final_exam_percent" value="60" placeholder="60">
+                    </div>
+                </div>
+                
+                <h6 class="mt-4 mb-3">Assessment Techniques</h6>
+                <div id="assessmentTechniquesContainer">
+                    <!-- Assessment techniques will be added here -->
+                </div>
+                <button type="button" class="btn btn-outline-warning btn-sm mb-3" onclick="addAssessmentTechnique()">
+                    <i class="fas fa-plus me-1"></i>Add Assessment Technique
+                </button>
+                
+                <h6 class="mt-4 mb-3">Rubrics</h6>
+                <div id="rubricsContainer">
+                    <!-- Rubrics will be added here -->
+                </div>
+                <button type="button" class="btn btn-outline-warning btn-sm mb-3" onclick="addRubric()">
+                    <i class="fas fa-plus me-1"></i>Add Rubric
+                </button>
+                
+                <h6 class="mt-4 mb-3">Grading Policy</h6>
+                <div id="gradingPolicyContainer">
+                    <!-- Grading policy will be added here -->
+                </div>
+                <button type="button" class="btn btn-outline-warning btn-sm" onclick="addGradingPolicy()">
+                    <i class="fas fa-plus me-1"></i>Add Grade Range
+                </button>
+            </div>
+        </div>
+
+        <!-- Part D: Learning Resources -->
+        <div class="card shadow mb-3">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">PART D: LEARNING RESOURCES</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>Textbooks</strong> (one per line: Author, Title, Publisher, Year)</label>
+                    <textarea class="form-control" name="textbooks" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.textbooks|join('&#10;') if outline_data.textbooks else '' }}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Reference Books</strong> (one per line)</label>
+                    <textarea class="form-control" name="reference_books" rows="5">{{ outline_data.reference_books|join('&#10;') if outline_data.reference_books else '' }}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Other Resources</strong> (Online Resources or others - one per line)</label>
+                    <textarea class="form-control" name="other_resources" rows="3" placeholder="Articles, online resources, etc.">{{ outline_data.other_resources|join('&#10;') if outline_data.other_resources else '' }}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Course File Components</strong> (one per line)</label>
+                    <textarea class="form-control" name="course_file_components" rows="5" placeholder="Course Outline/Course Plan&#10;Lesson Plan&#10;Question Papers&#10;Answer Script (Best, Average, Poor)&#10;Rubrics&#10;Attendance&#10;Course evaluation by course teacher&#10;Student course evaluation form&#10;Peer review: Classroom Teaching Observation Report&#10;Evaluation of attainment of CLOs&#10;Improvement plan for better attainment of CLOs"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Other Issues -->
+        <div class="card shadow mb-3">
+            <div class="card-header bg-dark text-white">
+                <h5 class="mb-0">Other Issues</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>Make-up Procedures</strong></label>
+                    <textarea class="form-control" name="make_up_procedures" rows="2" placeholder="Please see the policy for make-up class in the undergraduate ordinance.">{{ course_outline.make_up_procedures or '' }}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Class Discussion/Participation</strong></label>
+                    <textarea class="form-control" name="class_discussion" rows="3" placeholder="Participation in class discussions is strongly encouraged..."></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>General Expectations</strong></label>
+                    <textarea class="form-control" name="general_expectations" rows="3" placeholder="Students are expected to attend class regularly..."></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Communication with Course Teachers</strong></label>
+                    <textarea class="form-control" name="communication" rows="2" placeholder="Readings and materials will be made available..."></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Academic Honesty</strong></label>
+                    <textarea class="form-control" name="academic_honesty" rows="3" placeholder="Honesty, trust, and personal responsibility..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end gap-2 mb-4">
+            <button type="button" class="btn btn-secondary" onclick="window.location.href='{{ url_for('class_management.course_file', session_id=session.id) }}'">Cancel</button>
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save me-1"></i>Save Course Outline
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize lesson plan from existing data
+    const lessonPlan = {{ outline_data.lesson_plan|tojson }};
+    if (lessonPlan && lessonPlan.length > 0) {
+        lessonPlan.forEach(lesson => addLessonPlanRow(lesson));
+    } else {
+        addLessonPlanRow(); // Add one empty row
+    }
+    
+    // Initialize assessment techniques
+    const assessmentTechniques = {{ outline_data.assessment_techniques|tojson }};
+    if (assessmentTechniques && assessmentTechniques.length > 0) {
+        assessmentTechniques.forEach(tech => addAssessmentTechnique(tech));
+    } else {
+        addAssessmentTechnique(); // Add one empty row
+    }
+    
+    // Initialize rubrics
+    const rubrics = {{ outline_data.rubrics|tojson }};
+    if (rubrics && rubrics.length > 0) {
+        rubrics.forEach(rubric => addRubric(rubric));
+    } else {
+        addRubric(); // Add one empty row
+    }
+    
+    // Initialize grading policy
+    const gradingPolicy = {{ outline_data.grading_policy|tojson }};
+    if (gradingPolicy && gradingPolicy.length > 0) {
+        gradingPolicy.forEach(grade => addGradingPolicy(grade));
+    } else {
+        // Add default grading policy
+        addGradingPolicy({range: '80 and over', grade: 'A+'});
+        addGradingPolicy({range: '75-79', grade: 'A'});
+        addGradingPolicy({range: '70-74', grade: 'A-'});
+        addGradingPolicy({range: '65-69', grade: 'B+'});
+        addGradingPolicy({range: '60-64', grade: 'B'});
+        addGradingPolicy({range: '55-59', grade: 'B-'});
+        addGradingPolicy({range: '50-54', grade: 'C+'});
+        addGradingPolicy({range: '45-49', grade: 'C'});
+        addGradingPolicy({range: '40-44', grade: 'D'});
+        addGradingPolicy({range: 'Below 40', grade: 'F'});
+    }
+
+    // Form submission
+    document.getElementById('courseOutlineForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        saveCourseOutline();
+    });
+});
+
+function addLessonPlanRow(data = {}) {
+    const container = document.getElementById('lessonPlanContainer');
+    const row = document.createElement('div');
+    row.className = 'border rounded p-3 mb-3';
+    row.innerHTML = `
+        <div class="row g-2">
+            <div class="col-md-2">
+                <label class="form-label small">Week</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_week[]" value="${data.week || ''}" placeholder="Week 1">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Date</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_date[]" value="${data.date || ''}" placeholder="20-24 July 2025">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Topic</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_topic[]" value="${data.topic || ''}" placeholder="Topic name">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">CLO Alignment</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_clo[]" value="${data.clo_alignment || ''}" placeholder="1, 2">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Actions</label>
+                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
+                    <i class="fas fa-trash"></i> Remove
+                </button>
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-md-6">
+                <label class="form-label small">Specific Outcome</label>
+                <textarea class="form-control form-control-sm" name="lesson_outcome[]" rows="2" placeholder="Students will be able to...">${data.outcome || ''}</textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">Teaching & Assessment</label>
+                <textarea class="form-control form-control-sm" name="lesson_teaching[]" rows="2" placeholder="Lecture, Question answer">${data.teaching_assessment || ''}</textarea>
+            </div>
+        </div>
+    `;
+    container.appendChild(row);
+}
+
+function generateWeeklyPlanWithAI() {
+    const courseName = '{{ session.course_name or "" }}';
+    const courseCode = '{{ session.course_code or "" }}';
+    const courseSummary = document.querySelector('textarea[name="course_summary"]')?.value || '';
+    const courseObjectives = document.querySelector('textarea[name="course_objectives"]')?.value || '';
+    const contactHours = document.querySelector('input[name="contact_hours"]')?.value || '56';
+    
+    if (!courseName && !courseSummary) {
+        alert('Please provide course name or summary first for AI to generate a plan.');
+        return;
+    }
+    
+    if (!confirm('This will generate a weekly plan using AI. Existing plan entries will be cleared. Continue?')) {
+        return;
+    }
+    
+    // Show loading
+    const container = document.getElementById('lessonPlanContainer');
+    container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Generating weekly plan with AI...</p></div>';
+    
+    fetch('{{ url_for("class_management.generate_weekly_plan_ai", session_id=session.id) }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            course_name: courseName,
+            course_code: courseCode,
+            course_summary: courseSummary,
+            course_objectives: courseObjectives.split('\n').filter(l => l.trim()),
+            contact_hours: contactHours
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.lesson_plan) {
+            container.innerHTML = '';
+            data.lesson_plan.forEach(lesson => addLessonPlanRow(lesson));
+            alert('Weekly plan generated successfully! Please review and adjust as needed.');
+        } else {
+            container.innerHTML = '';
+            addLessonPlanRow();
+            alert('AI generation failed: ' + (data.message || 'Unknown error') + '. You can create the plan manually.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        container.innerHTML = '';
+        addLessonPlanRow();
+        alert('Error generating plan. Please create it manually.');
+    });
+}
+
+function addAssessmentTechnique(data = {}) {
+    const container = document.getElementById('assessmentTechniquesContainer');
+    const row = document.createElement('div');
+    row.className = 'border rounded p-3 mb-3';
+    row.innerHTML = `
+        <div class="row g-2">
+            <div class="col-md-4">
+                <label class="form-label small">Assessment Strategy</label>
+                <input type="text" class="form-control form-control-sm" name="assessment_strategy[]" value="${data.strategy || ''}" placeholder="Class Test 1, Group Debate, etc.">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">CLO 1</label>
+                <input type="number" class="form-control form-control-sm" name="clo1[]" value="${data.clo1 || ''}" placeholder="10">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">CLO 2</label>
+                <input type="number" class="form-control form-control-sm" name="clo2[]" value="${data.clo2 || ''}" placeholder="10">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Total Marks</label>
+                <input type="number" class="form-control form-control-sm" name="total_marks[]" value="${data.total_marks || ''}" placeholder="10">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Actions</label>
+                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    container.appendChild(row);
+}
+
+function addRubric(data = {}) {
+    const container = document.getElementById('rubricsContainer');
+    const row = document.createElement('div');
+    row.className = 'border rounded p-3 mb-3';
+    row.innerHTML = `
+        <div class="mb-2">
+            <label class="form-label small"><strong>Rubric Type:</strong></label>
+            <input type="text" class="form-control form-control-sm" name="rubric_type[]" value="${data.type || ''}" placeholder="Class Tests, Group Debate, etc.">
+        </div>
+        <div class="row g-2">
+            <div class="col-md-3">
+                <label class="form-label small">Criteria</label>
+                <input type="text" class="form-control form-control-sm" name="rubric_criteria[]" value="${data.criteria || ''}" placeholder="Conceptual Clarity">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Excellent (8-10)</label>
+                <textarea class="form-control form-control-sm" name="rubric_excellent[]" rows="2" placeholder="Description">${data.excellent || ''}</textarea>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Good (5-7)</label>
+                <textarea class="form-control form-control-sm" name="rubric_good[]" rows="2" placeholder="Description">${data.good || ''}</textarea>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Satisfactory (2-4)</label>
+                <textarea class="form-control form-control-sm" name="rubric_satisfactory[]" rows="2" placeholder="Description">${data.satisfactory || ''}</textarea>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Poor (0-1)</label>
+                <textarea class="form-control form-control-sm" name="rubric_poor[]" rows="2" placeholder="Description">${data.poor || ''}</textarea>
+            </div>
+            <div class="col-md-1">
+                <label class="form-label small">Actions</label>
+                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `;
+    container.appendChild(row);
+}
+
+function addGradingPolicy(data = {}) {
+    const container = document.getElementById('gradingPolicyContainer');
+    const row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2';
+    row.innerHTML = `
+        <div class="row g-2">
+            <div class="col-md-4">
+                <label class="form-label small">Marks Range</label>
+                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range || ''}" placeholder="80 and over">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Grade</label>
+                <input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade || ''}" placeholder="A+">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small">Actions</label>
+                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
+                    <i class="fas fa-trash"></i> Remove
+                </button>
+            </div>
+        </div>
+    `;
+    container.appendChild(row);
+}
+
+function saveCourseOutline() {
+    const form = document.getElementById('courseOutlineForm');
+    const formData = new FormData(form);
+    
+    // Convert form data to JSON structure
+    const data = {
+        course_objectives: formData.getAll('course_objectives')[0]?.split('\n').filter(l => l.trim()) || [],
+        course_summary: formData.get('course_summary') || '',
+        prerequisites: formData.get('prerequisites') || '',
+        contact_hours: formData.get('contact_hours') || '',
+        cie_marks: formData.get('cie_marks') || '',
+        smee_marks: formData.get('smee_marks') || '',
+        course_content_summary: formData.get('course_content_summary') || '',
+        clo_plo_mapping: formData.get('clo_plo_mapping') || '',
+        lesson_plan: [],
+        assessment_strategy: {
+            attendance_percent: formData.get('attendance_percent') || '10',
+            ca_percent: formData.get('ca_percent') || '30',
+            final_exam_percent: formData.get('final_exam_percent') || '60',
+            description: formData.get('assessment_strategy_desc') || ''
+        },
+        assessment_techniques: [],
+        rubrics: [],
+        grading_policy: [],
+        textbooks: formData.getAll('textbooks')[0]?.split('\n').filter(l => l.trim()) || [],
+        reference_books: formData.getAll('reference_books')[0]?.split('\n').filter(l => l.trim()) || [],
+        other_resources: formData.getAll('other_resources')[0]?.split('\n').filter(l => l.trim()) || [],
+        course_file_components: formData.getAll('course_file_components')[0]?.split('\n').filter(l => l.trim()) || [],
+        make_up_procedures: formData.get('make_up_procedures') || '',
+        other_issues: {
+            class_discussion: formData.get('class_discussion') || '',
+            general_expectations: formData.get('general_expectations') || '',
+            communication: formData.get('communication') || '',
+            academic_honesty: formData.get('academic_honesty') || ''
+        }
+    };
+    
+    // Collect lesson plan data
+    const weeks = formData.getAll('lesson_week[]');
+    const dates = formData.getAll('lesson_date[]');
+    const topics = formData.getAll('lesson_topic[]');
+    const outcomes = formData.getAll('lesson_outcome[]');
+    const teachings = formData.getAll('lesson_teaching[]');
+    const clos = formData.getAll('lesson_clo[]');
+    
+    for (let i = 0; i < weeks.length; i++) {
+        if (weeks[i] || topics[i]) {
+            data.lesson_plan.push({
+                week: weeks[i] || '',
+                date: dates[i] || '',
+                topic: topics[i] || '',
+                outcome: outcomes[i] || '',
+                teaching_assessment: teachings[i] || '',
+                clo_alignment: clos[i] || ''
+            });
+        }
+    }
+    
+    // Collect assessment techniques
+    const strategies = formData.getAll('assessment_strategy[]');
+    const clo1s = formData.getAll('clo1[]');
+    const clo2s = formData.getAll('clo2[]');
+    const totalMarks = formData.getAll('total_marks[]');
+    for (let i = 0; i < strategies.length; i++) {
+        if (strategies[i]) {
+            data.assessment_techniques.push({
+                strategy: strategies[i] || '',
+                clo1: clo1s[i] || '',
+                clo2: clo2s[i] || '',
+                total_marks: totalMarks[i] || ''
+            });
+        }
+    }
+    
+    // Collect rubrics
+    const rubricTypes = formData.getAll('rubric_type[]');
+    const rubricCriterias = formData.getAll('rubric_criteria[]');
+    const rubricExcellent = formData.getAll('rubric_excellent[]');
+    const rubricGood = formData.getAll('rubric_good[]');
+    const rubricSatisfactory = formData.getAll('rubric_satisfactory[]');
+    const rubricPoor = formData.getAll('rubric_poor[]');
+    for (let i = 0; i < rubricTypes.length; i++) {
+        if (rubricTypes[i]) {
+            data.rubrics.push({
+                type: rubricTypes[i] || '',
+                criteria: rubricCriterias[i] || '',
+                excellent: rubricExcellent[i] || '',
+                good: rubricGood[i] || '',
+                satisfactory: rubricSatisfactory[i] || '',
+                poor: rubricPoor[i] || ''
+            });
+        }
+    }
+    
+    // Collect grading policy
+    const gradeRanges = formData.getAll('grade_range[]');
+    const grades = formData.getAll('grade[]');
+    for (let i = 0; i < gradeRanges.length; i++) {
+        if (gradeRanges[i] || grades[i]) {
+            data.grading_policy.push({
+                range: gradeRanges[i] || '',
+                grade: grades[i] || ''
+            });
+        }
+    }
+    
+    fetch('{{ url_for("class_management.save_course_outline", session_id=session.id) }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            alert('Course outline saved successfully!');
+            window.location.href = '{{ url_for("class_management.course_file", session_id=session.id) }}';
+        } else {
+            alert('Error saving: ' + (result.message || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error saving course outline');
+    });
+}
+</script>
+{% endblock %}
+

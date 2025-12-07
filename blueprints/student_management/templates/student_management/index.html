@@ -1,0 +1,415 @@
+{% extends "base.html" %}
+
+{% block title %}Students Management{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3><i class="fas fa-users me-2 text-primary"></i>Students Management</h3>
+            <p class="text-muted mb-0">Manage student information and records</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#bulkUploadModal">
+                <i class="fas fa-file-excel me-1"></i>Bulk Upload
+            </button>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal">
+                <i class="fas fa-plus me-1"></i>Add Student
+            </button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light">
+            <form method="GET" class="d-flex gap-2 flex-wrap">
+                <div class="flex-grow-1" style="min-width: 200px;">
+                    <input type="text" name="search" class="form-control" 
+                           placeholder="Search by name, ID, batch, or email..." 
+                           value="{{ search }}">
+                </div>
+                <div style="min-width: 150px;">
+                    <select name="batch" class="form-select" onchange="this.form.submit()">
+                        <option value="">All Batches</option>
+                        {% for batch in batches %}
+                        <option value="{{ batch }}" {% if batch_filter == batch %}selected{% endif %}>
+                            Batch {{ batch }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-outline-primary">
+                    <i class="fas fa-search me-1"></i>Search
+                </button>
+                {% if search or batch_filter %}
+                <a href="{{ url_for('student_management.index') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-times me-1"></i>Clear
+                </a>
+                {% endif %}
+            </form>
+        </div>
+        <div class="card-body">
+            {% if students.items %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Student ID</th>
+                            <th>Name</th>
+                            <th>Batch</th>
+                            <th>Hall</th>
+                            <th>Curriculum</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in students.items %}
+                        <tr>
+                            <td><strong>{{ student.student_id }}</strong></td>
+                            <td>{{ student.name }}</td>
+                            <td>{{ student.batch or '-' }}</td>
+                            <td>{{ student.hall or '-' }}</td>
+                            <td>
+                                {% if student.batch and batch_to_curricula.get(student.batch) %}
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {% for curriculum in batch_to_curricula[student.batch] %}
+                                            <span class="badge bg-primary" title="{{ curriculum.name }}">
+                                                <i class="fas fa-book me-1"></i>{{ curriculum.name }}
+                                            </span>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ student.email or '-' }}</td>
+                            <td>{{ student.phone or '-' }}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm">
+                                    <a href="{{ url_for('student_management.edit_student', student_id=student.id) }}" 
+                                       class="btn btn-outline-primary">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <form action="{{ url_for('student_management.delete_student', student_id=student.id) }}" 
+                                          method="POST" style="display: inline;"
+                                          onsubmit="return confirm('Are you sure you want to delete {{ student.name }}?');">
+                                        <button type="submit" class="btn btn-outline-danger">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            {% if students.pages > 1 %}
+            <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center">
+                    {% if students.has_prev %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('student_management.index', page=students.prev_num, search=search, batch=batch_filter) }}">Previous</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">Previous</span>
+                    </li>
+                    {% endif %}
+
+                    {% for page_num in students.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if page_num %}
+                            {% if page_num == students.page %}
+                            <li class="page-item active">
+                                <span class="page-link">{{ page_num }}</span>
+                            </li>
+                            {% else %}
+                            <li class="page-item">
+                                <a class="page-link" href="{{ url_for('student_management.index', page=page_num, search=search, batch=batch_filter) }}">{{ page_num }}</a>
+                            </li>
+                            {% endif %}
+                        {% else %}
+                            <li class="page-item disabled">
+                                <span class="page-link">...</span>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if students.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="{{ url_for('student_management.index', page=students.next_num, search=search, batch=batch_filter) }}">Next</a>
+                    </li>
+                    {% else %}
+                    <li class="page-item disabled">
+                        <span class="page-link">Next</span>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+            {% endif %}
+
+            <div class="text-muted text-center mt-3">
+                Showing {{ students.per_page * (students.page - 1) + 1 }} to 
+                {{ students.per_page * students.page if students.has_next else students.total }} 
+                of {{ students.total }} students
+                {% if batch_filter %}
+                    <span class="badge bg-info ms-2">Batch {{ batch_filter }}</span>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="text-center py-5">
+                <i class="fas fa-users fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">No students found</h5>
+                <p class="text-muted">
+                    {% if search or batch_filter %}
+                        No students match your search criteria.
+                    {% else %}
+                        Get started by adding your first student.
+                    {% endif %}
+                </p>
+                {% if not search and not batch_filter %}
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStudentModal">
+                    <i class="fas fa-plus me-1"></i>Add Student
+                </button>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Add Student Modal -->
+<div class="modal fade" id="addStudentModal" tabindex="-1" aria-labelledby="addStudentModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="addStudentModalLabel">
+                    <i class="fas fa-user-plus me-2"></i>Add New Student
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addStudentForm">
+                    <div class="mb-3">
+                        <label for="student_id" class="form-label">
+                            Student ID <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="student_id" name="student_id" 
+                               required placeholder="e.g. 2021-1-60-001">
+                        <small class="form-text text-muted">Unique identifier for the student</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label">
+                            Name <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="name" name="name" 
+                               required placeholder="Full name">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="batch" class="form-label">Batch</label>
+                        <input type="text" class="form-control" id="batch" name="batch" 
+                               placeholder="e.g. 2021">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="hall" class="form-label">Hall</label>
+                        <input type="text" class="form-control" id="hall" name="hall" 
+                               placeholder="e.g. Khan Jahan Ali Hall">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" name="email" 
+                               placeholder="student@example.com">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="phone" class="form-label">Phone Number</label>
+                        <input type="text" class="form-control" id="phone" name="phone" 
+                               placeholder="e.g. +8801712345678">
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Save Student
+                        </button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="fas fa-times me-1"></i>Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bulk Upload Modal -->
+<div class="modal fade" id="bulkUploadModal" tabindex="-1" aria-labelledby="bulkUploadModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="bulkUploadModalLabel">
+                    <i class="fas fa-file-excel me-2"></i>Bulk Upload Students
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bulkUploadForm" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="excel_file" class="form-label">
+                            <i class="fas fa-file-excel me-2"></i>Select Excel File (.xlsx or .xls)
+                        </label>
+                        <input class="form-control" type="file" id="excel_file" name="file" accept=".xlsx,.xls" required>
+                        <small class="form-text text-muted">
+                            Excel file must have columns: <strong>Student ID</strong> and <strong>Name</strong>.<br>
+                            Optional columns: Batch, Hall, Email, Phone
+                        </small>
+                    </div>
+                    <div class="alert alert-info">
+                        <small>
+                            <strong>Expected format:</strong><br>
+                            Student ID | Name | Batch | Hall | Email | Phone
+                        </small>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-upload me-1"></i>Upload
+                        </button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="fas fa-times me-1"></i>Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add Student Form Handler
+    const addStudentForm = document.getElementById('addStudentForm');
+    if (addStudentForm) {
+        addStudentForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(addStudentForm);
+            const submitBtn = addStudentForm.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
+            
+            fetch('{{ url_for("student_management.add_student") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-success alert-dismissible fade show';
+                    alertDiv.innerHTML = `
+                        ${data.message}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.container').firstChild);
+                    
+                    // Close modal and reset form
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('addStudentModal'));
+                    modal.hide();
+                    addStudentForm.reset();
+                    
+                    // Reload page after a short delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    alert(data.message || 'Error adding student');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while adding the student');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            });
+        });
+    }
+    
+    // Bulk Upload Form Handler
+    const bulkUploadForm = document.getElementById('bulkUploadForm');
+    if (bulkUploadForm) {
+        bulkUploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(bulkUploadForm);
+            const submitBtn = bulkUploadForm.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Uploading...';
+            
+            fetch('{{ url_for("student_management.bulk_upload") }}', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    let message = data.message;
+                    if (data.errors && data.errors.length > 0) {
+                        message += '\n\nErrors:\n' + data.errors.slice(0, 5).join('\n');
+                        if (data.errors.length > 5) {
+                            message += `\n... and ${data.errors.length - 5} more errors`;
+                        }
+                    }
+                    alert(message);
+                    
+                    // Close modal and reset form
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('bulkUploadModal'));
+                    modal.hide();
+                    bulkUploadForm.reset();
+                    
+                    // Reload page after a short delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    alert(data.message || 'Error uploading file');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while uploading the file');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            });
+        });
+    }
+    
+    // Reset forms when modals are closed
+    const addStudentModal = document.getElementById('addStudentModal');
+    if (addStudentModal) {
+        addStudentModal.addEventListener('hidden.bs.modal', function() {
+            addStudentForm.reset();
+        });
+    }
+    
+    const bulkUploadModal = document.getElementById('bulkUploadModal');
+    if (bulkUploadModal) {
+        bulkUploadModal.addEventListener('hidden.bs.modal', function() {
+            bulkUploadForm.reset();
+        });
+    }
+});
+</script>
+{% endblock %}

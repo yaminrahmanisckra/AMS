@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow">
+        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-eye me-2"></i>Attendance Report - {{ session.course_name or session.term }}
+                {% if session.course_code %}
+                    <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
+                {% endif %}
+            </h5>
+            <div class="d-flex align-items-center flex-wrap gap-2">
+                <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-light btn-sm" target="_blank" title="Download Summary PDF">
+                    <i class="fas fa-file-pdf"></i> PDF
+                </a>
+                <a href="{{ url_for('class_management.download_attendance_excel', session_id=session.id) }}" class="btn btn-success btn-sm" title="Download as Excel">
+                    <i class="fas fa-file-excel"></i> Excel
+                </a>
+                <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary btn-sm" title="Back to Dashboard">
+                    <i class="fas fa-arrow-left"></i> Back
+                </a>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if split_meta %}
+            <div class="alert alert-info">
+                <div>
+                    <strong>Split Course ({{ split_meta.scope_label }})</strong>
+                    {% if split_meta.peers %}
+                        • Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
+                    {% endif %}
+                </div>
+                {% if split_meta and split_meta.class_totals %}
+                <ul class="mb-0 mt-2">
+                    {% for info in split_meta.class_totals %}
+                    <li {% if info.is_current %}class="fw-bold"{% endif %}>
+                        {{ info.teacher_name }} — {{ info.classes }} class(es)
+                    </li>
+                    {% endfor %}
+                </ul>
+                <small>Total classes counted for attendance marks: {{ attendance_summary.total_classes }}</small>
+                {% endif %}
+            </div>
+            {% endif %}
+             <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success mb-3">
+                <i class="fas fa-clipboard-check me-1"></i>Take or Update Attendance
+            </a>
+            <button type="button" class="btn btn-danger mb-3" data-bs-toggle="modal" data-bs-target="#deleteDateModal">
+                <i class="fas fa-trash-alt me-1"></i> Delete by Date
+            </button>
+            
+            {% if student_report_data %}
+                <style>
+                    .attendance-table {
+                        border-collapse: collapse;
+                        width: 100%;
+                        background: #fff;
+                        font-size: 14px;
+                    }
+                    .attendance-table th, .attendance-table td {
+                        border: 1px solid #dee2e6;
+                        padding: 0.5rem;
+                        text-align: center;
+                        vertical-align: middle;
+                    }
+                    .attendance-table thead th {
+                        background-color: #343a40;
+                        color: #fff;
+                        position: sticky;
+                        top: 0;
+                        z-index: 1;
+                    }
+                    /* Freeze first three columns (SI, Student ID, Name) */
+                    .attendance-table thead th.freeze-col-1,
+                    .attendance-table thead th.freeze-col-2,
+                    .attendance-table thead th.freeze-col-3 {
+                        position: sticky;
+                        z-index: 10;
+                        background-color: #343a40 !important;
+                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+                    }
+                    .attendance-table thead th.freeze-col-1 {
+                        left: 0;
+                    }
+                    .attendance-table thead th.freeze-col-2 {
+                        left: 0;
+                        margin-left: 0;
+                    }
+                    .attendance-table thead th.freeze-col-3 {
+                        left: 0;
+                        margin-left: 0;
+                        border-right: 2px solid #495057;
+                    }
+                    .attendance-table tbody td.freeze-col-1,
+                    .attendance-table tbody td.freeze-col-2,
+                    .attendance-table tbody td.freeze-col-3 {
+                        position: sticky;
+                        z-index: 5;
+                        background-color: #fff !important;
+                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+                    }
+                    .attendance-table tbody td.freeze-col-1 {
+                        left: 0;
+                    }
+                    .attendance-table tbody td.freeze-col-2 {
+                        left: 0;
+                        margin-left: 0;
+                        background-color: #fff !important;
+                    }
+                    .attendance-table tbody td.freeze-col-3 {
+                        left: 0;
+                        margin-left: 0;
+                        background-color: #fff !important;
+                        border-right: 2px solid #dee2e6;
+                    }
+                    /* Ensure even rows maintain background */
+                    .attendance-table tbody tr:nth-child(even) td.freeze-col-1,
+                    .attendance-table tbody tr:nth-child(even) td.freeze-col-2,
+                    .attendance-table tbody tr:nth-child(even) td.freeze-col-3 {
+                        background-color: #f8f9fa !important;
+                    }
+                    .attendance-table tbody tr:nth-child(even) {
+                        background-color: #f8f9fa;
+                    }
+                    .attendance-table tbody tr:hover {
+                        background-color: #e9ecef;
+                    }
+                    .attendance-table tbody tr:hover td.freeze-col-1,
+                    .attendance-table tbody tr:hover td.freeze-col-2,
+                    .attendance-table tbody tr:hover td.freeze-col-3 {
+                        background-color: #e9ecef !important;
+                    }
+                    .student-name {
+                        text-align: left;
+                        min-width: 180px;
+                    }
+                    .edit-toggle {
+                        margin-bottom: 1rem;
+                    }
+                    .attendance-cell.editable {
+                        cursor: pointer;
+                        transition: background-color 0.2s ease;
+                    }
+                    .attendance-cell.editable:hover {
+                        background-color: rgba(13, 110, 253, 0.1);
+                    }
+                    .attendance-cell.editable.editing {
+                        box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.7);
+                    }
+                </style>
+                
+                <div class="d-flex justify-content-end edit-toggle">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="editModeToggle">
+                        <label class="form-check-label" for="editModeToggle">Edit mode</label>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="attendance-table">
+                        <thead>
+                            <tr>
+                                <th rowspan="2" class="freeze-col-1">#</th>
+                                <th rowspan="2" class="freeze-col-2">Student ID</th>
+                                <th rowspan="2" class="student-name freeze-col-3">Name</th>
+                                <th colspan="{{ headers_with_meta|length }}">Attendance</th>
+                                {% if session.course_scope in ['part_a', 'part_b'] %}
+                                <th rowspan="2">Classes (This Part)</th>
+                                {% endif %}
+                                <th rowspan="2">Total Classes</th>
+                                <th rowspan="2">Present Days</th>
+                                <th rowspan="2">Percentage</th>
+                                <th rowspan="2">Marks</th>
+                            </tr>
+                            <tr>
+                                {% for header in headers_with_meta %}
+                                    <th data-date="{{ header.date }}" data-slot="{{ header.slot }}">{{ header.label }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for data in student_report_data %}
+                            <tr data-student-db-id="{{ data.info.id }}">
+                                <td class="freeze-col-1">{{ loop.index }}</td>
+                                <td class="freeze-col-2"><strong>{{ data.info.student_id }}</strong></td>
+                                <td class="student-name freeze-col-3">{{ data.info.name }}</td>
+                                {% for cell in data.attendance_row %}
+                                    <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
+                                        {% if cell.status == 'P' %}
+                                            <span class="status text-success fw-bold">P</span>
+                                        {% elif cell.status == 'A' %}
+                                            <span class="status text-danger fw-bold">A</span>
+                                        {% else %}
+                                            <span class="status text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                {% endfor %}
+                                {% if session.course_scope in ['part_a', 'part_b'] %}
+                                <td>{{ part_total_classes or 0 }}</td>
+                                {% endif %}
+                                <td>{{ data.total_classes }}</td>
+                                <td class="present-count">{{ data.present_count }}</td>
+                                <td class="percentage-cell">{{ data.percentage }}</td>
+                                <td class="marks-cell">{{ data.marks }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No attendance data found</h5>
+                    <p class="text-muted">Take attendance first to see the report.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% if student_report_data %}
+<script>
+const editToggle = document.getElementById('editModeToggle');
+const attendanceCells = document.querySelectorAll('.attendance-cell');
+const toggleBaseUrl = "{{ url_for('class_management.toggle_attendance_record', record_id=0) }}".slice(0, -1);
+
+if (editToggle) {
+    editToggle.addEventListener('change', function() {
+        toggleEditableState(this.checked);
+    });
+}
+
+function toggleEditableState(enabled) {
+    attendanceCells.forEach(cell => {
+        const hasRecord = cell.dataset.recordId;
+        cell.classList.remove('editable', 'editing');
+        cell.removeEventListener('click', onAttendanceCellClick);
+        if (enabled && hasRecord) {
+            cell.classList.add('editable');
+            cell.addEventListener('click', onAttendanceCellClick);
+        }
+    });
+}
+
+function onAttendanceCellClick(event) {
+    const cell = event.currentTarget;
+    const recordId = cell.dataset.recordId;
+    if (!recordId) return;
+    cell.classList.add('editing');
+    setTimeout(() => cell.classList.remove('editing'), 200);
+
+    fetch(`${toggleBaseUrl}${recordId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (!data.success) {
+            alert(data.message || 'Failed to update attendance.');
+            return;
+        }
+        const statusSpan = cell.querySelector('.status');
+        if (data.status === 'P') {
+            statusSpan.textContent = 'P';
+            statusSpan.className = 'status text-success fw-bold';
+        } else {
+            statusSpan.textContent = 'A';
+            statusSpan.className = 'status text-danger fw-bold';
+        }
+        const row = cell.closest('tr');
+        if (row) {
+            const presentCell = row.querySelector('.present-count');
+            const percentageCell = row.querySelector('.percentage-cell');
+            const marksCell = row.querySelector('.marks-cell');
+            if (presentCell) presentCell.textContent = data.present_count;
+            if (percentageCell) percentageCell.textContent = data.percentage;
+            if (marksCell) marksCell.textContent = data.marks;
+        }
+    })
+    .catch(() => alert('Failed to update attendance.'));
+}
+
+toggleEditableState(editToggle && editToggle.checked);
+
+// Calculate and set left positions for freeze columns dynamically
+document.addEventListener('DOMContentLoaded', function() {
+    const table = document.querySelector('.attendance-table');
+    if (!table) return;
+    
+    // Wait for table to be fully rendered
+    setTimeout(function() {
+        const col1 = table.querySelector('th.freeze-col-1');
+        const col2 = table.querySelector('th.freeze-col-2');
+        const col3 = table.querySelector('th.freeze-col-3');
+        
+        if (col1 && col2 && col3) {
+            const col1Width = col1.offsetWidth;
+            const col2Width = col2.offsetWidth;
+            
+            // Set left positions dynamically for all freeze columns
+            const style = document.createElement('style');
+            style.id = 'freeze-columns-style';
+            style.textContent = `
+                .attendance-table thead th.freeze-col-2,
+                .attendance-table tbody td.freeze-col-2 {
+                    left: ${col1Width}px !important;
+                }
+                .attendance-table thead th.freeze-col-3,
+                .attendance-table tbody td.freeze-col-3 {
+                    left: ${col1Width + col2Width}px !important;
+                }
+            `;
+            // Remove existing style if any
+            const existingStyle = document.getElementById('freeze-columns-style');
+            if (existingStyle) {
+                existingStyle.remove();
+            }
+            document.head.appendChild(style);
+        }
+    }, 100);
+});
+</script>
+{% endif %}
+
+<!-- Delete Date Modal -->
+<div class="modal fade" id="deleteDateModal" tabindex="-1" aria-labelledby="deleteDateModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteDateModalLabel"><i class="fas fa-exclamation-triangle text-danger me-2"></i>Delete Attendance by Date</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>Select a date to permanently delete all attendance records for that day. This action cannot be undone.</p>
+        <div class="list-group">
+          {% if unique_dates %}
+            {% for date in unique_dates %}
+              <div class="list-group-item d-flex justify-content-between align-items-center">
+                {{ date.strftime('%B %d, %Y') }}
+                <form action="{{ url_for('class_management.delete_attendance_by_date', session_id=session.id, date_str=date.strftime('%Y-%m-%d')) }}" method="POST" onsubmit="return confirm('Delete all records for {{ date.strftime('%B %d, %Y') }}?');">
+                    <button type="submit" class="btn btn-danger btn-sm" title="Delete this date's attendance">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </form>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="list-group-item text-muted text-center">No attendance dates to delete.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+ 
+
+ 

@@ -1,0 +1,1679 @@
+{% extends "base.html" %}
+
+{% block title %}Custom Remuneration Form{% endblock %}
+
+{% block extra_css %}
+<style>
+    .remuneration-form-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    .form-header {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+    }
+    .section-container {
+        margin-bottom: 30px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 20px;
+        background: white;
+    }
+    .section-title {
+        font-size: 16px;
+        font-weight: bold;
+        margin-bottom: 15px;
+        color: #333;
+        border-bottom: 2px solid #007bff;
+        padding-bottom: 5px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 15px;
+    }
+    table th, table td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+    table th {
+        background-color: #f8f9fa;
+        font-weight: bold;
+        text-align: center;
+    }
+    .btn-add-row {
+        margin-top: 10px;
+    }
+    .btn-remove-row {
+        color: #dc3545;
+        background: none;
+        border: none;
+        cursor: pointer;
+    }
+    .btn-remove-row:hover {
+        color: #c82333;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="remuneration-form-container">
+    <div class="form-header">
+        <h2 class="mb-4">Statement on Remuneration</h2>
+        
+        <input type="hidden" id="form_id" name="form_id" value="{{ saved_data.form_id if saved_data else '' }}">
+        
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label class="form-label">Program</label>
+                <input type="text" class="form-control" id="program" name="program" value="{{ saved_data.program if saved_data else 'LL.B. (Hons.)' }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Academic Session</label>
+                <select class="form-select" id="session" name="session" required>
+                    <option value="">Select Session</option>
+                    {% for session in academic_sessions %}
+                    <option value="{{ session }}" {% if saved_data and saved_data.session == session or (not saved_data and current_session == session) %}selected{% endif %}>{{ session }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Year</label>
+                <select class="form-select" id="year" name="year" required>
+                    <option value="">Select Year</option>
+                    {% for y in unique_years %}
+                    <option value="{{ y }}" {% if saved_data and saved_data.year == y|string or (not saved_data and current_year == y) %}selected{% endif %}>{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Term</label>
+                <select class="form-select" id="term" name="term" required>
+                    <option value="">Select Term</option>
+                    {% for t in unique_terms %}
+                    <option value="{{ t }}" {% if saved_data and saved_data.term == t|string or (not saved_data and current_term == t) %}selected{% endif %}>{{ t }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Batch</label>
+                <select class="form-select" id="batch" name="batch">
+                    <option value="">Select Batch</option>
+                    {% for b in unique_batches %}
+                    <option value="{{ b }}" {% if saved_data and saved_data.batch == b|string or (not saved_data and current_batch == b) %}selected{% endif %}>{{ b }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label class="form-label">Total Amount</label>
+                <input type="text" class="form-control" id="total_amount" name="total_amount" value="{{ saved_data.total_amount if saved_data else '' }}" placeholder="0.00">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Total in Words</label>
+                <input type="text" class="form-control" id="total_in_words" name="total_in_words" value="{{ saved_data.total_in_words if saved_data else '' }}" placeholder="Taka ... only">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Chief Name</label>
+                <input type="text" class="form-control" id="chief_name" name="chief_name" value="{{ saved_data.chief_name if saved_data else '' }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Chief Title</label>
+                <input type="text" class="form-control" id="chief_title" name="chief_title" value="{{ saved_data.chief_title if saved_data else 'Head' }}">
+            </div>
+        </div>
+    </div>
+    
+    <!-- Section 1: Examination Committee -->
+    <div class="section-container">
+        <div class="section-title">1. Examination Committee</div>
+        <table id="table_examination_committee">
+            <thead>
+                <tr>
+                    <th style="width: 40%;">Name</th>
+                    <th style="width: 35%;">Designation/Institute</th>
+                    <th style="width: 20%;">Position</th>
+                    <th style="width: 5%;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.examination_committee %}
+                    {% for member in saved_data.examination_committee %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_name[]" value="{{ member.name or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_designation[]" value="{{ member.designation or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_position[]" value="{{ member.position or '' }}"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% elif examination_committee %}
+                    {% for member in examination_committee %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_name[]" value="{{ member.name or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_designation[]" value="{{ member.designation or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_position[]" value="{{ member.position or '' }}"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_name[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_designation[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="examination_committee_position[]"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addRow('table_examination_committee', ['text', 'text', 'text', 'action'])">Add Row</button>
+    </div>
+    
+    <!-- Section 2: Question Preparation -->
+    <div class="section-container">
+        <div class="section-title">2. Question Preparation</div>
+        <table id="table_question_preparation">
+            <thead>
+                <tr>
+                    <th>Course No.</th>
+                    <th>Section</th>
+                    <th>Name of Question Setter</th>
+                    <th>Designation/Institute</th>
+                    <th>No. of Questions</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.question_preparation %}
+                    {% for item in saved_data.question_preparation %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm course-select" name="question_preparation_course[]" onchange="onCourseChange(this)">
+                                <option value="">Select Course</option>
+                                <!-- Courses will be loaded dynamically -->
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_preparation_section[]" value="{{ item.section or '' }}" placeholder="A/B/Full"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_preparation_teacher[]" value="{{ item.teacher or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_preparation_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="{{ item.questions or '1' }}" min="1"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm course-select" name="question_preparation_course[]" onchange="onCourseChange(this)">
+                                <option value="">Select Course</option>
+                                <!-- Courses will be loaded dynamically -->
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_preparation_section[]" placeholder="A/B/Full"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_preparation_teacher[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_preparation_designation[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="1" min="1"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addQuestionPreparationRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 3: Answer Script Examination -->
+    <div class="section-container">
+        <div class="section-title">3. Answer Script Examination</div>
+        <table id="table_script_examination">
+            <thead>
+                <tr>
+                    <th>Course No.</th>
+                    <th>Section</th>
+                    <th>Name of Examiner</th>
+                    <th>Designation/Institute</th>
+                    <th>No. of Scripts</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.script_examination %}
+                    {% for item in saved_data.script_examination %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm course-select" name="script_examination_course[]" onchange="onCourseChange(this)">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_examination_section[]" value="{{ item.section or '' }}" placeholder="A/B/Full"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_examination_teacher[]" value="{{ item.teacher or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_examination_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="{{ item.scripts or '0' }}" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm course-select" name="script_examination_course[]" onchange="onCourseChange(this)">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_examination_section[]" placeholder="A/B/Full"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_examination_teacher[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_examination_designation[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="0" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addScriptExaminationRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 4: Class Test -->
+    <div class="section-container">
+        <div class="section-title">4. Class Test</div>
+        <table id="table_class_test">
+            <thead>
+                <tr>
+                    <th>Course No.</th>
+                    <th>Section</th>
+                    <th>Name of Course Teacher</th>
+                    <th>Designation/Institute</th>
+                    <th>No. of Class Tests</th>
+                    <th>No. of Students</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.class_test %}
+                    {% for item in saved_data.class_test %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm course-select" name="class_test_course[]" onchange="onClassTestCourseChange(this)">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="{{ item.section or '' }}" placeholder="A/B/Full"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_teacher[]" value="{{ item.teacher or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="{{ item.class_test or '0' }}" min="0" readonly></td>
+                        <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="{{ item.students or '0' }}" min="0" readonly></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm course-select" name="class_test_course[]" onchange="onClassTestCourseChange(this)">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_teacher[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="0" min="0" readonly></td>
+                        <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="0" min="0" readonly></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addClassTestRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 5: Moderation Committee -->
+    <div class="section-container">
+        <div class="section-title">5. Moderation Committee</div>
+        <table id="table_moderation_committee">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Designation/Institute</th>
+                    <th>Position</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.moderation_committee %}
+                    {% for member in saved_data.moderation_committee %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="moderation_committee_name[]" onchange="onModerationNameChange(this)">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}" {% if member.name == teacher.name %}selected{% endif %}>{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" value="{{ member.designation or '' }}">
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]" value="{{ member.position or '' }}"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="moderation_committee_name[]" onchange="onModerationNameChange(this)">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}">{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addModerationCommitteeRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 6: Sessional Assessment -->
+    <div class="section-container">
+        <div class="section-title">6. Sessional Assessment</div>
+        <table id="table_sessional_assessment">
+            <thead>
+                <tr>
+                    <th>Course No.</th>
+                    <th>Name of the Teacher</th>
+                    <th>No. of Students</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.sessional_assessment %}
+                    {% for item in saved_data.sessional_assessment %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm sessional-course-select" name="sessional_assessment_course[]" onchange="onSessionalCourseChange(this, 'sessional_assessment')">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="sessional_assessment_teacher[]" value="{{ item.teacher or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="sessional_assessment_students[]" value="{{ item.students or '0' }}" min="0" readonly></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm sessional-course-select" name="sessional_assessment_course[]" onchange="onSessionalCourseChange(this, 'sessional_assessment')">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="sessional_assessment_teacher[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="sessional_assessment_students[]" value="0" min="0" readonly></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addSessionalAssessmentRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 7: Sessional Viva -->
+    <div class="section-container">
+        <div class="section-title">7. Sessional Viva</div>
+        <table id="table_sessional_viva">
+            <thead>
+                <tr>
+                    <th>Course No.</th>
+                    <th>Name of the Teacher</th>
+                    <th>No. of Students</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.sessional_viva %}
+                    {% for item in saved_data.sessional_viva %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm sessional-course-select" name="sessional_viva_course[]" onchange="onSessionalCourseChange(this, 'sessional_viva')">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="sessional_viva_teacher[]" value="{{ item.teacher or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="sessional_viva_students[]" value="{{ item.students or '0' }}" min="0" readonly></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm sessional-course-select" name="sessional_viva_course[]" onchange="onSessionalCourseChange(this, 'sessional_viva')">
+                                <option value="">Select Course</option>
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="sessional_viva_teacher[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="sessional_viva_students[]" value="0" min="0" readonly></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addSessionalVivaRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 8: Answer Script Scrutiny -->
+    <div class="section-container">
+        <div class="section-title">8. Answer Script Scrutiny</div>
+        <table id="table_script_scrutiny">
+            <thead>
+                <tr>
+                    <th>Name of the Scrutinizer</th>
+                    <th>Designation/Institute</th>
+                    <th>No. of Scripts</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.script_scrutiny %}
+                    {% for item in saved_data.script_scrutiny %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="script_scrutiny_name[]" onchange="onNameChange(this, 'script_scrutiny')">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}" {% if item.name == teacher.name %}selected{% endif %}>{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="script_scrutiny_scripts[]" value="{{ item.scripts or '0' }}" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="script_scrutiny_name[]" onchange="onNameChange(this, 'script_scrutiny')">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}">{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="script_scrutiny_scripts[]" value="0" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addRowWithNameDesignation('table_script_scrutiny', ['name', 'designation', 'number'], 'script_scrutiny')">Add Row</button>
+    </div>
+    
+    <!-- Section 9: Tabulation -->
+    <div class="section-container">
+        <div class="section-title">9. Tabulation</div>
+        <table id="table_tabulation">
+            <thead>
+                <tr>
+                    <th>Name of Tabulators</th>
+                    <th>Designation/Institute</th>
+                    <th>Course wise</th>
+                    <th>Student wise</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.tabulation %}
+                    {% for item in saved_data.tabulation %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="tabulation_name[]" onchange="onNameChange(this, 'tabulation')">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}" {% if item.name == teacher.name %}selected{% endif %}>{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="{{ item.course_wise or '0' }}" min="0"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="tabulation_student_wise[]" value="{{ item.student_wise or '0' }}" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="tabulation_name[]" onchange="onNameChange(this, 'tabulation')">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}">{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="0" min="0"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="tabulation_student_wise[]" value="0" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addRowWithNameDesignation('table_tabulation', ['name', 'designation', 'number', 'number'], 'tabulation')">Add Row</button>
+    </div>
+    
+    <!-- Section 10: Coding & Decoding -->
+    <div class="section-container">
+        <div class="section-title">10. Coding & Decoding</div>
+        <table id="table_coding_decoding">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Designation/Institute</th>
+                    <th>No. of Scripts</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.coding_decoding %}
+                    {% for item in saved_data.coding_decoding %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="coding_decoding_name[]" onchange="onNameChange(this, 'coding_decoding')">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}" {% if item.name == teacher.name %}selected{% endif %}>{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="coding_decoding_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="coding_decoding_scripts[]" value="{{ item.scripts or '0' }}" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td>
+                            <select class="form-select form-select-sm teacher-name-select" name="coding_decoding_name[]" onchange="onNameChange(this, 'coding_decoding')">
+                                <option value="">Select Name</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.name }}">{{ teacher.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td><input type="text" class="form-control form-control-sm" name="coding_decoding_designation[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="coding_decoding_scripts[]" value="0" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addRowWithNameDesignation('table_coding_decoding', ['name', 'designation', 'number'], 'coding_decoding')">Add Row</button>
+    </div>
+    
+    <!-- Section 11: Chief Invigilation/Invigilation -->
+    <div class="section-container">
+        <div class="section-title">11. Chief Invigilation/Invigilation</div>
+        <table id="table_invigilation">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Designation/Institute</th>
+                    <th>Chief Invigilation</th>
+                    <th>Invigilation</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.invigilation %}
+                    {% for item in saved_data.invigilation %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_name[]" value="{{ item.name or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_chief[]" value="{{ item.chief or '-' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_invigilation[]" value="{{ item.invigilation or '-' }}"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_name[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_chief[]" value="-"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_invigilation[]" value="-"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="autoLoadTeachersForTable('table_invigilation', ['name', 'designation', 'text', 'text'], 'invigilation')">Add Row</button>
+    </div>
+    
+    <!-- Section 12: Thesis Supervision -->
+    <div class="section-container">
+        <div class="section-title">12. Thesis Supervision</div>
+        <table id="table_thesis_supervision">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Designation/Institute</th>
+                    <th>Examine</th>
+                    <th>Supervision</th>
+                    <th>Co-Supervision</th>
+                    <th>Viva</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.thesis_supervision %}
+                    {% for item in saved_data.thesis_supervision %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_name[]" value="{{ item.name or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_examine[]" value="{{ item.examine or '-' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_supervision[]" value="{{ item.supervision or '-' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_co_supervision[]" value="{{ item.co_supervision or '-' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_viva[]" value="{{ item.viva or '-' }}"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_name[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_examine[]" value="-"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_supervision[]" value="-"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_co_supervision[]" value="-"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_viva[]" value="-"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="autoLoadTeachersForTable('table_thesis_supervision', ['name', 'designation', 'text', 'text', 'text', 'text'], 'thesis_supervision')">Add Row</button>
+    </div>
+    
+    <!-- Section 13: Viva -->
+    <div class="section-container">
+        <div class="section-title">13. Viva</div>
+        <table id="table_viva">
+            <thead>
+                <tr>
+                    <th>Course Teacher</th>
+                    <th>Designation</th>
+                    <th>Institution</th>
+                    <th>No of Students</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.viva %}
+                    {% for item in saved_data.viva %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_teacher[]" value="{{ item.teacher or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]" value="{{ item.institution or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="viva_students[]" value="{{ item.students or '0' }}" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_teacher[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_designation[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="viva_students[]" value="0" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addVivaRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 14: Question Typing -->
+    <div class="section-container">
+        <div class="section-title">14. Question Typing</div>
+        <table id="table_question_typing">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Designation/Institute</th>
+                    <th>Total No. of Question</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.question_typing %}
+                    {% for item in saved_data.question_typing %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="question_typing_name[]" value="{{ item.name or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="question_typing_questions[]" value="{{ item.questions or '0' }}" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="question_typing_name[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="question_typing_questions[]" value="0" min="0"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addQuestionTypingRow()">Add Row</button>
+    </div>
+    
+    <!-- Section 15: Official Support -->
+    <div class="section-container">
+        <div class="section-title">15. Official Support</div>
+        <table id="table_official_support">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Designation/Institute</th>
+                    <th>Details</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if saved_data and saved_data.official_support %}
+                    {% for item in saved_data.official_support %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_name[]" value="{{ item.name or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]" value="{{ item.designation or '' }}"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_details[]" value="{{ item.details or '' }}"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_name[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_details[]"></td>
+                        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addOfficialSupportRow()">Add Row</button>
+    </div>
+    
+    <!-- Action Buttons -->
+    <div class="d-flex justify-content-end gap-2 mt-4 mb-4">
+        <button type="button" class="btn btn-success" onclick="saveForm()">
+            <i class="fas fa-save me-2"></i>Save Form
+        </button>
+        <button type="button" class="btn btn-primary" onclick="exportPDF()">
+            <i class="fas fa-file-pdf me-2"></i>Export PDF
+        </button>
+    </div>
+</div>
+
+<script>
+// Store teachers data for JavaScript
+const teachersData = {{ teachers_data|tojson }};
+const curriculumConfigs = {{ curriculum_configs|tojson }};
+
+// Generic remove row function
+function removeRow(btn) {
+    if (confirm('Remove this row?')) {
+        btn.closest('tr').remove();
+    }
+}
+
+// Generic add row function
+function addRow(tableId, columnTypes) {
+    const table = document.getElementById(tableId);
+    const tbody = table.querySelector('tbody');
+    const newRow = document.createElement('tr');
+    
+    columnTypes.forEach((type, index) => {
+        const td = document.createElement('td');
+        if (type === 'text') {
+            td.innerHTML = '<input type="text" class="form-control form-control-sm">';
+        } else if (type === 'number') {
+            td.innerHTML = '<input type="number" class="form-control form-control-sm" value="0" min="0">';
+        } else if (type === 'action') {
+            td.innerHTML = '<button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button>';
+        }
+        newRow.appendChild(td);
+    });
+    
+    tbody.appendChild(newRow);
+}
+
+// Fetch courses based on session, year, term
+async function fetchCourses() {
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    
+    if (!session || !year || !term) {
+        return [];
+    }
+    
+    try {
+        // Use the existing remuneration API endpoint
+        const response = await fetch(`/remuneration/api/courses?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        const data = await response.json();
+        if (data.success) {
+            return data.courses || [];
+        }
+        return [];
+    } catch (error) {
+        console.error('Error fetching courses:', error);
+        return [];
+    }
+}
+
+// Fetch sessional courses (same as regular courses but filtered for sessional type)
+async function fetchSessionalCourses() {
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    
+    if (!session || !year || !term) {
+        return [];
+    }
+    
+    try {
+        // Use the existing remuneration API endpoint
+        const response = await fetch(`/remuneration/api/courses?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        const data = await response.json();
+        if (data.success) {
+            // Filter for sessional courses (course_type contains 'Sessional' or category is 'Sessional')
+            const sessionalCourses = (data.courses || []).filter(c => {
+                const courseType = (c.course_type || '').toLowerCase();
+                const category = (c.category || '').toLowerCase();
+                return courseType.includes('sessional') || category.includes('sessional');
+            });
+            return sessionalCourses;
+        }
+        return [];
+    } catch (error) {
+        console.error('Error fetching sessional courses:', error);
+        return [];
+    }
+}
+
+// Load courses into select element
+function loadCoursesIntoSelect(selectElement, courses, selectedValue = '') {
+    selectElement.innerHTML = '<option value="">Select Course</option>';
+    courses.forEach(course => {
+        const option = document.createElement('option');
+        const courseText = `${course.course_code} - ${course.course_name}`;
+        option.value = courseText;
+        option.textContent = courseText;
+        if (selectedValue === courseText || selectedValue === course.course_code) {
+            option.selected = true;
+        }
+        selectElement.appendChild(option);
+    });
+}
+
+// Auto-load courses when session/year/term changes
+document.getElementById('session')?.addEventListener('change', async function() {
+    await autoLoadCoursesForTables();
+});
+
+document.getElementById('year')?.addEventListener('change', async function() {
+    await autoLoadCoursesForTables();
+});
+
+document.getElementById('term')?.addEventListener('change', async function() {
+    await autoLoadCoursesForTables();
+});
+
+// Auto-load courses for all course select elements
+async function autoLoadCoursesForTables() {
+    const courses = await fetchCourses();
+    const sessionalCourses = await fetchSessionalCourses();
+    
+    // Load regular courses
+    document.querySelectorAll('.course-select').forEach(select => {
+        loadCoursesIntoSelect(select, courses);
+    });
+    
+    // Load sessional courses
+    document.querySelectorAll('.sessional-course-select').forEach(select => {
+        loadCoursesIntoSelect(select, sessionalCourses);
+    });
+}
+
+// On course change for question preparation
+function onCourseChange(selectElement) {
+    // Can add specific logic here if needed
+}
+
+// On class test course change
+async function onClassTestCourseChange(selectElement) {
+    const row = selectElement.closest('tr');
+    const sectionInput = row.querySelector('input[name="class_test_section[]"]');
+    const classTestInput = row.querySelector('input[name="class_test_no[]"]');
+    const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+    
+    updateClassTestCount(sectionInput);
+    
+    // Fetch student count
+    if (selectElement.value) {
+        await fetchStudentCountForClassTest(selectElement, studentsInput);
+    } else {
+        studentsInput.value = '0';
+    }
+}
+
+// Update class test count based on section
+function updateClassTestCount(sectionInput) {
+    const row = sectionInput.closest('tr');
+    const classTestInput = row.querySelector('input[name="class_test_no[]"]');
+    const section = sectionInput.value.trim().toUpperCase();
+    
+    if (section === 'A' || section === 'B') {
+        classTestInput.value = '2';
+    } else if (section === 'FULL' || section === '') {
+        classTestInput.value = '4';
+    } else {
+        classTestInput.value = '0';
+    }
+}
+
+// Fetch student count for class test
+async function fetchStudentCountForClassTest(courseSelect, studentsInput) {
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    const courseCode = courseSelect.value.split(' - ')[0];
+    const section = courseSelect.closest('tr').querySelector('input[name="class_test_section[]"]').value;
+    
+    if (!session || !year || !term || !courseCode) {
+        studentsInput.value = '0';
+        return;
+    }
+    
+    try {
+        const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        studentsInput.value = data.success ? (data.student_count || '0') : '0';
+    } catch (error) {
+        console.error('Error fetching student count:', error);
+        studentsInput.value = '0';
+    }
+}
+
+// On sessional course change
+async function onSessionalCourseChange(selectElement, tableType) {
+    const row = selectElement.closest('tr');
+    const studentsInput = row.querySelector('input[type="number"]');
+    
+    if (!selectElement.value) {
+        studentsInput.value = '0';
+        return;
+    }
+    
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    const courseCode = selectElement.value.split(' - ')[0];
+    
+    if (!session || !year || !term || !courseCode) {
+        studentsInput.value = '0';
+        return;
+    }
+    
+    try {
+        const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        studentsInput.value = data.success ? (data.student_count || '0') : '0';
+    } catch (error) {
+        console.error('Error fetching student count:', error);
+        studentsInput.value = '0';
+    }
+}
+
+// On moderation committee name change
+function onModerationNameChange(selectElement) {
+    const row = selectElement.closest('tr');
+    const designationInput = row.querySelector('input[name="moderation_committee_designation[]"]');
+    const teacherName = selectElement.value;
+    
+    const teacher = teachersData.find(t => t.name === teacherName);
+    if (teacher) {
+        designationInput.value = `${teacher.designation || ''}, ${teacher.institute || 'Law Discipline, KU'}`.replace(/^,\s*|,\s*$/g, '');
+    }
+}
+
+// Generic name change handler
+function onNameChange(selectElement, tableType) {
+    const row = selectElement.closest('tr');
+    const designationInput = row.querySelector(`input[name="${tableType}_designation[]"]`);
+    const teacherName = selectElement.value;
+    
+    const teacher = teachersData.find(t => t.name === teacherName);
+    if (teacher) {
+        designationInput.value = `${teacher.designation || ''}, ${teacher.institute || 'Law Discipline, KU'}`.replace(/^,\s*|,\s*$/g, '');
+    }
+}
+
+// Add row functions for specific tables
+function addQuestionPreparationRow() {
+    const tbody = document.querySelector('#table_question_preparation tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm course-select" name="question_preparation_course[]" onchange="onCourseChange(this)">
+                <option value="">Select Course</option>
+            </select>
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="question_preparation_section[]" placeholder="A/B/Full"></td>
+        <td><input type="text" class="form-control form-control-sm" name="question_preparation_teacher[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="question_preparation_designation[]"></td>
+        <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="1" min="1"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+    autoLoadCoursesForTables();
+}
+
+function addScriptExaminationRow() {
+    const tbody = document.querySelector('#table_script_examination tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm course-select" name="script_examination_course[]" onchange="onCourseChange(this)">
+                <option value="">Select Course</option>
+            </select>
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="script_examination_section[]" placeholder="A/B/Full"></td>
+        <td><input type="text" class="form-control form-control-sm" name="script_examination_teacher[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="script_examination_designation[]"></td>
+        <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="0" min="0"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+    autoLoadCoursesForTables();
+}
+
+function addClassTestRow() {
+    const tbody = document.querySelector('#table_class_test tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm course-select" name="class_test_course[]" onchange="onClassTestCourseChange(this)">
+                <option value="">Select Course</option>
+            </select>
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
+        <td><input type="text" class="form-control form-control-sm" name="class_test_teacher[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]"></td>
+        <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="0" min="0" readonly></td>
+        <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="0" min="0" readonly></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+    autoLoadCoursesForTables();
+}
+
+function addModerationCommitteeRow() {
+    const tbody = document.querySelector('#table_moderation_committee tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm teacher-name-select" name="moderation_committee_name[]" onchange="onModerationNameChange(this)">
+                <option value="">Select Name</option>
+                ${teachersData.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
+            </select>
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+}
+
+function addSessionalAssessmentRow() {
+    const tbody = document.querySelector('#table_sessional_assessment tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm sessional-course-select" name="sessional_assessment_course[]" onchange="onSessionalCourseChange(this, 'sessional_assessment')">
+                <option value="">Select Course</option>
+            </select>
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="sessional_assessment_teacher[]"></td>
+        <td><input type="number" class="form-control form-control-sm" name="sessional_assessment_students[]" value="0" min="0" readonly></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+    autoLoadCoursesForTables();
+}
+
+function addSessionalVivaRow() {
+    const tbody = document.querySelector('#table_sessional_viva tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm sessional-course-select" name="sessional_viva_course[]" onchange="onSessionalCourseChange(this, 'sessional_viva')">
+                <option value="">Select Course</option>
+            </select>
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="sessional_viva_teacher[]"></td>
+        <td><input type="number" class="form-control form-control-sm" name="sessional_viva_students[]" value="0" min="0" readonly></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+    autoLoadCoursesForTables();
+}
+
+function addRowWithNameDesignation(tableId, columnTypes, prefix) {
+    const table = document.getElementById(tableId);
+    const tbody = table.querySelector('tbody');
+    const newRow = document.createElement('tr');
+    
+    columnTypes.forEach((type, index) => {
+        const td = document.createElement('td');
+        if (type === 'name') {
+            td.innerHTML = `
+                <select class="form-select form-select-sm teacher-name-select" name="${prefix}_name[]" onchange="onNameChange(this, '${prefix}')">
+                    <option value="">Select Name</option>
+                    ${teachersData.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
+                </select>
+            `;
+        } else if (type === 'designation') {
+            td.innerHTML = `<input type="text" class="form-control form-control-sm" name="${prefix}_designation[]">`;
+        } else if (type === 'number') {
+            td.innerHTML = `<input type="number" class="form-control form-control-sm" name="${prefix}_${index === 2 ? 'scripts' : 'value'}[]" value="0" min="0">`;
+        } else if (type === 'text') {
+            td.innerHTML = `<input type="text" class="form-control form-control-sm" name="${prefix}_${index === 2 ? 'chief' : 'invigilation'}[]">`;
+        }
+        newRow.appendChild(td);
+    });
+    
+    // Add action column
+    const actionTd = document.createElement('td');
+    actionTd.innerHTML = '<button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button>';
+    newRow.appendChild(actionTd);
+    
+    tbody.appendChild(newRow);
+}
+
+function autoLoadTeachersForTable(tableId, columnTypes, prefix) {
+    addRowWithNameDesignation(tableId, columnTypes, prefix);
+}
+
+function addVivaRow() {
+    const tbody = document.querySelector('#table_viva tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td><input type="text" class="form-control form-control-sm" name="viva_teacher[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="viva_designation[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]"></td>
+        <td><input type="number" class="form-control form-control-sm" name="viva_students[]" value="0" min="0"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+}
+
+function addQuestionTypingRow() {
+    const tbody = document.querySelector('#table_question_typing tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td><input type="text" class="form-control form-control-sm" name="question_typing_name[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]"></td>
+        <td><input type="number" class="form-control form-control-sm" name="question_typing_questions[]" value="0" min="0"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+}
+
+function addOfficialSupportRow() {
+    const tbody = document.querySelector('#table_official_support tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td><input type="text" class="form-control form-control-sm" name="official_support_name[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]"></td>
+        <td><input type="text" class="form-control form-control-sm" name="official_support_details[]"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+}
+
+// Collect form data
+function collectFormData() {
+    const formData = {
+        program: document.getElementById('program').value || '',
+        session: document.getElementById('session').value || '',
+        year: document.getElementById('year').value || '',
+        term: document.getElementById('term').value || '',
+        batch: document.getElementById('batch').value || '',
+        total_amount: document.getElementById('total_amount').value || '',
+        total_in_words: document.getElementById('total_in_words').value || '',
+        chief_name: document.getElementById('chief_name').value || '',
+        chief_title: document.getElementById('chief_title').value || ''
+    };
+    
+    // Get form_id if exists
+    const formIdInput = document.getElementById('form_id');
+    if (formIdInput && formIdInput.value) {
+        formData.form_id = formIdInput.value;
+    }
+    
+    // Section 1: Examination Committee
+    formData.examination_committee = [];
+    document.querySelectorAll('#table_examination_committee tbody tr').forEach(row => {
+        const name = row.querySelector('input[name="examination_committee_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="examination_committee_designation[]"]')?.value || '';
+        const position = row.querySelector('input[name="examination_committee_position[]"]')?.value || '';
+        if (name || designation || position) {
+            formData.examination_committee.push({ name, designation, position });
+        }
+    });
+    
+    // Section 2: Question Preparation
+    formData.question_preparation = [];
+    document.querySelectorAll('#table_question_preparation tbody tr').forEach(row => {
+        const course = row.querySelector('select[name="question_preparation_course[]"]')?.value || '';
+        const section = row.querySelector('input[name="question_preparation_section[]"]')?.value || '';
+        const teacher = row.querySelector('input[name="question_preparation_teacher[]"]')?.value || '';
+        const designation = row.querySelector('input[name="question_preparation_designation[]"]')?.value || '';
+        const questions = row.querySelector('input[name="question_preparation_questions[]"]')?.value || '1';
+        if (course || teacher) {
+            formData.question_preparation.push({ course, section, teacher, designation, questions });
+        }
+    });
+    
+    // Section 3: Script Examination
+    formData.script_examination = [];
+    document.querySelectorAll('#table_script_examination tbody tr').forEach(row => {
+        const course = row.querySelector('select[name="script_examination_course[]"]')?.value || '';
+        const section = row.querySelector('input[name="script_examination_section[]"]')?.value || '';
+        const teacher = row.querySelector('input[name="script_examination_teacher[]"]')?.value || '';
+        const designation = row.querySelector('input[name="script_examination_designation[]"]')?.value || '';
+        const scripts = row.querySelector('input[name="script_examination_scripts[]"]')?.value || '0';
+        if (course || teacher) {
+            formData.script_examination.push({ course, section, teacher, designation, scripts });
+        }
+    });
+    
+    // Section 4: Class Test
+    formData.class_test = [];
+    document.querySelectorAll('#table_class_test tbody tr').forEach(row => {
+        const course = row.querySelector('select[name="class_test_course[]"]')?.value || '';
+        const section = row.querySelector('input[name="class_test_section[]"]')?.value || '';
+        const teacher = row.querySelector('input[name="class_test_teacher[]"]')?.value || '';
+        const designation = row.querySelector('input[name="class_test_designation[]"]')?.value || '';
+        const class_test = row.querySelector('input[name="class_test_no[]"]')?.value || '0';
+        const students = row.querySelector('input[name="class_test_students[]"]')?.value || '0';
+        if (course || teacher) {
+            formData.class_test.push({ course, section, teacher, designation, class_test, students });
+        }
+    });
+    
+    // Section 5: Moderation Committee
+    formData.moderation_committee = [];
+    document.querySelectorAll('#table_moderation_committee tbody tr').forEach(row => {
+        const name = row.querySelector('select[name="moderation_committee_name[]"]')?.value || row.querySelector('input[name="moderation_committee_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="moderation_committee_designation[]"]')?.value || '';
+        const position = row.querySelector('input[name="moderation_committee_position[]"]')?.value || '';
+        if (name || designation) {
+            formData.moderation_committee.push({ name, designation, position });
+        }
+    });
+    
+    // Section 6: Sessional Assessment
+    formData.sessional_assessment = [];
+    document.querySelectorAll('#table_sessional_assessment tbody tr').forEach(row => {
+        const course = row.querySelector('select[name="sessional_assessment_course[]"]')?.value || '';
+        const teacher = row.querySelector('input[name="sessional_assessment_teacher[]"]')?.value || '';
+        const students = row.querySelector('input[name="sessional_assessment_students[]"]')?.value || '0';
+        if (course || teacher) {
+            formData.sessional_assessment.push({ course, teacher, students });
+        }
+    });
+    
+    // Section 7: Sessional Viva
+    formData.sessional_viva = [];
+    document.querySelectorAll('#table_sessional_viva tbody tr').forEach(row => {
+        const course = row.querySelector('select[name="sessional_viva_course[]"]')?.value || '';
+        const teacher = row.querySelector('input[name="sessional_viva_teacher[]"]')?.value || '';
+        const students = row.querySelector('input[name="sessional_viva_students[]"]')?.value || '0';
+        if (course || teacher) {
+            formData.sessional_viva.push({ course, teacher, students });
+        }
+    });
+    
+    // Section 8: Script Scrutiny
+    formData.script_scrutiny = [];
+    document.querySelectorAll('#table_script_scrutiny tbody tr').forEach(row => {
+        const name = row.querySelector('select[name="script_scrutiny_name[]"]')?.value || row.querySelector('input[name="script_scrutiny_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="script_scrutiny_designation[]"]')?.value || '';
+        const scripts = row.querySelector('input[name="script_scrutiny_scripts[]"]')?.value || '0';
+        if (name || designation) {
+            formData.script_scrutiny.push({ name, designation, scripts });
+        }
+    });
+    
+    // Section 9: Tabulation
+    formData.tabulation = [];
+    document.querySelectorAll('#table_tabulation tbody tr').forEach(row => {
+        const name = row.querySelector('select[name="tabulation_name[]"]')?.value || row.querySelector('input[name="tabulation_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="tabulation_designation[]"]')?.value || '';
+        const course_wise = row.querySelector('input[name="tabulation_course_wise[]"]')?.value || '0';
+        const student_wise = row.querySelector('input[name="tabulation_student_wise[]"]')?.value || '0';
+        if (name || designation) {
+            formData.tabulation.push({ name, designation, course_wise, student_wise });
+        }
+    });
+    
+    // Section 10: Coding & Decoding
+    formData.coding_decoding = [];
+    document.querySelectorAll('#table_coding_decoding tbody tr').forEach(row => {
+        const name = row.querySelector('select[name="coding_decoding_name[]"]')?.value || row.querySelector('input[name="coding_decoding_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="coding_decoding_designation[]"]')?.value || '';
+        const scripts = row.querySelector('input[name="coding_decoding_scripts[]"]')?.value || '0';
+        if (name || designation) {
+            formData.coding_decoding.push({ name, designation, scripts });
+        }
+    });
+    
+    // Section 11: Invigilation
+    formData.invigilation = [];
+    document.querySelectorAll('#table_invigilation tbody tr').forEach(row => {
+        const name = row.querySelector('input[name="invigilation_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="invigilation_designation[]"]')?.value || '';
+        const chief = row.querySelector('input[name="invigilation_chief[]"]')?.value || '-';
+        const invigilation = row.querySelector('input[name="invigilation_invigilation[]"]')?.value || '-';
+        if (name || designation) {
+            formData.invigilation.push({ name, designation, chief, invigilation });
+        }
+    });
+    
+    // Section 12: Thesis Supervision
+    formData.thesis_supervision = [];
+    document.querySelectorAll('#table_thesis_supervision tbody tr').forEach(row => {
+        const name = row.querySelector('input[name="thesis_supervision_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="thesis_supervision_designation[]"]')?.value || '';
+        const examine = row.querySelector('input[name="thesis_supervision_examine[]"]')?.value || '-';
+        const supervision = row.querySelector('input[name="thesis_supervision_supervision[]"]')?.value || '-';
+        const co_supervision = row.querySelector('input[name="thesis_supervision_co_supervision[]"]')?.value || '-';
+        const viva = row.querySelector('input[name="thesis_supervision_viva[]"]')?.value || '-';
+        if (name || designation) {
+            formData.thesis_supervision.push({ name, designation, examine, supervision, co_supervision, viva });
+        }
+    });
+    
+    // Section 13: Viva
+    formData.viva = [];
+    document.querySelectorAll('#table_viva tbody tr').forEach(row => {
+        const teacher = row.querySelector('input[name="viva_teacher[]"]')?.value || '';
+        const designation = row.querySelector('input[name="viva_designation[]"]')?.value || '';
+        const institution = row.querySelector('input[name="viva_institution[]"]')?.value || '';
+        const students = row.querySelector('input[name="viva_students[]"]')?.value || '0';
+        if (teacher || designation) {
+            formData.viva.push({ teacher, designation, institution, students });
+        }
+    });
+    
+    // Section 14: Question Typing
+    formData.question_typing = [];
+    document.querySelectorAll('#table_question_typing tbody tr').forEach(row => {
+        const name = row.querySelector('input[name="question_typing_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="question_typing_designation[]"]')?.value || '';
+        const questions = row.querySelector('input[name="question_typing_questions[]"]')?.value || '0';
+        if (name || designation) {
+            formData.question_typing.push({ name, designation, questions });
+        }
+    });
+    
+    // Section 15: Official Support
+    formData.official_support = [];
+    document.querySelectorAll('#table_official_support tbody tr').forEach(row => {
+        const name = row.querySelector('input[name="official_support_name[]"]')?.value || '';
+        const designation = row.querySelector('input[name="official_support_designation[]"]')?.value || '';
+        const details = row.querySelector('input[name="official_support_details[]"]')?.value || '';
+        if (name || designation) {
+            formData.official_support.push({ name, designation, details });
+        }
+    });
+    
+    return formData;
+}
+
+// Populate form data (for loading saved data)
+function populateFormData(data) {
+    if (!data) return;
+    
+    // Populate header fields
+    if (data.program) document.getElementById('program').value = data.program;
+    if (data.session) document.getElementById('session').value = data.session;
+    if (data.year) document.getElementById('year').value = data.year;
+    if (data.term) document.getElementById('term').value = data.term;
+    if (data.batch) document.getElementById('batch').value = data.batch;
+    if (data.total_amount) document.getElementById('total_amount').value = data.total_amount;
+    if (data.total_in_words) document.getElementById('total_in_words').value = data.total_in_words;
+    if (data.chief_name) document.getElementById('chief_name').value = data.chief_name;
+    if (data.chief_title) document.getElementById('chief_title').value = data.chief_title;
+    if (data.form_id) {
+        let formIdInput = document.getElementById('form_id');
+        if (!formIdInput) {
+            formIdInput = document.createElement('input');
+            formIdInput.type = 'hidden';
+            formIdInput.id = 'form_id';
+            formIdInput.name = 'form_id';
+            document.querySelector('.remuneration-form-container').appendChild(formIdInput);
+        }
+        formIdInput.value = data.form_id;
+    }
+    
+    // After loading header fields, trigger course loading
+    setTimeout(async () => {
+        await autoLoadCoursesForTables();
+        
+        // Then populate table data
+        populateTableData(data);
+    }, 500);
+}
+
+// Populate table data
+function populateTableData(data) {
+    // This will be called after courses are loaded
+    // Implementation can be added here to populate saved course selections
+}
+
+// Save form function
+function saveForm() {
+    console.log('🚀 saveForm() called - Using simplified save method');
+    
+    // First, save to localStorage as backup
+    try {
+        const formData = collectFormData();
+        localStorage.setItem('custom_remuneration_draft', JSON.stringify(formData));
+        localStorage.setItem('custom_remuneration_draft_timestamp', new Date().toISOString());
+        console.log('✅ Data saved to localStorage as backup');
+    } catch (error) {
+        console.error('❌ Error saving to localStorage:', error);
+    }
+    
+    // Collect form data
+    let formData;
+    try {
+        formData = collectFormData();
+        console.log('📝 Form data collected');
+    } catch (error) {
+        console.error('❌ Error in collectFormData():', error);
+        alert('❌ Error collecting form data: ' + error.message);
+        return;
+    }
+    
+    // Show loading indicator
+    const saveBtn = document.querySelector('button[onclick="saveForm()"]');
+    if (!saveBtn) {
+        console.error('❌ Save button not found!');
+        alert('❌ Save button not found. Please refresh the page.');
+        return;
+    }
+    
+    const originalText = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    
+    // Submit using fetch
+    fetch('/exam-committee-chief/custom-remuneration/save-simple', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            'form_data': JSON.stringify(formData),
+            'form_id': document.getElementById('form_id')?.value || ''
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+        
+        if (data.success) {
+            console.log('✅ Save successful! Form ID:', data.form_id);
+            alert('✅ Form saved successfully! Form ID: ' + (data.form_id || 'N/A'));
+            
+            // Store form_id
+            if (data.form_id) {
+                let formIdElement = document.getElementById('form_id');
+                if (!formIdElement) {
+                    formIdElement = document.createElement('input');
+                    formIdElement.type = 'hidden';
+                    formIdElement.id = 'form_id';
+                    formIdElement.name = 'form_id';
+                    const container = document.querySelector('.remuneration-form-container') || document.body;
+                    container.appendChild(formIdElement);
+                }
+                formIdElement.value = data.form_id;
+                
+                // Update URL
+                const newUrl = `/exam-committee-chief/custom-remuneration/${data.form_id}`;
+                window.history.replaceState({}, '', newUrl);
+                console.log('✅ URL updated to:', newUrl);
+            }
+            
+            // Clear localStorage backup after successful save
+            localStorage.removeItem('custom_remuneration_draft');
+            localStorage.removeItem('custom_remuneration_draft_timestamp');
+        } else {
+            throw new Error(data.message || 'Save failed');
+        }
+    })
+    .catch(error => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+        console.error('❌ Error saving form:', error);
+        alert('❌ Error saving form: ' + error.message + '\n\nNote: Your data has been saved to browser storage as backup.');
+    });
+}
+
+// Export PDF function
+function exportPDF() {
+    const formData = collectFormData();
+    const saveBtn = document.querySelector('button[onclick="exportPDF()"]');
+    const originalText = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating PDF...';
+    
+    fetch('/exam-committee-chief/custom-remuneration/export-pdf', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('PDF generation failed');
+        return response.blob();
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Remuneration_Statement.pdf';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+    })
+    .catch(error => {
+        console.error('Error exporting PDF:', error);
+        alert('Error exporting PDF: ' + error.message);
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+    });
+}
+
+// Auto-load from localStorage and URL on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Check for saved draft in localStorage
+    const savedDraft = localStorage.getItem('custom_remuneration_draft');
+    if (savedDraft) {
+        const timestamp = localStorage.getItem('custom_remuneration_draft_timestamp');
+        const savedDate = timestamp ? new Date(timestamp) : null;
+        const hoursAgo = savedDate ? (Date.now() - savedDate.getTime()) / (1000 * 60 * 60) : 0;
+        
+        if (hoursAgo < 24) { // Only restore if less than 24 hours old
+            const confirmRestore = confirm(
+                `You have unsaved changes from ${savedDate ? savedDate.toLocaleString() : 'recently'}.\n\n` +
+                'Would you like to restore them?'
+            );
+            
+            if (confirmRestore) {
+                try {
+                    const draftData = JSON.parse(savedDraft);
+                    populateFormData(draftData);
+                    console.log('✅ Draft data restored from localStorage');
+                } catch (error) {
+                    console.error('❌ Error restoring draft:', error);
+                }
+            }
+        }
+    }
+    
+    // Check for form_id in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const pathParts = window.location.pathname.split('/');
+    const formIdFromUrl = urlParams.get('form_id') || (pathParts[pathParts.length - 1] && /^\d+$/.test(pathParts[pathParts.length - 1]) ? pathParts[pathParts.length - 1] : null);
+    
+    if (formIdFromUrl && /^\d+$/.test(formIdFromUrl)) {
+        fetch(`/exam-committee-chief/custom-remuneration/load/${formIdFromUrl}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    populateFormData(data.data);
+                    console.log('✅ Form data loaded from server');
+                }
+            })
+            .catch(error => {
+                console.error('❌ Error loading form data:', error);
+            });
+    }
+    
+    // If saved_data is passed from backend (not from URL)
+    {% if saved_data %}
+    if (!formIdFromUrl) {
+        populateFormData({{ saved_data|tojson }});
+    }
+    {% endif %}
+    
+    // Auto-load courses on initial page load
+    setTimeout(async () => {
+        await autoLoadCoursesForTables();
+    }, 1000);
+});
+
+</script>
+{% endblock %}

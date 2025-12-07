@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Exam Committee Archive{% endblock %}
+{% block extra_css %}
+<style>
+    .committee-card {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        transition: all 0.2s;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        background: white;
+    }
+    .committee-card:hover {
+        box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+    .committee-header {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%);
+        padding: 0.5rem 0.75rem;
+        border-bottom: 2px solid #ffc107;
+        border-radius: 8px 8px 0 0;
+    }
+    .committee-header h5 {
+        font-size: 0.9rem;
+        margin: 0;
+        font-weight: 600;
+    }
+    .committee-header small {
+        font-size: 0.75rem;
+        color: #666;
+    }
+    .member-item {
+        padding: 0.35rem 0.5rem;
+        border-bottom: 1px solid #f5f5f5;
+        font-size: 0.8rem;
+    }
+    .member-item:last-child {
+        border-bottom: none;
+    }
+    .member-item strong {
+        font-size: 0.85rem;
+        color: #333;
+    }
+    .member-item small {
+        font-size: 0.75rem;
+        color: #666;
+    }
+    .badge-archived {
+        background-color: #6c757d;
+        color: white;
+        padding: 0.15rem 0.35rem;
+        border-radius: 4px;
+        font-size: 0.65rem;
+        font-weight: 500;
+    }
+    .restore-committee-btn {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+        font-weight: 500;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="mb-1"><i class="fas fa-archive me-2"></i>Exam Committee Archive</h4>
+            <p class="text-muted mb-0" style="font-size: 0.85rem;">View all archived examination committees</p>
+        </div>
+        <a href="{{ url_for('head_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back
+        </a>
+    </div>
+
+    {% if committees %}
+    <div class="row g-3">
+        {% for committee in committees %}
+        <div class="col-12 col-md-6 col-lg-4">
+            <div class="committee-card">
+                <div class="committee-header">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="mb-0">
+                            <strong>{{ committee.academic_session }}</strong><br>
+                            <small style="font-size: 0.75rem;">{{ committee.year }} Year - {{ committee.term }} Term</small>
+                        </h5>
+                        <span class="badge-archived">Archived</span>
+                    </div>
+                    <button class="btn btn-sm btn-success w-100 restore-committee-btn" 
+                            data-session="{{ committee.academic_session }}"
+                            data-year="{{ committee.year }}"
+                            data-term="{{ committee.term }}"
+                            onclick="restoreCommittee('{{ committee.academic_session }}', '{{ committee.year }}', '{{ committee.term }}', this); return false;">
+                        <i class="fas fa-undo me-1"></i>Restore
+                    </button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+        <div class="alert alert-info text-center">
+            <i class="fas fa-info-circle me-2"></i>
+            No archived committees found.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Restore function - defined in global scope before DOMContentLoaded
+window.restoreCommittee = function(session, year, term, btnElement) {
+    console.log('restoreCommittee called with:', {session, year, term});
+    
+    if (!session || !year || !term) {
+        alert('Error: Missing committee information');
+        return false;
+    }
+    
+    if (!confirm(`Are you sure you want to restore the committee for ${session} - ${year} - ${term}?`)) {
+        return false;
+    }
+    
+    // Get button element if not provided
+    let btn = btnElement;
+    if (!btn && typeof event !== 'undefined') {
+        btn = event.target.closest('.restore-committee-btn');
+    }
+    if (!btn) {
+        // Try to find button by data attributes
+        const buttons = document.querySelectorAll('.restore-committee-btn');
+        for (let b of buttons) {
+            if (b.getAttribute('data-session') === session && 
+                b.getAttribute('data-year') === year && 
+                b.getAttribute('data-term') === term) {
+                btn = b;
+                break;
+            }
+        }
+    }
+    
+    let originalHTML = '';
+    if (btn) {
+        btn.disabled = true;
+        originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Restoring...';
+    }
+    
+    fetch('/head/restore-exam-committee', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            academic_session: session,
+            year: year,
+            term: term
+        })
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        if (!response.ok) {
+            return response.json().then(data => {
+                console.error('Error response:', data);
+                throw new Error(data.message || 'Failed to restore committee');
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Response data:', data);
+        if (data.success) {
+            alert(data.message || 'Committee restored successfully!');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to restore committee');
+            if (btn && originalHTML) {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error: ' + error.message);
+        if (btn && originalHTML) {
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        }
+    });
+    
+    return false;
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Archive page loaded, setting up restore buttons...');
+    
+    // Attach event listeners to all restore buttons
+    const buttons = document.querySelectorAll('.restore-committee-btn');
+    console.log('Found', buttons.length, 'restore buttons');
+    
+    buttons.forEach((btn, index) => {
+        console.log(`Button ${index}:`, {
+            session: btn.getAttribute('data-session'),
+            year: btn.getAttribute('data-year'),
+            term: btn.getAttribute('data-term'),
+            hasOnclick: btn.hasAttribute('onclick')
+        });
+        
+        // Add click listener as backup even if onclick is present
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const session = this.getAttribute('data-session');
+            const year = this.getAttribute('data-year');
+            const term = this.getAttribute('data-term');
+            
+            console.log('Restore clicked (listener):', {session, year, term});
+            window.restoreCommittee(session, year, term, this);
+        });
+    });
+    
+    console.log('Restore buttons initialized');
+});
+</script>
+{% endblock %}
+

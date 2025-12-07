@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Edit Student</h2>
+    <form method="POST" action="{{ url_for('result_management.edit_student', student_id=student.id) }}">
+                    <div class="mb-3">
+                        <label for="student_id" class="form-label">Student ID</label>
+                        <input type="text" class="form-control" id="student_id" name="student_id" value="{{ student.student_id }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Student Name</label>
+                        <input type="text" class="form-control" id="name" name="name" value="{{ student.name }}" required>
+                    </div>
+                        <button type="submit" class="btn btn-primary">Update Student</button>
+        <a href="{{ url_for('result_management.add_student', session_id=student.session_id) }}" class="btn btn-secondary">Cancel</a>
+                </form>
+</div>
+{% endblock %} 

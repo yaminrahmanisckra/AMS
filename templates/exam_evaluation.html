@@ -1,0 +1,554 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h3 class="mb-0"><i class="fas fa-file-alt me-2 text-primary"></i>Exam Paper Evaluation</h3>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Dashboard</a>
+    </div>
+
+    <div class="row">
+        <div class="col-12 mb-4">
+            <div class="d-flex justify-content-between align-items-center">
+                <div></div>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newExamEntryModal">
+                    <i class="fas fa-plus me-2"></i>New Subject Entry
+                </button>
+            </div>
+        </div>
+
+        <div class="col-12 mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="mb-0 text-primary"><i class="fas fa-list me-2 text-primary"></i>Recent Entries</h5>
+                {% if archived_entries %}
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#archivedTable" aria-expanded="false" aria-controls="archivedTable">
+                    <i class="fas fa-archive me-1"></i>Archived Entries
+                </button>
+                {% endif %}
+            </div>
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    {% if entries %}
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <tbody>
+                                    {% for entry in entries %}
+                                    <tr>
+                                        <td>{{ entry.course_name }}</td>
+                                        <td>{{ entry.course_code }}</td>
+                                        <td>{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
+                                        <td class="text-uppercase">{{ entry.program_level }}</td>
+                                        <td>
+                                            {% set scr = teacher_map.get(entry.assigned_scrutinizer_id) %}
+                                            {% if scr %}
+                                                <span class="badge bg-success-subtle text-success"><i class="fas fa-user-check me-1"></i>{{ scr.name }}</span>
+                                            {% else %}
+                                                <span class="text-muted small">Not assigned</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
+                                    </tr>
+                                    <tr class="table-light">
+                                        <td colspan="6">
+                                            <div class="d-flex flex-wrap gap-2">
+                                                <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
+                                                {% if entry.submitted_to_committee %}
+                                                <button class="btn btn-outline-secondary btn-sm" disabled>Submitted</button>
+                                                <form action="{{ url_for('unsubmit_exam_entry', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Withdraw submission and edit again?');">
+                                                    <button type="submit" class="btn btn-outline-danger btn-sm">Unsubmit</button>
+                                                </form>
+                                                {% else %}
+                                                <form action="{{ url_for('submit_exam_entry_to_committee', entry_id=entry.id) }}" method="POST" class="m-0">
+                                                    <button type="submit" class="btn btn-outline-info btn-sm">Submit to Committee</button>
+                                                </form>
+                                                {% endif %}
+                                                <a href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}" class="btn btn-outline-warning btn-sm">Edit</a>
+                                                <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0">
+                                                    <button type="submit" class="btn btn-outline-secondary btn-sm" onclick="return confirm('Archive this entry?');">Archive</button>
+                                                </form>
+                                                <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0">
+                                                    <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this entry?');">Delete</button>
+                                                </form>
+                                            </div>
+                                            {% if entry.submitted_to_committee %}
+                                            <div class="mt-2 small {{ 'text-success' if entry.submitted_to_committee else 'text-muted' }}">
+                                                {% if entry.submitted_to_committee %}
+                                                    Submitted on {{ entry.submitted_at.strftime('%Y-%m-%d %H:%M') if entry.submitted_at else '—' }}
+                                                {% else %}
+                                                    Not yet submitted to committee
+                                                {% endif %}
+                                            </div>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center text-muted py-4">
+                            <i class="fas fa-folder-open fa-3x mb-2"></i>
+                            <p class="mb-0">No entries recorded yet.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% if archived_entries %}
+            <div class="collapse mt-3" id="archivedTable">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="fas fa-archive me-2 text-secondary"></i>Archived Entries</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Course</th>
+                                        <th>Code</th>
+                                        <th>Archived On</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for entry in archived_entries %}
+                                    <tr class="text-muted">
+                                        <td>{{ entry.course_name }}</td>
+                                        <td>{{ entry.course_code }}</td>
+                                        <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
+                                        <td class="text-end">
+                                            <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Open</a>
+                                            <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="d-inline">
+                                                <input type="hidden" name="undo" value="1">
+                                                <button type="submit" class="btn btn-outline-secondary btn-sm">Restore</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        
+        {% if scrutiny_entries %}
+        <div class="col-12 mb-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="fas fa-user-check me-2"></i>Assigned To You For Scrutiny</h5>
+                    <span class="badge bg-light text-dark">{{ scrutiny_entries|length }} course(s)</span>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Course</th>
+                                    <th>Code</th>
+                                    <th>Year / Term</th>
+                                    <th>Batch</th>
+                                    <th>Owner</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in scrutiny_entries %}
+                                <tr>
+                                    <td>{{ entry.course_name }}</td>
+                                    <td>{{ entry.course_code }}</td>
+                                    <td>{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
+                                    <td>{{ entry.batch or '-' }}</td>
+                                    <td>{{ entry.owner_teacher.name if entry.owner_teacher else 'N/A' }}</td>
+                                    <td>
+                                        <a href="{{ url_for('exam_marks_entry', entry_id=entry.id, role='scrutinizer') }}" class="btn btn-outline-primary btn-sm">
+                                            <i class="fas fa-pen me-1"></i>Scrutinize Marks
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- New Exam Entry Modal -->
+<div class="modal fade" id="newExamEntryModal" tabindex="-1" aria-labelledby="newExamEntryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="newExamEntryModalLabel">
+                    <i class="fas fa-plus me-2"></i>New Subject Entry
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="POST" id="examEntryForm">
+                    <input type="hidden" id="selected_batch" name="batch">
+                    <input type="hidden" id="curriculum_id_hidden" name="curriculum_id">
+                    
+                    <!-- Academic Session -->
+                    <div class="mb-3">
+                        <label for="academic_session_select" class="form-label">
+                            <i class="fas fa-calendar-alt me-2"></i>Academic Session <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="academic_session_select" name="academic_session" required>
+                            <option value="">Select Academic Session</option>
+                            {% for session in academic_sessions %}
+                            <option value="{{ session }}">{{ session }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- Year Selection -->
+                    <div class="mb-3">
+                        <label for="year" class="form-label">
+                            <i class="fas fa-calendar-year me-2"></i>Year <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="year" name="year" required disabled>
+                            <option value="">Select Curriculum first</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Term Selection -->
+                    <div class="mb-3">
+                        <label for="term" class="form-label">
+                            <i class="fas fa-calendar me-2"></i>Term <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="term" name="term" required disabled>
+                            <option value="">Select Year first</option>
+                        </select>
+                    </div>
+
+                    <div class="alert alert-info d-none" id="configSummary">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Batch:</strong> <span id="configBatchLabel">—</span>
+                        <span class="ms-3"><strong>Academic Session:</strong> <span id="configSessionLabel">—</span></span>
+                    </div>
+                    
+                    <!-- Course Name (Dropdown) -->
+                    <div class="mb-3">
+                        <label for="course_name" class="form-label">
+                            <i class="fas fa-book me-2"></i>Course Name <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="course_name_select" name="course_name_select" required disabled>
+                            <option value="">Select Year and Term first</option>
+                        </select>
+                        <input type="hidden" id="course_name" name="course_name">
+                        <input type="hidden" id="course_id" name="course_id">
+                    </div>
+                    
+                    <!-- Course Code (Auto-populated) -->
+                    <div class="mb-3">
+                        <label for="course_code" class="form-label">
+                            <i class="fas fa-hashtag me-2"></i>Course Code
+                        </label>
+                        <input type="text" class="form-control" id="course_code" name="course_code" placeholder="Auto-filled from Course Name" readonly>
+                    </div>
+                    
+                    <!-- Discipline -->
+                    <div class="mb-3">
+                        <label for="discipline" class="form-label">Discipline</label>
+                        <input type="text" name="discipline" id="discipline" class="form-control" value="Law">
+                    </div>
+                    
+                    <!-- School -->
+                    <div class="mb-3">
+                        <label for="school" class="form-label">School</label>
+                        <input type="text" name="school" id="school" class="form-control" value="Law">
+                    </div>
+                    
+                    <!-- Section -->
+                    <div class="mb-3">
+                        <label for="section" class="form-label">Section</label>
+                        <select class="form-select" id="section" name="section">
+                            <option value="">Select Section</option>
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Program Level -->
+                    <div class="mb-3">
+                        <label class="form-label d-block">Program Level</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="program_level" id="levelUG" value="ug" checked>
+                            <label class="form-check-label" for="levelUG">Undergraduate</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="program_level" id="levelPG" value="pg">
+                            <label class="form-check-label" for="levelPG">Postgraduate</label>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-2"></i>Save Entry
+                        </button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                            <i class="fas fa-times me-1"></i>Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const curriculumConfigs = {{ curriculum_configs_json|default('{}')|safe }};
+const allConfigs = [];
+Object.keys(curriculumConfigs).forEach(currId => {
+    curriculumConfigs[currId].forEach(cfg => {
+        cfg.curriculum_id = cfg.curriculum_id || parseInt(currId, 10);
+        allConfigs.push(cfg);
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    const curriculumSelectDisplay = null;
+    const hiddenCurriculumInput = document.getElementById('curriculum_id_hidden');
+    const sessionSelect = document.getElementById('academic_session_select');
+    const yearSelect = document.getElementById('year');
+    const termSelect = document.getElementById('term');
+    const courseNameSelect = document.getElementById('course_name_select');
+    const courseNameHidden = document.getElementById('course_name');
+    const courseCodeInput = document.getElementById('course_code');
+    const courseIdInput = document.getElementById('course_id');
+    const batchHiddenInput = document.getElementById('selected_batch');
+    const summaryCard = document.getElementById('configSummary');
+    const summaryBatchLabel = document.getElementById('configBatchLabel');
+    const summarySessionLabel = document.getElementById('configSessionLabel');
+
+    function resetDropdown(select, placeholder) {
+        if (!select) return;
+        select.innerHTML = `<option value="">${placeholder}</option>`;
+        select.disabled = true;
+        select.value = '';
+    }
+
+    function resetCourseFields() {
+        resetDropdown(courseNameSelect, 'Select Year and Term first');
+        if (courseCodeInput) courseCodeInput.value = '';
+        if (courseIdInput) courseIdInput.value = '';
+        if (courseNameHidden) courseNameHidden.value = '';
+    }
+
+    function hideSummary() {
+        if (!summaryCard) return;
+        summaryCard.classList.add('d-none');
+        summaryBatchLabel.textContent = '—';
+        summarySessionLabel.textContent = '—';
+    }
+
+    function showSummary(batchValue, sessionValue) {
+        if (!summaryCard) return;
+        summaryCard.classList.remove('d-none');
+        summaryBatchLabel.textContent = batchValue || '—';
+        summarySessionLabel.textContent = sessionValue || '—';
+    }
+
+    function getConfigsBySession(sessionValue) {
+        return allConfigs.filter(cfg => {
+            const sess = cfg.academic_session || '';
+            return sessionValue ? sess === sessionValue : !sess;
+        });
+    }
+
+    function populateYears(sessionValue) {
+        resetDropdown(yearSelect, 'Select Academic Session first');
+        resetDropdown(termSelect, 'Select Year first');
+        resetCourseFields();
+        hideSummary();
+        batchHiddenInput.value = '';
+        hiddenCurriculumInput.value = '';
+        // No curriculum dropdown needed
+
+        if (!sessionValue) return;
+
+        const configs = getConfigsBySession(sessionValue);
+        const years = [...new Set(configs.map(cfg => cfg.year))];
+        if (!years.length) {
+            yearSelect.innerHTML = '<option value="">No Year configured</option>';
+            yearSelect.disabled = true;
+            return;
+        }
+
+        yearSelect.innerHTML = '<option value="">Select Year</option>';
+        years.forEach(year => {
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = year;
+            yearSelect.appendChild(option);
+        });
+        yearSelect.disabled = false;
+    }
+
+    function populateTerms(sessionValue, yearValue) {
+        resetDropdown(termSelect, 'Select Year first');
+        resetCourseFields();
+        hideSummary();
+        batchHiddenInput.value = '';
+        hiddenCurriculumInput.value = '';
+        // No curriculum dropdown needed
+
+        if (!sessionValue || !yearValue) return;
+
+        const configs = getConfigsBySession(sessionValue).filter(cfg => cfg.year === yearValue);
+        const terms = [...new Set(configs.map(cfg => cfg.term))];
+        if (!terms.length) {
+            termSelect.innerHTML = '<option value="">No Term configured</option>';
+            termSelect.disabled = true;
+            return;
+        }
+
+        termSelect.innerHTML = '<option value="">Select Term</option>';
+        terms.forEach(term => {
+            const option = document.createElement('option');
+            option.value = term;
+            option.textContent = term;
+            termSelect.appendChild(option);
+        });
+        termSelect.disabled = false;
+    }
+
+    function selectConfig(sessionValue, yearValue, termValue) {
+        resetCourseFields();
+        hideSummary();
+        batchHiddenInput.value = '';
+        hiddenCurriculumInput.value = '';
+        // No curriculum dropdown needed
+
+        if (!sessionValue || !yearValue || !termValue) {
+            return null;
+        }
+
+        const configs = getConfigsBySession(sessionValue).filter(cfg => cfg.year === yearValue && cfg.term === termValue);
+        if (!configs.length) {
+            return null;
+        }
+        const config = configs[0];
+        hiddenCurriculumInput.value = config.curriculum_id || '';
+        batchHiddenInput.value = config.batch || '';
+
+        // No curriculum dropdown needed
+
+        showSummary(config.batch || '', config.academic_session || sessionValue || '');
+        return config;
+    }
+
+    function loadCourses() {
+        const curriculumId = hiddenCurriculumInput.value;
+        const yearValue = yearSelect.value;
+        const termValue = termSelect.value;
+
+        resetCourseFields();
+
+        if (!curriculumId || !yearValue || !termValue) {
+            return;
+        }
+
+        courseNameSelect.innerHTML = '<option value="">Loading courses...</option>';
+        courseNameSelect.disabled = true;
+
+        fetch(`/class-management/api/courses?curriculum_id=${curriculumId}&year=${encodeURIComponent(yearValue)}&term=${encodeURIComponent(termValue)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.courses && data.courses.length > 0) {
+                    courseNameSelect.innerHTML = '<option value="">Select Course</option>';
+                    data.courses.forEach(course => {
+                        const courseName = course.course_name || course.name || '';
+                        const courseCode = course.course_code || course.code || '';
+                        if (courseName && courseName.trim() !== '') {
+                            const option = document.createElement('option');
+                            option.value = course.id;
+                            option.textContent = courseName;
+                            option.dataset.courseCode = courseCode;
+                            option.dataset.courseId = course.id;
+                            courseNameSelect.appendChild(option);
+                        }
+                    });
+                } else {
+                    courseNameSelect.innerHTML = '<option value="">No courses found</option>';
+                }
+                courseNameSelect.disabled = false;
+            })
+            .catch(error => {
+                console.error('Error loading courses:', error);
+                courseNameSelect.innerHTML = '<option value="">Error loading courses</option>';
+                courseNameSelect.disabled = false;
+            });
+    }
+
+    if (sessionSelect) {
+        sessionSelect.addEventListener('change', function() {
+            populateYears(this.value);
+        });
+    }
+
+    if (yearSelect) {
+        yearSelect.addEventListener('change', function() {
+            populateTerms(sessionSelect.value, this.value);
+        });
+    }
+
+    if (termSelect) {
+        termSelect.addEventListener('change', function() {
+            const config = selectConfig(sessionSelect.value, yearSelect.value, this.value);
+            if (config) {
+                loadCourses();
+            }
+        });
+    }
+
+    if (courseNameSelect) {
+        courseNameSelect.addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            if (selectedOption && selectedOption.dataset.courseCode) {
+                if (courseCodeInput) courseCodeInput.value = selectedOption.dataset.courseCode;
+                if (courseIdInput) courseIdInput.value = selectedOption.dataset.courseId || '';
+                if (courseNameHidden) courseNameHidden.value = selectedOption.textContent || '';
+            } else {
+                if (courseCodeInput) courseCodeInput.value = '';
+                if (courseIdInput) courseIdInput.value = '';
+                if (courseNameHidden) courseNameHidden.value = '';
+            }
+        });
+    }
+
+    const examEntryForm = document.getElementById('examEntryForm');
+    if (examEntryForm) {
+        examEntryForm.addEventListener('submit', function() {
+            const disabledRequiredFields = examEntryForm.querySelectorAll('select[required][disabled], input[required][disabled]');
+            disabledRequiredFields.forEach(field => field.removeAttribute('disabled'));
+        });
+    }
+
+    const newExamEntryModal = document.getElementById('newExamEntryModal');
+    if (newExamEntryModal) {
+        newExamEntryModal.addEventListener('hidden.bs.modal', function() {
+            const form = document.getElementById('examEntryForm');
+            if (form) {
+                form.reset();
+                resetDropdown(sessionSelect, 'Select Curriculum first');
+                resetDropdown(yearSelect, 'Select Academic Session first');
+                resetDropdown(termSelect, 'Select Year first');
+                resetCourseFields();
+                hideSummary();
+                batchHiddenInput.value = '';
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

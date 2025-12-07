@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Sheet</title>
+    <style>
+        @page {
+            size: A4 landscape;
+            margin: 0.1in 0.15in;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 7px;
+            margin: 0;
+            padding: 1px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 5px;
+        }
+        
+        .header h1 {
+            font-size: 12px;
+            font-weight: bold;
+            margin: 0 0 3px 0;
+            color: #000;
+        }
+        
+        .header .meta {
+            font-size: 8px;
+            color: #000;
+            margin: 0.5px 0;
+            text-align: left;
+            padding-left: 2px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 7px;
+            margin-top: 2px;
+        }
+        
+        th, td {
+            border: 0.5px solid #000;
+            padding: 1px;
+            text-align: center;
+            vertical-align: middle;
+            word-wrap: break-word;
+            overflow: hidden;
+        }
+        
+        thead th {
+            background-color: #D8E4BC;
+            color: #000;
+            font-weight: bold;
+            font-size: 6.5px;
+        }
+        
+        /* Rotate attendance date headers -90 degrees using writing-mode (better WeasyPrint support) */
+        .attendance-header {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            height: 60px;
+            min-height: 60px;
+            width: 14px;
+            min-width: 14px;
+            max-width: 14px;
+            padding: 2px 1px;
+            overflow: hidden;
+            font-size: 5px;
+            line-height: 1.0;
+            white-space: nowrap;
+        }
+        
+        
+        /* Fixed columns - optimized for one page */
+        th.si-col, td.si-col {
+            width: 0.2in;
+            max-width: 0.2in;
+        }
+        
+        th.id-col, td.id-col {
+            width: 0.45in;
+            max-width: 0.45in;
+        }
+        
+        th.name-col, td.name-col {
+            width: 0.65in;
+            max-width: 0.65in;
+            text-align: left;
+            font-size: 6.5px;
+        }
+        
+        /* Summary columns */
+        th.summary-col, td.summary-col {
+            width: 0.4in;
+            max-width: 0.4in;
+        }
+        
+        /* Attendance date columns - fixed width for better rotation */
+        tbody td:not(.si-col):not(.id-col):not(.name-col):not(.summary-col) {
+            width: 14px;
+            min-width: 14px;
+            max-width: 14px;
+            font-size: 6px;
+        }
+        
+        tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        tbody tr:nth-child(odd) {
+            background-color: white;
+        }
+        
+        tbody td {
+            font-size: 6.5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ header_text }}</h1>
+        <p class="meta">{{ subject_text }}</p>
+        <p class="meta">{{ year_text }}</p>
+        <p class="meta">{{ term_text }}</p>
+        <p class="meta">{{ session_text }}</p>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th class="si-col">SI</th>
+                <th class="id-col">Student ID</th>
+                <th class="name-col">Name</th>
+                {% for header in headers %}
+                <th class="attendance-header" style="width: 14px; min-width: 14px; max-width: 14px;">{{ header }}</th>
+                {% endfor %}
+                <th class="summary-col">Total Classes</th>
+                <th class="summary-col">Present</th>
+                <th class="summary-col">Percentage</th>
+                <th class="summary-col">Marks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data_rows %}
+            <tr>
+                <td class="si-col">{{ row.idx }}</td>
+                <td class="id-col">{{ row.student_id }}</td>
+                <td class="name-col">{{ row.name }}</td>
+                {% for attendance in row.attendance %}
+                <td style="width: 14px; min-width: 14px; max-width: 14px;">{{ attendance }}</td>
+                {% endfor %}
+                <td class="summary-col">{{ row.total_classes }}</td>
+                <td class="summary-col">{{ row.present_days }}</td>
+                <td class="summary-col">{{ row.percentage }}%</td>
+                <td class="summary-col">{{ row.marks }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+

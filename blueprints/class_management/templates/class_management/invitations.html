@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="card shadow">
+    <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+      <h5 class="mb-0"><i class="fas fa-envelope-open-text me-2"></i>My Invitations</h5>
+      <a class="btn btn-light btn-sm" href="{{ url_for('index') }}"><i class="fas fa-home me-1"></i>Dashboard</a>
+    </div>
+    <div class="card-body">
+      <h6 class="text-uppercase text-muted mb-3">Split Course Invitations</h6>
+      {% if split_invites %}
+      <div class="table-responsive mb-4">
+        <table class="table table-hover align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>Course</th>
+              <th>Requested Part</th>
+              <th>Invited By</th>
+              <th>Status</th>
+              <th>Invited On</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for inv in split_invites %}
+            {% set sess = split_sessions_by_id.get(inv.inviter_session_id) %}
+            {% set inviter = split_inviter_by_id.get(inv.inviter_teacher_id) %}
+            {% set badge = {
+              'pending': 'bg-warning text-dark',
+              'accepted': 'bg-success',
+              'declined': 'bg-danger'
+            }.get(inv.status, 'bg-secondary') %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>
+                <strong>{{ sess.course_name if sess else 'Course removed' }}</strong>
+                <div class="text-muted small">{{ sess.course_code if sess else '' }}</div>
+              </td>
+              <td>{{ course_scope_labels.get(inv.invited_scope, 'Part') }}</td>
+              <td>{{ inviter.name if inviter else '—' }}</td>
+              <td><span class="badge {{ badge }} text-uppercase">{{ inv.status }}</span></td>
+              <td class="small">{{ inv.created_at.strftime('%Y-%m-%d') if inv.created_at else '—' }}</td>
+              <td>
+                {% if inv.status == 'pending' %}
+                <div class="d-flex flex-wrap gap-2">
+                  <form action="{{ url_for('class_management.accept_split_invite', invite_id=inv.id) }}" method="POST">
+                    <button type="submit" class="btn btn-sm btn-success"><i class="fas fa-check me-1"></i>Accept</button>
+                  </form>
+                  <form action="{{ url_for('class_management.decline_split_invite', invite_id=inv.id) }}" method="POST">
+                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-times me-1"></i>Decline</button>
+                  </form>
+                </div>
+                {% else %}
+                <span class="text-muted">No action available</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-center text-muted py-4">No split-course invitations yet.</div>
+      {% endif %}
+
+      <h6 class="text-uppercase text-muted mb-3">Peer Review Invitations</h6>
+      {% if invites %}
+        <div class="table-responsive mb-4">
+          <table class="table table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>#</th>
+                <th>Course</th>
+                <th>Year/Term</th>
+                <th>Invited By</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inv in invites %}
+                {% set s = sessions_by_id.get(inv.session_id) %}
+                {% set inviter = inviter_by_id.get(inv.inviter_teacher_id) %}
+                <tr>
+                  <td>{{ loop.index }}</td>
+                  <td><strong>{{ s.course_name if s else 'N/A' }}</strong><div class="text-muted small">{{ s.course_code if s else '' }}</div></td>
+                  <td>{{ s.year if s else '' }} / {{ s.term if s else '' }}</td>
+                  <td>{{ inviter.name if inviter else 'N/A' }}</td>
+                  <td><span class="badge bg-secondary text-uppercase">{{ inv.status }}</span></td>
+                  <td class="d-flex flex-wrap gap-2">
+                    {% if inv.status != 'cancelled' %}
+                      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('class_management.course_assessment_form', session_id=inv.session_id, invite_id=inv.id) }}">
+                        <i class="fas fa-edit me-1"></i>Open Form
+                      </a>
+                    {% endif %}
+                    {% if inv.status == 'submitted' %}
+                      <a class="btn btn-outline-dark btn-sm" href="{{ url_for('class_management.course_assessment_pdf', session_id=inv.session_id, invite_id=inv.id) }}" target="_blank">
+                        <i class="fas fa-file-pdf me-1"></i>PDF
+                      </a>
+                    {% endif %}
+                    {% if inv.status != 'cancelled' %}
+                    <form action="{{ url_for('class_management.cancel_invitation', invite_id=inv.id) }}" method="POST" class="m-0">
+                      <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Cancel this invitation?');">
+                        <i class="fas fa-times me-1"></i>Cancel
+                      </button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-center text-muted py-4">No peer review invitations yet.</div>
+      {% endif %}
+
+      <h6 class="text-uppercase text-muted mb-3">Exam Paper Scrutinizer Invitations</h6>
+      {% if exam_invites %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>#</th>
+                <th>Course</th>
+                <th>Invited By</th>
+                <th>Status</th>
+                <th>Remarks</th>
+                <th>Invited On</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for inv in exam_invites %}
+                {% set entry = exam_entries_by_id.get(inv.exam_entry_id) %}
+                {% set inviter = exam_inviter_by_id.get(inv.inviter_teacher_id) %}
+                <tr>
+                  <td>{{ loop.index }}</td>
+                  <td>
+                    <strong>{{ entry.course_name if entry else 'N/A' }}</strong>
+                    <div class="text-muted small">{{ entry.course_code if entry else '' }}</div>
+                  </td>
+                  <td>{{ inviter.name if inviter else 'N/A' }}</td>
+                  <td>
+                    {% set badge_class = {
+                      'invited': 'bg-warning text-dark',
+                      'accepted': 'bg-success',
+                      'declined': 'bg-danger',
+                      'cancelled': 'bg-secondary'
+                    }.get(inv.status, 'bg-secondary') %}
+                    <span class="badge {{ badge_class }} text-uppercase">{{ inv.status }}</span>
+                  </td>
+                  <td class="small">{{ inv.remarks or '—' }}</td>
+                  <td class="small">{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td class="d-flex flex-wrap gap-2">
+                    {% if inv.status == 'invited' %}
+                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='accept') }}" method="POST" class="m-0">
+                        <button type="submit" class="btn btn-outline-success btn-sm"><i class="fas fa-check me-1"></i>Accept</button>
+                      </form>
+                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='decline') }}" method="POST" class="m-0">
+                        <button type="submit" class="btn btn-outline-danger btn-sm"><i class="fas fa-times me-1"></i>Decline</button>
+                      </form>
+                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='cancel') }}" method="POST" class="m-0">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="fas fa-ban me-1"></i>Cancel</button>
+                      </form>
+                    {% elif inv.status == 'accepted' and entry %}
+                      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}">
+                        <i class="fas fa-clipboard-list me-1"></i>Open Marks Sheet
+                      </a>
+                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='cancel') }}" method="POST" class="m-0">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="fas fa-ban me-1"></i>Cancel</button>
+                      </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-center text-muted py-4">No exam paper scrutinizer invitations yet.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+

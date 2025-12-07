@@ -1,0 +1,199 @@
+# cPanel Python Application Configuration
+# This file configures the Python application for cPanel deployment
+
+# Set environment variables
+SetEnv CPANEL 1
+SetEnv FLASK_ENV production
+SetEnv PYTHONPATH /home/*/public_html
+
+# Increase memory and execution time for PDF/Excel generation
+php_value memory_limit 1024M
+php_value max_execution_time 600
+php_value upload_max_filesize 100M
+php_value post_max_size 100M
+php_value max_input_vars 5000
+
+# Enable Python applications
+AddHandler wsgi-script .py
+RewriteEngine On
+
+# Handle Python application
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^(.*)$ passenger_wsgi.py/$1 [QSA,L]
+
+# Security headers
+Header always set X-Content-Type-Options nosniff
+Header always set X-Frame-Options DENY
+Header always set X-XSS-Protection "1; mode=block"
+
+# Cache static files
+<FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
+    ExpiresActive On
+    ExpiresDefault "access plus 1 year"
+    Header set Cache-Control "public, immutable"
+</FilesMatch>
+
+# Disable caching for dynamic content
+<FilesMatch "\.(py|html|php)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires 0
+</FilesMatch>
+
+# Error handling
+ErrorDocument 500 "Internal Server Error - Please check the application logs"
+ErrorDocument 404 "Page Not Found"
+
+# Prevent access to sensitive files
+<FilesMatch "\.(env|pyc|log|sqlite|db)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow access to static files and downloads
+<FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf|xlsx|docx|zip)$">
+    Order allow,deny
+    Allow from all
+</FilesMatch>
+
+# Enable compression
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/plain
+    AddOutputFilterByType DEFLATE text/html
+    AddOutputFilterByType DEFLATE text/xml
+    AddOutputFilterByType DEFLATE text/css
+    AddOutputFilterByType DEFLATE application/xml
+    AddOutputFilterByType DEFLATE application/xhtml+xml
+    AddOutputFilterByType DEFLATE application/rss+xml
+    AddOutputFilterByType DEFLATE application/javascript
+    AddOutputFilterByType DEFLATE application/x-javascript
+    AddOutputFilterByType DEFLATE application/pdf
+    AddOutputFilterByType DEFLATE application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    AddOutputFilterByType DEFLATE application/vnd.openxmlformats-officedocument.wordprocessingml.document
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+    # Allow PDF and Excel downloads
+    <FilesMatch "\.(pdf|xlsx|xls|docx|doc)$">
+        Header set Access-Control-Allow-Origin "*"
+        Header set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Header set Access-Control-Allow-Headers "Content-Type, Content-Disposition"
+        Header set X-Content-Type-Options "nosniff"
+        Header set X-Frame-Options "SAMEORIGIN"
+    </FilesMatch>
+    
+    # Fix for Flask send_file and Response issues
+    <LocationMatch "/.*download.*">
+        Header set Access-Control-Allow-Origin "*"
+        Header set Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Header set Access-Control-Allow-Headers "Content-Type, Content-Disposition, Content-Length"
+        Header set X-Content-Type-Options "nosniff"
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </LocationMatch>
+</IfModule>
+
+# Increase memory and execution limits for PDF generation
+<IfModule mod_php.c>
+    php_value memory_limit 512M
+    php_value max_execution_time 300
+    php_value max_input_time 300
+    php_value post_max_size 100M
+    php_value upload_max_filesize 100M
+</IfModule>
+
+# Python/WSGI specific settings
+<IfModule mod_wsgi.c>
+    WSGIDaemonProcess kulawams python-path=/home/kulawams/public_html:/home/kulawams/public_html/venv/lib/python3.8/site-packages
+    WSGIProcessGroup kulawams
+    WSGIApplicationGroup %{GLOBAL}
+    WSGIScriptReloading On
+</IfModule>
+
+# URL Rewriting for Flask
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ app.py/$1 [QSA,L]
+
+# Force HTTPS (uncomment if you have SSL)
+# RewriteCond %{HTTPS} off
+# RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Prevent access to sensitive files
+<FilesMatch "\.(py|pyc|log|sqlite|db|env|ini|cfg|conf)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow access to static files
+<FilesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
+    Order allow,deny
+    Allow from all
+</FilesMatch>
+
+# Specific fixes for download endpoints
+<LocationMatch "/class-management/download">
+    Header set Content-Type "application/octet-stream"
+    Header set Content-Disposition "attachment"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+</LocationMatch>
+
+<LocationMatch "/result-management/download">
+    Header set Content-Type "application/octet-stream"
+    Header set Content-Disposition "attachment"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "DENY"
+</LocationMatch>
+
+# Specific headers for ZIP files
+<LocationMatch "/result-management/download/.*\.zip">
+    Header set Content-Type "application/zip"
+    Header set Content-Disposition "attachment"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "DENY"
+</LocationMatch>
+
+<LocationMatch "/routine-management/download">
+    Header set Content-Type "application/octet-stream"
+    Header set Content-Disposition "attachment"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "DENY"
+</LocationMatch>
+
+# Specific headers for routine management PDF downloads
+<LocationMatch "/routine-management/download_.*_pdf">
+    Header set Content-Type "application/pdf"
+    Header set Content-Disposition "attachment"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "DENY"
+</LocationMatch>
+
+# Disable mod_security for download endpoints (if needed)
+<IfModule mod_security.c>
+    SecRuleEngine Off
+    <LocationMatch "/.*download.*">
+        SecRuleEngine Off
+    </LocationMatch>
+</IfModule>
+
+# Disable directory listing
+Options -Indexes
+
+# Set default character encoding
+AddDefaultCharset UTF-8 

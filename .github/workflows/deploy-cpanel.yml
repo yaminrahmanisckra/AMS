@@ -1,0 +1,104 @@
+name: Deploy to cPanel
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install -r requirements_cpanel.txt
+        
+    - name: Create deployment package
+      run: |
+        # Create deployment directory
+        mkdir -p cpanel_deploy
+        
+        # Copy necessary files
+        cp app.py cpanel_deploy/
+        cp passenger_wsgi.py cpanel_deploy/
+        cp requirements_cpanel.txt cpanel_deploy/
+        cp models.py cpanel_deploy/
+        cp user_models.py cpanel_deploy/
+        cp extensions.py cpanel_deploy/
+        cp create_admin.py cpanel_deploy/
+        cp .htaccess cpanel_deploy/
+        
+        # Copy directories
+        cp -r blueprints cpanel_deploy/
+        cp -r templates cpanel_deploy/
+        cp -r static cpanel_deploy/
+        cp -r migrations cpanel_deploy/
+        
+        # Create necessary directories
+        mkdir -p cpanel_deploy/instance
+        mkdir -p cpanel_deploy/uploads
+        
+        # Create deployment files
+        echo "# GitHub থেকে Auto Deploy" > cpanel_deploy/GITHUB_DEPLOY.md
+        echo "এই ফাইলগুলি GitHub Actions থেকে অটোমেটিক ডিপ্লয় হয়েছে।" >> cpanel_deploy/GITHUB_DEPLOY.md
+        echo "তারিখ: $(date)" >> cpanel_deploy/GITHUB_DEPLOY.md
+        
+    - name: Deploy to cPanel
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.CPANEL_HOST }}
+        username: ${{ secrets.CPANEL_USERNAME }}
+        password: ${{ secrets.CPANEL_PASSWORD }}
+        port: ${{ secrets.CPANEL_PORT }}
+        source: "cpanel_deploy/*"
+        target: "/public_html/"
+        strip_components: 1
+        
+    - name: Install dependencies on cPanel
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.CPANEL_HOST }}
+        username: ${{ secrets.CPANEL_USERNAME }}
+        password: ${{ secrets.CPANEL_PASSWORD }}
+        port: ${{ secrets.CPANEL_PORT }}
+        script: |
+          cd /public_html
+          pip3 install -r requirements_cpanel.txt
+          echo "Dependencies installed successfully"
+          
+    - name: Set file permissions
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.CPANEL_HOST }}
+        username: ${{ secrets.CPANEL_USERNAME }}
+        password: ${{ secrets.CPANEL_PASSWORD }}
+        port: ${{ secrets.CPANEL_PORT }}
+        script: |
+          cd /public_html
+          chmod 644 *.py *.txt *.md .htaccess
+          chmod 755 blueprints/ templates/ static/ migrations/ instance/ uploads/
+          chmod 644 static/css/* static/js/*
+          echo "File permissions set successfully"
+          
+    - name: Restart Python App
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.CPANEL_HOST }}
+        username: ${{ secrets.CPANEL_USERNAME }}
+        password: ${{ secrets.CPANEL_PASSWORD }}
+        port: ${{ secrets.CPANEL_PORT }}
+        script: |
+          echo "Please restart your Python app manually in cPanel:"
+          echo "1. Go to cPanel → Software → Setup Python App"
+          echo "2. Find your application"
+          echo "3. Click 'Restart'"
+          echo "Or use cPanel API to restart automatically" 

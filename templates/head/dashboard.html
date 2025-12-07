@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Head Dashboard{% endblock %}
+{% block extra_css %}
+<style>
+.dashboard-card {
+    border: none;
+    border-radius: 14px;
+    padding: 1.5rem 1.25rem;
+    min-height: 210px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.dashboard-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 18px 35px rgba(0,0,0,0.07);
+}
+.dashboard-card .icon-circle {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 0.85rem;
+}
+.dashboard-card .icon-circle i {
+    font-size: 1.5rem;
+}
+</style>
+{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="text-center mb-5">
+        <h1 class="mb-2">Welcome, {{ current_user.full_name or 'Head' }} 👋</h1>
+        <p class="text-muted mb-0">Discipline Head Dashboard - Manage all academic activities and assignments</p>
+    </div>
+
+    {% set head_cards = [
+        {
+            'title': 'Assign Duties',
+            'desc': 'Assign Course Co-Ordinator, Exam Committee Chief, Teaching Assistant, and other duties',
+            'icon': 'fas fa-user-tie',
+            'color': '#ffc107',
+            'bg': 'rgba(255,193,7,0.18)',
+            'url': url_for('assign_duties')
+        },
+        {
+            'title': 'Result Management',
+            'desc': 'Handle student results, subjects, and marks',
+            'icon': 'fas fa-poll',
+            'color': '#198754',
+            'bg': 'rgba(25,135,84,0.15)',
+            'url': url_for('result_management.index')
+        },
+        {
+            'title': 'Students Management',
+            'desc': 'Manage student information and records',
+            'icon': 'fas fa-users',
+            'color': '#dc3545',
+            'bg': 'rgba(220,53,69,0.15)',
+            'url': url_for('student_management.index')
+        },
+        {
+            'title': 'Curriculum',
+            'desc': 'Manage curricula and courses',
+            'icon': 'fas fa-book',
+            'color': '#6f42c1',
+            'bg': 'rgba(111,66,193,0.15)',
+            'url': url_for('course_management.index')
+        },
+        {
+            'title': 'Course Registration Review',
+            'desc': 'Review and finalize student course registrations',
+            'icon': 'fas fa-clipboard-check',
+            'color': '#0dcaf0',
+            'bg': 'rgba(13,202,240,0.15)',
+            'url': url_for('course_management.coordinator_registrations')
+        },
+        {
+            'title': 'Exam Committee Archive',
+            'desc': 'View archived examination committees and their members',
+            'icon': 'fas fa-archive',
+            'color': '#fd7e14',
+            'bg': 'rgba(253,126,20,0.15)',
+            'url': url_for('head_exam_committee_archive')
+        }
+    ] %}
+
+    <div class="row g-3 g-lg-4">
+        {% for card in head_cards %}
+        <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
+            <a href="{{ card.url }}" class="text-decoration-none">
+                <div class="dashboard-card text-center h-100">
+                    <div class="icon-circle" style="background-color: {{ card.bg }}">
+                        <i class="{{ card.icon }}" style="color: {{ card.color }}"></i>
+                    </div>
+                    <h5 class="mb-1">{{ card.title }}</h5>
+                    <p class="text-muted small mb-0">{{ card.desc }}</p>
+                </div>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+

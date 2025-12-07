@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card shadow">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-users me-2"></i>Students List - {{ session.year }} - {{ session.term }}
+                {% if session.course_code %}
+                    <span class="badge bg-info text-dark ms-2">{{ session.course_code }}</span>
+                {% endif %}
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <h6 class="text-muted mb-0">
+                    <i class="fas fa-book me-2"></i>{{ session.course_name or 'Course' }}
+                </h6>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStudentModal{{ session.id }}">
+                        <i class="fas fa-user-plus me-1"></i>Add Student
+                    </button>
+                    <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary btn-sm">
+                        <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                    </a>
+                </div>
+            </div>
+            {% if split_meta %}
+            <div class="alert alert-info py-2 px-3">
+                <small>
+                    Split Course ({{ split_meta.scope_label }}). Student changes sync automatically with partner {% if split_meta.peers %}{{ split_meta.peers[0].teacher_name }}{% endif %}.
+                </small>
+            </div>
+            {% endif %}
+            
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th>#</th>
+                            <th>Student ID</th>
+                            <th>Name</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for student in students %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <strong>{{ student.student_id }}</strong>
+                            </td>
+                            <td>{{ student.name }}</td>
+                            <td>
+                                <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editModal{{ student.id }}">
+                                    <i class="fas fa-edit me-1"></i>Edit
+                                </button>
+                                <form action="{{ url_for('class_management.delete_student', student_id=student.id) }}" method="POST" class="d-inline" onsubmit="return confirm('Are you sure you want to delete this student?');">
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i class="fas fa-trash me-1"></i>Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            {% if not students %}
+                <div class="text-center py-5">
+                    <i class="fas fa-user-graduate fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No students found</h5>
+                    <p class="text-muted">Add students to get started with attendance tracking</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Add Student Modal -->
+<div class="modal fade" id="addStudentModal{{ session.id }}" tabindex="-1" aria-labelledby="addStudentModalLabel{{ session.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="addStudentModalLabel{{ session.id }}">
+                    <i class="fas fa-user-plus me-2"></i>Add Students from Students Management
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Filters -->
+                <div class="mb-3">
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label">Filter by Batch (Optional)</label>
+                            <select class="form-select" id="batchFilter{{ session.id }}">
+                                <option value="" selected>All Batches (Show All Students)</option>
+                                {% for batch in batches %}
+                                <option value="{{ batch }}">Batch {{ batch }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Leave as "All Batches" to see all students regardless of their batch/curriculum</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Search by ID or Name</label>
+                            <input type="text" class="form-control" id="studentSearch{{ session.id }}" 
+                                   placeholder="Enter student ID or name...">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Students List -->
+                <div id="studentsListContainer{{ session.id }}" style="max-height: 400px; overflow-y: auto;">
+                    <div class="text-center py-3">
+                        <i class="fas fa-spinner fa-spin"></i> Loading students...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="addSelectedStudents{{ session.id }}" disabled>
+                    <i class="fas fa-plus me-1"></i>Add Selected Students
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Student Modals -->
+{% for student in students %}
+<div class="modal fade" id="editModal{{ student.id }}" tabindex="-1" aria-labelledby="editModalLabel{{ student.id }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editModalLabel{{ student.id }}">
+                    <i class="fas fa-edit me-2"></i>Edit Student
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="{{ url_for('class_management.edit_student', student_id=student.id) }}" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="student_id_{{ student.id }}" class="form-label">Student ID</label>
+                        <input type="text" class="form-control" id="student_id_{{ student.id }}" name="student_id" value="{{ student.student_id }}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="name_{{ student.id }}" class="form-label">Name</label>
+                        <input type="text" class="form-control" id="name_{{ student.id }}" name="name" value="{{ student.name }}" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i>Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const sessionId = {{ session.id }};
+    const modalId = 'addStudentModal' + sessionId;
+    const containerId = 'studentsListContainer' + sessionId;
+    const batchFilterId = 'batchFilter' + sessionId;
+    const searchId = 'studentSearch' + sessionId;
+    const addBtnId = 'addSelectedStudents' + sessionId;
+    
+    let selectedStudentIds = new Set();
+    let allStudents = [];
+    
+    // Load students when modal opens
+    const modal = document.getElementById(modalId);
+    if (modal) {
+        modal.addEventListener('show.bs.modal', function() {
+            loadStudents();
+        });
+        
+        modal.addEventListener('hidden.bs.modal', function() {
+            selectedStudentIds.clear();
+            updateAddButton();
+        });
+    }
+    
+    function loadStudents() {
+        const batch = document.getElementById(batchFilterId).value;
+        const search = document.getElementById(searchId).value;
+        
+        const container = document.getElementById(containerId);
+        container.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading students...</div>';
+        
+        // Always load all students, batch filter is optional for filtering display only
+        const params = new URLSearchParams();
+        // Don't send batch filter to API - we want all students
+        // if (batch) params.append('batch', batch);  // Commented out to show all students
+        if (search) params.append('search', search);
+        
+        fetch(`/class-management/api/students?${params.toString()}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Filter students client-side if batch filter is selected
+                    let filteredStudents = data.students;
+                    if (batch) {
+                        filteredStudents = data.students.filter(s => String(s.batch).trim() === String(batch).trim());
+                    }
+                    allStudents = filteredStudents;
+                    renderStudents(filteredStudents);
+                } else {
+                    container.innerHTML = `<div class="alert alert-danger">${data.message || 'Error loading students'}</div>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error loading students:', error);
+                container.innerHTML = `<div class="alert alert-danger">Error loading students: ${error.message}</div>`;
+            });
+    }
+    
+    function renderStudents(students) {
+        const container = document.getElementById(containerId);
+        
+        if (students.length === 0) {
+            container.innerHTML = '<div class="text-center py-3 text-muted">No students found</div>';
+            return;
+        }
+        
+        // Get existing students in this session
+        const existingStudentIds = new Set();
+        {% for student in students %}
+        existingStudentIds.add('{{ student.student_id }}');
+        {% endfor %}
+        
+        let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+        html += '<thead><tr><th width="40"><input type="checkbox" id="selectAll' + sessionId + '"></th><th>Student ID</th><th>Name</th><th>Batch</th><th>Email</th></tr></thead><tbody>';
+        
+        students.forEach(student => {
+            const isExisting = existingStudentIds.has(student.student_id);
+            const isSelected = selectedStudentIds.has(student.id);
+            html += `<tr class="${isExisting ? 'table-secondary' : ''}">
+                <td>
+                    ${isExisting ? '<span class="badge bg-warning">Added</span>' : 
+                      `<input type="checkbox" class="student-checkbox" value="${student.id}" ${isSelected ? 'checked' : ''} ${isExisting ? 'disabled' : ''}>`}
+                </td>
+                <td><strong>${student.student_id}</strong></td>
+                <td>${student.name}</td>
+                <td>${student.batch || '-'}</td>
+                <td>${student.email || '-'}</td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+        
+        // Attach event listeners
+        const selectAllCheckbox = document.getElementById('selectAll' + sessionId);
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', function(e) {
+                const checkboxes = container.querySelectorAll('.student-checkbox:not(:disabled)');
+                checkboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                    if (e.target.checked) {
+                        selectedStudentIds.add(parseInt(cb.value));
+                    } else {
+                        selectedStudentIds.delete(parseInt(cb.value));
+                    }
+                });
+                updateAddButton();
+            });
+        }
+        
+        container.querySelectorAll('.student-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                const studentId = parseInt(this.value);
+                if (this.checked) {
+                    selectedStudentIds.add(studentId);
+                } else {
+                    selectedStudentIds.delete(studentId);
+                }
+                updateAddButton();
+            });
+        });
+    }
+    
+    function updateAddButton() {
+        const addBtn = document.getElementById(addBtnId);
+        const count = selectedStudentIds.size;
+        if (count > 0) {
+            addBtn.disabled = false;
+            addBtn.innerHTML = `<i class="fas fa-plus me-1"></i>Add Selected (${count})`;
+        } else {
+            addBtn.disabled = true;
+            addBtn.innerHTML = '<i class="fas fa-plus me-1"></i>Add Selected Students';
+        }
+    }
+    
+    // Filter handlers
+    const batchFilter = document.getElementById(batchFilterId);
+    if (batchFilter) {
+        batchFilter.addEventListener('change', loadStudents);
+    }
+    
+    let searchTimeout;
+    const searchInput = document.getElementById(searchId);
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(loadStudents, 500);
+        });
+    }
+    
+    // Add selected students
+    const addBtn = document.getElementById(addBtnId);
+    if (addBtn) {
+        addBtn.addEventListener('click', function() {
+            if (selectedStudentIds.size === 0) return;
+            
+            const btn = this;
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Adding...';
+            
+            fetch(`/class-management/add_student/${sessionId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    student_ids: Array.from(selectedStudentIds)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    const modalInstance = bootstrap.Modal.getInstance(document.getElementById(modalId));
+                    if (modalInstance) {
+                        modalInstance.hide();
+                    }
+                    window.location.reload();
+                } else {
+                    alert(data.message || 'Error adding students');
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while adding students');
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            });
+        });
+    }
+});
+</script>
+{% endblock %}
+
+ 
+
+ 

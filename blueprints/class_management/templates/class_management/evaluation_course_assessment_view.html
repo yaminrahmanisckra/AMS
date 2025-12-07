@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="card shadow">
+    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+      <h5 class="mb-0"><i class="fas fa-eye me-2"></i>Assessment Submission</h5>
+      <div>
+        <a class="btn btn-light btn-sm" href="{{ url_for('class_management.course_assessment_pdf', session_id=session.id, invite_id=invite.id) }}" target="_blank"><i class="fas fa-file-pdf me-1"></i>Download PDF</a>
+        <a class="btn btn-light btn-sm" href="{{ url_for('class_management.course_assessment', session_id=session.id) }}"><i class="fas fa-arrow-left me-1"></i>Back</a>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="mb-3">
+        <h6 class="text-primary">General Information</h6>
+        <div class="row g-3">
+          <div class="col-md-6"><strong>Program:</strong> {{ general_data.get('program_name','-') }}</div>
+          <div class="col-md-6"><strong>Teacher:</strong> {{ general_data.get('teacher_name','-') }}</div>
+          <div class="col-md-6"><strong>Observer:</strong> {{ general_data.get('observer_name','-') }}</div>
+          <div class="col-md-6"><strong>Course Name:</strong> {{ general_data.get('course_name','-') }}</div>
+          <div class="col-md-4"><strong>Course Code:</strong> {{ general_data.get('course_code','-') }}</div>
+          <div class="col-md-4"><strong>Year:</strong> {{ general_data.get('course_year','-') }}</div>
+          <div class="col-md-4"><strong>Term:</strong> {{ general_data.get('course_term','-') }}</div>
+          <div class="col-md-4"><strong>Academic Session:</strong> {{ general_data.get('academic_session','-') }}</div>
+          <div class="col-md-4"><strong>Venue:</strong> {{ general_data.get('venue','-') }}</div>
+          <div class="col-md-4"><strong>Date:</strong> {{ general_data.get('session_date','-') }}</div>
+          <div class="col-md-4"><strong>Time:</strong> {{ general_data.get('session_time','-') }}</div>
+        </div>
+      </div>
+
+      {% macro value_for(key) -%}
+        {{ score_data.get(key, '-') }}
+      {%- endmacro %}
+
+      <p class="text-muted" style="font-size: 0.9rem;">Score Scale: 5 = Excellent, 4 = Very Good, 3 = Good, 2 = Fair, 1 = Poor</p>
+
+      <div class="table-responsive">
+        <table class="table table-bordered align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Description</th>
+              <th class="text-center" style="width:8%">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="table-secondary"><td colspan="2"><strong>1. Set Induction</strong></td></tr>
+            <tr><td>a) Clarity of objectives</td><td class="text-center">{{ value_for('b1_a') }}</td></tr>
+            <tr><td>b) Relevance to topic</td><td class="text-center">{{ value_for('b1_b') }}</td></tr>
+            <tr><td>c) Appropriateness of introduction</td><td class="text-center">{{ value_for('b1_c') }}</td></tr>
+            <tr class="table-light"><td class="text-end"><em>Subtotal for Section 1</em></td><td class="text-center"><strong>{{ section_totals['b1'] }}</strong></td></tr>
+
+            <tr class="table-secondary"><td colspan="2"><strong>2. Content</strong></td></tr>
+            <tr><td>a) Knowledge</td><td class="text-center">{{ value_for('b2_a') }}</td></tr>
+            <tr><td>b) Extend of coverage</td><td class="text-center">{{ value_for('b2_b') }}</td></tr>
+            <tr><td>c) Level of interest generated</td><td class="text-center">{{ value_for('b2_c') }}</td></tr>
+            <tr><td>d) Logical flow of presentation</td><td class="text-center">{{ value_for('b2_d') }}</td></tr>
+            <tr><td>e) Correctness of language used</td><td class="text-center">{{ value_for('b2_e') }}</td></tr>
+            <tr><td>f) Clear and relevant use of analogies/examples</td><td class="text-center">{{ value_for('b2_f') }}</td></tr>
+            <tr class="table-light"><td class="text-end"><em>Subtotal for Section 2</em></td><td class="text-center"><strong>{{ section_totals['b2'] }}</strong></td></tr>
+
+            <tr class="table-secondary"><td colspan="2"><strong>3. Presentation</strong></td></tr>
+            <tr><td>a) Appropriate pacing</td><td class="text-center">{{ value_for('b3_a') }}</td></tr>
+            <tr><td>b) Confidence</td><td class="text-center">{{ value_for('b3_b') }}</td></tr>
+            <tr><td>c) Enthusiasm</td><td class="text-center">{{ value_for('b3_c') }}</td></tr>
+            <tr><td>d) Provoking students to think</td><td class="text-center">{{ value_for('b3_d') }}</td></tr>
+            <tr><td>e) Clarity of presentation</td><td class="text-center">{{ value_for('b3_e') }}</td></tr>
+            <tr><td>f) Interaction with students</td><td class="text-center">{{ value_for('b3_f') }}</td></tr>
+            <tr><td>g) Effective use of teaching/learning aids</td><td class="text-center">{{ value_for('b3_g') }}</td></tr>
+            <tr><td>h) Effective class management</td><td class="text-center">{{ value_for('b3_h') }}</td></tr>
+            <tr class="table-light"><td class="text-end"><em>Subtotal for Section 3</em></td><td class="text-center"><strong>{{ section_totals['b3'] }}</strong></td></tr>
+
+            <tr class="table-secondary"><td colspan="2"><strong>4. Closure</strong></td></tr>
+            <tr><td>a) Appropriateness of closure</td><td class="text-center">{{ value_for('b4_a') }}</td></tr>
+            <tr><td>b) Effective questions for feedback</td><td class="text-center">{{ value_for('b4_b') }}</td></tr>
+            <tr><td>c) Appropriate links to next lesson</td><td class="text-center">{{ value_for('b4_c') }}</td></tr>
+            <tr class="table-light"><td class="text-end"><em>Subtotal for Section 4</em></td><td class="text-center"><strong>{{ section_totals['b4'] }}</strong></td></tr>
+          </tbody>
+          <tfoot>
+            <tr class="table-primary">
+              <th>Total Score</th>
+              <th class="text-center">{{ submission.total_score or 0 }}</th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div class="row g-3 mt-3">
+        <div class="col-md-6">
+          <table class="table table-sm table-bordered">
+            <thead class="table-light">
+              <tr><th colspan="2" class="text-center">Score Interpretation</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>90 to 100</td><td>Excellent</td></tr>
+              <tr><td>80 to less than 90</td><td>Very Good</td></tr>
+              <tr><td>70 to less than 80</td><td>Good</td></tr>
+              <tr><td>60 to less than 70</td><td>Fair</td></tr>
+              <tr><td>50 to less than 60</td><td>Poor</td></tr>
+              <tr><td>40 to less than 50</td><td>Very Poor</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="row g-3 mt-3">
+        <div class="col-md-12">
+          <h6 class="text-primary">Observer's Overall Comments and Suggestions for Improvement</h6>
+          <div class="border rounded p-3 bg-light" style="white-space: pre-wrap;">{{ submission.comments_observer or '-' }}</div>
+        </div>
+        <div class="col-md-12">
+          <h6 class="text-primary">Presenter's Comments</h6>
+          {% if can_edit_presenter %}
+            <form method="POST" class="mt-2">
+              <textarea name="comments_presenter" class="form-control" rows="3" placeholder="Add your comments for this observation">{{ submission.comments_presenter or '' }}</textarea>
+              <div class="d-flex justify-content-end mt-2">
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Comments</button>
+              </div>
+            </form>
+          {% else %}
+            <div class="border rounded p-3 bg-light" style="white-space: pre-wrap;">{{ submission.comments_presenter or '-' }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="row g-3 mt-4">
+        <div class="col-md-6 text-center">
+          <div class="border-top pt-2">Presenter's Signature</div>
+        </div>
+        <div class="col-md-6 text-center">
+          <div class="border-top pt-2">Observer's Signature</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+
+

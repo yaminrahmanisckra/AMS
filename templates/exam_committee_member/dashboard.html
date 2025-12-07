@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Exam Committee Member Dashboard{% endblock %}
+{% block content %}
+<div class="container my-5">
+    <div class="mb-4">
+        <h1 class="mb-1">Exam Committee Member Dashboard</h1>
+        <p class="text-muted mb-0">View your committee assignments and manage remuneration statements</p>
+    </div>
+
+    {% if member_assignments %}
+    <div class="row g-3">
+        {% for assignment in member_assignments %}
+        <div class="col-12 col-md-6 col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-user-tie me-2"></i>Exam Committee Membership</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <strong>Session:</strong> {{ assignment.academic_session }}
+                    </div>
+                    <div class="mb-2">
+                        <strong>Year:</strong> {{ assignment.year }}
+                    </div>
+                    <div class="mb-3">
+                        <strong>Term:</strong> {{ assignment.term }}
+                    </div>
+                    
+                    {% set key = assignment.academic_session ~ "_" ~ assignment.year ~ "_" ~ assignment.term %}
+                    {% set forms = saved_forms.get(key, []) %}
+                    
+                    {% if forms %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Saved Remuneration Forms:</h6>
+                        <div class="list-group">
+                            {% for form in forms %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                <div>
+                                    <strong>{{ form.title or 'Untitled' }}</strong>
+                                    <br>
+                                    <small class="text-muted">
+                                        Created: {{ form.created_at.strftime('%Y-%m-%d %H:%M') if form.created_at else '-' }}
+                                    </small>
+                                </div>
+                                <a href="{{ url_for('exam_committee_member_remuneration', form_id=form.id, session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-primary">
+                                    <i class="fas fa-edit me-1"></i>Edit
+                                </a>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{{ url_for('exam_committee_member_remuneration', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-primary w-100">
+                        <i class="fas fa-file-invoice-dollar me-2"></i>
+                        {% if forms %}Edit{% else %}Create{% endif %} Remuneration Statement
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>You are not assigned to any exam committees yet.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+

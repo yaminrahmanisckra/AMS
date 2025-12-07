@@ -1,0 +1,772 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <style>
+        .assessment-input-field {
+            width: 85px !important;
+            text-align: center;
+        }
+    </style>
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">
+                <i class="fas fa-chart-line me-2"></i>Assessment - {{ session.course_name or session.term }}
+                {% if session.course_code %}
+                    <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
+                {% endif %}
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <h6 class="text-muted">Session: {{ session.year }}-{{ session.term }}</h6>
+                <h6 class="text-muted">Course Type: {{ session.course_type|title }} | Category: {{ session.category|upper }}</h6>
+                {% if split_meta %}
+                <div class="alert alert-info py-2 px-3 mt-2 mb-0">
+                    <small>
+                        Split Delivery ({{ split_meta.scope_label }})
+                        {% if split_meta.peers %}
+                            • Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
+                        {% endif %}
+                        • Each teacher records {{ assessment_slot_count }} assessment(s); overall best three calculated automatically.
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Assessment Reveal Controls -->
+            <div class="card mb-3 border-info">
+                <div class="card-header bg-info text-white">
+                    <h6 class="mb-0"><i class="fas fa-eye me-2"></i>Score Reveal Controls</h6>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small mb-3">Control which assessment scores and attendance marks students can view.</p>
+                    
+                    <div class="row g-3">
+                        {% if session.course_type == 'theory' and session.category == 'ug' %}
+                            {% for i in range(1,5) %}
+                                {% if i in editable_indices %}
+                                <div class="col-md-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input reveal-toggle" type="checkbox" 
+                                               id="reveal_assessment{{i}}" 
+                                               data-assessment="assessment{{i}}"
+                                               {% if reveal_status.get('assessment' ~ i, False) %}checked{% endif %}>
+                                        <label class="form-check-label" for="reveal_assessment{{i}}">
+                                            <strong>Assessment {{i}}</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+                        {% elif session.course_type == 'theory' and session.category == 'pg' %}
+                            {% for i in range(1,5) %}
+                                {% if i in editable_indices %}
+                                <div class="col-md-3">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input reveal-toggle" type="checkbox" 
+                                               id="reveal_assessment{{i}}" 
+                                               data-assessment="assessment{{i}}"
+                                               {% if reveal_status.get('assessment' ~ i, False) %}checked{% endif %}>
+                                        <label class="form-check-label" for="reveal_assessment{{i}}">
+                                            <strong>Assessment {{i}}</strong>
+                                        </label>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+                        {% elif session.course_type == 'sessional' and session.category == 'ug' %}
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input reveal-toggle" type="checkbox" 
+                                           id="reveal_sessional_report" 
+                                           data-assessment="sessional_report"
+                                           {% if reveal_status.get('sessional_report', False) %}checked{% endif %}>
+                                    <label class="form-check-label" for="reveal_sessional_report">
+                                        <strong>Sessional Report</strong>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input reveal-toggle" type="checkbox" 
+                                           id="reveal_sessional_viva" 
+                                           data-assessment="sessional_viva"
+                                           {% if reveal_status.get('sessional_viva', False) %}checked{% endif %}>
+                                    <label class="form-check-label" for="reveal_sessional_viva">
+                                        <strong>Sessional Viva</strong>
+                                    </label>
+                                </div>
+                            </div>
+                        {% endif %}
+                        
+                        <div class="col-12 border-top pt-3 mt-2">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input reveal-toggle" type="checkbox" 
+                                       id="reveal_attendance" 
+                                       data-assessment="attendance"
+                                       {% if reveal_status.get('attendance', False) %}checked{% endif %}>
+                                <label class="form-check-label" for="reveal_attendance">
+                                    <strong>Attendance Marks</strong>
+                                </label>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-success" id="reveal-all-btn">
+                                    <i class="fas fa-eye me-1"></i>Reveal All
+                                </button>
+                                <button type="button" class="btn btn-sm btn-secondary" id="hide-all-btn">
+                                    <i class="fas fa-eye-slash me-1"></i>Hide All
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <form method="POST">
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle table-sm" style="min-width: 700px; font-size: 0.95em;">
+                        {% if session.course_type == 'theory' and session.category == 'ug' %}
+                        <thead class="table-light">
+                            <tr>
+                                <th class="fw-bold text-center">Student ID</th>
+                                <th class="fw-bold text-center">Name</th>
+                                {% for i in range(1,5) %}
+                                <th class="fw-bold text-center">Assessment {{ i }} (10)</th>
+                                {% endfor %}
+                                <th class="fw-bold text-center">Total of Best 3 (30)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for student in students %}
+                            <tr>
+                                <td class="text-start">{{ student.student_id }}</td>
+                                <td class="text-start">{{ student.name }}</td>
+                                {% for i in range(1,5) %}
+                                <td class="text-end">
+                                    {% set combined_val_dict = combined_assessment_values.get(student.student_id, {}) %}
+                                    {% set value = combined_val_dict.get(i) if combined_val_dict else None %}
+                                    {% set is_editable = i in editable_indices %}
+                                    {% set student_absent = absent_status_map.get(student.id, {}) %}
+                                    {% set is_absent = student_absent.get('assessment' ~ i, False) %}
+                                    {% if is_editable %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if is_absent %}
+                                        <span class="text-muted fw-bold">Absent</span>
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field" min="0" max="10" step="0.01" value="" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" disabled style="display: none;">
+                                        {% else %}
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field" min="0" max="10" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1">
+                                        {% endif %}
+                                        <div class="form-check">
+                                            <input class="form-check-input absent-checkbox" type="checkbox" id="absent_{{i}}_{{student.id}}" name="absent_{{i}}_{{student.id}}" data-student-id="{{student.id}}" data-assess-idx="{{i}}" {% if is_absent %}checked{% endif %}>
+                                            <label class="form-check-label" for="absent_{{i}}_{{student.id}}" style="font-size: 0.9em;">Absent</label>
+                                        </div>
+                                    </div>
+                                    {% else %}
+                                    {# Readonly field - show other teacher's marks (Part A teacher sees Part B's marks, and vice versa) #}
+                                    {# DEBUG: value={{ value }}, student_id={{ student.student_id }}, assessment={{ i }} #}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if value is not none %}
+                                            {% if value == '' or value == 'None' %}
+                                                <span class="text-muted">-</span>
+                                                <input type="hidden" name="assessment{{i}}_{{ student.id }}" value="" data-editable="0" data-assessment-value="">
+                                            {% else %}
+                                                <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field" value="{{ value }}" readonly disabled data-editable="0" data-assessment-value="{{ value }}" data-student-id="{{ student.id }}" style="background-color: #f8f9fa;">
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                            <input type="hidden" name="assessment{{i}}_{{ student.id }}" value="" data-editable="0" data-assessment-value="" data-student-id="{{ student.id }}">
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                                <td class="fw-bold text-end">
+                                    {% set best_total = combined_best3.get(student.student_id) %}
+                                    <span id="best3total_{{ student.id }}" data-initial-value="{% if best_total is not none %}{{ best_total }}{% endif %}">
+                                        {% if best_total is not none %}
+                                            {{ best_total }}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        {% elif session.course_type == 'sessional' and session.category == 'ug' %}
+                        <thead class="table-light">
+                            <tr>
+                                <th class="fw-bold text-center">Student ID</th>
+                                <th class="fw-bold text-center">Name</th>
+                                <th class="fw-bold text-center">Sessional Report (60)</th>
+                                <th class="fw-bold text-center">Sessional Viva (30)</th>
+                                <th class="fw-bold text-center">Total (Sessional: 90)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for student in students %}
+                            <tr>
+                                <td class="text-start">{{ student.student_id }}</td>
+                                <td class="text-start">{{ student.name }}</td>
+                                <td class="text-end">
+                                    {% set student_absent = absent_status_map.get(student.id, {}) %}
+                                    {% set report_absent = student_absent.get('sessional_report', False) %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if report_absent %}
+                                        <span class="text-muted fw-bold">Absent</span>
+                                        <input type="number" name="sessional_report_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="60" step="0.01" value="" data-student-id="{{ student.id }}" disabled style="display: none;">
+                                        {% else %}
+                                        <input type="number" name="sessional_report_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="60" step="0.01" value="{{ student.sessional_report if student.sessional_report is not none else '' }}" data-student-id="{{ student.id }}">
+                                        {% endif %}
+                                        <div class="form-check">
+                                            <input class="form-check-input sessional-absent-checkbox" type="checkbox" id="sessional_absent_report_{{student.id}}" name="sessional_absent_report_{{student.id}}" data-student-id="{{student.id}}" data-type="report" {% if report_absent %}checked{% endif %}>
+                                            <label class="form-check-label" for="sessional_absent_report_{{student.id}}" style="font-size: 0.9em;">Absent</label>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-end">
+                                    {% set viva_absent = student_absent.get('sessional_viva', False) %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if viva_absent %}
+                                        <span class="text-muted fw-bold">Absent</span>
+                                        <input type="number" name="sessional_viva_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="30" step="0.01" value="" data-student-id="{{ student.id }}" disabled style="display: none;">
+                                        {% else %}
+                                        <input type="number" name="sessional_viva_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="30" step="0.01" value="{{ student.sessional_viva if student.sessional_viva is not none else '' }}" data-student-id="{{ student.id }}">
+                                        {% endif %}
+                                        <div class="form-check">
+                                            <input class="form-check-input sessional-absent-checkbox" type="checkbox" id="sessional_absent_viva_{{student.id}}" name="sessional_absent_viva_{{student.id}}" data-student-id="{{student.id}}" data-type="viva" {% if viva_absent %}checked{% endif %}>
+                                            <label class="form-check-label" for="sessional_absent_viva_{{student.id}}" style="font-size: 0.9em;">Absent</label>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="fw-bold text-end">
+                                    <span id="sessional_total_{{ student.id }}">{% if student.sessional_report is not none or student.sessional_viva is not none %}{{ (student.sessional_report or 0) + (student.sessional_viva or 0) }}{% else %}<span class="text-muted">Absent</span>{% endif %}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        {% elif session.course_type == 'theory' and session.category == 'pg' %}
+                        <thead class="table-light">
+                            <tr>
+                                <th class="fw-bold text-center">Student ID</th>
+                                <th class="fw-bold text-center">Name</th>
+                                {% for i in range(1,5) %}
+                                <th class="fw-bold text-center">Assessment {{ i }} (10)</th>
+                                {% endfor %}
+                                <th class="fw-bold text-center">Total (40)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for student in students %}
+                            <tr>
+                                <td class="text-start">{{ student.student_id }}</td>
+                                <td class="text-start">{{ student.name }}</td>
+                                {% for i in range(1,5) %}
+                                <td class="text-end">
+                                    {% set combined_val_dict = combined_assessment_values.get(student.student_id, {}) %}
+                                    {% set value = combined_val_dict.get(i) if combined_val_dict else None %}
+                                    {% set is_editable = i in editable_indices %}
+                                    {% set student_absent = absent_status_map.get(student.id, {}) %}
+                                    {% set is_absent = student_absent.get('assessment' ~ i, False) %}
+                                    {% if is_editable %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if is_absent %}
+                                        <span class="text-muted fw-bold">Absent</span>
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" min="0" max="10" step="0.01" value="" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" disabled style="display: none;">
+                                        {% else %}
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" min="0" max="10" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1">
+                                        {% endif %}
+                                        <div class="form-check">
+                                            <input class="form-check-input pg-absent-checkbox" type="checkbox" id="pg_absent_{{i}}_{{student.id}}" name="pg_absent_{{i}}_{{student.id}}" data-student-id="{{student.id}}" data-assess-idx="{{i}}" {% if is_absent %}checked{% endif %}>
+                                            <label class="form-check-label" for="pg_absent_{{i}}_{{student.id}}" style="font-size: 0.9em;">Absent</label>
+                                        </div>
+                                    </div>
+                                    {% else %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if value is not none %}
+                                            <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" value="{{ value }}" readonly disabled data-editable="0" data-assessment-value="{{ value }}" data-student-id="{{ student.id }}" style="background-color: #f8f9fa;">
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                            <input type="hidden" name="assessment{{i}}_{{ student.id }}" value="" data-editable="0" data-assessment-value="" data-student-id="{{ student.id }}">
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                                <td class="fw-bold text-end">
+                                    {% set pg_total = combined_pg_total.get(student.student_id) %}
+                                    <span id="pg_total_{{ student.id }}">{% if pg_total is not none %}{{ pg_total }}{% else %}<span class="text-muted">-</span>{% endif %}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        {% else %}
+                        <tbody>
+                            <tr>
+                                <td colspan="7" class="text-center text-danger">
+                                    <p>This course type is not supported for assessment.</p>
+                                    <p>Supported types: UG Theory, PG Theory, UG Sessional</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                        {% endif %}
+                    </table>
+                </div>
+                
+                {% if students and ((session.course_type == 'theory' and session.category == 'ug') or (session.course_type == 'theory' and session.category == 'pg') or (session.course_type == 'sessional' and session.category == 'ug')) %}
+                    <div class="d-flex gap-2 mt-3 flex-wrap align-items-center">
+                        <div id="auto-save-status" class="me-2" style="display: none;">
+                            <small class="text-muted">
+                                <i class="fas fa-spinner fa-spin" id="save-spinner" style="display: none;"></i>
+                                <span id="save-message"></span>
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Save Assessment
+                        </button>
+                        <a href="{{ url_for('class_management.download_assessment_excel', session_id=session.id) }}" class="btn btn-success">
+                            <i class="fas fa-download me-1"></i>Download Excel
+                        </a>
+                        <a href="{{ url_for('class_management.download_assessment_pdf', session_id=session.id) }}" class="btn btn-danger" target="_blank">
+                            <i class="fas fa-file-pdf me-1"></i>Assessment PDF
+                        </a>
+                        <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-dark" target="_blank">
+                            <i class="fas fa-file-pdf me-1"></i>Download PDF
+                        </a>
+                        <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                        </a>
+                    </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if session.course_type == 'theory' and session.category == 'ug' %}
+<script>
+function calcBest3Total(studentId) {
+    let vals = [];
+    for (let i = 1; i <= 4; i++) {
+        const absentBox = document.querySelector(`#absent_${i}_${studentId}`);
+        const absent = absentBox ? absentBox.checked : false;
+        if (absent) continue; // Skip if marked absent
+        
+        // Get input field (both editable and readonly) - use more specific selector
+        const input = document.querySelector(`input[name="assessment${i}_${studentId}"]`);
+        if (!input) continue;
+        
+        // Check if input is disabled but has a value (readonly from other teacher)
+        // Try to get value from data-assessment-value attribute first (more reliable for disabled inputs)
+        let inputValue = input.getAttribute('data-assessment-value');
+        // If data attribute is empty, try input.value
+        if (!inputValue || inputValue === '') {
+            inputValue = input.value || '';
+        }
+        // If still empty, skip this assessment
+        if (!inputValue || inputValue === '') continue;
+        
+        const v = parseFloat(inputValue);
+        if (!isNaN(v) && v >= 0) {
+            vals.push(v);
+        }
+    }
+    let cell = document.getElementById('best3total_' + studentId);
+    if (!cell) return;
+    if (vals.length === 0) {
+        cell.innerHTML = '<span class="text-muted">-</span>';
+    } else if (vals.length < 3) {
+        const sum = vals.reduce((a,b) => a+b, 0);
+        cell.textContent = Math.round(sum);
+    } else {
+        vals.sort((a,b) => b-a);
+        const sum = vals.slice(0,3).reduce((a,b) => a+b, 0);
+        cell.textContent = Math.round(sum);
+    }
+}
+
+document.querySelectorAll('.assessment-input').forEach(input => {
+    if (input.dataset.editable !== '1') return;
+    input.addEventListener('input', function() {
+        calcBest3Total(this.dataset.studentId);
+    });
+});
+
+document.querySelectorAll('.absent-checkbox').forEach(chk => {
+    chk.addEventListener('change', function() {
+        const studentId = this.dataset.studentId;
+        const idx = this.dataset.assessIdx;
+        const input = document.querySelector(`[name=assessment${idx}_${studentId}]`);
+        const td = this.closest('td');
+        
+        if (this.checked) {
+            // Hide input and show "Absent" text
+            if (input) {
+                input.value = '';
+                input.disabled = true;
+                input.style.display = 'none';
+            }
+            // Check if "Absent" span already exists
+            let absentSpan = td.querySelector('.absent-text');
+            if (!absentSpan) {
+                absentSpan = document.createElement('span');
+                absentSpan.className = 'text-muted fw-bold absent-text';
+                absentSpan.textContent = 'Absent';
+                td.querySelector('.d-flex').insertBefore(absentSpan, td.querySelector('.form-check'));
+            }
+        } else {
+            // Show input and hide "Absent" text
+            if (input) {
+                input.disabled = false;
+                input.style.display = '';
+            }
+            const absentSpan = td.querySelector('.absent-text');
+            if (absentSpan) {
+                absentSpan.remove();
+            }
+        }
+        calcBest3Total(studentId);
+    });
+});
+
+// Initial calculation - calculate for all students (including readonly inputs from split courses)
+// Run after page load to ensure all inputs are available
+(function() {
+    function runInitialCalc() {
+        // Get all student IDs from the table rows
+        document.querySelectorAll('tbody tr').forEach(row => {
+            const firstInput = row.querySelector('input[name^="assessment"]');
+            if (!firstInput) return;
+            
+            // Extract student ID from first input's name attribute
+            const nameMatch = firstInput.name.match(/assessment\d+_(\d+)/);
+            if (!nameMatch) return;
+            
+            const studentId = nameMatch[1];
+            
+            // Calculate Best 3 total
+            if (document.getElementById('best3total_' + studentId)) {
+                calcBest3Total(studentId);
+            }
+            
+            // Calculate PG total
+            if (document.getElementById('pg_total_' + studentId)) {
+                calcPGTotal(studentId);
+            }
+        });
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', runInitialCalc);
+    } else {
+        // DOM already loaded
+        setTimeout(runInitialCalc, 200);
+    }
+})();
+</script>
+{% elif session.course_type == 'sessional' and session.category == 'ug' %}
+<script>
+function calcSessionalTotal(studentId) {
+    const reportAbsent = document.querySelector(`#sessional_absent_report_${studentId}`).checked;
+    const vivaAbsent = document.querySelector(`#sessional_absent_viva_${studentId}`).checked;
+    const reportInput = document.querySelector(`[name=sessional_report_${studentId}]`);
+    const vivaInput = document.querySelector(`[name=sessional_viva_${studentId}]`);
+    
+    let report = reportAbsent ? 0 : (reportInput.value ? parseFloat(reportInput.value) : 0);
+    let viva = vivaAbsent ? 0 : (vivaInput.value ? parseFloat(vivaInput.value) : 0);
+    
+    const total = report + viva;
+    const cell = document.getElementById('sessional_total_' + studentId);
+    
+    if (reportAbsent && vivaAbsent) {
+        cell.innerHTML = '<span class="text-muted">Absent</span>';
+    } else {
+        cell.textContent = total;
+    }
+}
+
+document.querySelectorAll('.sessional-input').forEach(input => {
+    input.addEventListener('input', function() {
+        calcSessionalTotal(this.dataset.studentId);
+    });
+});
+
+document.querySelectorAll('.sessional-absent-checkbox').forEach(chk => {
+    chk.addEventListener('change', function() {
+        const studentId = this.dataset.studentId;
+        const type = this.dataset.type;
+        const input = document.querySelector(`[name=sessional_${type}_${studentId}]`);
+        const td = this.closest('td');
+        
+        if (this.checked) {
+            // Hide input and show "Absent" text
+            if (input) {
+                input.value = '';
+                input.disabled = true;
+                input.style.display = 'none';
+            }
+            // Check if "Absent" span already exists
+            let absentSpan = td.querySelector('.absent-text');
+            if (!absentSpan) {
+                absentSpan = document.createElement('span');
+                absentSpan.className = 'text-muted fw-bold absent-text';
+                absentSpan.textContent = 'Absent';
+                td.querySelector('.d-flex').insertBefore(absentSpan, td.querySelector('.form-check'));
+            }
+        } else {
+            // Show input and hide "Absent" text
+            if (input) {
+                input.disabled = false;
+                input.style.display = '';
+            }
+            const absentSpan = td.querySelector('.absent-text');
+            if (absentSpan) {
+                absentSpan.remove();
+            }
+        }
+        calcSessionalTotal(studentId);
+    });
+});
+
+// Initial calculation
+document.querySelectorAll('.sessional-input').forEach(input => {
+    calcSessionalTotal(input.dataset.studentId);
+});
+</script>
+{% elif session.course_type == 'theory' and session.category == 'pg' %}
+<script>
+function calcPGTotal(studentId) {
+    let vals = [];
+    for (let i = 1; i <= 4; i++) {
+        const absentBox = document.querySelector(`#pg_absent_${i}_${studentId}`);
+        const absent = absentBox ? absentBox.checked : false;
+        if (absent) continue; // Skip if marked absent
+        
+        // Get input field (both editable and readonly) - use more specific selector
+        const input = document.querySelector(`input[name="assessment${i}_${studentId}"]`);
+        if (!input) continue;
+        
+        // Check if input is disabled but has a value (readonly from other teacher)
+        // Try to get value from data-assessment-value attribute first (more reliable for disabled inputs)
+        let inputValue = input.getAttribute('data-assessment-value');
+        // If data attribute is empty, try input.value
+        if (!inputValue || inputValue === '') {
+            inputValue = input.value || '';
+        }
+        // If still empty, skip this assessment
+        if (!inputValue || inputValue === '') continue;
+        
+        const v = parseFloat(inputValue);
+        if (!isNaN(v) && v >= 0) {
+            vals.push(v);
+        }
+    }
+    
+    const totalCell = document.getElementById('pg_total_' + studentId);
+    if (!totalCell) return;
+    
+    if (vals.length === 0) {
+        totalCell.innerHTML = '<span class="text-muted">-</span>';
+    } else {
+        // Always use best 3 (or available marks if less than 3)
+        vals.sort((a,b) => b-a);
+        const best = vals.length >= 3 ? vals.slice(0,3) : vals;
+        // Convert to 40 marks scale: always use 30 as max (sum / 30) * 40
+        const bestSum = best.reduce((a,b) => a+b, 0);
+        const total = Math.round((bestSum / 30) * 40);
+        totalCell.textContent = Math.round(total); // Ensure round figure (integer)
+    }
+}
+
+document.querySelectorAll('.pg-assessment-input').forEach(input => {
+    if (input.dataset.editable !== '1') return;
+    input.addEventListener('input', function() {
+        calcPGTotal(this.dataset.studentId);
+    });
+});
+
+document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
+    chk.addEventListener('change', function() {
+        const studentId = this.dataset.studentId;
+        const idx = this.dataset.assessIdx;
+        const input = document.querySelector(`[name=assessment${idx}_${studentId}]`);
+        const td = this.closest('td');
+        
+        if (this.checked) {
+            // Hide input and show "Absent" text
+            if (input) {
+                input.value = '';
+                input.disabled = true;
+                input.style.display = 'none';
+            }
+            // Check if "Absent" span already exists
+            let absentSpan = td.querySelector('.absent-text');
+            if (!absentSpan) {
+                absentSpan = document.createElement('span');
+                absentSpan.className = 'text-muted fw-bold absent-text';
+                absentSpan.textContent = 'Absent';
+                td.querySelector('.d-flex').insertBefore(absentSpan, td.querySelector('.form-check'));
+            }
+        } else {
+            // Show input and hide "Absent" text
+            if (input) {
+                input.disabled = false;
+                input.style.display = '';
+            }
+            const absentSpan = td.querySelector('.absent-text');
+            if (absentSpan) {
+                absentSpan.remove();
+            }
+        }
+        calcPGTotal(studentId);
+    });
+});
+
+// PG calculation is handled in the unified initial calculation function above
+</script>
+{% endif %}
+
+<!-- Auto-save functionality for all course types -->
+<script>
+(function() {
+    const sessionId = {{ session.id }};
+    let saveTimeout = null;
+    const saveStatusEl = document.getElementById('auto-save-status');
+    const saveSpinner = document.getElementById('save-spinner');
+    const saveMessage = document.getElementById('save-message');
+    
+    function showSaveStatus(message, isSaving = false) {
+        if (!saveStatusEl) return;
+        saveStatusEl.style.display = 'block';
+        if (saveSpinner) saveSpinner.style.display = isSaving ? 'inline-block' : 'none';
+        if (saveMessage) {
+            saveMessage.textContent = message;
+            saveMessage.className = isSaving ? 'text-info' : (message.includes('saved') ? 'text-success' : 'text-danger');
+        }
+        if (!isSaving && message.includes('saved')) {
+            setTimeout(() => {
+                if (saveStatusEl) saveStatusEl.style.display = 'none';
+            }, 2000);
+        }
+    }
+    
+    function autoSave() {
+        const form = document.querySelector('form[method="POST"]');
+        if (!form) return;
+        
+        const formData = new FormData(form);
+        const data = {};
+        for (let [key, value] of formData.entries()) {
+            data[key] = value;
+        }
+        
+        showSaveStatus('Saving...', true);
+        
+        fetch(`/class-management/assessment/${sessionId}/auto-save`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                showSaveStatus('✓ Saved automatically', false);
+            } else {
+                showSaveStatus('✗ Save failed', false);
+            }
+        })
+        .catch(error => {
+            console.error('Auto-save error:', error);
+            showSaveStatus('✗ Save failed', false);
+        });
+    }
+    
+    function debounceAutoSave() {
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(autoSave, 1500); // Wait 1.5 seconds after user stops typing
+    }
+    
+    // Add auto-save to all assessment inputs
+    document.querySelectorAll('.assessment-input, .sessional-input, .pg-assessment-input').forEach(input => {
+        if (input.dataset.editable !== '0' && !input.disabled) {
+            input.addEventListener('input', debounceAutoSave);
+        }
+    });
+    
+    // Add auto-save to absent checkboxes
+    document.querySelectorAll('.absent-checkbox, .sessional-absent-checkbox, .pg-absent-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', debounceAutoSave);
+    });
+})();
+</script>
+<!-- Assessment Reveal Controls JavaScript -->
+<script>
+(function() {
+    const sessionId = {{ session.id }};
+    const currentTeacherId = {{ current_teacher_id }};
+    
+    // Toggle reveal status for individual assessment
+    document.querySelectorAll('.reveal-toggle').forEach(toggle => {
+        toggle.addEventListener('change', function() {
+            const assessmentType = this.dataset.assessment;
+            const isRevealed = this.checked;
+            
+            toggleRevealStatus(assessmentType, isRevealed);
+        });
+    });
+    
+    // Reveal all button
+    document.getElementById('reveal-all-btn')?.addEventListener('click', function() {
+        document.querySelectorAll('.reveal-toggle').forEach(toggle => {
+            toggle.checked = true;
+            const assessmentType = toggle.dataset.assessment;
+            toggleRevealStatus(assessmentType, true);
+        });
+    });
+    
+    // Hide all button
+    document.getElementById('hide-all-btn')?.addEventListener('click', function() {
+        document.querySelectorAll('.reveal-toggle').forEach(toggle => {
+            toggle.checked = false;
+            const assessmentType = toggle.dataset.assessment;
+            toggleRevealStatus(assessmentType, false);
+        });
+    });
+    
+    function toggleRevealStatus(assessmentType, isRevealed) {
+        fetch(`/class-management/assessment/${sessionId}/toggle-reveal`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                assessment_type: assessmentType,
+                revealed: isRevealed,
+                teacher_id: currentTeacherId
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log(`Assessment ${assessmentType} ${isRevealed ? 'revealed' : 'hidden'} successfully`);
+            } else {
+                console.error('Error toggling reveal status:', data.message);
+                alert('Error updating reveal status. Please try again.');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error updating reveal status. Please try again.');
+        });
+    }
+})();
+</script>
+
+{% endblock %}
+
+ 
+
+ 

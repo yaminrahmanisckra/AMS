@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}View Results - {{ session.name }}{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="text-center mb-5">
+        <h1 class="display-4">View Results</h1>
+        <p class="lead text-muted">Session: {{ session.name }} (Term: {{ session.term }})</p>
+    </div>
+
+    <div class="row">
+        <!-- View Individual Results -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body d-flex flex-column">
+                    <h5 class="card-title">View Individual Results</h5>
+                    <p class="card-text">Browse results page by page for individual courses or students.</p>
+                    <div class="mt-auto">
+                        <a href="{{ url_for('result_management.course_wise_result', session_id=session.id) }}" class="btn btn-outline-primary me-2">Course-wise</a>
+                        <a href="{{ url_for('result_management.student_wise_result', session_id=session.id) }}" class="btn btn-outline-info">Student-wise</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bulk Download -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body d-flex flex-column">
+                    <h5 class="card-title">Bulk Download All Results</h5>
+                    <p class="card-text">Download all result sheets for this session as a single compressed (zip) file.</p>
+                    <div class="mt-auto">
+                        <a href="{{ url_for('result_management.download_all_course_results', session_id=session.id) }}" class="btn btn-primary me-2">All Courses</a>
+                        <a href="{{ url_for('result_management.download_all_student_results', session_id=session.id) }}" class="btn btn-secondary">All Students</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 
