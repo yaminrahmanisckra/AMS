@@ -26,6 +26,10 @@
             direction: ltr;
         }
         
+        .english-text {
+            font-family: 'Tahoma', 'Arial', sans-serif !important;
+        }
+        
         .pdf-container {
             width: 100%;
             max-width: 100%;
@@ -419,45 +423,45 @@
         <div class="voucher-box">
             <div>
                 <span class="voucher-label">ভাউচার নং:</span>
-                <span class="voucher-input">{{ voucher_no or '' }}</span>
+                <span class="voucher-input english-text">{{ voucher_no or '' }}</span>
             </div>
             <div>
                 <span class="voucher-label">তারিখ:</span>
-                <span class="voucher-input">{{ voucher_date or '' }}</span>
+                <span class="voucher-input english-text">{{ voucher_date or '' }}</span>
             </div>
         </div>
         
         <table class="meta-grid">
             <tr>
                 <td class="meta-label">নাম:</td>
-                <td colspan="3">{{ applicant_name or '' }}</td>
+                <td colspan="3" class="english-text">{{ applicant_name or '' }}</td>
             </tr>
             <tr>
                 <td class="meta-label">পদবী:</td>
-                <td>{{ designation or '' }}</td>
+                <td class="english-text">{{ designation or '' }}</td>
                 <td class="meta-label">ডিসিপ্লিন / বিভাগ:</td>
-                <td>{{ discipline or 'Law' }}</td>
+                <td class="english-text">{{ discipline or 'Law' }}</td>
             </tr>
             <tr>
                 <td class="meta-label">ঠিকানা:</td>
-                <td colspan="3">{{ address or '' }}</td>
+                <td colspan="3" class="english-text">{{ address or '' }}</td>
             </tr>
             <tr>
                 <td class="meta-label">যে ডিসিপ্লিনের পরীক্ষা:</td>
-                <td>{{ exam_discipline or 'Law' }}</td>
+                <td class="english-text">{{ exam_discipline or 'Law' }}</td>
                 <td class="meta-label">বর্ষ:</td>
-                <td>{{ year or '' }}</td>
+                <td class="english-text">{{ year or '' }}</td>
             </tr>
             <tr>
                 <td class="meta-label">শিক্ষাবর্ষ:</td>
-                <td>{{ academic_year or '' }}</td>
+                <td class="english-text">{{ academic_year or '' }}</td>
                 <td class="meta-label">টার্ম:</td>
-                <td>{{ term or '' }}</td>
+                <td class="english-text">{{ term or '' }}</td>
             </tr>
             <tr>
                 <td class="meta-label">পরীক্ষা অনুষ্ঠানের তারিখ:</td>
-                <td>{{ exam_start_date or '' }} থেকে</td>
-                <td colspan="2">{{ exam_end_date or '' }} পর্যন্ত</td>
+                <td><span class="english-text">{{ exam_start_date or '' }}</span> থেকে</td>
+                <td colspan="2"><span class="english-text">{{ exam_end_date or '' }}</span> পর্যন্ত</td>
             </tr>
         </table>
         
@@ -479,11 +483,11 @@
                 <tr>
                     <td class="text-center">{{ job_data.serial }}</td>
                     <td>{{ job_data.description }}</td>
-                    <td>{{ job_data.courses }}</td>
-                    <td>{{ job_data.quantity }}</td>
-                    <td>{{ job_data.paper_type }}</td>
-                    <td>{{ job_data.rate }}</td>
-                    <td class="text-right">{{ job_data.amount }}</td>
+                    <td class="english-text">{{ job_data.courses }}</td>
+                    <td class="english-text">{{ job_data.quantity }}</td>
+                    <td class="english-text">{{ job_data.paper_type }}</td>
+                    <td class="english-text">{{ job_data.rate }}</td>
+                    <td class="text-right english-text">{{ job_data.amount }}</td>
                 </tr>
                 {% endfor %}
                 <tr>
@@ -493,7 +497,7 @@
                     <td></td>
                     <td></td>
                     <td class="text-right"><strong>সর্বমোট টাকার পরিমাণ</strong></td>
-                    <td class="text-right"><strong>{{ total_amount or '' }}</strong></td>
+                    <td class="text-right english-text"><strong>{{ total_amount or '' }}</strong></td>
                 </tr>
             </tbody>
         </table>
@@ -501,12 +505,12 @@
         <table class="foot-table">
             <tr>
                 <td><strong>সর্বমোট টাকার পরিমাণ (কথায়):</strong></td>
-                <td>{{ total_in_words or '' }}</td>
+                <td class="english-text">{{ total_in_words or '' }}</td>
             </tr>
         </table>
         
         <div class="bank-declaration">
-            এই বিলের প্রাপ্য অর্থ অগ্রণী ব্যাংক, খুলনা বিশ্ববিদ্যালয় শাখায় আমার নামে রক্ষিত নং {{ bank_account or '' }} হিসাবে/চেকের মাধ্যমে পরিশোধের অনুরোধ করছি এবং এই মর্মে অঙ্গীকার করছি যে, এই বিলে আমি কোন অতিরিক্ত অর্থ দাবী করিনি। যদি ভবিষ্যতে এই বিলে কোন আপত্তি উত্থাপিত হয় তাহলে গৃহীত অতিরিক্ত অর্থ ফেরৎ দিতে বাধ্য থাকব।
+            এই বিলের প্রাপ্য অর্থ অগ্রণী ব্যাংক, খুলনা বিশ্ববিদ্যালয় শাখায় আমার নামে রক্ষিত নং <span class="english-text">{{ bank_account or '' }}</span> হিসাবে/চেকের মাধ্যমে পরিশোধের অনুরোধ করছি এবং এই মর্মে অঙ্গীকার করছি যে, এই বিলে আমি কোন অতিরিক্ত অর্থ দাবী করিনি। যদি ভবিষ্যতে এই বিলে কোন আপত্তি উত্থাপিত হয় তাহলে গৃহীত অতিরিক্ত অর্থ ফেরৎ দিতে বাধ্য থাকব।
             <div class="revenue-ticket"></div>
             <div style="margin-top: 0.2rem; font-size: 6pt;">
                 <strong>বিঃ দ্রঃ-</strong> প্রত্যেক বিলে রাজস্ব টিকিট লাগাতে হবে।
@@ -537,49 +541,49 @@
                 <div class="controller-designation">বিল নিরীক্ষক/সেকশন অফিসার/সহকারী পরীক্ষা নিয়ন্ত্রক</div>
                 <div class="controller-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ auditor_sign or '' }}</span>
+                    <span class="english-text">{{ auditor_sign or '' }}</span>
                 </div>
             </div>
             <div class="controller-signature-box">
                 <div class="controller-designation">উপ-পরীক্ষা নিয়ন্ত্রক</div>
                 <div class="controller-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ deputy_sign or '' }}</span>
+                    <span class="english-text">{{ deputy_sign or '' }}</span>
                 </div>
             </div>
             <div class="controller-signature-box">
                 <div class="controller-designation">পরীক্ষা নিয়ন্ত্রক</div>
                 <div class="controller-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ controller_sign or '' }}</span>
+                    <span class="english-text">{{ controller_sign or '' }}</span>
                 </div>
             </div>
         </div>
         
         <div class="section-title finance">অর্থ ও হিসাব বিভাগের ব্যবহারের জন্য</div>
         <div class="finance-release-note">
-            পরীক্ষান্তে বর্ণিত পারিতোষিক বিল বাবদ টাকার পরিমাণ <span class="finance-amount-space">{{ finance_amount or '' }}</span> টাকা কথায় <span class="finance-words-space">{{ finance_amount_words or '' }}</span> মাত্র পরিশোধের জন্য ছাড়া হলো।
+            পরীক্ষান্তে বর্ণিত পারিতোষিক বিল বাবদ টাকার পরিমাণ <span class="finance-amount-space english-text">{{ finance_amount or '' }}</span> টাকা কথায় <span class="finance-words-space english-text">{{ finance_amount_words or '' }}</span> মাত্র পরিশোধের জন্য ছাড়া হলো।
         </div>
         <div class="finance-signature-section">
             <div class="finance-signature-box">
                 <div class="finance-designation">সেকশন অফিসার/সহকারী পরিচালক</div>
                 <div class="finance-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ section_officer_sign or '' }}</span>
+                    <span class="english-text">{{ section_officer_sign or '' }}</span>
                 </div>
             </div>
             <div class="finance-signature-box">
                 <div class="finance-designation">উপ-পরিচালক</div>
                 <div class="finance-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ deputy_director_sign or '' }}</span>
+                    <span class="english-text">{{ deputy_director_sign or '' }}</span>
                 </div>
             </div>
             <div class="finance-signature-box">
                 <div class="finance-designation">পরিচালক (অঃহিঃ)</div>
                 <div class="finance-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ director_sign or '' }}</span>
+                    <span class="english-text">{{ director_sign or '' }}</span>
                 </div>
             </div>
         </div>
@@ -593,14 +597,14 @@
                 <div class="audit-designation">সহকারী পরিচালক (অডিট)</div>
                 <div class="audit-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ audit_assistant_sign or '' }}</span>
+                    <span class="english-text">{{ audit_assistant_sign or '' }}</span>
                 </div>
             </div>
             <div class="audit-signature-box-single">
                 <div class="audit-designation">উপ-পরিচালক/ প্রধান (অডিট সেল)</div>
                 <div class="audit-signature-line">
                     <span>স্বাক্ষর:</span>
-                    <span>{{ audit_head_sign or '' }}</span>
+                    <span class="english-text">{{ audit_head_sign or '' }}</span>
                 </div>
             </div>
         </div>
@@ -608,11 +612,11 @@
         <table class="foot-table" style="margin-top: 0.8rem;">
             <tr>
                 <td>ব্যাংক এ্যাডভাইস/ চেক নং:-</td>
-                <td>{{ bank_advice_no or '' }}</td>
+                <td class="english-text">{{ bank_advice_no or '' }}</td>
             </tr>
             <tr>
                 <td>তারিখ:</td>
-                <td>{{ payment_date or '' }}</td>
+                <td class="english-text">{{ payment_date or '' }}</td>
             </tr>
         </table>
     </div>

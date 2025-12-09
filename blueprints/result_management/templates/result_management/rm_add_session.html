@@ -45,27 +45,3 @@
     </div>
 </div>
 {% endblock %}
-
-
-
-
-
-
-
-                        <option value="{{ option }}" {% if option == selected_term %}selected{% endif %}>{{ option }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Add Session</button>
-                <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> Back to Sessions</a>
-            </form>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-
-
-
-
-

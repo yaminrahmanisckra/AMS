@@ -1276,7 +1276,8 @@ def create_app():
         if entry.owner_teacher_id:
             teacher_ids.add(entry.owner_teacher_id)
 
-        teacher_map = {t.id: t for t in Teacher.query.order_by(Teacher.name).all()}
+        from role_utils import get_teachers_excluding_head
+        teacher_map = {t.id: t for t in get_teachers_excluding_head()}
 
         eligible_users = User.query.filter(User.role != ADMIN_ROLE).order_by(User.full_name.asc()).all()
         available_teachers = []
@@ -1700,8 +1701,9 @@ def create_app():
             flash('This page is available only for Head or Dean accounts.', 'danger')
             return redirect(url_for('index'))
         
-        # Get all teachers
-        teachers = Teacher.query.order_by(Teacher.name.asc()).all()
+        # Get all teachers (excluding Head of the Discipline)
+        from role_utils import get_teachers_excluding_head
+        teachers = get_teachers_excluding_head()
         
         # Get all courses
         courses = Course.query.order_by(Course.course_code.asc()).all()
@@ -2516,8 +2518,9 @@ def create_app():
             flash('You are not assigned as Exam Committee Chief or Member.', 'danger')
             return redirect(url_for('index'))
         
-        # Get all teachers for assignment
-        teachers = Teacher.query.order_by(Teacher.name.asc()).all()
+        # Get all teachers for assignment (excluding Head of the Discipline)
+        from role_utils import get_teachers_excluding_head
+        teachers = get_teachers_excluding_head()
         
         # Get assigned tabulators
         tabulators = DutyAssignment.query.filter_by(
@@ -3491,8 +3494,9 @@ def create_app():
                     except:
                         saved_data = {}
         
-        # Get all teachers and convert to JSON-serializable format
-        teachers_query = Teacher.query.order_by(Teacher.name.asc()).all()
+        # Get all teachers and convert to JSON-serializable format (excluding Head of the Discipline)
+        from role_utils import get_teachers_excluding_head
+        teachers_query = get_teachers_excluding_head()
         teachers = []
         teachers_data = []  # For JSON serialization in JavaScript
         for teacher in teachers_query:
@@ -5034,8 +5038,9 @@ def create_app():
             flash('You are not assigned as Exam Committee Member for the specified session/year/term.', 'danger')
             return redirect(url_for('exam_committee_member_dashboard'))
         
-        # Get all teachers
-        teachers = Teacher.query.order_by(Teacher.name.asc()).all()
+        # Get all teachers (excluding Head of the Discipline)
+        from role_utils import get_teachers_excluding_head
+        teachers = get_teachers_excluding_head()
         
         # Get academic sessions
         from blueprints.class_management.models import Session
@@ -5391,9 +5396,10 @@ def create_app():
         if restriction:
             return restriction
         
-        # Fetch teachers for name dropdown
+        # Fetch teachers for name dropdown (excluding Head of the Discipline)
         from blueprints.class_management.models import Teacher
-        teachers = Teacher.query.order_by(Teacher.name).all()
+        from role_utils import get_teachers_excluding_head
+        teachers = get_teachers_excluding_head()
         
         # Fetch all curriculum year/term configurations and aggregate data
         all_configs = CurriculumYearTerm.query.all()
@@ -5508,8 +5514,8 @@ def create_app():
             '12b': [  # ইনভিজিলেশন
                 {'label': 'ইনভিজিলেশন', 'value': '2000'}
             ],
-            '15': [  # ভাইভা
-                {'label': 'পরীক্ষার্থী প্রতি ৫০টাকা', 'value': '50'}
+            '15': [  # কোডিং/ডিকোডিং
+                {'label': 'পরীক্ষার্থী প্রতি', 'value': '50'}
             ],
             '13': [  # থিসিস
                 # পরীক্ষণ
@@ -5865,7 +5871,7 @@ def create_app():
                 '12': [{'label': 'চীফ ইনভিজিলেশন', 'value': '3000'}, {'label': 'ইনভিজিলেশন', 'value': '2000'}],
                 '12a': [{'label': 'চীফ ইনভিজিলেশন', 'value': '3000'}],
                 '12b': [{'label': 'ইনভিজিলেশন', 'value': '2000'}],
-                '15': [{'label': 'পরীক্ষার্থী প্রতি ৫০টাকা', 'value': '50'}],
+                '15': [{'label': 'পরীক্ষার্থী প্রতি', 'value': '50'}],
                 '13': [{'label': 'কাস্টম হার', 'value': ''}],
                 '13a': [{'label': 'কাস্টম হার', 'value': ''}],
                 '13b': [{'label': 'কাস্টম হার', 'value': ''}],

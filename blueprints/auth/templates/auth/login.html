@@ -322,15 +322,6 @@
                 <p>Sign in to your account</p>
             </div>
 
-            {% if default_student_password %}
-            <div class="alert alert-info alert-dismissible fade show" role="alert">
-                <i class="fas fa-info-circle me-2"></i>
-                <strong>Students:</strong> Use your student ID as the username and the default password 
-                "<strong>{{ default_student_password }}</strong>" unless you have already changed it.
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-            {% endif %}
-            
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
@@ -428,16 +419,78 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Signing in...';
         });
         
-        // Auto-select Student role if username contains "28"
-        function checkAndSelectStudentRole(username) {
+        // Auto-select role based on username
+        function checkAndSelectRoleByUsername(username) {
             const roleSelect = document.getElementById('active_role');
             if (!roleSelect || !username) return;
             
-            const usernameValue = username.trim();
-            // Check if username contains "28" (format: XX28XX)
+            const usernameValue = username.trim().toLowerCase();
+            
+            // Check for exact matches first (highest priority)
+            if (usernameValue === 'head') {
+                const headOption = Array.from(roleSelect.options).find(option => 
+                    option.value.toLowerCase() === 'head'
+                );
+                if (headOption) {
+                    roleSelect.value = headOption.value;
+                    return;
+                }
+            }
+            
+            if (usernameValue === 'dean') {
+                const deanOption = Array.from(roleSelect.options).find(option => 
+                    option.value.toLowerCase() === 'dean'
+                );
+                if (deanOption) {
+                    roleSelect.value = deanOption.value;
+                    return;
+                }
+            }
+            
+            if (usernameValue === 'admin') {
+                const adminOption = Array.from(roleSelect.options).find(option => 
+                    option.value.toLowerCase() === 'admin'
+                );
+                if (adminOption) {
+                    roleSelect.value = adminOption.value;
+                    return;
+                }
+            }
+            
+            // Check for partial matches (if exact match not found)
+            // Check if username starts with or contains the role keyword
+            if (usernameValue.startsWith('head') || usernameValue.includes('head')) {
+                const headOption = Array.from(roleSelect.options).find(option => 
+                    option.value.toLowerCase() === 'head'
+                );
+                if (headOption) {
+                    roleSelect.value = headOption.value;
+                    return;
+                }
+            }
+            
+            if (usernameValue.startsWith('dean') || usernameValue.includes('dean')) {
+                const deanOption = Array.from(roleSelect.options).find(option => 
+                    option.value.toLowerCase() === 'dean'
+                );
+                if (deanOption) {
+                    roleSelect.value = deanOption.value;
+                    return;
+                }
+            }
+            
+            if (usernameValue.startsWith('admin') || usernameValue.includes('admin')) {
+                const adminOption = Array.from(roleSelect.options).find(option => 
+                    option.value.toLowerCase() === 'admin'
+                );
+                if (adminOption) {
+                    roleSelect.value = adminOption.value;
+                    return;
+                }
+            }
+            
+            // Check if username contains "28" (format: XX28XX) for student
             if (usernameValue.includes('28')) {
-                // Try to find and select "student" option
-                // Check for different possible values (student, Student, STUDENT)
                 const studentOptions = Array.from(roleSelect.options).filter(option => {
                     const value = option.value.toLowerCase();
                     const text = option.text.toLowerCase();
@@ -458,12 +511,17 @@
             if (usernameField) {
                 // Check on page load if username already has a value
                 if (usernameField.value) {
-                    checkAndSelectStudentRole(usernameField.value);
+                    checkAndSelectRoleByUsername(usernameField.value);
                 }
                 
                 // Check when user types in username field
                 usernameField.addEventListener('input', function() {
-                    checkAndSelectStudentRole(this.value);
+                    checkAndSelectRoleByUsername(this.value);
+                });
+                
+                // Also check on blur (when user leaves the field)
+                usernameField.addEventListener('blur', function() {
+                    checkAndSelectRoleByUsername(this.value);
                 });
                 
                 // Auto-focus if empty

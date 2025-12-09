@@ -25,9 +25,10 @@ except ImportError:
     Student = None
 
 try:
-    from blueprints.course_management.models import Curriculum, Course, CurriculumYearTerm
+    from blueprints.course_management.models import Curriculum, Course, CurriculumYearTerm, CourseSessionAssignment
 except ImportError:
     Curriculum = None
+    CourseSessionAssignment = None
     Course = None
     CurriculumYearTerm = None
 import pandas as pd
@@ -483,9 +484,68 @@ def index():
     current_app.logger.info(f'Loading index for teacher {teacher.id} ({teacher.name}). Found {len(sessions)} sessions.')
     for s in sessions:
         current_app.logger.debug(f'Session: ID={s.id}, Name={s.course_name}, Archived={s.archived}, Teacher={s.teacher_id}')
+    
+    # Update sessions with academic_session and batch from CourseSessionAssignment if available
+    # Also sync all assignments with curriculum year-term config if missing
+    if CourseSessionAssignment and Curriculum and CurriculumYearTerm:
+        try:
+            # First, update all assignments that are missing batch/academic_session from curriculum year-term config
+            all_assignments = CourseSessionAssignment.query.all()
+            assignment_update_count = 0
+            for assignment in all_assignments:
+                if assignment.curriculum_id and (not assignment.batch or not assignment.academic_session):
+                    try:
+                        curriculum = Curriculum.query.get(assignment.curriculum_id)
+                        if curriculum:
+                            year_term_config = curriculum.get_year_term_config(assignment.year, assignment.term)
+                            if year_term_config:
+                                updated = False
+                                if not assignment.batch and year_term_config.batch and year_term_config.batch != 'None':
+                                    assignment.batch = year_term_config.batch
+                                    updated = True
+                                    current_app.logger.info(f'Updated assignment {assignment.id} batch from year-term config: {year_term_config.batch}')
+                                if not assignment.academic_session and year_term_config.academic_session:
+                                    assignment.academic_session = year_term_config.academic_session
+                                    updated = True
+                                    current_app.logger.info(f'Updated assignment {assignment.id} academic_session from year-term config: {year_term_config.academic_session}')
+                                
+                                if updated:
+                                    assignment_update_count += 1
+                    except Exception as assign_error:
+                        current_app.logger.warning(f'Error updating assignment {assignment.id}: {assign_error}')
+            
+            if assignment_update_count > 0:
+                db.session.commit()
+                current_app.logger.info(f'Updated {assignment_update_count} assignments with batch/academic_session from curriculum year-term config')
+            
+            # Now update sessions with academic_session from assignments
+            updated_count = 0
+            for session in sessions:
+                # Find CourseSessionAssignment for this session
+                assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
+                if assignment:
+                    # Update academic_session if assignment has it and session doesn't
+                    if assignment.academic_session and not session.academic_session:
+                        session.academic_session = assignment.academic_session
+                        updated_count += 1
+                        current_app.logger.info(f'Updated session {session.id} ({session.course_name}) with academic_session: {assignment.academic_session}')
+                    elif assignment.academic_session and session.academic_session != assignment.academic_session:
+                        # Update if different
+                        session.academic_session = assignment.academic_session
+                        updated_count += 1
+                        current_app.logger.info(f'Updated session {session.id} ({session.course_name}) academic_session from {session.academic_session} to {assignment.academic_session}')
+            
+            if updated_count > 0:
+                db.session.commit()
+                current_app.logger.info(f'Updated {updated_count} sessions with academic_session from CourseSessionAssignment')
+        except Exception as e:
+            current_app.logger.error(f'Error updating sessions from CourseSessionAssignment: {str(e)}', exc_info=True)
+            db.session.rollback()
 
     split_context_map = {session.id: _build_split_context(session) for session in sessions if session.split_group_id}
-    teachers = Teacher.query.order_by(Teacher.name.asc()).all()
+    # Get teachers excluding Head of the Discipline
+    from role_utils import get_teachers_excluding_head
+    teachers = get_teachers_excluding_head()
     pending_split_invites = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').order_by(ClassSplitInvite.created_at.desc()).all()
     
     # Get all batches from Students Management for the dropdown
@@ -496,6 +556,130 @@ def index():
             batches = [batch[0] for batch in all_batches]
         except Exception:
             batches = []
+    
+    # Build assignment map for template to access batch and academic_session from CourseSessionAssignment
+    assignment_map = {}
+    if CourseSessionAssignment and Course:
+        try:
+            for session in sessions:
+                # Try to find assignment by session_id first
+                assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
+                
+                # If not found by session_id, try to find by course_code, teacher_id, year, term
+                if not assignment and session.course_code and session.teacher_id and session.year and session.term:
+                    try:
+                        # Try to match by course_code, teacher_id, year, term
+                        # First try exact match
+                        assignment = CourseSessionAssignment.query.filter_by(
+                            teacher_id=session.teacher_id,
+                            year=session.year,
+                            term=session.term
+                        ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
+                            Course.course_code == session.course_code
+                        ).first()
+                        
+                        # If not found, try without section matching (for full course sessions)
+                        if not assignment:
+                            assignment = CourseSessionAssignment.query.filter_by(
+                                teacher_id=session.teacher_id,
+                                year=session.year,
+                                term=session.term
+                            ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
+                                Course.course_code == session.course_code
+                            ).filter(
+                                or_(
+                                    CourseSessionAssignment.section.is_(None),
+                                    CourseSessionAssignment.section == ''
+                                )
+                            ).first()
+                        
+                        # If found, update the session_id to link them
+                        if assignment and not assignment.session_id:
+                            assignment.session_id = session.id
+                            assignment.session_created = True
+                            try:
+                                db.session.commit()
+                                current_app.logger.info(f'Linked assignment {assignment.id} to session {session.id} for course {session.course_code}')
+                            except Exception as commit_error:
+                                db.session.rollback()
+                                current_app.logger.warning(f'Could not link assignment {assignment.id} to session {session.id}: {commit_error}')
+                    except Exception as query_error:
+                        current_app.logger.warning(f'Error querying assignment for session {session.id}: {query_error}')
+                
+                if assignment:
+                    # If assignment doesn't have batch/academic_session, try to get from curriculum year-term config
+                    batch = assignment.batch
+                    academic_session = assignment.academic_session
+                    
+                    if Curriculum and CurriculumYearTerm and (not batch or not academic_session):
+                        try:
+                            if assignment.curriculum_id:
+                                curriculum = Curriculum.query.get(assignment.curriculum_id)
+                                if curriculum:
+                                    year_term_config = curriculum.get_year_term_config(assignment.year, assignment.term)
+                                    if year_term_config:
+                                        if not batch and year_term_config.batch and year_term_config.batch != 'None':
+                                            batch = year_term_config.batch
+                                            assignment.batch = batch
+                                            current_app.logger.info(f'Updated assignment {assignment.id} batch from year-term config: {batch}')
+                                        if not academic_session and year_term_config.academic_session:
+                                            academic_session = year_term_config.academic_session
+                                            assignment.academic_session = academic_session
+                                            current_app.logger.info(f'Updated assignment {assignment.id} academic_session from year-term config: {academic_session}')
+                                        
+                                        if (not assignment.batch and batch) or (not assignment.academic_session and academic_session):
+                                            try:
+                                                db.session.commit()
+                                            except Exception as commit_error:
+                                                db.session.rollback()
+                                                current_app.logger.warning(f'Could not update assignment {assignment.id}: {commit_error}')
+                        except Exception as config_error:
+                            current_app.logger.warning(f'Error getting year-term config for assignment {assignment.id}: {config_error}')
+                    
+                    assignment_map[session.id] = {
+                        'batch': batch or '',
+                        'academic_session': academic_session or ''
+                    }
+                    # Also update session's academic_session if assignment has it and session doesn't
+                    if academic_session and not session.academic_session:
+                        try:
+                            session.academic_session = academic_session
+                            db.session.commit()
+                            current_app.logger.info(f'Updated session {session.id} academic_session from assignment: {academic_session}')
+                        except Exception as update_error:
+                            db.session.rollback()
+                            current_app.logger.warning(f'Could not update session {session.id} academic_session: {update_error}')
+                    
+                    # Auto-add students from batch if session has no students but batch is available
+                    if batch and batch.strip() and batch != 'None' and Student:
+                        try:
+                            existing_students_count = ClassStudent.query.filter_by(session_id=session.id).count()
+                            if existing_students_count == 0:
+                                current_app.logger.info(f'Session {session.id} has no students but batch {batch} is available. Attempting to add students...')
+                                students_from_batch = Student.query.filter_by(batch=batch).all()
+                                if students_from_batch:
+                                    added_count = 0
+                                    for student in students_from_batch:
+                                        class_student = ClassStudent(
+                                            student_id=student.student_id,
+                                            name=student.name,
+                                            session_id=session.id,
+                                            teacher_id=session.teacher_id
+                                        )
+                                        db.session.add(class_student)
+                                        added_count += 1
+                                    
+                                    if added_count > 0:
+                                        db.session.commit()
+                                        current_app.logger.info(f'Successfully added {added_count} students from batch {batch} to session {session.id}')
+                                else:
+                                    current_app.logger.warning(f'No students found in batch {batch} for session {session.id}')
+                        except Exception as auto_add_error:
+                            db.session.rollback()
+                            current_app.logger.error(f'Error auto-adding students to session {session.id} from batch {batch}: {auto_add_error}', exc_info=True)
+        except Exception as e:
+            current_app.logger.error(f'Error building assignment map: {str(e)}', exc_info=True)
+            db.session.rollback()
 
     return render_template(
         'class_management/index.html',
@@ -506,7 +690,8 @@ def index():
         course_scope_labels=COURSE_SCOPE_LABELS,
         split_context_map=split_context_map,
         pending_split_invites=pending_split_invites,
-        batches=batches
+        batches=batches,
+        assignment_map=assignment_map
     )
 
 @class_management_bp.route('/create_session', methods=['POST'])
@@ -2061,7 +2246,73 @@ def archive():
         db.session.commit()
     
     archived_sessions = Session.query.filter_by(teacher_id=teacher.id, archived=True).order_by(Session.created_at.desc()).all()
-    return render_template('class_management/archive.html', sessions=archived_sessions)
+    
+    # Build assignment map for template to access batch and academic_session from CourseSessionAssignment
+    assignment_map = {}
+    if CourseSessionAssignment and Course:
+        try:
+            for session in archived_sessions:
+                # Try to find assignment by session_id first
+                assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
+                
+                # If not found by session_id, try to find by course_code, teacher_id, year, term
+                if not assignment and session.course_code and session.teacher_id and session.year and session.term:
+                    try:
+                        # Try to match by course_code, teacher_id, year, term
+                        assignment = CourseSessionAssignment.query.filter_by(
+                            teacher_id=session.teacher_id,
+                            year=session.year,
+                            term=session.term
+                        ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
+                            Course.course_code == session.course_code
+                        ).first()
+                        
+                        # If not found, try without section matching (for full course sessions)
+                        if not assignment:
+                            assignment = CourseSessionAssignment.query.filter_by(
+                                teacher_id=session.teacher_id,
+                                year=session.year,
+                                term=session.term
+                            ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
+                                Course.course_code == session.course_code
+                            ).filter(
+                                or_(
+                                    CourseSessionAssignment.section.is_(None),
+                                    CourseSessionAssignment.section == ''
+                                )
+                            ).first()
+                    except Exception as query_error:
+                        current_app.logger.warning(f'Error querying assignment for archived session {session.id}: {query_error}')
+                
+                if assignment:
+                    # If assignment doesn't have batch/academic_session, try to get from curriculum year-term config
+                    batch = assignment.batch
+                    academic_session = assignment.academic_session
+                    
+                    if Curriculum and CurriculumYearTerm and (not batch or not academic_session):
+                        try:
+                            if assignment.curriculum_id:
+                                curriculum = Curriculum.query.get(assignment.curriculum_id)
+                                if curriculum:
+                                    year_term_config = curriculum.get_year_term_config(assignment.year, assignment.term)
+                                    if year_term_config:
+                                        if not batch and year_term_config.batch and year_term_config.batch != 'None':
+                                            batch = year_term_config.batch
+                                        if not academic_session and year_term_config.academic_session:
+                                            academic_session = year_term_config.academic_session
+                        except Exception as config_error:
+                            current_app.logger.warning(f'Error getting year-term config for assignment {assignment.id}: {config_error}')
+                    
+                    assignment_map[session.id] = {
+                        'batch': batch or '',
+                        'academic_session': academic_session or ''
+                    }
+        except Exception as e:
+            current_app.logger.error(f'Error building assignment map for archived sessions: {str(e)}', exc_info=True)
+    
+    return render_template('class_management/archive.html', 
+                         sessions=archived_sessions, 
+                         assignment_map=assignment_map if assignment_map else {})
 
 @class_management_bp.route('/delete_attendance/<int:session_id>/<string:date_str>', methods=['POST'])
 @login_required

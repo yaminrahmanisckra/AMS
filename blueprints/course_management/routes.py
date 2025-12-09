@@ -28,6 +28,39 @@ def _get_current_student_record():
         return None
     return Student.query.filter_by(student_id=username).first()
 
+def _get_teachers_excluding_head():
+    """Get all teachers excluding Head of the Discipline"""
+    try:
+        from blueprints.class_management.models import Teacher
+        if not Teacher:
+            return []
+        
+        # Get all teachers
+        all_teachers = Teacher.query.order_by(Teacher.name).all()
+        
+        # Get Head of the Discipline users
+        head_users = User.query.filter(
+            or_(
+                User.role.like('%head%'),
+                User.role == 'head'
+            )
+        ).all()
+        head_names = {user.full_name for user in head_users}
+        
+        # Filter out Head of the Discipline from teachers list
+        teachers = [teacher for teacher in all_teachers if teacher.name not in head_names]
+        return teachers
+    except ImportError:
+        return []
+    except Exception as e:
+        current_app.logger.warning(f'Error filtering teachers: {e}')
+        # Fallback: get all teachers if filtering fails
+        try:
+            from blueprints.class_management.models import Teacher
+            return Teacher.query.order_by(Teacher.name).all() if Teacher else []
+        except:
+            return []
+
 
 def infer_year_and_term(course_code: str):
     """Infer academic year and term from course code (uses last 4 digits)."""
@@ -144,12 +177,8 @@ def view_curriculum(curriculum_id):
     # Get batches for dropdown - only show batches applicable to this curriculum + "None" option
     curriculum_batches = curriculum.get_batches_list() if curriculum else []
     
-    # Get teachers for assignment dropdown
-    try:
-        from blueprints.class_management.models import Teacher
-        teachers = Teacher.query.order_by(Teacher.name).all() if Teacher else []
-    except ImportError:
-        teachers = []
+    # Get teachers for assignment dropdown (exclude Head of the Discipline)
+    teachers = _get_teachers_excluding_head()
     
     # Get existing session assignments for courses
     course_assignments = {}
@@ -1521,8 +1550,11 @@ def assign_teacher_session():
         year = data.get('year', '').strip()
         term = data.get('term', '').strip()
         batch_str = data.get('batch', '').strip()
-        batch = None if batch_str == 'None' or not batch_str else batch_str
+        # Handle batch: empty string, 'None', or None should become None, otherwise use the value
+        batch = None if (not batch_str or batch_str == 'None' or batch_str == '') else batch_str
         academic_session = data.get('academic_session', '').strip() or None
+        
+        current_app.logger.info(f'Assign teacher request - course_id: {course_id}, batch_str: "{batch_str}", batch: "{batch}", year: {year}, term: {term}')
         
         if not course_id or not curriculum_id or not teacher_id or not year or not term:
             return jsonify({
@@ -1534,6 +1566,23 @@ def assign_teacher_session():
         course = Course.query.get_or_404(course_id)
         curriculum = Curriculum.query.get_or_404(curriculum_id)
         teacher = Teacher.query.get_or_404(teacher_id)
+        
+        # If batch or academic_session not provided, try to get from curriculum year-term config
+        if not batch or not academic_session:
+            try:
+                year_term_config = curriculum.get_year_term_config(year, term)
+                if year_term_config:
+                    if not batch and year_term_config.batch and year_term_config.batch != 'None' and year_term_config.batch.strip():
+                        batch = year_term_config.batch.strip()
+                        current_app.logger.info(f'Using batch from year-term config: {batch}')
+                    if not academic_session and year_term_config.academic_session and year_term_config.academic_session.strip():
+                        academic_session = year_term_config.academic_session.strip()
+                        current_app.logger.info(f'Using academic_session from year-term config: {academic_session}')
+            except Exception as e:
+                current_app.logger.warning(f'Could not get year-term config: {e}')
+        
+        # Log final batch value before creating session
+        current_app.logger.info(f'Final batch value before session creation: "{batch}"')
         
         # Check if assignment already exists
         existing_assignment = CourseSessionAssignment.query.filter_by(
@@ -1646,9 +1695,15 @@ def assign_teacher_session():
         
         # Automatically add students from batch if available
         added_students_count = 0
-        if batch and Student:
+        if batch and batch.strip() and batch != 'None' and Student:
             try:
+                current_app.logger.info(f'Attempting to add students from batch: {batch} for session {session_obj.id}')
                 students_from_batch = Student.query.filter_by(batch=batch).all()
+                current_app.logger.info(f'Found {len(students_from_batch)} students in batch {batch}')
+                
+                if not students_from_batch:
+                    current_app.logger.warning(f'No students found in batch {batch} for course {course.course_code}')
+                
                 for student in students_from_batch:
                     # Check if already exists
                     existing = ClassStudent.query.filter_by(
@@ -1657,6 +1712,7 @@ def assign_teacher_session():
                     ).first()
                     
                     if existing:
+                        current_app.logger.debug(f'Student {student.student_id} already exists in session {session_obj.id}')
                         continue
                     
                     class_student = ClassStudent(
@@ -1667,8 +1723,21 @@ def assign_teacher_session():
                     )
                     db.session.add(class_student)
                     added_students_count += 1
+                    current_app.logger.debug(f'Added student {student.student_id} ({student.name}) to session {session_obj.id}')
+                
+                if added_students_count > 0:
+                    db.session.flush()  # Flush before commit to ensure students are added
+                    current_app.logger.info(f'Successfully added {added_students_count} students from batch {batch} to session {session_obj.id}')
             except Exception as e:
-                current_app.logger.error(f'Error auto-adding students: {str(e)}', exc_info=True)
+                current_app.logger.error(f'Error auto-adding students from batch {batch}: {str(e)}', exc_info=True)
+                # Don't fail the entire assignment if student addition fails
+        else:
+            if not batch:
+                current_app.logger.info(f'No batch provided for session {session_obj.id}, skipping auto-add students')
+            elif batch == 'None' or not batch.strip():
+                current_app.logger.info(f'Batch is None or empty for session {session_obj.id}, skipping auto-add students')
+            elif not Student:
+                current_app.logger.warning(f'Student model not available, cannot auto-add students for session {session_obj.id}')
         
         # Create CourseSessionAssignment
         assignment = CourseSessionAssignment(
@@ -1714,56 +1783,231 @@ def unassign_teacher_session():
     try:
         data = request.get_json() or {}
         assignment_id = data.get('assignment_id')
-        if not assignment_id:
+        
+        # Better validation
+        if assignment_id is None:
+            current_app.logger.warning('Unassign request missing assignment_id')
             return jsonify({'success': False, 'message': 'Assignment ID is required.'}), 400
+        
+        try:
+            assignment_id = int(assignment_id)
+        except (ValueError, TypeError):
+            current_app.logger.warning(f'Invalid assignment_id format: {assignment_id}')
+            return jsonify({'success': False, 'message': 'Invalid assignment ID format.'}), 400
 
         assignment = CourseSessionAssignment.query.get(assignment_id)
         if not assignment:
+            current_app.logger.warning(f'Assignment not found: {assignment_id}')
             return jsonify({'success': False, 'message': 'Assignment not found.'}), 404
 
+        # Store session_id before deletion
+        session_id_to_delete = assignment.session_id
+        
         # Delete associated session if exists - clean up all related records
-        session_obj = Session.query.get(assignment.session_id) if assignment.session_id else None
+        session_obj = None
+        if session_id_to_delete:
+            try:
+                session_obj = Session.query.get(session_id_to_delete)
+            except Exception as e:
+                current_app.logger.warning(f'Error fetching session {session_id_to_delete}: {e}')
+                session_obj = None
 
-        if session_obj:
+        if session_obj and hasattr(session_obj, 'id'):
             session_id = session_obj.id
             
-            # Import all necessary models for cleanup
-            from blueprints.class_management.models import ClassAttendance, CourseReview, EvaluationInvite, EvaluationSubmission, StudentFeedbackLink, ClassSplitInvite
-            from blueprints.course_management.models import CourseOutline
-            
-            # Delete all related records in correct order
-            # 1. Delete course_outline first (if exists)
-            CourseOutline.query.filter_by(session_id=session_id).delete()
-            
-            # 2. Delete attendance records
-            ClassAttendance.query.filter_by(session_id=session_id).delete()
-            
-            # 3. Delete student records
-            ClassStudent.query.filter_by(session_id=session_id).delete()
-            
-            # 4. Delete evaluation and feedback records
-            EvaluationSubmission.query.filter(EvaluationSubmission.invite.has(session_id=session_id)).delete()
-            EvaluationInvite.query.filter_by(session_id=session_id).delete()
-            StudentFeedbackLink.query.filter_by(session_id=session_id).delete()
-            CourseReview.query.filter_by(session_id=session_id).delete()
-            
-            # 5. Delete split course invites
-            ClassSplitInvite.query.filter_by(inviter_session_id=session_id).delete()
-            ClassSplitInvite.query.filter_by(invited_session_id=session_id).delete()
-            
-            # 6. Finally delete the session itself
-            db.session.delete(session_obj)
-            current_app.logger.info(f'Deleted session {session_id} and all related records for assignment {assignment_id}')
+            # Instead of deleting, archive the session to preserve data
+            # This ensures batch and academic_session information is retained
+            try:
+                # Ensure session has academic_session from assignment if missing
+                if assignment.academic_session and not session_obj.academic_session:
+                    session_obj.academic_session = assignment.academic_session
+                
+                # Archive the session instead of deleting
+                session_obj.archived = True
+                db.session.flush()
+                current_app.logger.info(f'Archived session {session_id} (course: {session_obj.course_name}) instead of deleting to preserve batch and session information')
+            except Exception as archive_error:
+                db.session.rollback()
+                current_app.logger.error(f'Error archiving session {session_id}: {archive_error}', exc_info=True)
+                # If archiving fails, try to delete as fallback
+                try:
+                    # Import all necessary models for cleanup
+                    from blueprints.class_management.models import ClassAttendance, CourseReview, EvaluationInvite, EvaluationSubmission, StudentFeedbackLink, StudentFeedbackResponse, ClassSplitInvite
+                    from blueprints.course_management.models import CourseOutline
+                    
+                    # Delete all related records in correct order
+                    # 1. Delete course_outline first (if exists)
+                    try:
+                        CourseOutline.query.filter_by(session_id=session_id).delete()
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting CourseOutline for session {session_id}: {e}')
+                    
+                    # 2. Delete student feedback responses first (before feedback links)
+                    try:
+                        feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter_by(session_id=session_id).all()]
+                        if feedback_link_ids:
+                            StudentFeedbackResponse.query.filter(
+                                StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
+                            ).delete(synchronize_session=False)
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting StudentFeedbackResponse for session {session_id}: {e}')
+                    
+                    # 3. Delete student feedback links
+                    try:
+                        StudentFeedbackLink.query.filter_by(session_id=session_id).delete()
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting StudentFeedbackLink for session {session_id}: {e}')
+                    
+                    # 4. Delete evaluation submissions (has session_id directly)
+                    try:
+                        EvaluationSubmission.query.filter_by(session_id=session_id).delete()
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting EvaluationSubmission for session {session_id}: {e}')
+                    
+                    # 5. Delete evaluation invites
+                    try:
+                        EvaluationInvite.query.filter_by(session_id=session_id).delete()
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting EvaluationInvite for session {session_id}: {e}')
+                    
+                    # 6. Delete course reviews
+                    try:
+                        CourseReview.query.filter_by(session_id=session_id).delete()
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting CourseReview for session {session_id}: {e}')
+                    
+                    # 7. Delete attendance records
+                    try:
+                        ClassAttendance.query.filter_by(session_id=session_id).delete()
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting ClassAttendance for session {session_id}: {e}')
+                    
+                    # 8. Delete student records
+                    try:
+                        ClassStudent.query.filter_by(session_id=session_id).delete()
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting ClassStudent for session {session_id}: {e}')
+                    
+                    # 9. Delete split course invites
+                    try:
+                        ClassSplitInvite.query.filter(
+                            (ClassSplitInvite.inviter_session_id == session_id) | 
+                            (ClassSplitInvite.invited_session_id == session_id)
+                        ).delete(synchronize_session=False)
+                    except Exception as e:
+                        current_app.logger.warning(f'Error deleting ClassSplitInvite for session {session_id}: {e}')
+                    
+                    # 10. Finally delete the session itself as fallback
+                    db.session.delete(session_obj)
+                    db.session.flush()
+                    current_app.logger.warning(f'Deleted session {session_id} as fallback after archiving failed')
+                except Exception as delete_error:
+                    db.session.rollback()
+                    current_app.logger.error(f'Failed to delete session {session_id} as fallback: {delete_error}', exc_info=True)
 
-        # Delete the assignment
-        db.session.delete(assignment)
-        db.session.commit()
-
-        return jsonify({'success': True, 'message': 'Assignment removed successfully.'})
+        # Delete the assignment (even if session cleanup had issues)
+        try:
+            db.session.delete(assignment)
+            db.session.commit()
+            current_app.logger.info(f'Successfully unassigned teacher from assignment {assignment_id}')
+            return jsonify({'success': True, 'message': 'টিচার সফলভাবে আনএসাইন করা হয়েছে।'})
+        except Exception as delete_error:
+            db.session.rollback()
+            current_app.logger.error(f'Failed to delete assignment {assignment_id}: {delete_error}', exc_info=True)
+            raise delete_error
     except Exception as exc:
         db.session.rollback()
-        current_app.logger.error(f'Failed to unassign teacher: {exc}', exc_info=True)
-        return jsonify({'success': False, 'message': 'Failed to unassign teacher.'}), 500
+        error_msg = str(exc)
+        current_app.logger.error(f'Failed to unassign teacher from assignment {assignment_id}: {exc}', exc_info=True)
+        
+        # Provide more user-friendly error message
+        if 'foreign key' in error_msg.lower() or 'constraint' in error_msg.lower():
+            return jsonify({
+                'success': False, 
+                'message': 'এই অ্যাসাইনমেন্টটি অন্য রেকর্ডের সাথে যুক্ত থাকায় মুছে ফেলা যায়নি। অনুগ্রহ করে অ্যাডমিনের সাথে যোগাযোগ করুন।'
+            }), 500
+        else:
+            return jsonify({
+                'success': False, 
+                'message': f'টিচার আনএসাইন করতে ব্যর্থ হয়েছে: {error_msg}'
+            }), 500
+
+
+@course_management_bp.route('/api/replace-teacher-session', methods=['POST'])
+@login_required
+def replace_teacher_session():
+    """Replace teacher in assignment while keeping all other data intact"""
+    try:
+        data = request.get_json() or {}
+        assignment_id = data.get('assignment_id')
+        new_teacher_id = data.get('new_teacher_id')
+        
+        # Validation
+        if not assignment_id:
+            return jsonify({'success': False, 'message': 'Assignment ID is required.'}), 400
+        
+        if not new_teacher_id:
+            return jsonify({'success': False, 'message': 'New Teacher ID is required.'}), 400
+        
+        try:
+            assignment_id = int(assignment_id)
+            new_teacher_id = int(new_teacher_id)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'message': 'Invalid ID format.'}), 400
+        
+        # Get assignment
+        assignment = CourseSessionAssignment.query.get(assignment_id)
+        if not assignment:
+            return jsonify({'success': False, 'message': 'Assignment not found.'}), 404
+        
+        # Get new teacher
+        new_teacher = Teacher.query.get(new_teacher_id)
+        if not new_teacher:
+            return jsonify({'success': False, 'message': 'New teacher not found.'}), 404
+        
+        # Check if new teacher is same as current teacher
+        if assignment.teacher_id == new_teacher_id:
+            return jsonify({'success': False, 'message': 'New teacher is same as current teacher.'}), 400
+        
+        old_teacher_id = assignment.teacher_id
+        old_teacher = Teacher.query.get(old_teacher_id)
+        
+        # Update assignment
+        assignment.teacher_id = new_teacher_id
+        assignment.updated_at = datetime.utcnow()
+        
+        # Update session if exists
+        if assignment.session_id:
+            session_obj = Session.query.get(assignment.session_id)
+            if session_obj:
+                session_obj.teacher_id = new_teacher_id
+                current_app.logger.info(f'Updated session {session_obj.id} teacher from {old_teacher_id} to {new_teacher_id}')
+                
+                # Update all ClassStudent records in this session
+                ClassStudent.query.filter_by(session_id=session_obj.id).update({
+                    'teacher_id': new_teacher_id
+                })
+                current_app.logger.info(f'Updated ClassStudent records in session {session_obj.id} to new teacher {new_teacher_id}')
+        
+        db.session.commit()
+        
+        old_teacher_name = old_teacher.name if old_teacher else f'Teacher ID: {old_teacher_id}'
+        new_teacher_name = new_teacher.name
+        
+        current_app.logger.info(f'Successfully replaced teacher in assignment {assignment_id}: {old_teacher_name} -> {new_teacher_name}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'টিচার সফলভাবে পরিবর্তন করা হয়েছে: {old_teacher_name} → {new_teacher_name}'
+        })
+        
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to replace teacher: {exc}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'টিচার পরিবর্তন করতে ব্যর্থ হয়েছে: {str(exc)}'
+        }), 500
 
 
 @course_management_bp.route('/api/course/<int:course_id>/assignments', methods=['GET'])

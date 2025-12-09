@@ -2,37 +2,199 @@
 {% block title %}Dashboard{% endblock %}
 {% block extra_css %}
 <style>
+.dashboard-wrapper {
+    background: #ffffff;
+    min-height: 100vh;
+    padding: 2rem 0 3rem;
+}
+
+.dashboard-header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+    color: #2c3e50;
+}
+
+.dashboard-header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: #2c3e50;
+}
+
+.dashboard-header p {
+    font-size: 1.1rem;
+    color: #6c757d;
+    margin: 0;
+}
+
 .dashboard-card {
     border: none;
-    border-radius: 14px;
-    padding: 1.5rem 1.25rem;
-    min-height: 210px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border-radius: 20px;
+    padding: 1.75rem 1.5rem;
+    min-height: 200px;
+    background: white;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
 }
+
+.dashboard-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--card-color), var(--card-color-light));
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+}
+
 .dashboard-card:hover {
-    transform: translateY(-6px);
-    box-shadow: 0 18px 35px rgba(0,0,0,0.07);
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.15);
 }
+
+.dashboard-card:hover::before {
+    transform: scaleX(1);
+}
+
 .dashboard-card .icon-circle {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
+    width: 70px;
+    height: 70px;
+    border-radius: 18px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 0.85rem;
+    margin: 0 auto 1.25rem;
+    background: linear-gradient(135deg, var(--card-color), var(--card-color-light));
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    transition: all 0.3s ease;
 }
+
+.dashboard-card:hover .icon-circle {
+    transform: rotate(5deg) scale(1.1);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+
 .dashboard-card .icon-circle i {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
+    color: white;
+}
+
+.dashboard-card h5 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: #2c3e50;
+    transition: color 0.3s ease;
+}
+
+.dashboard-card:hover h5 {
+    color: var(--card-color);
+}
+
+.dashboard-card p {
+    font-size: 0.9rem;
+    color: #6c757d;
+    line-height: 1.5;
+    margin: 0;
+}
+
+/* Colorful card variations */
+.card-blue {
+    --card-color: #0d6efd;
+    --card-color-light: #4d9fff;
+}
+
+.card-green {
+    --card-color: #198754;
+    --card-color-light: #20c997;
+}
+
+.card-cyan {
+    --card-color: #0dcaf0;
+    --card-color-light: #5dd5f0;
+}
+
+.card-yellow {
+    --card-color: #ffc107;
+    --card-color-light: #ffd54f;
+}
+
+.card-red {
+    --card-color: #dc3545;
+    --card-color-light: #e85d75;
+}
+
+.card-purple {
+    --card-color: #6f42c1;
+    --card-color-light: #9d7ce8;
+}
+
+.card-teal {
+    --card-color: #17a2b8;
+    --card-color-light: #4fc3f7;
+}
+
+.card-orange {
+    --card-color: #fd7e14;
+    --card-color-light: #ffa726;
+}
+
+/* Mobile responsive */
+@media (max-width: 576px) {
+    .dashboard-wrapper {
+        padding: 1.5rem 0 2rem;
+    }
+    
+    .dashboard-header h1 {
+        font-size: 1.75rem;
+    }
+    
+    .dashboard-header p {
+        font-size: 0.95rem;
+    }
+    
+    .dashboard-card {
+        padding: 1.5rem 1.25rem;
+        min-height: 180px;
+    }
+    
+    .dashboard-card .icon-circle {
+        width: 60px;
+        height: 60px;
+        margin-bottom: 1rem;
+    }
+    
+    .dashboard-card .icon-circle i {
+        font-size: 1.5rem;
+    }
+    
+    .dashboard-card h5 {
+        font-size: 1rem;
+    }
+    
+    .dashboard-card p {
+        font-size: 0.85rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .dashboard-header h1 {
+        font-size: 2rem;
+    }
 }
 </style>
 {% endblock %}
 {% block content %}
-<div class="container mt-5">
-    <div class="text-center mb-4">
-        <h1 class="mb-2">Main Dashboard</h1>
-        <p class="text-muted mb-0">Welcome, {{ current_user.full_name }}! Select a module to get started.</p>
-    </div>
+<div class="dashboard-wrapper">
+    <div class="container">
+        <div class="dashboard-header">
+            <h1>Main Dashboard</h1>
+            <p>Welcome, {{ current_user.full_name }}! Select a module to get started.</p>
+        </div>
 
     {% set is_officer = 'officer' in parse_roles(current_user.role) %}
     
@@ -41,8 +203,7 @@
             'title': 'Class Management',
             'desc': 'Manage sessions, students, and attendance for your classes.',
             'icon': 'fas fa-chalkboard-teacher',
-            'color': '#0d6efd',
-            'bg': 'rgba(13,110,253,0.15)',
+            'color_class': 'card-blue',
             'url': url_for('class_management.index'),
             'show': not is_officer
         },
@@ -50,8 +211,7 @@
             'title': 'Result Management',
             'desc': 'Handle student results, subjects, marks, and generate reports.',
             'icon': 'fas fa-poll',
-            'color': '#198754',
-            'bg': 'rgba(25,135,84,0.15)',
+            'color_class': 'card-green',
             'url': url_for('result_management.index'),
             'show': not is_officer
         },
@@ -59,8 +219,7 @@
             'title': 'Routine Management',
             'desc': 'Create and manage class schedules and teacher assignments.',
             'icon': 'fas fa-calendar-alt',
-            'color': '#0dcaf0',
-            'bg': 'rgba(13,202,240,0.15)',
+            'color_class': 'card-cyan',
             'url': url_for('routine_management.index'),
             'show': not is_officer
         },
@@ -68,8 +227,7 @@
             'title': 'Exam Paper Evaluation',
             'desc': 'Submit subject information for exam paper evaluation workflow.',
             'icon': 'fas fa-file-alt',
-            'color': '#ffc107',
-            'bg': 'rgba(255,193,7,0.18)',
+            'color_class': 'card-yellow',
             'url': url_for('exam_evaluation'),
             'show': not is_officer
         },
@@ -77,8 +235,7 @@
             'title': 'Students Management',
             'desc': 'Manage student information, batch, and contact details.',
             'icon': 'fas fa-users',
-            'color': '#dc3545',
-            'bg': 'rgba(220,53,69,0.15)',
+            'color_class': 'card-red',
             'url': url_for('student_management.index'),
             'show': True
         },
@@ -86,8 +243,7 @@
             'title': 'Curriculum Management',
             'desc': 'Create curricula, add courses, and organize academic programs.',
             'icon': 'fas fa-book',
-            'color': '#6f42c1',
-            'bg': 'rgba(111,66,193,0.15)',
+            'color_class': 'card-purple',
             'url': url_for('course_management.index'),
             'show': True
         },
@@ -95,8 +251,7 @@
             'title': 'Remuneration',
             'desc': 'Manage remuneration and payment information.',
             'icon': 'fas fa-money-bill-wave',
-            'color': '#17a2b8',
-            'bg': 'rgba(23,162,184,0.15)',
+            'color_class': 'card-teal',
             'url': url_for('remuneration_portal'),
             'show': True
         },
@@ -104,8 +259,7 @@
             'title': 'Exam Info',
             'desc': 'View and manage examination information and schedules.',
             'icon': 'fas fa-clipboard-list',
-            'color': '#fd7e14',
-            'bg': 'rgba(253,126,20,0.15)',
+            'color_class': 'card-orange',
             'url': url_for('officer_exam_info'),
             'show': is_officer
         }
@@ -116,8 +270,7 @@
                 'title': 'Course Registration Review',
                 'desc': 'Review and finalize registrations for your assigned batches.',
                 'icon': 'fas fa-clipboard-check',
-                'color': '#0dcaf0',
-                'bg': 'rgba(13,202,240,0.15)',
+                'color_class': 'card-cyan',
                 'url': url_for('course_management.coordinator_registrations'),
                 'show': True
             }
@@ -129,21 +282,20 @@
                 'title': 'Exam Committee Management',
                 'desc': 'Monitor submitted courses, assign scrutinizers, and manage remuneration statements.',
                 'icon': 'fas fa-gavel',
-                'color': '#dc3545',
-                'bg': 'rgba(220,53,69,0.15)',
+                'color_class': 'card-red',
                 'url': url_for('exam_committee_management'),
                 'show': True
             }
         ] %}
     {% endif %}
 
-    <div class="row g-3 g-lg-4 mt-4">
+    <div class="row g-3 g-lg-4">
         {% for card in cards if card.show %}
         <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
             <a href="{{ card.url }}" class="text-decoration-none">
-                <div class="dashboard-card text-center h-100">
-                    <div class="icon-circle" style="background-color: {{ card.bg }}">
-                        <i class="{{ card.icon }}" style="color: {{ card.color }}"></i>
+                <div class="dashboard-card text-center h-100 {{ card.color_class }}">
+                    <div class="icon-circle">
+                        <i class="{{ card.icon }}"></i>
                     </div>
                     <h5 class="mb-1">{{ card.title }}</h5>
                     <p class="text-muted small mb-0">{{ card.desc }}</p>
@@ -151,6 +303,7 @@
             </a>
         </div>
         {% endfor %}
+    </div>
     </div>
 </div>
 {% endblock %}

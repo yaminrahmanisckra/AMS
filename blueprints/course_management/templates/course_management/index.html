@@ -212,8 +212,14 @@
                                                                     {% if assignment.section %} ({{ assignment.section }}){% endif %}
                                                                 </span>
                                                                 <button type="button"
+                                                                        class="btn btn-sm btn-outline-primary"
+                                                                        onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})"
+                                                                        title="Replace Teacher">
+                                                                    <i class="fas fa-exchange-alt"></i>
+                                                                </button>
+                                                                <button type="button"
                                                                         class="btn btn-sm btn-outline-danger"
-                                                                        onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }})"
+                                                                        onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }}, this)"
                                                                         title="Unassign">
                                                                     <i class="fas fa-trash-alt"></i>
                                                                 </button>
@@ -316,8 +322,14 @@
                                                                     {% if assignment.section %} ({{ assignment.section }}){% endif %}
                                                                 </span>
                                                                 <button type="button"
+                                                                        class="btn btn-sm btn-outline-primary"
+                                                                        onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})"
+                                                                        title="Replace Teacher">
+                                                                    <i class="fas fa-exchange-alt"></i>
+                                                                </button>
+                                                                <button type="button"
                                                                         class="btn btn-sm btn-outline-danger"
-                                                                        onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }})"
+                                                                        onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }}, this)"
                                                                         title="Unassign">
                                                                     <i class="fas fa-trash-alt"></i>
                                                                 </button>
@@ -852,7 +864,7 @@
                         <input type="hidden" name="curriculum_id" value="{{ curriculum.id }}">
                         <input type="hidden" name="year" value="{{ course.display_year or course.year }}">
                         <input type="hidden" name="term" value="{{ course.display_term or course.term }}">
-                        <input type="hidden" name="batch" value="{{ year_term_config.batch if year_term_config else '' }}">
+                        <input type="hidden" name="batch" value="{{ year_term_config.batch if year_term_config and year_term_config.batch and year_term_config.batch != 'None' else '' }}">
                         <input type="hidden" name="academic_session" value="{{ year_term_config.academic_session if year_term_config else '' }}">
                         
                         <div class="mb-3">
@@ -882,11 +894,11 @@
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
                             <strong>Note:</strong> This will automatically create a session in Class Management for the assigned teacher.
-                            {% if year_term_config and year_term_config.batch %}
-                                <br>Batch: <strong>{{ year_term_config.batch }}</strong>
+                            {% if year_term_config and year_term_config.batch and year_term_config.batch != 'None' %}
+                                <br>Batch: <strong>{{ year_term_config.batch }}</strong> (from Year-Term configuration)
                             {% endif %}
                             {% if year_term_config and year_term_config.academic_session %}
-                                <br>Academic Session: <strong>{{ year_term_config.academic_session }}</strong>
+                                <br>Academic Session: <strong>{{ year_term_config.academic_session }}</strong> (from Year-Term configuration)
                             {% endif %}
                         </div>
                         
@@ -904,9 +916,14 @@
                                             {% if assignment.session_created %}<span class="badge bg-success ms-2">Session Created</span>{% endif %}
                                         </span>
                                     </div>
-                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }})">
-                                        <i class="fas fa-trash-alt me-1"></i>Unassign
-                                    </button>
+                                    <div class="btn-group" role="group">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})" title="Replace Teacher">
+                                            <i class="fas fa-exchange-alt"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }}, this)" title="Unassign">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 {% endfor %}
                             </div>
@@ -920,6 +937,50 @@
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-success" onclick="assignTeacherToCourse({{ course.id }})">
                         <i class="fas fa-save me-1"></i>Assign & Create Session
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if courses %}
+    {% for course in courses %}
+    <!-- Replace Teacher Modal -->
+    <div class="modal fade" id="replaceTeacherModal{{ course.id }}" tabindex="-1" aria-labelledby="replaceTeacherModalLabel{{ course.id }}" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="replaceTeacherModalLabel{{ course.id }}">
+                        <i class="fas fa-exchange-alt me-2"></i>Replace Teacher: {{ course.course_code }} - {{ course.course_name }}
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="replaceTeacherForm{{ course.id }}">
+                        <input type="hidden" name="assignment_id" id="replaceAssignmentId{{ course.id }}">
+                        <div class="mb-3">
+                            <label for="new_teacher_id{{ course.id }}" class="form-label">
+                                <i class="fas fa-user me-2"></i>Select New Teacher <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select" id="new_teacher_id{{ course.id }}" name="new_teacher_id" required>
+                                <option value="">Select Teacher</option>
+                                {% for teacher in teachers %}
+                                <option value="{{ teacher.id }}">{{ teacher.name }} ({{ teacher.short_name }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Note:</strong> Replacing the teacher will update the assignment and session while keeping all other data (batch, academic session, students, attendance, etc.) intact.
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmReplaceTeacher({{ course.id }})">
+                        <i class="fas fa-exchange-alt me-1"></i>Replace Teacher
                     </button>
                 </div>
             </div>
@@ -1508,6 +1569,16 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Handle batch field - convert empty string or 'None' to empty string for backend
+        if (!data.batch || data.batch === '' || data.batch === 'None') {
+            data.batch = '';
+        }
+        
+        // Handle academic_session field - convert empty string to empty string for backend
+        if (!data.academic_session || data.academic_session === '') {
+            data.academic_session = '';
+        }
+        
         // Show loading state
         const submitBtn = form.closest('.modal').querySelector('.btn-success');
         const originalText = submitBtn.innerHTML;
@@ -1543,10 +1614,100 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Unassign teacher from course assignment
-    function unassignTeacherAssignment(assignmentId, courseId) {
-        if (!confirm('Are you sure you want to remove this assignment?')) {
+    // Replace teacher in course assignment
+    function replaceTeacherAssignment(assignmentId, courseId, currentTeacherId) {
+        // Set assignment ID in hidden input
+        document.getElementById(`replaceAssignmentId${courseId}`).value = assignmentId;
+        
+        // Exclude current teacher from dropdown
+        const teacherSelect = document.getElementById(`new_teacher_id${courseId}`);
+        const options = teacherSelect.querySelectorAll('option');
+        options.forEach(option => {
+            if (option.value == currentTeacherId) {
+                option.style.display = 'none';
+            } else {
+                option.style.display = '';
+            }
+        });
+        
+        // Reset selection
+        teacherSelect.value = '';
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById(`replaceTeacherModal${courseId}`));
+        modal.show();
+    }
+    
+    function confirmReplaceTeacher(courseId) {
+        const form = document.getElementById(`replaceTeacherForm${courseId}`);
+        const assignmentId = document.getElementById(`replaceAssignmentId${courseId}`).value;
+        const newTeacherId = document.getElementById(`new_teacher_id${courseId}`).value;
+        
+        if (!newTeacherId) {
+            alert('Please select a new teacher.');
             return;
+        }
+        
+        if (!confirm('আপনি কি নিশ্চিত যে আপনি এই টিচারকে পরিবর্তন করতে চান? সব ডাটা (batch, session, students, attendance) intact থাকবে।')) {
+            return;
+        }
+        
+        // Show loading state
+        const submitBtn = form.closest('.modal').querySelector('.btn-primary');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Replacing...';
+        
+        fetch('/course-management/api/replace-teacher-session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                assignment_id: assignmentId,
+                new_teacher_id: parseInt(newTeacherId)
+            })
+        })
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                alert(result.message || 'টিচার সফলভাবে পরিবর্তন করা হয়েছে।');
+                const modal = bootstrap.Modal.getInstance(form.closest('.modal'));
+                if (modal) modal.hide();
+                location.reload();
+            } else {
+                alert(result.message || 'টিচার পরিবর্তন করতে ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('টিচার পরিবর্তন করার সময় একটি ত্রুটি ঘটেছে।');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+    }
+
+    // Unassign teacher from course assignment
+    function unassignTeacherAssignment(assignmentId, courseId, buttonElement) {
+        // Validate assignmentId
+        if (!assignmentId || assignmentId === 'undefined' || assignmentId === 'null') {
+            alert('Error: Invalid assignment ID. Please refresh the page and try again.');
+            console.error('Invalid assignmentId:', assignmentId);
+            return;
+        }
+
+        if (!confirm('আপনি কি নিশ্চিত যে আপনি এই টিচারকে আনএসাইন করতে চান?')) {
+            return;
+        }
+
+        // Show loading indicator
+        const button = buttonElement || (event && event.target && event.target.closest('button'));
+        const originalHTML = button ? button.innerHTML : '';
+        if (button) {
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
         }
 
         fetch('/course-management/api/unassign-teacher-session', {
@@ -1556,20 +1717,33 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify({ assignment_id: assignmentId })
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(result => {
             if (result.success) {
-                alert(result.message || 'Assignment removed successfully.');
+                alert(result.message || 'টিচার সফলভাবে আনএসাইন করা হয়েছে।');
                 const modal = bootstrap.Modal.getInstance(document.getElementById(`assignTeacherModal${courseId}`));
                 if (modal) modal.hide();
                 location.reload();
             } else {
-                alert(result.message || 'Failed to unassign teacher. Please try again.');
+                alert(result.message || 'টিচার আনএসাইন করতে ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = originalHTML;
+                }
             }
         })
         .catch(error => {
-            console.error('Error:', error);
-            alert('An error occurred while unassigning teacher.');
+            console.error('Error unassigning teacher:', error);
+            alert('টিচার আনএসাইন করার সময় একটি ত্রুটি ঘটেছে। অনুগ্রহ করে কনসোল চেক করুন।');
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = originalHTML;
+            }
         });
     }
 
@@ -1600,9 +1774,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <strong>${teacherLabel}</strong>
                                 <span class="ms-2">${sectionLabel}${batchLabel}${badge}</span>
                             </div>
-                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment(${assignment.id}, ${courseId})">
-                                <i class="fas fa-trash-alt me-1"></i>Unassign
-                            </button>
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="replaceTeacherAssignment(${assignment.id}, ${courseId}, ${assignment.teacher_id})" title="Replace Teacher">
+                                    <i class="fas fa-exchange-alt"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment(${assignment.id}, ${courseId}, this)" title="Unassign">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </div>
                         `;
                         list.appendChild(item);
                     });

@@ -117,7 +117,8 @@ def delete_room(id):
 @routine_management_bp.route('/assign_course', methods=['GET', 'POST'])
 def assign_course():
     form = AssignCourseForm()
-    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in Teacher.query.order_by('name').all()]
+    from role_utils import get_teachers_excluding_head
+    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_excluding_head()]
 
     # Centralized logic to get available courses
     all_assignments = AssignedCourse.query.all()
@@ -193,7 +194,8 @@ def assign_course():
 def edit_assignment(id):
     assignment = AssignedCourse.query.get_or_404(id)
     form = AssignCourseForm(obj=assignment)
-    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in Teacher.query.order_by('name').all()]
+    from role_utils import get_teachers_excluding_head
+    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_excluding_head()]
     form.course.choices = [(assignment.course.id, f"{assignment.course.course_code} - {assignment.course.course_name}")]
 
     other_assignments = AssignedCourse.query.filter(
@@ -243,7 +245,8 @@ def delete_assignment(id):
 # Generate Routine
 @routine_management_bp.route('/generate_routine')
 def generate_routine():
-    teachers_list = Teacher.query.order_by('name').all()
+    from role_utils import get_teachers_excluding_head
+    teachers_list = get_teachers_excluding_head()
     teachers = [{'id': t.id, 'name': t.name, 'short_name': t.short_name} for t in teachers_list]
     
     rooms = Room.query.order_by('room_number').all()
@@ -327,7 +330,8 @@ def teacher_courses(teacher_id):
 
 @routine_management_bp.route('/api/get_teachers')
 def get_teachers():
-    teachers_list = Teacher.query.order_by('name').all()
+    from role_utils import get_teachers_excluding_head
+    teachers_list = get_teachers_excluding_head()
     return jsonify([{'id': t.id, 'name': t.name, 'short_name': t.short_name} for t in teachers_list])
 
 @routine_management_bp.route('/api/routine/save', methods=['POST'])
@@ -564,7 +568,8 @@ def download_teacher_wise_pdf():
     elements = []
     elements.append(Paragraph('Teacher-wise Course Assignment', style_title))
     elements.append(Spacer(1, 0.2*inch))
-    teachers = Teacher.query.order_by(Teacher.name).all()
+    from role_utils import get_teachers_excluding_head
+    teachers = get_teachers_excluding_head()
     for teacher in teachers:
         assignments = AssignedCourse.query.filter_by(teacher_id=teacher.id).all()
         if not assignments:

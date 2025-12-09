@@ -26,6 +26,51 @@ TEACHING_ROLES = CORE_ROLES | {'teaching_assistant'}
 STAFF_ROLES = TEACHING_ROLES | {'officer'}
 
 
+def get_teachers_excluding_head():
+    """Get all teachers excluding Head of the Discipline.
+    This function should be used in all places where teacher lists are displayed.
+    """
+    try:
+        from blueprints.class_management.models import Teacher
+        from user_models import User
+        from sqlalchemy import or_
+        from extensions import db
+        
+        if not Teacher:
+            return []
+        
+        # Get all teachers
+        all_teachers = Teacher.query.order_by(Teacher.name).all()
+        
+        # Get Head of the Discipline users
+        head_users = User.query.filter(
+            or_(
+                User.role.like('%head%'),
+                User.role == 'head'
+            )
+        ).all()
+        head_names = {user.full_name for user in head_users}
+        
+        # Filter out Head of the Discipline from teachers list
+        teachers = [teacher for teacher in all_teachers if teacher.name not in head_names]
+        return teachers
+    except ImportError:
+        return []
+    except Exception as e:
+        # Log error but don't fail - return all teachers as fallback
+        try:
+            from flask import current_app
+            current_app.logger.warning(f'Error filtering teachers: {e}')
+        except:
+            pass
+        # Fallback: get all teachers if filtering fails
+        try:
+            from blueprints.class_management.models import Teacher
+            return Teacher.query.order_by(Teacher.name).all() if Teacher else []
+        except:
+            return []
+
+
 def _coerce_role_values(role_field) -> list[str]:
     """Return lowercase role tokens from strings, iterables, or None."""
     if role_field is None or role_field == '':

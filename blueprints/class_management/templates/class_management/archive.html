@@ -24,6 +24,7 @@
                                 <th>Year</th>
                                 <th>Term</th>
                                 <th>Academic Session</th>
+                                <th>Batch</th>
                                 <th>Course Code</th>
                                 <th>Course Name</th>
                                 <th>Created At</th>
@@ -32,11 +33,13 @@
                         </thead>
                         <tbody>
                             {% for session in sessions %}
+                            {% set assignment = assignment_map.get(session.id, {}) %}
                             <tr>
                                 <td>{{ loop.index }}</td>
                                 <td><span class="badge bg-info">{{ session.year }}</span></td>
-                                <td>{{ session.term }}</td>
-                                <td>{{ session.academic_session or '-' }}</td>
+                                <td><span class="badge bg-success">{{ session.term }}</span></td>
+                                <td>{{ assignment.get('academic_session') or session.academic_session or '-' }}</td>
+                                <td><span class="badge bg-secondary">{{ assignment.get('batch') or '-' }}</span></td>
                                 <td><span class="badge bg-warning">{{ session.course_code or '-' }}</span></td>
                                 <td><strong>{{ session.course_name or '-' }}</strong></td>
                                 <td>{{ session.created_at.strftime('%Y-%m-%d') }}</td>
