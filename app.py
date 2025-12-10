@@ -132,6 +132,8 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(student_management_bp, url_prefix='/student-management')
     app.register_blueprint(course_management_bp, url_prefix='/course-management')
+    from blueprints.academic_calendar import academic_calendar_bp
+    app.register_blueprint(academic_calendar_bp, url_prefix='/academic-calendar')
     
     # Register error handlers for cPanel deployment
     register_error_handlers(app)
@@ -183,6 +185,7 @@ def create_app():
 
     @app.context_processor
     def inject_role_helpers():
+        from datetime import date, timedelta
         return {
             'ROLE_LABELS': ROLE_LABELS,
             'ROLE_CHOICES': NON_ADMIN_ROLE_CHOICES,
@@ -193,6 +196,9 @@ def create_app():
             'is_admin': is_admin,
             'is_exam_committee_chief': _is_exam_committee_chief,
             'is_exam_committee_member': _is_exam_committee_member,
+            'date': date,
+            'timedelta': timedelta,
+            'datetime': datetime,
         }
 
     @app.route('/')

@@ -102,18 +102,23 @@
         <div class="card-body d-flex flex-wrap justify-content-between align-items-center">
             <div class="d-flex align-items-center me-3 mb-2 mb-md-0">
                 <span class="fw-bold me-2">Routine Title:</span>
-                <input type="text" id="routine-title-input" class="form-control form-control-sm" value="Class Routine">
+                <input type="text" id="routine-title-input" class="form-control form-control-sm" value="Class Routine" {% if not can_edit %}readonly{% endif %}>
             </div>
             <div class="d-flex align-items-center me-3 mb-2 mb-md-0">
                 <span class="fw-bold me-2">Effective Date:</span>
-                <input type="date" id="effective-date-input" class="form-control form-control-sm">
+                <input type="date" id="effective-date-input" class="form-control form-control-sm" {% if not can_edit %}readonly{% endif %}>
             </div>
             <div>
+                {% if can_edit %}
                 <button id="save-routine-btn" class="btn btn-success btn-sm me-1">Save Routine</button>
-                <button id="download-pdf-btn" class="btn btn-primary btn-sm me-1">Download PDF</button>
                 <button id="clear-routine-btn" class="btn btn-danger btn-sm me-1">Clear Routine</button>
                 <button id="export-routine-btn" class="btn btn-secondary btn-sm me-1">Export Routine</button>
-                <button id="import-routine-btn" class="btn btn-secondary btn-sm">Import Routine</button>
+                <button id="import-routine-btn" class="btn btn-secondary btn-sm me-1">Import Routine</button>
+                {% endif %}
+                <button id="download-pdf-btn" class="btn btn-primary btn-sm">Download PDF</button>
+                {% if not can_edit %}
+                <span class="badge bg-warning text-dark ms-2">View Only Mode</span>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -194,7 +199,7 @@
                 <hr class="my-0">
                 <div class="p-3">
                     <h6 class="fw-bold">Events</h6>
-                    <div class="course-item-sidebar" draggable="true" id="academic-meeting">
+                    <div class="course-item-sidebar" {% if can_edit %}draggable="true"{% else %}draggable="false" style="cursor: default; opacity: 0.7;"{% endif %} id="academic-meeting">
                         <strong>Academic Committee Meeting</strong><br>
                         <small>(All Teachers)</small><br>
                         <span class="badge bg-warning text-dark">Meeting</span>
@@ -214,6 +219,7 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const canEdit = {{ 'true' if can_edit else 'false' }};
     const teacherSelect = document.getElementById('teacher-select');
     const coursesList = document.getElementById('courses-list');
     const timetable = document.querySelector('.timetable');
@@ -225,34 +231,138 @@ document.addEventListener('DOMContentLoaded', function () {
     const importBtn = document.getElementById('import-routine-btn');
 
     let draggedElement = null;
+    
+    // Disable drag and drop if user cannot edit
+    if (!canEdit) {
+        // Disable all drag operations
+        document.addEventListener('dragstart', e => {
+            e.preventDefault();
+            return false;
+        }, true);
+        
+        // Disable drop operations
+        if (timetable) {
+            timetable.addEventListener('dragover', e => e.preventDefault());
+            timetable.addEventListener('drop', e => e.preventDefault());
+        }
+        if (deleteBox) {
+            deleteBox.addEventListener('dragover', e => e.preventDefault());
+            deleteBox.addEventListener('drop', e => e.preventDefault());
+        }
+        
+        // Make all course cells non-draggable
+        document.querySelectorAll('.course-in-cell').forEach(cell => {
+            cell.draggable = false;
+            cell.style.cursor = 'default';
+        });
+        
+        // Hide delete box
+        if (deleteBox) {
+            deleteBox.style.display = 'none';
+        }
+    }
 
-    async function loadCoursesForTeacher() {
+    function loadCoursesForTeacher() {
+        // Get elements
+        if (!teacherSelect) {
+            console.error('teacherSelect not found');
+            return;
+        }
+        if (!coursesList) {
+            console.error('coursesList not found');
+            return;
+        }
+        
         const teacherId = teacherSelect.value;
+        
+        // Clear previous content
         coursesList.innerHTML = '';
-        if (!teacherId) {
+        
+        // Check if teacher is selected
+        if (!teacherId || teacherId === '') {
             coursesList.innerHTML = '<p class="text-muted p-3">Select a teacher...</p>';
             return;
         }
-
-        const response = await fetch(`/routine-management/api/teacher_courses/${teacherId}`);
-        const courses = await response.json();
         
-        const placedCourses = getPlacedCourseCounts();
-
-        courses.forEach(course => {
-            const placedCount = placedCourses[course.assigned_id] || 0;
-            const remaining = course.classes_per_week - placedCount;
-            if (remaining > 0) {
-                const courseEl = createCourseSidebarElement(course, remaining);
-                coursesList.appendChild(courseEl);
-            }
-        });
+        // Show loading
+        coursesList.innerHTML = '<p class="text-muted p-3"><i class="fas fa-spinner fa-spin me-2"></i>Loading courses...</p>';
+        
+        // Fetch courses
+        const url = '/routine-management/api/teacher_courses/' + teacherId;
+        
+        fetch(url)
+            .then(function(response) {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return response.json();
+            })
+            .then(function(data) {
+                // Clear loading
+                coursesList.innerHTML = '';
+                
+                // Check if data is array
+                if (!Array.isArray(data)) {
+                    console.error('Invalid response format:', data);
+                    coursesList.innerHTML = '<p class="text-danger p-3">Invalid response from server.</p>';
+                    return;
+                }
+                
+                // Check if empty
+                if (data.length === 0) {
+                    coursesList.innerHTML = '<p class="text-muted p-3">No courses assigned to this teacher in the curriculum.</p>';
+                    return;
+                }
+                
+                // Get placed courses count
+                const placedCourses = getPlacedCourseCounts();
+                
+                // Display each course
+                let displayedCount = 0;
+                for (let i = 0; i < data.length; i++) {
+                    const course = data[i];
+                    
+                    // Validate course data
+                    if (!course || !course.assigned_id || !course.course_code) {
+                        continue;
+                    }
+                    
+                    // Calculate remaining classes
+                    const placedCount = placedCourses[course.assigned_id] || 0;
+                    const totalClasses = course.classes_per_week || 0;
+                    const remaining = totalClasses - placedCount;
+                    
+                    // Only show if there are remaining classes
+                    if (remaining > 0) {
+                        const courseEl = createCourseSidebarElement(course, remaining);
+                        if (courseEl) {
+                            coursesList.appendChild(courseEl);
+                            displayedCount++;
+                        }
+                    }
+                }
+                
+                // Show message if nothing displayed
+                if (displayedCount === 0) {
+                    coursesList.innerHTML = '<p class="text-muted p-3">All courses for this teacher are already scheduled.</p>';
+                }
+            })
+            .catch(function(error) {
+                console.error('Error loading courses:', error);
+                coursesList.innerHTML = '<p class="text-danger p-3"><i class="fas fa-exclamation-triangle me-2"></i>Error: ' + (error.message || 'Failed to load courses') + '</p>';
+            });
     }
 
     function createCourseSidebarElement(course, remaining) {
         const courseEl = document.createElement('div');
         courseEl.className = 'course-item-sidebar';
+        {% if can_edit %}
         courseEl.draggable = true;
+        {% else %}
+        courseEl.draggable = false;
+        courseEl.style.cursor = 'default';
+        courseEl.style.opacity = '0.7';
+        {% endif %}
         courseEl.dataset.courseInfo = JSON.stringify(course);
         courseEl.setAttribute('data-course-code', course.course_code);
 
@@ -271,7 +381,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 </div>
                 <div class="d-flex flex-column align-items-end">
                     <span class="badge bg-primary rounded-pill" name="class-count">${remaining}</span>
+                    {% if can_edit %}
                     <button class="btn btn-sm btn-outline-success mt-1" id="${autoBtnId}">Auto</button>
+                    {% endif %}
                 </div>
             </div>
         `;
@@ -299,17 +411,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.addEventListener('dragstart', e => {
+        if (!canEdit) {
+            e.preventDefault();
+            return false;
+        }
         if (e.target.matches('.course-item-sidebar, .course-in-cell')) {
             draggedElement = e.target;
         }
     });
 
-    timetable.addEventListener('dragover', e => e.preventDefault());
-    deleteBox.addEventListener('dragover', e => e.preventDefault());
+    if (canEdit) {
+        timetable.addEventListener('dragover', e => e.preventDefault());
+        deleteBox.addEventListener('dragover', e => e.preventDefault());
 
-    timetable.addEventListener('drop', e => {
-        e.preventDefault();
-        if (!draggedElement) return;
+        timetable.addEventListener('drop', e => {
+            e.preventDefault();
+            if (!draggedElement) return;
 
         const dropTarget = e.target.closest('.drop-target');
         if (!dropTarget) return;
@@ -352,7 +469,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function createCourseCellElement(courseInfo) {
         const div = document.createElement('div');
         div.className = 'course-in-cell';
+        {% if can_edit %}
         div.draggable = true;
+        {% else %}
+        div.draggable = false;
+        div.style.cursor = 'default';
+        {% endif %}
         div.dataset.courseInfo = JSON.stringify(courseInfo);
 
         const teacherNames = courseInfo.teachers.map(t => t.short_name).join('/');
@@ -363,7 +485,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function createEventCellElement(eventInfo) {
         const div = document.createElement('div');
         div.className = 'course-in-cell bg-warning text-dark'; // Different color for events
+        {% if can_edit %}
         div.draggable = true;
+        {% else %}
+        div.draggable = false;
+        div.style.cursor = 'default';
+        {% endif %}
         div.dataset.eventInfo = JSON.stringify(eventInfo); // Store event info separately
 
         div.innerHTML = `<strong>${eventInfo.course_code}</strong><br><small>(${eventInfo.teacher_short_name})</small>`;
@@ -386,7 +513,11 @@ document.addEventListener('DOMContentLoaded', function () {
                 item.style.pointerEvents = 'none';
             } else {
                 item.classList.remove('disabled-course');
+                {% if can_edit %}
                 item.setAttribute('draggable', 'true');
+                {% else %}
+                item.setAttribute('draggable', 'false');
+                {% endif %}
                 item.style.opacity = 1;
                 item.style.pointerEvents = '';
             }
@@ -424,74 +555,86 @@ document.addEventListener('DOMContentLoaded', function () {
             });
     };
 
-    saveBtn.addEventListener('click', async () => {
-        const routineData = [];
-        document.querySelectorAll('.drop-target').forEach(td => {
-            if (td.children.length > 0) {
-                const cell = td.children[0];
-                let entry;
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            if (!canEdit) {
+                alert('You do not have permission to save routine.');
+                return;
+            }
+            const routineData = [];
+            document.querySelectorAll('.drop-target').forEach(td => {
+                if (td.children.length > 0) {
+                    const cell = td.children[0];
+                    let entry;
 
-                if (cell.dataset.courseInfo) {
-                    const courseInfo = JSON.parse(cell.dataset.courseInfo);
-                    entry = {
-                        day: td.dataset.day,
-                        slot: td.dataset.slot, // Corrected: sending 'slot'
-                        room_id: parseInt(td.dataset.roomId),
-                        course_code: courseInfo.course_code,
-                        teacher_short_name: courseInfo.teachers.map(t => t.short_name).join('/'),
-                        part: courseInfo.part,
-                        is_shared: courseInfo.is_shared_slot,
-                        shared_with: courseInfo.is_shared_slot ? courseInfo.teachers.map(t => t.short_name).join('/') : null,
-                        teacher_id: courseInfo.teacher_id,
-                    };
-                } else if (cell.dataset.eventInfo) {
-                    const eventInfo = JSON.parse(cell.dataset.eventInfo);
-                     entry = {
-                        day: td.dataset.day,
-                        slot: td.dataset.slot,
-                        room_id: parseInt(td.dataset.roomId),
-                        course_code: eventInfo.course_code,
-                        teacher_short_name: eventInfo.teacher_short_name,
-                        part: null,
-                        is_shared: false,
-                        shared_with: null,
-                        teacher_id: null,
-                    };
+                    if (cell.dataset.courseInfo) {
+                        const courseInfo = JSON.parse(cell.dataset.courseInfo);
+                        entry = {
+                            day: td.dataset.day,
+                            slot: td.dataset.slot, // Corrected: sending 'slot'
+                            room_id: parseInt(td.dataset.roomId),
+                            course_code: courseInfo.course_code,
+                            teacher_short_name: courseInfo.teachers.map(t => t.short_name).join('/'),
+                            part: courseInfo.part,
+                            is_shared: courseInfo.is_shared_slot,
+                            shared_with: courseInfo.is_shared_slot ? courseInfo.teachers.map(t => t.short_name).join('/') : null,
+                            teacher_id: courseInfo.teacher_id,
+                        };
+                    } else if (cell.dataset.eventInfo) {
+                        const eventInfo = JSON.parse(cell.dataset.eventInfo);
+                        entry = {
+                            day: td.dataset.day,
+                            slot: td.dataset.slot,
+                            room_id: parseInt(td.dataset.roomId),
+                            course_code: eventInfo.course_code,
+                            teacher_short_name: eventInfo.teacher_short_name,
+                            part: null,
+                            is_shared: false,
+                            shared_with: null,
+                            teacher_id: null,
+                        };
+                    }
+                    
+                    if (entry) {
+                        routineData.push(entry);
+                    }
                 }
-                
-                if (entry) {
-                    routineData.push(entry);
-                }
+            });
+
+            try {
+                const response = await fetch(`/routine-management/api/routine/save`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ routine: routineData }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || "Save failed");
+                alert('Routine saved successfully!');
+            } catch (error) {
+                console.error(error);
+                alert(`Failed to save routine: ${error.message}`);
             }
         });
+    }
 
-        try {
-            const response = await fetch(`/routine-management/api/routine/save`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ routine: routineData }),
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.message || "Save failed");
-            alert('Routine saved successfully!');
-        } catch (error) {
-            console.error(error);
-            alert(`Failed to save routine: ${error.message}`);
-        }
-    });
-
-    clearBtn.addEventListener('click', async () => {
-       if (!confirm('Are you sure you want to clear the entire routine? This cannot be undone.')) return;
+    if (clearBtn) {
+        clearBtn.addEventListener('click', async () => {
+            if (!canEdit) {
+                alert('You do not have permission to clear routine.');
+                return;
+            }
+            if (!confirm('Are you sure you want to clear the entire routine? This cannot be undone.')) return;
        try {
             const response = await fetch(`/routine-management/api/routine/clear`, { method: 'POST' });
             if (!response.ok) throw new Error("Clear failed");
             alert('Routine cleared!');
             window.location.reload();
-       } catch (error) {
-           console.error(error);
-           alert('Failed to clear routine.');
-       }
-    });
+            } catch (error) {
+                console.error(error);
+                alert('Failed to clear routine.');
+            }
+        });
+    }
 
     downloadPdfBtn.addEventListener('click', async () => {
         const routineTitle = document.getElementById('routine-title-input').value;
@@ -557,86 +700,97 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    exportBtn.addEventListener('click', () => {
-        const routineData = [];
-        document.querySelectorAll('.drop-target').forEach(td => {
-            if (td.children.length > 0) {
-                const cell = td.children[0];
-                const entry = {
-                    day: td.dataset.day,
-                    slot: td.dataset.slot,
-                    room_id: parseInt(td.dataset.roomId),
-                    type: cell.dataset.courseInfo ? 'course' : 'event',
-                    details: JSON.parse(cell.dataset.courseInfo || cell.dataset.eventInfo)
-                };
-                routineData.push(entry);
+    if (exportBtn) {
+        exportBtn.addEventListener('click', () => {
+            if (!canEdit) {
+                alert('You do not have permission to export routine.');
+                return;
             }
-        });
-
-        const dataStr = JSON.stringify(routineData, null, 2);
-        const dataBlob = new Blob([dataStr], {type: "application/json"});
-        const url = URL.createObjectURL(dataBlob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'routine_export.json';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    });
-
-    importBtn.addEventListener('click', () => {
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = '.json,application/json';
-        
-        fileInput.onchange = e => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = event => {
-                try {
-                    const importedData = JSON.parse(event.target.result);
-                    if (!Array.isArray(importedData)) {
-                        throw new Error("Invalid format: JSON file should contain an array.");
-                    }
-                    
-                    if (!confirm('This will clear the current routine and load the new one. Are you sure?')) {
-                        return;
-                    }
-
-                    // Clear existing routine
-                    document.querySelectorAll('.course-in-cell').forEach(cell => cell.remove());
-                    
-                    // Render new routine
-                    importedData.forEach(entry => {
-                        const cell = document.querySelector(`td[data-day="${entry.day}"][data-slot="${entry.slot}"][data-room-id="${entry.room_id}"]`);
-                        if (cell) {
-                            let newCell;
-                            if (entry.type === 'course' && entry.details) {
-                                newCell = createCourseCellElement(entry.details);
-                            } else if (entry.type === 'event' && entry.details) {
-                                newCell = createEventCellElement(entry.details);
-                            }
-                            if (newCell) {
-                                cell.appendChild(newCell);
-                            }
-                        }
-                    });
-                    alert('Routine imported successfully!');
-                    loadCoursesForTeacher(); // Update sidebar counts
-                } catch (error) {
-                    console.error("Failed to import routine:", error);
-                    alert(`Error importing routine: ${error.message}`);
+            const routineData = [];
+            document.querySelectorAll('.drop-target').forEach(td => {
+                if (td.children.length > 0) {
+                    const cell = td.children[0];
+                    const entry = {
+                        day: td.dataset.day,
+                        slot: td.dataset.slot,
+                        room_id: parseInt(td.dataset.roomId),
+                        type: cell.dataset.courseInfo ? 'course' : 'event',
+                        details: JSON.parse(cell.dataset.courseInfo || cell.dataset.eventInfo)
+                    };
+                    routineData.push(entry);
                 }
+            });
+
+            const dataStr = JSON.stringify(routineData, null, 2);
+            const dataBlob = new Blob([dataStr], {type: "application/json"});
+            const url = URL.createObjectURL(dataBlob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'routine_export.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+
+    if (importBtn) {
+        importBtn.addEventListener('click', () => {
+            if (!canEdit) {
+                alert('You do not have permission to import routine.');
+                return;
+            }
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.json,application/json';
+            
+            fileInput.onchange = e => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = event => {
+                    try {
+                        const importedData = JSON.parse(event.target.result);
+                        if (!Array.isArray(importedData)) {
+                            throw new Error("Invalid format: JSON file should contain an array.");
+                        }
+                        
+                        if (!confirm('This will clear the current routine and load the new one. Are you sure?')) {
+                            return;
+                        }
+
+                        // Clear existing routine
+                        document.querySelectorAll('.course-in-cell').forEach(cell => cell.remove());
+                        
+                        // Render new routine
+                        importedData.forEach(entry => {
+                            const cell = document.querySelector(`td[data-day="${entry.day}"][data-slot="${entry.slot}"][data-room-id="${entry.room_id}"]`);
+                            if (cell) {
+                                let newCell;
+                                if (entry.type === 'course' && entry.details) {
+                                    newCell = createCourseCellElement(entry.details);
+                                } else if (entry.type === 'event' && entry.details) {
+                                    newCell = createEventCellElement(entry.details);
+                                }
+                                if (newCell) {
+                                    cell.appendChild(newCell);
+                                }
+                            }
+                        });
+                        alert('Routine imported successfully!');
+                        loadCoursesForTeacher(); // Update sidebar counts
+                    } catch (error) {
+                        console.error("Failed to import routine:", error);
+                        alert(`Error importing routine: ${error.message}`);
+                    }
+                };
+                reader.readAsText(file);
             };
-            reader.readAsText(file);
-        };
-        
-        fileInput.click();
-    });
+            
+            fileInput.click();
+        });
 
     teacherSelect.addEventListener('change', loadCoursesForTeacher);
     
@@ -647,6 +801,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // --- Auto Place Logic ---
     function autoPlaceCourse(course, remaining) {
+        if (!canEdit) {
+            alert('You do not have permission to edit routine.');
+            return;
+        }
         // Constraints:
         // 1. দিন ও রুম র‍্যান্ডম (shuffle)
         // 2. একই দিনে একই সাবজেক্ট একবারই (৪ ক্রেডিট থিওরি ছাড়া)

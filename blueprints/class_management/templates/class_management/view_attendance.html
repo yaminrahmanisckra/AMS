@@ -11,8 +11,11 @@
                 {% endif %}
             </h5>
             <div class="d-flex align-items-center flex-wrap gap-2">
-                <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-light btn-sm" target="_blank" title="Download Summary PDF">
+                <a href="{{ url_for('class_management.download_attendance_sheet_weasyprint', session_id=session.id) }}" class="btn btn-primary btn-sm" target="_blank" title="Download Attendance Sheet PDF (WeasyPrint)">
                     <i class="fas fa-file-pdf"></i> PDF
+                </a>
+                <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-light btn-sm" target="_blank" title="Download Summary PDF">
+                    <i class="fas fa-file-pdf"></i> Summary PDF
                 </a>
                 <a href="{{ url_for('class_management.download_attendance_excel', session_id=session.id) }}" class="btn btn-success btn-sm" title="Download as Excel">
                     <i class="fas fa-file-excel"></i> Excel

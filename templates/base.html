@@ -24,8 +24,8 @@
                 {% set active_role = current_user.active_role %}
                 {% set head_active = (active_role == 'head') %}
                 <div class="flex-grow-1">
-                    <div class="d-none d-lg-flex flex-wrap alignments-center w-100">
-                        <ul class="navbar-nav flex-wrap me-auto">
+                    <div class="d-none d-lg-flex align-items-center w-100">
+                        <ul class="navbar-nav me-auto">
                             {% if has_teacher_privileges(current_user) or is_admin(current_user) %}
                             <li class="nav-item dropdown">
                                 <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -42,6 +42,7 @@
                                     <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
                                     {% endif %}
+                                    <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration Review</a></li>
@@ -62,13 +63,13 @@
                             {% endif %}
                             {% if 'student' in parse_roles(current_user.role) and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
                             <li class="nav-item">
-                                <a class="nav-link {{ 'active' if request.endpoint == 'student_dashboard' else '' }}" href="{{ url_for('student_dashboard') }}">
+                                <a class="nav-link {{ 'active' if request.endpoint == 'student_dashboard' else '' }}" href="{{ url_for('student_dashboard') }}" style="white-space: nowrap;">
                                     <i class="fas fa-home me-2"></i>Student Dashboard
                                 </a>
                             </li>
                             {% endif %}
                             <li class="nav-item">
-                                <a class="nav-link {{ 'active' if request.endpoint and 'class_management.my_invitations' in request.endpoint else '' }}" href="{{ url_for('class_management.my_invitations') }}">
+                                <a class="nav-link {{ 'active' if request.endpoint and 'class_management.my_invitations' in request.endpoint else '' }}" href="{{ url_for('class_management.my_invitations') }}" style="white-space: nowrap;">
                                     <i class="fas fa-envelope-open-text me-2"></i>Invitations
                                     {% if pending_invites_count and pending_invites_count > 0 %}
                                         <span class="badge bg-warning text-dark ms-1">{{ pending_invites_count }}</span>
@@ -76,11 +77,11 @@
                                 </a>
                             </li>
                         </ul>
-                        <div class="navbar-nav ms-auto align-items-center">
-                            <a class="navbar-text me-3 text-decoration-none text-white" href="{{ url_for('profile') }}">
+                        <div class="navbar-nav ms-auto align-items-center d-flex flex-row">
+                            <a class="navbar-text me-3 text-decoration-none text-white d-flex align-items-center" href="{{ url_for('profile') }}" style="white-space: nowrap;">
                                 <i class="fas fa-user me-1"></i>Welcome, {{ current_user.full_name or current_user.username }}
                             </a>
-                            <a class="nav-link" href="{{ url_for('auth.logout') }}">
+                            <a class="nav-link d-flex align-items-center" href="{{ url_for('auth.logout') }}" style="white-space: nowrap;">
                                 <i class="fas fa-sign-out-alt me-1"></i>Logout
                             </a>
                         </div>
@@ -104,6 +105,7 @@
                                 <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
                                 {% endif %}
+                                <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration Review</a></li>

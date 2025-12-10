@@ -1,8 +1,11 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file
+from flask_login import login_required, current_user
 from extensions import db
+from sqlalchemy import func
 from .models import Teacher, Room, AssignedCourse, Routine
-from blueprints.course_management.models import Course
+from blueprints.course_management.models import Course, DutyAssignment
 from .forms import TeacherForm, RoomForm, AssignCourseForm
+from role_utils import parse_roles
 from datetime import datetime
 from collections import defaultdict
 from io import BytesIO
@@ -242,12 +245,113 @@ def delete_assignment(id):
     flash('Course assignment deleted successfully!', 'success')
     return redirect(url_for('routine_management.assign_course'))
 
-# Generate Routine
-@routine_management_bp.route('/generate_routine')
-def generate_routine():
+def can_edit_routine():
+    """Check if current user can edit routine - Only Teachers and Teaching Assistants can edit. Students can only view and download."""
+    if not current_user.is_authenticated:
+        return False
+    
+    roles = set(parse_roles(current_user.role))
+    if getattr(current_user, 'active_role', None):
+        roles = set(parse_roles(current_user.active_role))
+    
+    # Students cannot edit (only view and download)
+    if 'student' in roles:
+        return False
+    
+    # Only Teachers can edit
+    if 'teacher' in roles:
+        return True
+    
+    # Teaching Assistants can edit
+    if 'teaching_assistant' in roles:
+        return True
+    
+    # All other roles (head, dean, admin, officer, etc.) cannot edit
+    return False
+
+@routine_management_bp.route('/api/check-edit-permission')
+@login_required
+def check_edit_permission():
+    """Debug endpoint to check routine edit permission"""
+    from blueprints.class_management.models import Teacher
+    from user_models import User
+    
+    result = {
+        'user': current_user.full_name,
+        'username': current_user.username,
+        'roles': parse_roles(current_user.role),
+        'can_edit': can_edit_routine(),
+        'teacher_found': False,
+        'teacher_id': None,
+        'teacher_name': None,
+        'routine_maker_assignment': None,
+        'discipline_head_assignment': None
+    }
+    
+    try:
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            teacher = Teacher.query.filter(
+                func.lower(Teacher.name) == func.lower(current_user.full_name.strip())
+            ).first()
+        if not teacher:
+            teacher = Teacher.query.filter(
+                Teacher.name.like(f"%{current_user.full_name.strip()}%")
+            ).first()
+        
+        if teacher:
+            result['teacher_found'] = True
+            result['teacher_id'] = teacher.id
+            result['teacher_name'] = teacher.name
+            
+            # Check routine_maker assignment
+            routine_maker = DutyAssignment.query.filter(
+                DutyAssignment.assigned_teacher_id == teacher.id,
+                DutyAssignment.duty_type == 'routine_maker',
+                DutyAssignment.status == 'active'
+            ).first()
+            
+            if routine_maker:
+                result['routine_maker_assignment'] = {
+                    'id': routine_maker.id,
+                    'assigned_by_id': routine_maker.assigned_by_id,
+                    'status': routine_maker.status,
+                    'created_at': routine_maker.created_at.isoformat() if routine_maker.created_at else None
+                }
+            
+            # Check discipline head assignment
+            discipline_head = DutyAssignment.query.filter(
+                DutyAssignment.assigned_teacher_id == teacher.id,
+                DutyAssignment.status == 'active',
+                DutyAssignment.assigned_by_id.isnot(None)
+            ).first()
+            
+            if discipline_head:
+                result['discipline_head_assignment'] = {
+                    'id': discipline_head.id,
+                    'duty_type': discipline_head.duty_type,
+                    'assigned_by_id': discipline_head.assigned_by_id,
+                    'status': discipline_head.status
+                }
+    except Exception as e:
+        result['error'] = str(e)
+    
+    return jsonify(result)
+
+# View Routine (for students and view-only access)
+@routine_management_bp.route('/view_routine')
+@login_required
+def view_routine():
+    """View routine - accessible to all users, but only teachers/TAs can edit"""
     from role_utils import get_teachers_excluding_head
+    from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    
+    # Get all teachers (for display purposes)
     teachers_list = get_teachers_excluding_head()
-    teachers = [{'id': t.id, 'name': t.name, 'short_name': t.short_name} for t in teachers_list]
+    teachers = [{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list]
+    
+    # Get all curricula for selection
+    curricula = Curriculum.query.order_by(Curriculum.name.desc()).all()
     
     rooms = Room.query.order_by('room_number').all()
     days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
@@ -256,86 +360,193 @@ def generate_routine():
         "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
         "04:00 PM - 04:50 PM"
     ]
-    return render_template('routine_management/routine.html', 
+    can_edit = can_edit_routine()
+    return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
-                           time_slots=time_slots)
+                           time_slots=time_slots, curricula=curricula,
+                           can_edit=can_edit)
+
+# Generate Routine
+@routine_management_bp.route('/generate_routine')
+@login_required
+def generate_routine():
+    from role_utils import get_teachers_excluding_head
+    from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    
+    # Get all teachers
+    teachers_list = get_teachers_excluding_head()
+    teachers = [{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list]
+    
+    # Get all curricula for selection
+    curricula = Curriculum.query.order_by(Curriculum.name.desc()).all()
+    
+    rooms = Room.query.order_by('room_number').all()
+    days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
+    time_slots = [
+        "09:10 AM - 10:00 AM", "10:10 AM - 11:00 AM", "11:10 AM - 12:00 PM",
+        "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
+        "04:00 PM - 04:50 PM"
+    ]
+    can_edit = can_edit_routine()
+    return render_template('routine_management/routine_new.html', 
+                           teachers=teachers, rooms=rooms, days=days, 
+                           time_slots=time_slots, curricula=curricula,
+                           can_edit=can_edit)
 
 # --- API Endpoints for Routine ---
 
 @routine_management_bp.route('/api/teacher_courses/<int:teacher_id>')
+@login_required
 def teacher_courses(teacher_id):
-    assigned_courses = AssignedCourse.query.filter_by(teacher_id=teacher_id).all()
+    """Get courses assigned to teacher from curriculum (CourseSessionAssignment) - Simplified version"""
+    from blueprints.course_management.models import CourseSessionAssignment
+    from blueprints.class_management.models import Teacher
+    
     courses_data = []
-
-    for a in assigned_courses:
-        # Special handling for 3-credit shared courses
-        if a.course.credit == 3.0 and a.part in ['Part A', 'Part B']:
-            courses_data.append({
-                'assigned_id': str(a.id),
-                'course_code': a.course.course_code,
-                'course_name': a.course.course_name,
-                'course_type': a.course.course_type,
-                'part': a.part,
-                'classes_per_week': 1,
+    
+    try:
+        # Verify teacher exists
+        teacher = Teacher.query.get(teacher_id)
+        if not teacher:
+            return jsonify([])
+        
+        # Get all CourseSessionAssignment for this teacher (no filters for now)
+        assignments = CourseSessionAssignment.query.filter_by(teacher_id=teacher_id).all()
+        
+        for assignment in assignments:
+            # Skip if assignment or course is missing
+            if not assignment or not hasattr(assignment, 'course') or not assignment.course:
+                continue
+            
+            # Get basic course info
+            course = assignment.course
+            course_code = getattr(course, 'course_code', '') or ''
+            course_name = getattr(course, 'course_name', '') or ''
+            course_type = getattr(course, 'course_type', 'Theory') or 'Theory'
+            course_credit = float(getattr(course, 'credit', 0) or 0)
+            
+            # Get section info
+            section = getattr(assignment, 'section', None)
+            if section not in ['A', 'B']:
+                section = 'Full'
+            
+            part_display = f'Part {section}' if section in ['A', 'B'] else 'Full'
+            
+            # Get teacher info
+            teacher_obj = assignment.teacher if hasattr(assignment, 'teacher') else teacher
+            teacher_short = getattr(teacher_obj, 'call_sign', None) or getattr(teacher_obj, 'short_name', '') or ''
+            teacher_name = getattr(teacher_obj, 'name', '') or ''
+            teacher_id_val = getattr(teacher_obj, 'id', None)
+            
+            # Calculate classes per week
+            if course_type == 'Sessional':
+                total_classes = int(course_credit * 2)
+            else:
+                total_classes = int(course_credit)
+            
+            if section in ['A', 'B']:
+                classes_per_week = (total_classes + 1) // 2
+            else:
+                classes_per_week = total_classes
+            
+            # Get year and term from assignment
+            year = getattr(assignment, 'year', '') or ''
+            term = getattr(assignment, 'term', '') or ''
+            
+            # Create course entry
+            course_entry = {
+                'assigned_id': str(assignment.id),
+                'course_code': course_code,
+                'course_name': course_name,
+                'course_type': course_type,
+                'credit': course_credit,
+                'part': part_display,
+                'classes_per_week': classes_per_week,
                 'is_shared_slot': False,
-                'teachers': [{'id': a.teacher.id, 'name': a.teacher.name, 'short_name': a.teacher.short_name}]
-            })
-
-            if a.part == 'Part A':
-                other_assignment = AssignedCourse.query.filter(
-                    AssignedCourse.course_id == a.course_id,
-                    AssignedCourse.part == 'Part B'
+                'teacher_id': teacher_id_val,
+                'year': year,
+                'term': term,
+                'teachers': [{
+                    'id': teacher_id_val,
+                    'name': teacher_name,
+                    'short_name': teacher_short
+                }]
+            }
+            
+            courses_data.append(course_entry)
+            
+            # Handle shared courses (3-credit courses with Part A and Part B)
+            if course_credit == 3.0 and section == 'A':
+                # Check if there's a Part B assignment for the same course
+                other_assignment = CourseSessionAssignment.query.filter(
+                    CourseSessionAssignment.course_id == assignment.course_id,
+                    CourseSessionAssignment.section == 'B',
+                    CourseSessionAssignment.curriculum_id == assignment.curriculum_id,
+                    CourseSessionAssignment.academic_session == assignment.academic_session
                 ).first()
-
-                if other_assignment:
-                    courses_data.append({
-                        'assigned_id': str(a.id),
-                        'course_code': a.course.course_code,
-                        'course_name': f"{a.course.course_name} (Shared)",
-                        'course_type': a.course.course_type,
+                
+                if other_assignment and hasattr(other_assignment, 'teacher') and other_assignment.teacher:
+                    other_teacher = other_assignment.teacher
+                    other_teacher_short = getattr(other_teacher, 'call_sign', None) or getattr(other_teacher, 'short_name', '') or ''
+                    other_teacher_name = getattr(other_teacher, 'name', '') or ''
+                    other_teacher_id = getattr(other_teacher, 'id', None)
+                    
+                    # Get year and term for shared entry
+                    year = getattr(assignment, 'year', '') or ''
+                    term = getattr(assignment, 'term', '') or ''
+                    
+                    # Add shared course entry
+                    shared_entry = {
+                        'assigned_id': str(assignment.id),
+                        'course_code': course_code,
+                        'course_name': f"{course_name} (Shared)",
+                        'course_type': course_type,
+                        'credit': course_credit,
                         'part': 'Shared',
                         'classes_per_week': 1,
                         'is_shared_slot': True,
+                        'teacher_id': teacher_id_val,
+                        'year': year,
+                        'term': term,
                         'teachers': [
-                            {'id': a.teacher.id, 'name': a.teacher.name, 'short_name': a.teacher.short_name},
-                            {'id': other_assignment.teacher.id, 'name': other_assignment.teacher.name, 'short_name': other_assignment.teacher.short_name}
+                            {
+                                'id': teacher_id_val,
+                                'name': teacher_name,
+                                'short_name': teacher_short
+                            },
+                            {
+                                'id': other_teacher_id,
+                                'name': other_teacher_name,
+                                'short_name': other_teacher_short
+                            }
                         ]
-                    })
+                    }
+                    courses_data.append(shared_entry)
         
-        else: # Logic for all other courses
-            credit = float(a.course.credit)
-            
-            if a.course.course_type == 'Sessional':
-                total_classes = int(credit * 2)
-            else:
-                total_classes = int(credit)
-            
-            if a.part != 'Full':
-                classes_for_part = (total_classes + 1) // 2
-            else:
-                classes_for_part = total_classes
-            
-            courses_data.append({
-                'assigned_id': str(a.id),
-                'course_code': a.course.course_code,
-                'course_name': a.course.course_name,
-                'course_type': a.course.course_type,
-                'part': a.part,
-                'classes_per_week': classes_for_part,
-                'is_shared_slot': False,
-                'teachers': [{'id': a.teacher.id, 'name': a.teacher.name, 'short_name': a.teacher.short_name}]
-            })
-            
-    return jsonify(courses_data)
+        return jsonify(courses_data)
+        
+    except Exception as e:
+        # Log error
+        try:
+            from flask import current_app
+            current_app.logger.error(f'Error in teacher_courses API for teacher_id {teacher_id}: {e}', exc_info=True)
+        except:
+            pass
+        # Return empty array on any error
+        return jsonify([])
 
 @routine_management_bp.route('/api/get_teachers')
 def get_teachers():
     from role_utils import get_teachers_excluding_head
     teachers_list = get_teachers_excluding_head()
-    return jsonify([{'id': t.id, 'name': t.name, 'short_name': t.short_name} for t in teachers_list])
+    return jsonify([{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list])
 
 @routine_management_bp.route('/api/routine/save', methods=['POST'])
+@login_required
 def save_routine():
+    if not can_edit_routine():
+        return jsonify({'message': 'You do not have permission to edit routine.'}), 403
+    
     data = request.get_json()
     
     Routine.query.delete()
@@ -356,7 +567,9 @@ def save_routine():
             part=entry.get('part'),
             is_shared=entry.get('is_shared', False),
             shared_with=entry.get('shared_with'),
-            teacher_id=entry.get('teacher_id')
+            teacher_id=entry.get('teacher_id'),
+            year=entry.get('year', '') or '',  # Save year for color coding
+            term=entry.get('term', '') or ''   # Save term for color coding
         )
         db.session.add(new_entry)
     
@@ -364,7 +577,11 @@ def save_routine():
     return jsonify({'message': 'Routine saved successfully!'}), 200
 
 @routine_management_bp.route('/api/routine/clear', methods=['POST'])
+@login_required
 def clear_routine():
+    if not can_edit_routine():
+        return jsonify({'message': 'You do not have permission to clear routine.'}), 403
+    
     try:
         Routine.query.delete()
         db.session.commit()
@@ -388,12 +605,48 @@ def load_routine():
         if entry.is_shared and entry.shared_with:
             short_names = [name.strip() for name in entry.shared_with.split('/')]
             all_involved_teachers = Teacher.query.filter(Teacher.short_name.in_(short_names)).all()
-            teachers_info = [{'id': t.id, 'name': t.name, 'short_name': t.short_name} for t in all_involved_teachers]
+            teachers_info = [{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in all_involved_teachers]
         elif entry.teacher_id:
             teacher = Teacher.query.get(entry.teacher_id)
             if teacher:
-                teachers_info = [{'id': teacher.id, 'name': teacher.name, 'short_name': teacher.short_name}]
+                teachers_info = [{'id': teacher.id, 'name': teacher.name, 'short_name': teacher.call_sign or teacher.short_name}]
 
+        # Get year and term from saved Routine entry first, fallback to CourseSessionAssignment
+        year = ''
+        term = ''
+        if hasattr(entry, 'year') and entry.year:
+            year = str(entry.year).strip()
+        if hasattr(entry, 'term') and entry.term:
+            term = str(entry.term).strip()
+        
+        # If not saved in Routine, try to get from CourseSessionAssignment
+        if not year or not term:
+            if entry.teacher_id and entry.course_code:
+                try:
+                    from blueprints.course_management.models import CourseSessionAssignment, Course
+                    # First find the course by course_code
+                    course = Course.query.filter_by(course_code=entry.course_code).first()
+                    if course:
+                        # Then find the assignment for this teacher and course
+                        assignment = CourseSessionAssignment.query.filter_by(
+                            teacher_id=entry.teacher_id,
+                            course_id=course.id
+                        ).first()
+                        if assignment:
+                            year_val = getattr(assignment, 'year', None)
+                            term_val = getattr(assignment, 'term', None)
+                            if not year and year_val is not None:
+                                year = str(year_val).strip()
+                            if not term and term_val is not None:
+                                term = str(term_val).strip()
+                except Exception as e:
+                    # Log error but continue
+                    try:
+                        from flask import current_app
+                        current_app.logger.error(f'Error getting year/term for routine entry: {e}')
+                    except:
+                        pass
+        
         routine_data.append({
             "day": entry.day,
             "slot": entry.time_slot,
@@ -404,6 +657,8 @@ def load_routine():
             "is_shared": entry.is_shared,
             "shared_with": entry.shared_with,
             "teacher_id": entry.teacher_id,
+            "year": year,
+            "term": term,
             "teachers": teachers_info
         })
 
@@ -413,145 +668,185 @@ def load_routine():
     })
 
 @routine_management_bp.route('/download_pdf', methods=['POST'])
+@login_required
 def download_pdf():
-    data = request.get_json()
-    routine_list = data.get('routine', [])
-    title_text = request.args.get('title', 'Class Routine')
-    date_text = request.args.get('date', '')
+    try:
+        # PDF download is view-only, so no permission check needed
+        data = request.get_json() or {}
+        routine_list = data.get('routine', [])
+        title_text = request.args.get('title', 'Class Routine')
+        date_text = request.args.get('date', '')
 
-    # Create a mapping from the list for easy lookup
-    routine_map = {
-        (item['day'], item['slot'], item['room_id']): item
-        for item in routine_list
-    }
+        # Create a mapping from the list for easy lookup
+        # Use day, slot (which may be edited), and room_id as key
+        routine_map = {}
+        for item in routine_list:
+            key = (item['day'], item['slot'], item['room_id'])
+            routine_map[key] = item
 
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
-                            leftMargin=0.3*inch, rightMargin=0.3*inch,
-                            topMargin=0.2*inch, bottomMargin=0.2*inch)
-    
-    styles = getSampleStyleSheet()
-    h1_centered = ParagraphStyle(name='h1_centered', parent=styles['h1'], alignment=TA_CENTER, fontSize=14)
-    h2_centered = ParagraphStyle(name='h2_centered', parent=styles['h2'], alignment=TA_CENTER, fontSize=12)
-    h3_centered = ParagraphStyle(name='h3_centered', parent=styles['h3'], alignment=TA_CENTER, fontSize=11)
-    
-    body_text_style = ParagraphStyle(name='BodyText', parent=styles['Normal'], alignment=TA_CENTER, fontSize=7.5, leading=8.5)
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
+                                leftMargin=0.3*inch, rightMargin=0.3*inch,
+                                topMargin=0.2*inch, bottomMargin=0.2*inch)
+        
+        styles = getSampleStyleSheet()
+        h1_centered = ParagraphStyle(name='h1_centered', parent=styles['h1'], alignment=TA_CENTER, fontSize=14)
+        h2_centered = ParagraphStyle(name='h2_centered', parent=styles['h2'], alignment=TA_CENTER, fontSize=12)
+        h3_centered = ParagraphStyle(name='h3_centered', parent=styles['h3'], alignment=TA_CENTER, fontSize=11)
+        
+        body_text_style = ParagraphStyle(name='BodyText', parent=styles['Normal'], alignment=TA_CENTER, fontSize=7.5, leading=8.5)
 
-    elements = []
-    
-    formatted_date = ''
-    if date_text:
-        try:
-            dt = datetime.strptime(date_text, '%Y-%m-%d')
-            formatted_date = dt.strftime('%d-%m-%Y')
-        except ValueError:
-            formatted_date = date_text # Fallback to raw date
+        elements = []
+        
+        formatted_date = ''
+        if date_text:
+            try:
+                dt = datetime.strptime(date_text, '%Y-%m-%d')
+                formatted_date = dt.strftime('%d-%m-%Y')
+            except ValueError:
+                formatted_date = date_text # Fallback to raw date
 
-    elements.append(Paragraph("Khulna University", h1_centered))
-    elements.append(Paragraph("Law Discipline", h2_centered))
-    elements.append(Paragraph(title_text, h3_centered))
-    if formatted_date:
-        elements.append(Paragraph(f"Effective from {formatted_date}", h3_centered))
-    elements.append(Spacer(1, 0.08*inch))
+        elements.append(Paragraph("Khulna University", h1_centered))
+        elements.append(Paragraph("Law Discipline", h2_centered))
+        elements.append(Paragraph(title_text, h3_centered))
+        if formatted_date:
+            elements.append(Paragraph(f"Effective from {formatted_date}", h3_centered))
+        elements.append(Spacer(1, 0.08*inch))
 
-    days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
-    time_slots = [
-        "09:10 AM - 10:00 AM", "10:10 AM - 11:00 AM", "11:10 AM - 12:00 PM",
-        "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
-        "04:00 PM - 04:50 PM"
-    ]
-    lunch_time = "01:00 PM - 01:50 PM"
-    rooms_db = Room.query.order_by('room_number').all()
-    
-    # Prepare header: Day, Room, 4 slots, Lunch, 3 slots
-    header = ['Day', 'Room']
-    for idx, slot in enumerate(time_slots):
-        if idx == 4:
-            header.append(lunch_time.replace(' - ', '\n') + '\nLunch')
-        header.append(slot.replace(' - ', '\n'))
-    table_data = [header]
+        days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
+        
+        # Get time slots from request (edited headers) or use default
+        time_slots_from_request = request.args.getlist('time_slots')
+        if time_slots_from_request:
+            time_slots = time_slots_from_request
+        else:
+            # Default time slots
+            time_slots = [
+                "09:10 AM - 10:00 AM", "10:10 AM - 11:00 AM", "11:10 AM - 12:00 PM",
+                "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
+                "04:00 PM - 04:50 PM"
+            ]
+        
+        lunch_time = "01:00 PM - 01:50 PM"
+        rooms_db = Room.query.order_by('room_number').all()
+        
+        # Prepare header: Day, Room, then time slots with lunch inserted
+        header = ['Day', 'Room']
+        
+        # Find lunch position (usually after 4th slot or where "01:00" appears)
+        lunch_inserted = False
+        for idx, slot in enumerate(time_slots):
+            # Insert lunch before slot containing "01:00" or "12:10 PM - 01:00 PM"
+            if not lunch_inserted and ('01:00' in slot or '12:10 PM - 01:00 PM' in slot):
+                header.append(lunch_time.replace(' - ', '\n') + '\nLunch')
+                lunch_inserted = True
+            header.append(slot.replace(' - ', '\n'))
+        
+        # If lunch wasn't inserted, add it after 4th slot (default behavior)
+        if not lunch_inserted and len(header) > 6:
+            header.insert(6, lunch_time.replace(' - ', '\n') + '\nLunch')
+        
+        table_data = [header]
 
-    # Data rows
-    for day in days:
-        for i, room in enumerate(rooms_db):
-            row = []
-            if i == 0:
-                row.append(Paragraph(f"<b>{day}</b>", body_text_style))
-            else:
-                row.append("")
-            row.append(Paragraph(str(room.room_number), body_text_style))
-            for idx, slot in enumerate(time_slots):
-                if idx == 4:
-                    # Insert Lunch column before 5th slot
-                    row.append(Paragraph("LUNCH", body_text_style))
-                cell_data = routine_map.get((day, slot, room.id))
-                if cell_data:
-                    cell_content = f"<b>{cell_data.get('course_code', '')}</b><br/>({cell_data.get('teacher_short_name', '')})"
-                    row.append(Paragraph(cell_content, body_text_style))
+        # Data rows
+        for day in days:
+            for i, room in enumerate(rooms_db):
+                row = []
+                if i == 0:
+                    row.append(Paragraph(f"<b>{day}</b>", body_text_style))
                 else:
                     row.append("")
-            table_data.append(row)
+                row.append(Paragraph(str(room.room_number), body_text_style))
+                
+                # Insert lunch and time slots
+                lunch_inserted = False
+                for idx, slot in enumerate(time_slots):
+                    # Insert lunch before slot containing "01:00" or "12:10 PM - 01:00 PM"
+                    if not lunch_inserted and ('01:00' in slot or '12:10 PM - 01:00 PM' in slot):
+                        row.append(Paragraph("LUNCH", body_text_style))
+                        lunch_inserted = True
+                    
+                    # Find cell data - match by day, slot (which may have been edited), and room_id
+                    cell_data = routine_map.get((day, slot, room.id))
+                    
+                    if cell_data:
+                        cell_content = f"<b>{cell_data.get('course_code', '')}</b><br/>({cell_data.get('teacher_short_name', '')})"
+                        row.append(Paragraph(cell_content, body_text_style))
+                    else:
+                        row.append("")
+                
+                # If lunch wasn't inserted, add it after 4th slot (default behavior)
+                if not lunch_inserted and len(row) > 6:
+                    row.insert(6, Paragraph("LUNCH", body_text_style))
+                
+                table_data.append(row)
 
-    # Calculate column widths (now 15% wider than previous)
-    col_widths = [0.72*1.3*1.15*inch, 0.72*1.3*1.15*inch]
-    for idx in range(len(time_slots) + 1):  # +1 for lunch
-        col_widths.append(0.9*1.3*1.15*inch)
+        # Calculate column widths (now 15% wider than previous)
+        col_widths = [0.72*1.3*1.15*inch, 0.72*1.3*1.15*inch]
+        for idx in range(len(time_slots) + 1):  # +1 for lunch
+            col_widths.append(0.9*1.3*1.15*inch)
 
-    table = Table(table_data, colWidths=col_widths)
-    
-    style = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.white),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-        ('BACKGROUND', (0, 1), (0, -1), colors.white),
-        ('TEXTCOLOR', (0, 1), (0, -1), colors.black),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 7.5),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 2.2),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2.2),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-    ])
+        table = Table(table_data, colWidths=col_widths)
+        
+        style = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+            ('BACKGROUND', (0, 1), (0, -1), colors.white),
+            ('TEXTCOLOR', (0, 1), (0, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 2.2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2.2),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ])
 
-    # Row span for Day column
-    num_rooms = len(rooms_db) if rooms_db else 1
-    for i, day in enumerate(days):
-        start_row = 1 + (i * num_rooms)
-        end_row = start_row + num_rooms - 1
-        if num_rooms > 1:
-            style.add('SPAN', (0, start_row), (0, end_row))
-            style.add('VALIGN', (0, start_row), (0, end_row), 'MIDDLE')
-        # Thick border above each day's first row
-        if start_row > 1:
-            style.add('LINEABOVE', (0, start_row), (-1, start_row), 2, colors.black)
+        # Row span for Day column
+        num_rooms = len(rooms_db) if rooms_db else 1
+        for i, day in enumerate(days):
+            start_row = 1 + (i * num_rooms)
+            end_row = start_row + num_rooms - 1
+            if num_rooms > 1:
+                style.add('SPAN', (0, start_row), (0, end_row))
+                style.add('VALIGN', (0, start_row), (0, end_row), 'MIDDLE')
+            # Thick border above each day's first row
+            if start_row > 1:
+                style.add('LINEABOVE', (0, start_row), (-1, start_row), 2, colors.black)
 
-    table.setStyle(style)
-    elements.append(table)
+        table.setStyle(style)
+        elements.append(table)
+        
+        doc.build(elements)
+        
+        buffer.seek(0)
+        
+        # Enhanced headers for cPanel compatibility
+        pdf_data = buffer.getvalue()
+        filename = f'routine_{title_text.replace(" ", "_")}.pdf'
+        
+        response = Response(
+            pdf_data,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+                'Content-Length': str(len(pdf_data)),
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'X-Content-Type-Options': 'nosniff',
+                'X-Frame-Options': 'DENY'
+            }
+        )
+        
+        return response
     
-    doc.build(elements)
-    
-    buffer.seek(0)
-    
-    # Enhanced headers for cPanel compatibility
-    pdf_data = buffer.getvalue()
-    filename = f'routine_{title_text.replace(" ", "_")}.pdf'
-    
-    response = Response(
-        pdf_data,
-        mimetype='application/pdf',
-        headers={
-            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-            'Content-Length': str(len(pdf_data)),
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY'
-        }
-    )
-    
-    return response
+    except Exception as e:
+        import traceback
+        error_msg = f"PDF generation error: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)  # Log to server console
+        return jsonify({'error': str(e), 'details': error_msg}), 500
 
 @routine_management_bp.route('/download_teacher_wise_pdf')
 def download_teacher_wise_pdf():
@@ -574,7 +869,7 @@ def download_teacher_wise_pdf():
         assignments = AssignedCourse.query.filter_by(teacher_id=teacher.id).all()
         if not assignments:
             continue
-        elements.append(Paragraph(f"<b>{teacher.name} ({teacher.short_name})</b>", styles['Heading2']))
+        elements.append(Paragraph(f"<b>{teacher.name} ({teacher.call_sign or teacher.short_name})</b>", styles['Heading2']))
         data = [["Course Name", "Code", "Part", "Credit"]]
         for a in assignments:
             data.append([
@@ -638,7 +933,7 @@ def download_course_wise_pdf():
         if not assignments:
             continue
         teacher_names = ', '.join([a.teacher.name for a in assignments])
-        call_signs = ', '.join([a.teacher.short_name for a in assignments])
+        call_signs = ', '.join([a.teacher.call_sign or a.teacher.short_name for a in assignments])
         data.append([f"{course.course_code} - {course.course_name}", teacher_names, call_signs])
     table = Table(data, hAlign='LEFT')
     table.setStyle(TableStyle([

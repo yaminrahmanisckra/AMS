@@ -3022,6 +3022,175 @@ def download_attendance_sheet(session_id):
         flash(f'Error generating PDF: {str(e)}', 'error')
         return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
+@class_management_bp.route('/download_attendance_sheet_weasyprint/<int:session_id>')
+@login_required
+def download_attendance_sheet_weasyprint(session_id):
+    """Generate attendance sheet PDF using WeasyPrint in legal landscape format."""
+    try:
+        from error_handler import log_error
+        from weasyprint import HTML
+        
+        session = Session.query.get_or_404(session_id)
+        attendance_summary = _build_attendance_summary(session)
+        
+        # Get related sessions for split courses
+        related_sessions = _get_related_sessions(session, include_archived=True)
+        session_ids = [s.id for s in related_sessions if s]
+        attendance_records = ClassAttendance.query.filter(
+            ClassAttendance.session_id.in_(session_ids)
+        ).order_by(ClassAttendance.date.asc(), ClassAttendance.id.asc()).all()
+        
+        attendance_by_date = defaultdict(list)
+        for record in attendance_records:
+            attendance_by_date[record.date].append(record)
+        
+        daily_class_counts = {}
+        for date, records in attendance_by_date.items():
+            student_counts = defaultdict(int)
+            for r in records:
+                student_counts[r.student_id] += 1
+            daily_class_counts[date] = max(student_counts.values()) if student_counts else 0
+        
+        sorted_dates = sorted(daily_class_counts.keys())
+        headers = []
+        header_keys = []
+        for date in sorted_dates:
+            count = daily_class_counts.get(date, 0)
+            if count <= 1:
+                headers.append(date.strftime('%b %d'))
+                header_keys.append((date, 1))
+            else:
+                for i in range(1, count + 1):
+                    headers.append(f"{date.strftime('%b %d')} ({i})")
+                    header_keys.append((date, i))
+        
+        if not headers:
+            flash('No attendance data to download.', 'warning')
+            return redirect(url_for('class_management.view_attendance', session_id=session_id))
+        
+        students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+        
+        # Prepare data for template
+        data_rows = []
+        agg_student_map = attendance_summary.get('per_student', {})
+        total_classes = attendance_summary.get('total_classes', sum(daily_class_counts.values()))
+        
+        for idx, student in enumerate(students, start=1):
+            # Filter records for this specific student
+            student_records = [r for r in attendance_records if r.student_id == student.id]
+            # Sort student records by date and id to ensure correct order
+            student_records.sort(key=lambda x: (x.date, x.id))
+            
+            student_attendance_by_date = defaultdict(list)
+            for r in student_records:
+                student_attendance_by_date[r.date].append(r)
+            
+            # Sort records by id for each date to ensure correct slot order
+            for date in student_attendance_by_date:
+                student_attendance_by_date[date].sort(key=lambda x: x.id)
+            
+            attendance_list = []
+            for date, slot in header_keys:
+                records_for_date = student_attendance_by_date.get(date, [])
+                if len(records_for_date) >= slot:
+                    # Records are already sorted by id, so slot-1 index is correct
+                    record = records_for_date[slot-1]
+                    # Explicitly check is_present value - use bool() to ensure proper conversion
+                    is_present_value = bool(record.is_present) if record.is_present is not None else False
+                    status = 'P' if is_present_value else 'A'
+                    attendance_list.append(status)
+                else:
+                    attendance_list.append('-')
+            agg_stats = agg_student_map.get(student.student_id, {'present': 0, 'percentage': 0, 'marks': 0})
+            data_rows.append({
+                'idx': idx,
+                'student_id': str(student.student_id),
+                'name': student.name,
+                'attendance': attendance_list,
+                'total_classes': str(total_classes),
+                'present_days': str(agg_stats['present']),
+                'percentage': f"{agg_stats['percentage']:.2f}",
+                'marks': str(agg_stats['marks'])
+            })
+        
+        # Get assignment data for Session, Year, Term, Course Teacher
+        assignment = None
+        if CourseSessionAssignment:
+            assignment = CourseSessionAssignment.query.filter_by(session_id=session_id).first()
+            # If not found by session_id, try to find by course_code, teacher_id, year, term
+            if not assignment and session.course_code and session.teacher_id and session.year and session.term:
+                try:
+                    if Course:
+                        assignment = CourseSessionAssignment.query.filter_by(
+                            teacher_id=session.teacher_id,
+                            year=session.year,
+                            term=session.term
+                        ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
+                            Course.course_code == session.course_code
+                        ).first()
+                except Exception as query_error:
+                    current_app.logger.warning(f'Error querying CourseSessionAssignment: {query_error}')
+        
+        # Get course information
+        course_code = session.course_code or ''
+        course_name = session.course_name or ''
+        
+        # Get session, year, term, course teacher
+        academic_session = ''
+        if assignment and assignment.academic_session:
+            academic_session = assignment.academic_session
+        elif session.academic_session:
+            academic_session = session.academic_session
+        
+        year = session.year or ''
+        term = session.term or ''
+        
+        course_teacher = 'N/A'
+        if assignment and assignment.teacher:
+            course_teacher = assignment.teacher.name
+        elif session.teacher:
+            course_teacher = session.teacher.name
+        
+        # Render template
+        html_content = render_template(
+            'class_management/attendance_sheet_weasyprint.html',
+            course_code=course_code,
+            course_name=course_name,
+            academic_session=academic_session,
+            year=year,
+            term=term,
+            course_teacher=course_teacher,
+            headers=headers,
+            data_rows=data_rows
+        )
+        
+        # Generate PDF with WeasyPrint
+        pdf_buffer = io.BytesIO()
+        HTML(string=html_content).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+        
+        filename = f"attendance_sheet_{course_code or session.id}.pdf"
+        
+        current_app.logger.info(f"WeasyPrint PDF generated successfully for session {session_id}")
+        return Response(
+            pdf_buffer.getvalue(),
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(len(pdf_buffer.getvalue()))
+            }
+        )
+        
+    except Exception as e:
+        log_error(e, {
+            'session_id': session_id,
+            'function': 'download_attendance_sheet_weasyprint',
+            'user': current_user.username if current_user.is_authenticated else 'Anonymous'
+        })
+        current_app.logger.error(f"Error generating WeasyPrint attendance sheet PDF for session {session_id}: {e}", exc_info=True)
+        flash(f'Error generating PDF: {str(e)}', 'error')
+        return redirect(url_for('class_management.view_attendance', session_id=session_id))
+
 @class_management_bp.route('/assessment/<int:session_id>', methods=['GET', 'POST'])
 @login_required
 def assessment(session_id):
@@ -5088,6 +5257,7 @@ def student_feedback_responses_pdf(session_id):
 
     response_font = 'Helvetica'
     response_bold_font = 'Helvetica-Bold'
+    kalpurush_available = False
     try:
         font_root = os.path.join(current_app.root_path, 'static', 'fonts')
         regular_candidates = ['Kalpurush.ttf', 'Kalpurush-Regular.ttf']
@@ -5097,6 +5267,7 @@ def student_feedback_responses_pdf(session_id):
         if regular_path:
             pdfmetrics.registerFont(TTFont('Kalpurush', regular_path))
             response_font = 'Kalpurush'
+            kalpurush_available = True
         if bold_path:
             pdfmetrics.registerFont(TTFont('Kalpurush-Bold', bold_path))
             response_bold_font = 'Kalpurush-Bold'
@@ -5121,6 +5292,9 @@ def student_feedback_responses_pdf(session_id):
     instruction_style = ParagraphStyle('Instruction', parent=styles['Normal'], fontSize=9, leading=11, alignment=1, textTransform='uppercase', spaceBefore=6, spaceAfter=6, wordWrap='CJK', fontName='Helvetica-Bold')
     value_style = ParagraphStyle('Value', parent=styles['Normal'], fontSize=9.5, leading=11, fontName=response_font, wordWrap='CJK')
     value_bold_style = ParagraphStyle('ValueBold', parent=value_style, fontName=response_bold_font)
+    # Style for Praise and Suggestions section - always use Kalpurush if available
+    praise_suggestions_font = 'Kalpurush' if kalpurush_available else response_font
+    praise_suggestions_style = ParagraphStyle('PraiseSuggestions', parent=styles['Normal'], fontSize=9.5, leading=11, fontName=praise_suggestions_font, wordWrap='CJK')
 
     likert_header = ['Statement', 'Strongly disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree']
 
@@ -5238,10 +5412,12 @@ def student_feedback_responses_pdf(session_id):
 
         elements.append(Paragraph('D. Praise and Suggestions', section_header_style))
         def open_block(title, content):
+            # Use Kalpurush font for Praise and Suggestions content
+            content_style = praise_suggestions_style
             table = Table(
                 [
                     [Paragraph(title, label_style)],
-                    [Paragraph(content or '—', value_style)]
+                    [Paragraph(content or '—', content_style)]
                 ],
                 colWidths=[500]
             )
@@ -5272,6 +5448,107 @@ def student_feedback_responses_pdf(session_id):
             'Content-Length': str(len(pdf_data)),
         },
     )
+
+@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/pdf-weasyprint')
+@login_required
+def student_feedback_responses_pdf_weasyprint(session_id):
+    """Generate student feedback PDF using WeasyPrint with Kalpurush for Praise and Suggestions."""
+    session_obj = Session.query.get_or_404(session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not teacher or teacher.id != session_obj.teacher_id:
+        flash('You are not authorized to access this download.', 'danger')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    feedback_link = StudentFeedbackLink.query.filter_by(session_id=session_id).first()
+    if not feedback_link:
+        flash('No feedback responses found.', 'info')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    responses = (
+        StudentFeedbackResponse.query.filter_by(feedback_link_id=feedback_link.id)
+        .order_by(StudentFeedbackResponse.submitted_at.asc())
+        .all()
+    )
+    if not responses:
+        flash('No feedback responses to download.', 'info')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    try:
+        from error_handler import log_error
+        from weasyprint import HTML
+        import os
+        
+        # Prepare data for template
+        feedback_data = []
+        for idx, item in enumerate(responses, start=1):
+            try:
+                data = json.loads(item.payload or '{}')
+            except json.JSONDecodeError:
+                data = {}
+            
+            academic = data.get('academic_info', {}) or {}
+            section_a = data.get('section_a', {}) or {}
+            section_b = data.get('section_b', {}) or {}
+            section_c = data.get('section_c', {}) or {}
+            section_d = data.get('section_d', {}) or {}
+            
+            feedback_data.append({
+                'index': idx,
+                'submitted_at': item.submitted_at.strftime('%Y-%m-%d'),
+                'academic': academic,
+                'section_a': section_a,
+                'section_b': section_b,
+                'section_c': section_c,
+                'section_d': section_d,
+                'course_name': academic.get('course_title') or session_obj.course_name or '—',
+                'course_code': academic.get('course_code') or session_obj.course_code or '—',
+                'academic_session': academic.get('academic_session') or '—',
+            })
+        
+        # Get font path for WeasyPrint
+        font_path = os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf')
+        if not os.path.exists(font_path):
+            # Try alternative path
+            font_path = os.path.join(current_app.root_path, 'static', 'fonts', 'kalpurush.ttf')
+        
+        # Render template
+        html_content = render_template(
+            'class_management/student_feedback_weasyprint.html',
+            feedback_data=feedback_data,
+            feedback_section_a=FEEDBACK_SECTION_A,
+            feedback_section_b_likert=FEEDBACK_SECTION_B_LIKERT,
+            feedback_method_options=FEEDBACK_METHOD_OPTIONS,
+            feedback_effort_options=FEEDBACK_EFFORT_OPTIONS,
+            likert_options=['Strongly disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree'],
+            kalpurush_font_path=font_path if os.path.exists(font_path) else None
+        )
+        
+        # Generate PDF with WeasyPrint
+        pdf_buffer = io.BytesIO()
+        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+        
+        filename = f"student_feedback_responses_{session_obj.course_code or 'course'}.pdf"
+        
+        current_app.logger.info(f"WeasyPrint PDF generated successfully for student feedback session {session_id}")
+        return Response(
+            pdf_buffer.getvalue(),
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"',
+                'Content-Length': str(len(pdf_buffer.getvalue()))
+            }
+        )
+        
+    except Exception as e:
+        log_error(e, {
+            'session_id': session_id,
+            'function': 'student_feedback_responses_pdf_weasyprint',
+            'user': current_user.username if current_user.is_authenticated else 'Anonymous'
+        })
+        current_app.logger.error(f"Error generating WeasyPrint student feedback PDF for session {session_id}: {e}", exc_info=True)
+        flash(f'Error generating PDF: {str(e)}', 'error')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
 
 @class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/docx')
 @login_required

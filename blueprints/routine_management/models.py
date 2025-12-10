@@ -37,6 +37,8 @@ class Routine(db.Model):
     is_shared = db.Column(db.Boolean, default=False)
     shared_with = db.Column(db.String(50))
     teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'))
+    year = db.Column(db.String(20))  # Store year for color coding
+    term = db.Column(db.String(20))   # Store term for color coding
 
     __table_args__ = (db.UniqueConstraint('day', 'time_slot', 'room_number', name='_day_time_room_uc'),)
 

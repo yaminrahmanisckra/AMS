@@ -1374,6 +1374,13 @@ def coordinator_register_student():
     from blueprints.student_management.models import Student
     students = Student.query.order_by(Student.student_id.asc()).all()
     
+    # Get distinct batches
+    batches = db.session.query(Student.batch).distinct().filter(
+        Student.batch.isnot(None),
+        Student.batch != ''
+    ).order_by(Student.batch.desc()).all()
+    batch_list = [b[0] for b in batches if b[0]]
+    
     # Get distinct academic sessions
     sessions = db.session.query(Session.academic_session).distinct().filter(
         Session.academic_session.isnot(None)
@@ -1382,6 +1389,7 @@ def coordinator_register_student():
     
     return render_template('course_management/coordinator_register_student.html',
                          students=students,
+                         batches=batch_list,
                          academic_sessions=academic_sessions)
 
 
@@ -1802,7 +1810,7 @@ def unassign_teacher_session():
 
         # Store session_id before deletion
         session_id_to_delete = assignment.session_id
-        
+
         # Delete associated session if exists - clean up all related records
         session_obj = None
         if session_id_to_delete:

@@ -21,12 +21,21 @@
             <form id="filterForm">
                 <div class="row g-3">
                     <div class="col-md-6">
+                        <label for="batch" class="form-label">Batch <span class="text-danger">*</span></label>
+                        <select class="form-select" id="batch" name="batch" required>
+                            <option value="">Select Batch</option>
+                            {% for batch in batches %}
+                            <option value="{{ batch }}">{{ batch }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6">
                         <label for="student" class="form-label">Student <span class="text-danger">*</span></label>
-                        <select class="form-select" id="student" name="student" required>
-                            <option value="">Select Student</option>
+                        <select class="form-select" id="student" name="student" required disabled>
+                            <option value="">Select Batch First</option>
                             {% for student in students %}
                             <option value="{{ student.id }}" data-batch="{{ student.batch or '' }}">
-                                {{ student.student_id }} - {{ student.name }} {% if student.batch %}(Batch: {{ student.batch }}){% endif %}
+                                {{ student.student_id }} - {{ student.name }}
                             </option>
                             {% endfor %}
                         </select>
@@ -136,19 +145,55 @@ let currentTerm = '';
 const statusBox = document.getElementById('registrationStatus');
 const saveBtn = document.getElementById('saveRegistrationBtn');
 
+// Store all student options for filtering (store after DOM loads)
+let allStudentOptions = [];
+document.addEventListener('DOMContentLoaded', function() {
+    allStudentOptions = Array.from(document.getElementById('student').querySelectorAll('option'));
+    
+    // Filter students by batch
+    document.getElementById('batch').addEventListener('change', function() {
+        const selectedBatch = this.value;
+        const studentSelect = document.getElementById('student');
+        
+        // Enable/disable student select based on batch selection
+        if (selectedBatch) {
+            studentSelect.disabled = false;
+            studentSelect.innerHTML = '<option value="">Select Student</option>';
+            
+            // Show only students from selected batch
+            allStudentOptions.forEach(option => {
+                if (option.value === '') return; // Skip the placeholder
+                const studentBatch = option.getAttribute('data-batch');
+                if (studentBatch === selectedBatch) {
+                    const newOption = option.cloneNode(true);
+                    studentSelect.appendChild(newOption);
+                }
+            });
+        } else {
+            studentSelect.disabled = true;
+            studentSelect.innerHTML = '<option value="">Select Batch First</option>';
+        }
+        
+        // Reset student selection when batch changes
+        studentSelect.value = '';
+        currentStudentId = '';
+    });
+});
+
 function showStatus(message, type = 'info') {
     statusBox.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
 }
 
 document.getElementById('filterForm').addEventListener('submit', function(e) {
     e.preventDefault();
+    const batch = document.getElementById('batch').value;
     const studentId = document.getElementById('student').value;
     const session = document.getElementById('session').value;
     const year = document.getElementById('year').value;
     const term = document.getElementById('term').value;
     
-    if (!studentId || !session || !year || !term) {
-        alert('Please select Student, Session, Year, and Term');
+    if (!batch || !studentId || !session || !year || !term) {
+        alert('Please select Batch, Student, Session, Year, and Term');
         return;
     }
     

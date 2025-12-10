@@ -1,0 +1,1728 @@
+{% set is_student = 'student' in parse_roles(current_user.role) and not has_teacher_privileges(current_user) %}
+{% if is_student %}
+{% extends "base.html" %}
+{% else %}
+{% extends "routine_management/base.html" %}
+{% endif %}
+
+{% block title %}{% if is_student %}Class Routine{% else %}Routine Maker{% endif %}{% endblock %}
+
+{% block content %}
+{% if is_student %}
+<div class="container my-4">
+{% endif %}
+<style>
+    .routine-container {
+        background: #f8f9fa;
+        min-height: 100vh;
+        padding: 20px 0;
+    }
+    
+    .routine-header {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .routine-grid {
+        background: white;
+        border-radius: 10px;
+        padding: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        position: relative;
+        max-height: calc(100vh - 250px);
+        overflow-y: auto;
+        overflow-x: auto;
+    }
+    
+    .routine-grid::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+    
+    .routine-grid::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+    
+    .routine-grid::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 4px;
+    }
+    
+    .routine-grid::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    
+    .time-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.85rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 6px;
+    }
+    
+    .time-table thead {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+    }
+    
+    .time-table thead th {
+        background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+        color: white;
+        padding: 10px 6px;
+        font-weight: 700;
+        text-align: center;
+        position: sticky;
+        top: 0;
+        z-index: 101;
+        border-right: 1px solid rgba(255,255,255,0.2);
+        text-transform: uppercase;
+        letter-spacing: 0.2px;
+        font-size: 0.75rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        line-height: 1.2;
+    }
+    
+    .time-table thead th.day-header,
+    .time-table thead th.room-header {
+        position: sticky;
+        top: 0;
+        z-index: 102;
+    }
+    
+    .time-table thead th:last-child {
+        border-right: none;
+    }
+    
+    .time-header-cell {
+        position: relative;
+    }
+    
+    .time-header-cell[contenteditable="true"] {
+        cursor: text;
+        outline: none;
+        transition: background-color 0.2s;
+    }
+    
+    .time-header-cell[contenteditable="true"]:hover {
+        background-color: #0b5ed7 !important;
+    }
+    
+    .time-header-cell[contenteditable="true"]:focus {
+        background-color: #0a58ca !important;
+        outline: 2px solid #fff;
+        outline-offset: -2px;
+    }
+    
+    .time-header-cell .fa-edit {
+        opacity: 0.6;
+        transition: opacity 0.2s;
+    }
+    
+    .time-header-cell:hover .fa-edit {
+        opacity: 1;
+    }
+    
+    .time-table tbody td {
+        padding: 6px 4px;
+        border: 1px solid #dee2e6;
+        text-align: center;
+        vertical-align: middle;
+        min-height: 45px;
+        height: 45px;
+        position: relative;
+        background: white;
+        transition: background-color 0.2s ease;
+    }
+    
+    .time-table tbody tr:nth-child(even) td:not(.day-label):not(.room-label):not(.has-class) {
+        background: #f8f9fa;
+    }
+    
+    .time-table tbody tr:hover td:not(.day-label):not(.room-label):not(.has-class) {
+        background: #f0f7ff;
+    }
+    
+    /* Ensure color classes override hover and nth-child */
+    .time-table tbody tr:nth-child(even) td.slot-cell.has-class,
+    .time-table tbody tr:hover td.slot-cell.has-class {
+        background: inherit !important;
+    }
+    
+    .time-table tbody td.slot-cell {
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    
+    .time-table tbody td.slot-cell:hover:not(.has-class) {
+        background-color: #f0f0f0;
+    }
+    
+    .time-table tbody td.slot-cell.has-class {
+        color: white;
+        cursor: move;
+        position: relative;
+    }
+    
+    .time-table tbody td.slot-cell.has-class:hover {
+        opacity: 0.9;
+    }
+    
+    .time-table tbody td.slot-cell.has-class .slot-content {
+        cursor: grab;
+    }
+    
+    .time-table tbody td.slot-cell.has-class .slot-content:active {
+        cursor: grabbing;
+    }
+    
+    /* Color coding by year and term */
+    .slot-cell.has-class.year-first.term-first {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        background-color: #667eea !important;
+    }
+    
+    .slot-cell.has-class.year-first.term-second {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
+        background-color: #f093fb !important;
+    }
+    
+    .slot-cell.has-class.year-second.term-first {
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
+        background-color: #4facfe !important;
+    }
+    
+    .slot-cell.has-class.year-second.term-second {
+        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%) !important;
+        background-color: #43e97b !important;
+    }
+    
+    .slot-cell.has-class.year-third.term-first {
+        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%) !important;
+        background-color: #fa709a !important;
+    }
+    
+    .slot-cell.has-class.year-third.term-second {
+        background: linear-gradient(135deg, #30cfd0 0%, #330867 100%) !important;
+        background-color: #30cfd0 !important;
+    }
+    
+    .slot-cell.has-class.year-fourth.term-first {
+        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%) !important;
+        background-color: #a8edea !important;
+    }
+    
+    .slot-cell.has-class.year-fourth.term-second {
+        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%) !important;
+        background-color: #ff9a9e !important;
+    }
+    
+    .slot-cell.has-class.year-fifth.term-first,
+    .slot-cell.has-class.year-llm.term-first {
+        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%) !important;
+        background-color: #ffecd2 !important;
+    }
+    
+    .slot-cell.has-class.year-fifth.term-second,
+    .slot-cell.has-class.year-llm.term-second {
+        background: linear-gradient(135deg, #ff8a80 0%, #ea4c89 100%) !important;
+        background-color: #ff8a80 !important;
+    }
+    
+    /* Default color for unknown year/term */
+    .slot-cell.has-class:not([class*="year-"]):not([class*="term-"]) {
+        background-color: #0d6efd !important;
+        background: #0d6efd !important;
+    }
+    
+    
+    .day-header {
+        background: #495057;
+        color: white;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .room-header {
+        background: #6c757d;
+        color: white;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .day-label {
+        background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+        color: white;
+        font-weight: 700;
+        padding: 8px 6px;
+        text-align: center;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        border-right: 1px solid #495057;
+        min-width: 90px;
+        width: 90px;
+        white-space: nowrap;
+        vertical-align: middle;
+        display: table-cell !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    .room-label {
+        background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
+        font-weight: 700;
+        padding: 6px 4px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: #495057;
+        border-right: 1px solid #dee2e6;
+        min-width: 70px;
+        width: 70px;
+    }
+    
+    .lunch-cell {
+        background: #fff3cd;
+        font-weight: 600;
+        color: #856404;
+    }
+    
+    .course-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin: 2px;
+    }
+    
+    .course-badge.theory {
+        background: #0d6efd;
+        color: white;
+    }
+    
+    .course-badge.sessional {
+        background: #198754;
+        color: white;
+    }
+    
+    .sidebar {
+        background: white;
+        border-radius: 10px;
+        padding: 12px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        height: calc(100vh - 250px);
+        position: sticky;
+        top: 20px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    
+    .sidebar-header {
+        background: #0d6efd;
+        color: white;
+        padding: 10px 12px;
+        border-radius: 6px;
+        margin: -12px -12px 12px -12px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        flex-shrink: 0;
+    }
+    
+    #courses-list {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        padding-right: 4px;
+    }
+    
+    #courses-list::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    #courses-list::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 3px;
+    }
+    
+    #courses-list::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+    }
+    
+    #courses-list::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    
+    .course-card {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 8px 10px;
+        margin-bottom: 6px;
+        cursor: grab;
+        transition: all 0.2s;
+        font-size: 0.8rem;
+    }
+    
+    .course-card:hover {
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        transform: translateY(-1px);
+        border-color: #0d6efd;
+    }
+    
+    .course-card:active {
+        cursor: grabbing;
+    }
+    
+    .course-card.dragging {
+        opacity: 0.5;
+    }
+    
+    /* Custom drag image to match cell size */
+    .drag-ghost {
+        position: absolute;
+        top: -1000px;
+        left: -1000px;
+        width: 100px;
+        height: 60px;
+        background: #0d6efd;
+        color: white;
+        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 4px;
+        font-size: 0.75rem;
+        pointer-events: none;
+        z-index: 10000;
+    }
+    
+    .drag-ghost .drag-code {
+        font-weight: 600;
+        font-size: 0.85rem;
+        line-height: 1.2;
+    }
+    
+    .drag-ghost .drag-teacher {
+        font-size: 0.7rem;
+        opacity: 0.9;
+        margin-top: 2px;
+    }
+    
+    .course-code {
+        font-weight: 700;
+        color: #0d6efd;
+        font-size: 1rem;
+    }
+    
+    .course-name {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin: 4px 0;
+    }
+    
+    .course-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 4px;
+        font-size: 0.7rem;
+    }
+    
+    .course-teacher {
+        font-size: 0.7rem;
+        color: #495057;
+        font-weight: 600;
+    }
+    
+    .course-count {
+        background: #0d6efd;
+        color: white;
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 0.65rem;
+        font-weight: 600;
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .btn-action {
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    
+    .btn-save {
+        background: #198754;
+        color: white;
+    }
+    
+    .btn-save:hover {
+        background: #157347;
+    }
+    
+    .btn-clear {
+        background: #dc3545;
+        color: white;
+    }
+    
+    .btn-clear:hover {
+        background: #bb2d3b;
+    }
+    
+    .btn-export {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .btn-export:hover {
+        background: #5c636a;
+    }
+    
+    .btn-pdf {
+        background: #0d6efd;
+        color: white;
+    }
+    
+    .btn-pdf:hover {
+        background: #0b5ed7;
+    }
+    
+    .empty-slot {
+        color: #adb5bd;
+        font-size: 0.8rem;
+    }
+    
+    .delete-zone {
+        border: 2px dashed #dc3545;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        color: #dc3545;
+        margin-top: 20px;
+        background: #fff5f5;
+    }
+    
+    .delete-zone.drag-over {
+        background: #ffe0e0;
+        border-color: #dc3545;
+    }
+</style>
+
+<div class="routine-container">
+    <div class="container-fluid">
+        <!-- Header Section -->
+        <div class="routine-header">
+            <div class="row align-items-center">
+                <div class="{% if is_student %}col-12{% else %}col-md-6{% endif %}">
+                    <h4 class="mb-0">Law Discipline, Khulna University</h4>
+                    {% if not is_student %}
+                    <p class="text-muted mb-0">Class Routine Generator</p>
+                    {% endif %}
+                </div>
+                {% if not is_student %}
+                <div class="col-md-6 text-end">
+                    <div class="d-flex gap-2 justify-content-end flex-wrap">
+                        <input type="text" id="routine-title" class="form-control form-control-sm" style="width: 200px;" placeholder="Routine Title" value="Class Routine">
+                        <input type="date" id="effective-date" class="form-control form-control-sm" style="width: 180px;">
+                        {% if can_edit %}
+                        <button class="btn btn-action btn-save" id="btn-save">
+                            <i class="fas fa-save me-1"></i>Save
+                        </button>
+                        <button class="btn btn-action btn-clear" id="btn-clear">
+                            <i class="fas fa-trash me-1"></i>Clear
+                        </button>
+                        <button class="btn btn-action btn-export" id="btn-export">
+                            <i class="fas fa-download me-1"></i>Export
+                        </button>
+                        {% endif %}
+                        <button class="btn btn-action btn-pdf" id="btn-pdf">
+                            <i class="fas fa-file-pdf me-1"></i>PDF
+                        </button>
+                    </div>
+                </div>
+                {% else %}
+                <div class="col-12 text-end mt-2">
+                    <button class="btn btn-action btn-pdf" id="btn-pdf">
+                        <i class="fas fa-file-pdf me-1"></i>Download PDF
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Main Routine Grid -->
+            <div class="{% if is_student %}col-lg-12{% else %}col-lg-9{% endif %}">
+                <div class="routine-grid">
+                    <table class="time-table">
+                        <thead>
+                            <tr>
+                                <th class="day-header" style="width: 90px; min-width: 90px;">Day</th>
+                                <th class="room-header" style="width: 70px; min-width: 70px;">Room</th>
+                                {% for slot in time_slots %}
+                                <th class="time-header-cell{% if 'Lunch' in slot or '01:00' in slot %} lunch-cell{% endif %}" 
+                                    data-slot="{{ slot }}" 
+                                    data-original-slot="{{ slot }}"
+                                    contenteditable="{{ 'true' if can_edit else 'false' }}"
+                                    style="{% if can_edit %}cursor: pointer; position: relative;{% endif %}">
+                                    {{ slot }}
+                                    {% if can_edit and not ('Lunch' in slot or '01:00' in slot) %}
+                                    <i class="fas fa-edit" style="font-size: 0.7rem; opacity: 0.7; margin-left: 4px;"></i>
+                                    {% endif %}
+                                </th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody id="routine-tbody">
+                            {% for day in days %}
+                                {% for room in rooms %}
+                                <tr data-day="{{ day }}" data-room="{{ room.id }}">
+                                    {% if loop.first %}
+                                    <td class="day-label" rowspan="{{ rooms|length }}" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); color: white; font-weight: 700; padding: 15px 12px; text-align: center; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px; border-right: 2px solid #495057; min-width: 120px; width: 120px; white-space: nowrap; vertical-align: middle; display: table-cell !important; visibility: visible !important; opacity: 1 !important;">{{ day }}</td>
+                                    {% endif %}
+                                    <td class="room-label" style="background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%); font-weight: 700; padding: 12px 8px; text-align: center; font-size: 0.9rem; color: #495057; border-right: 2px solid #dee2e6;">{{ room.room_number }}</td>
+                                    {% for slot in time_slots %}
+                                    <td class="slot-cell{% if 'Lunch' in slot or '01:00' in slot %} lunch-cell{% endif %}" 
+                                        data-day="{{ day }}" 
+                                        data-room="{{ room.id }}" 
+                                        data-room-name="{{ room.room_number }}"
+                                        data-slot="{{ slot }}"
+                                        data-time="{{ loop.index }}">
+                                        <div class="slot-content">{% if 'Lunch' in slot or '01:00' in slot %}<strong>LUNCH</strong>{% else %}<span class="empty-slot">-</span>{% endif %}</div>
+                                    </td>
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    
+                    {% if can_edit %}
+                    <div class="delete-zone" id="delete-zone">
+                        <i class="fas fa-trash-alt fa-2x mb-2"></i>
+                        <p class="mb-0">Drag here to remove from routine</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Sidebar - Only show for non-students (teachers/TAs who can edit) -->
+            {% if not is_student %}
+            <div class="col-lg-3">
+                <div class="sidebar">
+                    <div class="sidebar-header">
+                        <i class="fas fa-book me-2"></i>Courses
+                    </div>
+                    
+                    <div class="mb-2">
+                        <label class="form-label fw-bold" style="font-size: 0.85rem; margin-bottom: 4px;">Select Teacher:</label>
+                        <select class="form-select form-select-sm" id="teacher-select" style="font-size: 0.85rem;">
+                            <option value="">-- Choose Teacher --</option>
+                            {% for teacher in teachers %}
+                            <option value="{{ teacher.id }}">{{ teacher.name }} ({{ teacher.short_name }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <div id="courses-list">
+                        <p class="text-muted text-center">Select a teacher to view courses</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    'use strict';
+    
+    // Configuration
+    const config = {
+        canEdit: {{ 'true' if can_edit else 'false' }},
+        days: {{ days | tojson }},
+        timeSlots: {{ time_slots | tojson }},
+        rooms: {{ rooms | map(attribute='id') | list | tojson }}
+    };
+    
+    // State
+    const state = {
+        routine: {},
+        draggedCourse: null,
+        draggedCourseFromCell: null, // For dragging courses between cells
+        placedCourses: {}
+    };
+    
+    // DOM Elements (will be initialized on DOMContentLoaded)
+    let teacherSelect, coursesList, routineTbody, deleteZone, slotCells;
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get DOM elements
+        teacherSelect = document.getElementById('teacher-select');
+        coursesList = document.getElementById('courses-list');
+        routineTbody = document.getElementById('routine-tbody');
+        deleteZone = document.getElementById('delete-zone');
+        slotCells = document.querySelectorAll('.slot-cell');
+        
+        // Only setup teacher selection and drag-drop for non-students
+        {% if not is_student %}
+        if (teacherSelect) {
+            teacherSelect.addEventListener('change', loadTeacherCourses);
+        }
+        
+        if (config.canEdit && slotCells.length > 0) {
+            setupDragAndDrop();
+        }
+        {% endif %}
+        
+        loadSavedRoutine();
+        setTodayDate();
+        
+        // Setup editable headers after DOM is ready
+        if (config.canEdit) {
+            setTimeout(function() {
+                setupEditableHeaders();
+            }, 200);
+        }
+    });
+    
+    // Set today's date as default
+    function setTodayDate() {
+        const dateInput = document.getElementById('effective-date');
+        if (dateInput) {
+            const today = new Date();
+            dateInput.value = today.toISOString().split('T')[0];
+        }
+    }
+    
+    // Load teacher courses
+    function loadTeacherCourses() {
+        const teacherId = teacherSelect.value;
+        
+        if (!teacherId) {
+            coursesList.innerHTML = '<p class="text-muted text-center">Select a teacher to view courses</p>';
+            return;
+        }
+        
+        coursesList.innerHTML = '<p class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
+        
+        fetch('/routine-management/api/teacher_courses/' + teacherId)
+            .then(response => response.json())
+            .then(data => {
+                displayCourses(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                coursesList.innerHTML = '<p class="text-danger text-center">Error loading courses</p>';
+            });
+    }
+    
+    // Display courses in sidebar
+    function displayCourses(courses) {
+        if (!courses || courses.length === 0) {
+            coursesList.innerHTML = '<p class="text-muted text-center">No courses assigned to this teacher.</p>';
+            return;
+        }
+        
+        coursesList.innerHTML = '';
+        
+        courses.forEach(course => {
+            const card = createCourseCard(course);
+            if (card) {
+                coursesList.appendChild(card);
+            }
+        });
+        
+        // Update counts after displaying
+        updateCourseCards();
+    }
+    
+    // Create course card element
+    function createCourseCard(course) {
+        if (!course || !course.assigned_id || !course.course_code) {
+            return null;
+        }
+        
+        const card = document.createElement('div');
+        card.className = 'course-card';
+        card.draggable = config.canEdit;
+        
+        // Store all course data
+        card.dataset.courseId = course.assigned_id || '';
+        card.dataset.courseCode = course.course_code || '';
+        card.dataset.courseName = course.course_name || '';
+        card.dataset.courseType = course.course_type || 'Theory';
+        card.dataset.credit = course.credit || 0;
+        card.dataset.part = course.part || 'Full';
+        card.dataset.classesPerWeek = course.classes_per_week || 0;
+        const year = String(course.year || '').trim();
+        const term = String(course.term || '').trim();
+        card.dataset.year = year;
+        card.dataset.term = term;
+        
+        // Get teacher info
+        let teacherShort = '';
+        let teacherId = '';
+        if (course.teachers && course.teachers.length > 0) {
+            teacherShort = course.teachers[0].short_name || '';
+            teacherId = course.teachers[0].id || '';
+        } else if (course.teacher_id) {
+            teacherId = course.teacher_id;
+        }
+        
+        card.dataset.teacherShort = teacherShort;
+        card.dataset.teacherId = teacherId;
+        
+        const remaining = (course.classes_per_week || 0) - (state.placedCourses[course.assigned_id] || 0);
+        
+        card.innerHTML = `
+            <div class="course-code">${course.course_code}</div>
+            <div class="course-name">${course.course_name || ''}</div>
+            <div class="course-meta">
+                <span class="course-teacher">${teacherShort}</span>
+                <span class="course-count">${remaining} left</span>
+            </div>
+        `;
+        
+        return card;
+    }
+    
+    // Setup drag and drop
+    function setupDragAndDrop() {
+        if (!slotCells || slotCells.length === 0) {
+            return;
+        }
+        
+        // Create drag ghost element (hidden, used for custom drag image)
+        const dragGhost = document.createElement('div');
+        dragGhost.className = 'drag-ghost';
+        dragGhost.style.position = 'absolute';
+        dragGhost.style.top = '-1000px';
+        dragGhost.style.left = '-1000px';
+        document.body.appendChild(dragGhost);
+        
+        // Course card drag start
+        document.addEventListener('dragstart', function(e) {
+            if (e.target.classList.contains('course-card')) {
+                state.draggedCourse = e.target;
+                e.target.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                
+                // Create custom drag image matching cell size
+                const courseCode = e.target.dataset.courseCode || '';
+                const teacherShort = e.target.dataset.teacherShort || '';
+                
+                dragGhost.innerHTML = `
+                    <div class="drag-code">${courseCode}</div>
+                    <div class="drag-teacher">${teacherShort}</div>
+                `;
+                
+                // Get a sample cell to match dimensions
+                const sampleCell = slotCells[0];
+                let cellWidth = 100;
+                let cellHeight = 60;
+                
+                if (sampleCell) {
+                    const cellRect = sampleCell.getBoundingClientRect();
+                    cellWidth = cellRect.width;
+                    cellHeight = cellRect.height;
+                    dragGhost.style.width = cellWidth + 'px';
+                    dragGhost.style.height = cellHeight + 'px';
+                }
+                
+                // Set custom drag image (centered)
+                e.dataTransfer.setDragImage(dragGhost, cellWidth / 2, cellHeight / 2);
+            }
+        });
+        
+        // Course card drag end
+        document.addEventListener('dragend', function(e) {
+            if (e.target.classList.contains('course-card')) {
+                e.target.classList.remove('dragging');
+                state.draggedCourse = null;
+            }
+            
+            // Reset all cell backgrounds
+            slotCells.forEach(cell => {
+                if (!cell.classList.contains('has-class') && !cell.classList.contains('lunch-cell')) {
+                    cell.style.backgroundColor = '';
+                }
+            });
+            
+            // Hide drag ghost
+            dragGhost.style.top = '-1000px';
+            dragGhost.style.left = '-1000px';
+        });
+        
+        // Use event delegation for cell drag events (works even after re-rendering)
+        const routineTable = document.querySelector('.time-table');
+        if (routineTable) {
+            // Drag start for cells with classes (event delegation)
+            routineTable.addEventListener('dragstart', function(e) {
+                const cell = e.target.closest('.slot-cell');
+                if (!cell || cell.classList.contains('lunch-cell')) {
+                    return;
+                }
+                
+                if (cell.classList.contains('has-class')) {
+                    const key = getSlotKey(cell);
+                    const routineItem = state.routine[key];
+                    if (routineItem) {
+                        // Create a temporary dragged course object
+                        state.draggedCourseFromCell = {
+                            key: key,
+                            routineItem: routineItem,
+                            sourceCell: cell
+                        };
+                        e.dataTransfer.effectAllowed = 'move';
+                        cell.style.opacity = '0.5';
+                    }
+                }
+            });
+            
+            // Drag end for cells (event delegation)
+            routineTable.addEventListener('dragend', function(e) {
+                const cell = e.target.closest('.slot-cell');
+                if (cell && cell.classList.contains('has-class')) {
+                    cell.style.opacity = '';
+                    state.draggedCourseFromCell = null;
+                }
+            });
+            
+            // Allow dropping on all cells (event delegation)
+            routineTable.addEventListener('dragover', function(e) {
+                const cell = e.target.closest('.slot-cell');
+                if (!cell || cell.classList.contains('lunch-cell')) {
+                    return;
+                }
+                
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                
+                // Highlight this cell specifically
+                if (!cell.classList.contains('has-class')) {
+                    cell.style.backgroundColor = '#e7f3ff';
+                    cell.style.border = '2px solid #0d6efd';
+                }
+                
+                // Remove highlight from other cells
+                if (!slotCells) {
+                    slotCells = document.querySelectorAll('.slot-cell');
+                }
+                slotCells.forEach(otherCell => {
+                    if (otherCell !== cell && 
+                        !otherCell.classList.contains('has-class') && 
+                        !otherCell.classList.contains('lunch-cell')) {
+                        otherCell.style.backgroundColor = '';
+                        otherCell.style.border = '';
+                    }
+                });
+            });
+            
+            routineTable.addEventListener('dragleave', function(e) {
+                const cell = e.target.closest('.slot-cell');
+                if (!cell || cell.classList.contains('lunch-cell')) {
+                    return;
+                }
+                
+                // Only remove highlight if we're actually leaving the cell
+                const rect = cell.getBoundingClientRect();
+                const x = e.clientX;
+                const y = e.clientY;
+                
+                if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+                    if (!cell.classList.contains('has-class')) {
+                        cell.style.backgroundColor = '';
+                        cell.style.border = '';
+                    }
+                }
+            });
+            
+            routineTable.addEventListener('drop', function(e) {
+                const cell = e.target.closest('.slot-cell');
+                if (!cell || cell.classList.contains('lunch-cell')) {
+                    return;
+                }
+                
+                e.preventDefault();
+                cell.style.border = '';
+                
+                // Check if dropping a course from sidebar or from another cell
+                if (state.draggedCourse) {
+                    // Dropping from sidebar
+                    handleDrop(cell);
+                } else if (state.draggedCourseFromCell) {
+                    // Dropping from another cell
+                    handleMoveCourse(cell);
+                }
+            });
+        }
+        
+        // Delete zone - also handle drag from cells
+        if (deleteZone) {
+            deleteZone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                // Only show delete zone if dragging a course (from sidebar or cell)
+                if (state.draggedCourse || state.draggedCourseFromCell) {
+                    deleteZone.classList.add('drag-over');
+                }
+            });
+            
+            deleteZone.addEventListener('dragleave', function() {
+                deleteZone.classList.remove('drag-over');
+            });
+            
+            deleteZone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                deleteZone.classList.remove('drag-over');
+                handleDelete();
+            });
+        }
+    }
+    
+    // Handle drop on slot
+    function handleDrop(cell) {
+        if (!state.draggedCourse || !config.canEdit) {
+            return;
+        }
+        
+        // Skip lunch cells
+        if (cell.classList.contains('lunch-cell')) {
+            return;
+        }
+        
+        const courseId = state.draggedCourse.dataset.courseId;
+        const key = getSlotKey(cell);
+        
+        // Check if slot already has a class
+        if (state.routine[key]) {
+            alert('This slot is already occupied');
+            cell.style.backgroundColor = '';
+            return;
+        }
+        
+        // Check remaining classes
+        const totalClasses = parseInt(state.draggedCourse.dataset.classesPerWeek) || 0;
+        const placed = state.placedCourses[courseId] || 0;
+        const remaining = totalClasses - placed;
+        
+        if (remaining <= 0) {
+            alert('No more classes available for this course');
+            cell.style.backgroundColor = '';
+            return;
+        }
+        
+        // Get year and term from course card
+        const year = String(state.draggedCourse.dataset.year || '').trim();
+        const term = String(state.draggedCourse.dataset.term || '').trim();
+        
+        // Add to routine
+        state.routine[key] = {
+            courseId: courseId,
+            courseCode: state.draggedCourse.dataset.courseCode || '',
+            courseName: state.draggedCourse.dataset.courseName || '',
+            teacherShort: state.draggedCourse.dataset.teacherShort || '',
+            part: state.draggedCourse.dataset.part || 'Full',
+            year: year,
+            term: term
+        };
+        
+        // Update placed count
+        state.placedCourses[courseId] = placed + 1;
+        
+        // Force re-render to apply colors
+        renderSlot(cell);
+        updateCourseCards();
+    }
+    
+    // Handle moving course from one cell to another
+    function handleMoveCourse(targetCell) {
+        if (!state.draggedCourseFromCell || !config.canEdit) {
+            return;
+        }
+        
+        // Skip lunch cells
+        if (targetCell.classList.contains('lunch-cell')) {
+            return;
+        }
+        
+        const sourceKey = state.draggedCourseFromCell.key;
+        const targetKey = getSlotKey(targetCell);
+        const routineItem = state.draggedCourseFromCell.routineItem;
+        
+        // Don't move if dropping on the same cell
+        if (sourceKey === targetKey) {
+            return;
+        }
+        
+        // Check if target slot is already occupied
+        if (state.routine[targetKey]) {
+            alert('This slot is already occupied');
+            return;
+        }
+        
+        // Move routine item from source to target
+        delete state.routine[sourceKey];
+        state.routine[targetKey] = routineItem;
+        
+        // Update UI
+        updateRoutineDisplay();
+        
+        // Clear dragged state
+        state.draggedCourseFromCell = null;
+    }
+    
+    // Handle delete
+    function handleDelete() {
+        if (!state.draggedCourse && !state.draggedCourseFromCell || !config.canEdit) return;
+        
+        if (state.draggedCourse) {
+            // Deleting from sidebar
+            const courseId = state.draggedCourse.dataset.courseId;
+            for (let key in state.routine) {
+                if (state.routine[key].courseId === courseId) {
+                    delete state.routine[key];
+                    state.placedCourses[courseId] = Math.max(0, (state.placedCourses[courseId] || 0) - 1);
+                    break;
+                }
+            }
+        } else if (state.draggedCourseFromCell) {
+            // Deleting from cell
+            const key = state.draggedCourseFromCell.key;
+            const routineItem = state.draggedCourseFromCell.routineItem;
+            if (state.routine[key]) {
+                delete state.routine[key];
+                if (routineItem.courseId) {
+                    state.placedCourses[routineItem.courseId] = Math.max(0, (state.placedCourses[routineItem.courseId] || 0) - 1);
+                }
+            }
+        }
+        
+        // Update UI
+        updateRoutineDisplay();
+        updateCourseCards();
+    }
+    
+    // Get slot key
+    function getSlotKey(cell) {
+        return cell.dataset.day + '|' + cell.dataset.slot + '|' + cell.dataset.room;
+    }
+    
+    // Get color class based on year and term
+    function getColorClass(year, term) {
+        if (!year || !term) {
+            return '';
+        }
+        
+        // Normalize year values - handle various formats
+        const yearStr = String(year).toLowerCase().trim();
+        let yearClass = '';
+        
+        // Remove common suffixes
+        const yearClean = yearStr.replace(/\s*(year|yr)\s*$/i, '').trim();
+        
+        if (yearClean.includes('first') || yearClean === '1' || yearClean === '1st' || yearStr.includes('first')) {
+            yearClass = 'year-first';
+        } else if (yearClean.includes('second') || yearClean === '2' || yearClean === '2nd' || yearStr.includes('second')) {
+            yearClass = 'year-second';
+        } else if (yearClean.includes('third') || yearClean === '3' || yearClean === '3rd' || yearStr.includes('third')) {
+            yearClass = 'year-third';
+        } else if (yearClean.includes('fourth') || yearClean === '4' || yearClean === '4th' || yearStr.includes('fourth')) {
+            yearClass = 'year-fourth';
+        } else if (yearClean.includes('fifth') || yearClean === '5' || yearClean === '5th' || yearStr.includes('fifth')) {
+            yearClass = 'year-fifth';
+        } else if (yearClean.includes('llm') || yearStr.includes('llm')) {
+            yearClass = 'year-llm';
+        }
+        
+        // Normalize term values
+        const termStr = String(term).toLowerCase().trim();
+        let termClass = '';
+        
+        // Remove common suffixes
+        const termClean = termStr.replace(/\s*(term)\s*$/i, '').trim();
+        
+        if (termClean.includes('first') || termClean === '1' || termClean === '1st' || termStr.includes('first')) {
+            termClass = 'term-first';
+        } else if (termClean.includes('second') || termClean === '2' || termClean === '2nd' || termStr.includes('second')) {
+            termClass = 'term-second';
+        } else if (termClean.includes('thesis') || termStr.includes('thesis')) {
+            termClass = 'term-second'; // Thesis term uses second term colors
+        }
+        
+        return yearClass && termClass ? `${yearClass} ${termClass}` : '';
+    }
+    
+    // Render slot content
+    function renderSlot(cell) {
+        // Skip lunch cells
+        if (cell.classList.contains('lunch-cell')) {
+            return;
+        }
+        
+        const key = getSlotKey(cell);
+        const routineItem = state.routine[key];
+        const content = cell.querySelector('.slot-content');
+        
+        if (!content) {
+            return;
+        }
+        
+        if (routineItem) {
+            // Remove all year/term classes first
+            cell.classList.remove('year-first', 'year-second', 'year-third', 'year-fourth', 'year-fifth', 'year-llm', 
+                                  'term-first', 'term-second');
+            cell.classList.add('has-class');
+            
+            // Make cell draggable if user can edit
+            if (config.canEdit && !cell.classList.contains('lunch-cell')) {
+                cell.draggable = true;
+            }
+            
+            // Add color classes based on year and term
+            const year = String(routineItem.year || '').trim();
+            const term = String(routineItem.term || '').trim();
+            
+            // Remove all existing year/term classes first
+            cell.classList.remove('year-first', 'year-second', 'year-third', 'year-fourth', 'year-fifth', 'year-llm', 
+                                  'term-first', 'term-second');
+            
+            // Remove any inline background styles
+            cell.style.removeProperty('background');
+            cell.style.removeProperty('background-color');
+            cell.style.backgroundColor = '';
+            cell.style.background = '';
+            
+            const colorClass = getColorClass(year, term);
+            
+            if (colorClass && colorClass.trim()) {
+                const classes = colorClass.split(' ').filter(c => c.trim());
+                classes.forEach(cls => {
+                    if (cls && cls.trim()) {
+                        cell.classList.add(cls.trim());
+                    }
+                });
+                
+                // Apply color directly via inline style as fallback to ensure it shows
+                const colorMap = {
+                    'year-first term-first': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    'year-first term-second': 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                    'year-second term-first': 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                    'year-second term-second': 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
+                    'year-third term-first': 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+                    'year-third term-second': 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
+                    'year-fourth term-first': 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
+                    'year-fourth term-second': 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
+                    'year-fifth term-first': 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
+                    'year-llm term-first': 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
+                    'year-fifth term-second': 'linear-gradient(135deg, #ff8a80 0%, #ea4c89 100%)',
+                    'year-llm term-second': 'linear-gradient(135deg, #ff8a80 0%, #ea4c89 100%)'
+                };
+                
+                const gradient = colorMap[colorClass.trim()];
+                if (gradient) {
+                    // Apply gradient directly as inline style
+                    cell.style.setProperty('background', gradient, 'important');
+                    cell.style.setProperty('background-color', '', 'important');
+                } else {
+                    // If gradient not found in map, try to construct from classes
+                    const yearClass = classes.find(c => c.startsWith('year-'));
+                    const termClass = classes.find(c => c.startsWith('term-'));
+                    if (yearClass && termClass) {
+                        const lookupKey = `${yearClass} ${termClass}`;
+                        const fallbackGradient = colorMap[lookupKey];
+                        if (fallbackGradient) {
+                            cell.style.setProperty('background', fallbackGradient, 'important');
+                        }
+                    }
+                }
+            } else {
+                // Default blue if no color class found
+                cell.style.setProperty('background-color', '#0d6efd', 'important');
+                cell.style.setProperty('background', '#0d6efd', 'important');
+            }
+            
+            content.innerHTML = `
+                <div style="font-weight: 600; font-size: 0.75rem; line-height: 1.1;">${routineItem.courseCode || ''}</div>
+                <div style="font-size: 0.65rem; opacity: 0.9; margin-top: 1px;">${routineItem.teacherShort || ''}</div>
+            `;
+            
+            // Store time slot in data attribute
+            cell.dataset.currentTime = cell.dataset.slot;
+        } else {
+            cell.classList.remove('has-class');
+            cell.draggable = false;
+            content.innerHTML = '<span class="empty-slot">-</span>';
+            cell.dataset.currentTime = '';
+        }
+    }
+    
+    // Get current time slots from table headers
+    function getCurrentTimeSlots() {
+        const headerCells = document.querySelectorAll('.time-header-cell:not(.lunch-cell)');
+        const timeSlots = [];
+        headerCells.forEach(header => {
+            let timeText = header.textContent.trim();
+            // Remove edit icon if present
+            timeText = timeText.replace(/\s*✎\s*/g, '').trim();
+            // Get from dataset or text content
+            const timeSlot = header.dataset.slot || timeText;
+            if (timeSlot && !timeSlot.includes('Lunch') && !timeSlot.includes('LUNC')) {
+                timeSlots.push(timeSlot);
+            }
+        });
+        // If no time slots found, use default from config
+        if (timeSlots.length === 0 && config.timeSlots) {
+            return config.timeSlots.filter(slot => !slot.includes('Lunch') && !slot.includes('LUNC'));
+        }
+        return timeSlots;
+    }
+    
+    // Make table header times editable
+    function setupEditableHeaders() {
+        if (!config.canEdit) return;
+        
+        const headerCells = document.querySelectorAll('.time-header-cell');
+        headerCells.forEach(headerCell => {
+            // Skip lunch cells
+            if (headerCell.classList.contains('lunch-cell')) {
+                return;
+            }
+            
+            // Store original time
+            const originalTime = headerCell.dataset.slot || headerCell.textContent.trim();
+            headerCell.dataset.originalTime = originalTime;
+            
+            headerCell.addEventListener('blur', function() {
+                const newTime = this.textContent.trim();
+                const oldTime = this.dataset.slot || this.dataset.originalTime;
+                
+                if (!newTime) {
+                    // Restore original if empty
+                    this.textContent = oldTime;
+                    return;
+                }
+                
+                if (newTime !== oldTime) {
+                    // Update all cells with this time slot
+                    const cells = document.querySelectorAll('.slot-cell');
+                    let updated = false;
+                    
+                    cells.forEach(cell => {
+                        const cellTime = cell.dataset.slot || cell.dataset.currentTime;
+                        if (cellTime === oldTime) {
+                            cell.dataset.slot = newTime;
+                            cell.dataset.currentTime = newTime;
+                            
+                            // Update routine state keys
+                            const oldKey = cell.dataset.day + '|' + oldTime + '|' + cell.dataset.room;
+                            if (state.routine[oldKey]) {
+                                const routineItem = state.routine[oldKey];
+                                delete state.routine[oldKey];
+                                const newKey = cell.dataset.day + '|' + newTime + '|' + cell.dataset.room;
+                                state.routine[newKey] = routineItem;
+                                updated = true;
+                            }
+                        }
+                    });
+                    
+                    // Update header data attribute
+                    this.dataset.slot = newTime;
+                    this.dataset.originalTime = newTime;
+                    
+                    // Re-render all affected cells if any were updated
+                    if (updated) {
+                        updateRoutineDisplay();
+                    }
+                }
+            });
+            
+            headerCell.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    this.blur();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    const original = this.dataset.originalTime || this.dataset.slot;
+                    this.textContent = original;
+                    this.blur();
+                }
+            });
+        });
+    }
+    
+    // Update routine display
+    function updateRoutineDisplay() {
+        if (!slotCells) {
+            slotCells = document.querySelectorAll('.slot-cell');
+        }
+        slotCells.forEach(cell => {
+            renderSlot(cell);
+            
+            // Update draggable state for cells with classes
+            if (config.canEdit) {
+                if (cell.classList.contains('has-class') && !cell.classList.contains('lunch-cell')) {
+                    cell.draggable = true;
+                } else {
+                    cell.draggable = false;
+                }
+            }
+        });
+    }
+    
+    // Update course cards
+    function updateCourseCards() {
+        const cards = document.querySelectorAll('.course-card');
+        cards.forEach(card => {
+            const courseId = card.dataset.courseId;
+            const total = parseInt(card.dataset.classesPerWeek);
+            const placed = state.placedCourses[courseId] || 0;
+            const remaining = total - placed;
+            
+            const countBadge = card.querySelector('.course-count');
+            if (countBadge) {
+                countBadge.textContent = remaining + ' left';
+            }
+            
+            if (remaining <= 0) {
+                card.style.opacity = '0.5';
+                card.draggable = false;
+            } else {
+                card.style.opacity = '1';
+                card.draggable = true;
+            }
+        });
+    }
+    
+    // Load saved routine
+    function loadSavedRoutine() {
+        fetch('/routine-management/api/routine/load')
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.routine && Array.isArray(data.routine)) {
+                    // Get all rooms mapping
+                    const roomsMap = {};
+                    {% for room in rooms %}
+                    roomsMap[{{ room.id }}] = '{{ room.room_number }}';
+                    {% endfor %}
+                    
+                    data.routine.forEach(item => {
+                        // Find matching cell
+                        const cells = document.querySelectorAll('.slot-cell');
+                        cells.forEach(cell => {
+                            if (cell.dataset.day === item.day && 
+                                cell.dataset.slot === item.slot) {
+                                // Match by room_id or room_number
+                                const itemRoomId = item.room_id;
+                                const itemRoomName = item.room_number || roomsMap[itemRoomId];
+                                
+                                if (cell.dataset.room == itemRoomId || 
+                                    cell.dataset.roomName === itemRoomName) {
+                                    const key = getSlotKey(cell);
+                                    state.routine[key] = {
+                                        courseId: item.assigned_id || '',
+                                        courseCode: item.course_code || '',
+                                        courseName: item.course_name || '',
+                                        teacherShort: item.teacher_short_name || '',
+                                        part: item.part || '',
+                                        year: item.year || '',
+                                        term: item.term || ''
+                                    };
+                                    
+                                    if (item.assigned_id) {
+                                        state.placedCourses[item.assigned_id] = (state.placedCourses[item.assigned_id] || 0) + 1;
+                                    }
+                                }
+                            }
+                        });
+                    });
+                    updateRoutineDisplay();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading routine:', error);
+            });
+    }
+    
+    // Save routine
+    function saveRoutine() {
+        if (!config.canEdit) {
+            alert('You do not have permission to save');
+            return;
+        }
+        
+        if (!slotCells) {
+            slotCells = document.querySelectorAll('.slot-cell');
+        }
+        
+        const routineData = [];
+        slotCells.forEach(cell => {
+            // Skip lunch cells
+            if (cell.classList.contains('lunch-cell')) {
+                return;
+            }
+            
+            const key = getSlotKey(cell);
+            const item = state.routine[key];
+            if (item) {
+                routineData.push({
+                    day: cell.dataset.day,
+                    slot: cell.dataset.slot || cell.dataset.currentTime,
+                    room_id: parseInt(cell.dataset.room),
+                    course_code: item.courseCode,
+                    teacher_short_name: item.teacherShort,
+                    part: item.part,
+                    assigned_id: item.courseId,
+                    year: item.year || '',
+                    term: item.term || ''
+                });
+            }
+        });
+        
+        fetch('/routine-management/api/routine/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({routine: routineData})
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.message) {
+                alert(data.message);
+            } else {
+                alert('Routine saved successfully!');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to save routine');
+        });
+    }
+    
+    // Clear routine
+    function clearRoutine() {
+        if (!config.canEdit) {
+            alert('You do not have permission to clear');
+            return;
+        }
+        
+        if (!confirm('Are you sure you want to clear the entire routine?')) {
+            return;
+        }
+        
+        state.routine = {};
+        state.placedCourses = {};
+        updateRoutineDisplay();
+        updateCourseCards();
+        
+        fetch('/routine-management/api/routine/clear', {method: 'POST'})
+            .then(() => {
+                alert('Routine cleared');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+    }
+    
+    // Export routine
+    function exportRoutine() {
+        if (!config.canEdit) {
+            alert('You do not have permission to export');
+            return;
+        }
+        
+        const exportData = {
+            title: document.getElementById('routine-title').value,
+            date: document.getElementById('effective-date').value,
+            routine: []
+        };
+        
+        slotCells.forEach(cell => {
+            const key = getSlotKey(cell);
+            const item = state.routine[key];
+            if (item) {
+                exportData.routine.push({
+                    day: cell.dataset.day,
+                    slot: cell.dataset.slot,
+                    room: cell.dataset.roomName,
+                    course_code: item.courseCode,
+                    teacher: item.teacherShort
+                });
+            }
+        });
+        
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'routine_export.json';
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+    
+    // Download PDF
+    function downloadPDF() {
+        try {
+            const titleEl = document.getElementById('routine-title');
+            const dateEl = document.getElementById('effective-date');
+            const title = titleEl ? titleEl.value : 'Class Routine';
+            const date = dateEl ? dateEl.value : '';
+            
+            if (!slotCells) {
+                slotCells = document.querySelectorAll('.slot-cell');
+            }
+            
+            // Get current time slots from edited headers
+            const currentTimeSlots = getCurrentTimeSlots();
+            
+            const routineData = [];
+            slotCells.forEach(cell => {
+                // Skip lunch cells
+                if (cell.classList.contains('lunch-cell')) {
+                    return;
+                }
+                
+                const key = getSlotKey(cell);
+                const item = state.routine[key];
+                if (item) {
+                    // Use the current slot time (which may have been edited)
+                    const currentSlot = cell.dataset.slot || cell.dataset.currentTime;
+                    routineData.push({
+                        day: cell.dataset.day,
+                        slot: currentSlot,
+                        room_id: parseInt(cell.dataset.room),
+                        course_code: item.courseCode,
+                        teacher_short_name: item.teacherShort
+                    });
+                }
+            });
+            
+            // Send time slots to backend
+            const params = new URLSearchParams({
+                title: title,
+                date: date
+            });
+            currentTimeSlots.forEach((slot, index) => {
+                params.append('time_slots', slot);
+            });
+            
+            // Show loading indicator
+            const btnPdf = document.getElementById('btn-pdf');
+            const originalText = btnPdf ? btnPdf.innerHTML : '';
+            if (btnPdf) {
+                btnPdf.disabled = true;
+                btnPdf.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating...';
+            }
+            
+            const url = '/routine-management/download_pdf?' + params.toString();
+            console.log('PDF Request URL:', url);
+            console.log('PDF Request Data:', routineData);
+            
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/pdf'
+                },
+                body: JSON.stringify({routine: routineData})
+            })
+            .then(response => {
+                console.log('PDF Response Status:', response.status);
+                console.log('PDF Response Headers:', response.headers);
+                
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        console.error('PDF Error Response:', text);
+                        throw new Error(`PDF generation failed (${response.status}): ${text.substring(0, 500)}`);
+                    });
+                }
+                
+                // Check if response is actually a PDF
+                const contentType = response.headers.get('content-type') || '';
+                console.log('PDF Content-Type:', contentType);
+                
+                if (contentType.includes('application/pdf')) {
+                    return response.blob();
+                } else {
+                    return response.text().then(text => {
+                        console.error('PDF Invalid Content-Type Response:', text);
+                        throw new Error(`Expected PDF but got: ${contentType}. Response: ${text.substring(0, 500)}`);
+                    });
+                }
+            })
+            .then(blob => {
+                console.log('PDF Blob Size:', blob.size);
+                if (blob.size === 0) {
+                    throw new Error('PDF file is empty');
+                }
+                
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'routine.pdf';
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                }, 100);
+                
+                // Restore button
+                if (btnPdf) {
+                    btnPdf.disabled = false;
+                    btnPdf.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('PDF Download Error:', error);
+                alert('Failed to generate PDF:\n' + error.message + '\n\nCheck browser console for details.');
+                
+                // Restore button
+                if (btnPdf) {
+                    btnPdf.disabled = false;
+                    btnPdf.innerHTML = originalText;
+                }
+            });
+        } catch (error) {
+            console.error('PDF Download Exception:', error);
+            alert('Failed to generate PDF: ' + error.message);
+        }
+    }
+    
+    // Event listeners
+    const btnSave = document.getElementById('btn-save');
+    const btnClear = document.getElementById('btn-clear');
+    const btnExport = document.getElementById('btn-export');
+    const btnPdf = document.getElementById('btn-pdf');
+    
+    if (btnSave) btnSave.addEventListener('click', saveRoutine);
+    if (btnClear) btnClear.addEventListener('click', clearRoutine);
+    if (btnExport) btnExport.addEventListener('click', exportRoutine);
+    if (btnPdf) btnPdf.addEventListener('click', downloadPDF);
+    
+})();
+</script>
+{% if is_student %}
+</div>
+{% endif %}
+{% endblock %}

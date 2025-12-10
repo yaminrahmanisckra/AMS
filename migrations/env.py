@@ -12,6 +12,7 @@ from blueprints.class_management.models import Teacher, Session, ClassStudent, C
 from blueprints.result_management.models import RSession, RStudent, RSubject, RMark, RCourseRegistration
 from blueprints.routine_management.models import Course, Teacher as RoutineTeacher, Room, Routine
 from blueprints.course_management.models import DutyAssignment
+from blueprints.academic_calendar.models import AcademicCalendarEvent
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

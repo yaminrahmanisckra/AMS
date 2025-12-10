@@ -117,7 +117,7 @@
             <h6 class="mb-0 text-secondary">Responses ({{ feedback_responses|length }})</h6>
             <div class="d-flex gap-2">
               {% if feedback_link and feedback_responses %}
-                <a class="btn btn-outline-primary btn-sm" href="{{ url_for('class_management.student_feedback_responses_pdf', session_id=session.id) }}" target="_blank">
+                <a class="btn btn-primary btn-sm" href="{{ url_for('class_management.student_feedback_responses_pdf_weasyprint', session_id=session.id) }}" target="_blank">
                   <i class="fas fa-file-pdf me-1"></i>Download PDF
                 </a>
                 <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('class_management.student_feedback_responses_docx', session_id=session.id) }}">

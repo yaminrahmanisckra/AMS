@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Sheet</title>
+    <style>
+        @page {
+            size: legal landscape;
+            margin: 0.3in 0.2in;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 8px;
+            line-height: 1.2;
+            color: #000;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 1.5px solid #000;
+        }
+        
+        .header h1 {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            color: #000;
+        }
+        
+        .header-info {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2px 8px;
+            font-size: 8px;
+            margin-top: 3px;
+            text-align: left;
+        }
+        
+        .header-info div {
+            margin: 1px 0;
+        }
+        
+        .header-info strong {
+            font-weight: bold;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 7px;
+            margin-top: 4px;
+        }
+        
+        th, td {
+            border: 0.5px solid #000;
+            padding: 2px 1px;
+            text-align: center;
+            vertical-align: middle;
+            word-wrap: break-word;
+            position: relative;
+        }
+        
+        thead th {
+            overflow: visible !important;
+        }
+        
+        tbody td {
+            overflow: hidden;
+        }
+        
+        thead th {
+            background-color: #D8E4BC;
+            color: #000;
+            font-weight: bold;
+            font-size: 6.5px;
+            overflow: hidden;
+        }
+        
+        /* Rotate attendance date headers - vertical text */
+        .attendance-header {
+            height: 50px;
+            min-height: 50px;
+            width: 12px;
+            min-width: 12px;
+            max-width: 12px;
+            padding: 2px 1px;
+            overflow: hidden;
+            font-size: 5px;
+            line-height: 1.0;
+            white-space: nowrap;
+            vertical-align: middle;
+            text-align: center;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            color: #000;
+            font-weight: bold;
+        }
+        
+        .attendance-header .header-text {
+            display: block;
+            color: #000;
+            font-weight: bold;
+        }
+        
+        /* Fixed columns */
+        th.si-col, td.si-col {
+            width: 0.25in;
+            max-width: 0.25in;
+            min-width: 0.25in;
+        }
+        
+        th.id-col, td.id-col {
+            width: 0.5in;
+            max-width: 0.5in;
+            min-width: 0.5in;
+        }
+        
+        th.name-col, td.name-col {
+            width: 0.8in;
+            max-width: 0.8in;
+            min-width: 0.8in;
+            text-align: left;
+            padding-left: 2px;
+            font-size: 6.5px;
+        }
+        
+        /* Summary columns */
+        th.summary-col, td.summary-col {
+            width: 0.35in;
+            max-width: 0.35in;
+            min-width: 0.35in;
+        }
+        
+        /* Attendance date columns - match header width */
+        tbody td:not(.si-col):not(.id-col):not(.name-col):not(.summary-col) {
+            width: 12px;
+            min-width: 12px;
+            max-width: 12px;
+            font-size: 6px;
+            padding: 1px;
+            overflow: hidden;
+            text-align: center;
+        }
+        
+        tbody tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        tbody tr:nth-child(odd) {
+            background-color: white;
+        }
+        
+        tbody td {
+            font-size: 6.5px;
+        }
+        
+        .status-present {
+            color: #000;
+            font-weight: bold;
+        }
+        
+        .status-absent {
+            color: #000;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Attendance Sheet</h1>
+        <div class="header-info">
+            <div><strong>Course Code:</strong> {{ course_code or 'N/A' }}</div>
+            <div><strong>Course Name:</strong> {{ course_name or 'N/A' }}</div>
+            <div><strong>Session:</strong> {{ academic_session or 'N/A' }}</div>
+            <div><strong>Year:</strong> {{ year or 'N/A' }}</div>
+            <div><strong>Term:</strong> {{ term or 'N/A' }}</div>
+            <div><strong>Course Teacher:</strong> {{ course_teacher or 'N/A' }}</div>
+        </div>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th class="si-col">SI</th>
+                <th class="id-col">Student ID</th>
+                <th class="name-col">Name</th>
+                {% for header in headers %}
+                <th class="attendance-header"><div class="header-text">{{ header }}</div></th>
+                {% endfor %}
+                <th class="summary-col">Total Classes</th>
+                <th class="summary-col">Present</th>
+                <th class="summary-col">Percentage</th>
+                <th class="summary-col">Marks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in data_rows %}
+            <tr>
+                <td class="si-col">{{ row.idx }}</td>
+                <td class="id-col">{{ row.student_id }}</td>
+                <td class="name-col">{{ row.name }}</td>
+                {% for attendance in row.attendance %}
+                <td>
+                    {% if attendance == 'P' %}
+                        <span class="status-present">P</span>
+                    {% elif attendance == 'A' %}
+                        <span class="status-absent">A</span>
+                    {% else %}
+                        <span>-</span>
+                    {% endif %}
+                </td>
+                {% endfor %}
+                <td class="summary-col">{{ row.total_classes }}</td>
+                <td class="summary-col">{{ row.present_days }}</td>
+                <td class="summary-col">{{ row.percentage }}%</td>
+                <td class="summary-col">{{ row.marks }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
+
+
