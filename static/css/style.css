@@ -115,7 +115,249 @@ body {
     background-color: #0dcaf0 !important;
 }
 
-/* Responsive adjustments */
+/* Mobile-First Responsive Design */
+
+/* Base mobile styles (up to 576px) */
+@media (max-width: 576px) {
+    body {
+        font-size: 14px;
+    }
+    
+    .container {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+    
+    .navbar-brand {
+        font-size: 1.1rem;
+    }
+    
+    .navbar-brand img {
+        height: 40px !important;
+    }
+    
+    .hero-section {
+        padding: 1rem 0;
+    }
+    
+    .display-4 {
+        font-size: 1.75rem;
+    }
+    
+    .display-5 {
+        font-size: 1.5rem;
+    }
+    
+    .display-6 {
+        font-size: 1.25rem;
+    }
+    
+    .card {
+        margin-bottom: 1rem;
+        border-radius: 12px;
+    }
+    
+    .card-header {
+        padding: 0.75rem;
+        font-size: 0.9rem;
+    }
+    
+    .card-body {
+        padding: 1rem;
+    }
+    
+    .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        min-height: 44px; /* Touch-friendly minimum */
+    }
+    
+    .btn-sm {
+        padding: 0.35rem 0.75rem;
+        font-size: 0.8rem;
+        min-height: 36px;
+    }
+    
+    .form-control, .form-select {
+        font-size: 16px; /* Prevents zoom on iOS */
+        padding: 0.6rem 0.75rem;
+        min-height: 44px; /* Touch-friendly */
+    }
+    
+    .form-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .table {
+        font-size: 0.85rem;
+    }
+    
+    .table th, .table td {
+        padding: 0.5rem 0.4rem;
+        font-size: 0.8rem;
+    }
+    
+    .table-responsive {
+        -webkit-overflow-scrolling: touch;
+        border-radius: 8px;
+    }
+    
+    /* Ensure all tables are scrollable on mobile */
+    .table-responsive {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .table {
+        width: 100%;
+        margin-bottom: 0;
+    }
+    
+    /* Modal improvements for mobile */
+    .modal-dialog {
+        margin: 0.5rem;
+        max-width: calc(100% - 1rem);
+    }
+    
+    .modal-content {
+        border-radius: 12px;
+    }
+    
+    .modal-header, .modal-footer {
+        padding: 1rem;
+    }
+    
+    .modal-body {
+        padding: 1rem;
+    }
+    
+    /* Navbar improvements */
+    .navbar-nav {
+        padding: 0.5rem 0;
+    }
+    
+    .navbar-nav .nav-link {
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Badge improvements */
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.4em 0.6em;
+    }
+    
+    /* Alert improvements */
+    .alert {
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+    }
+    
+    /* Input group improvements */
+    .input-group .form-control,
+    .input-group .form-select {
+        min-height: 44px;
+    }
+    
+    .input-group-text {
+        font-size: 0.875rem;
+        padding: 0.6rem 0.75rem;
+    }
+    
+    /* Button group improvements */
+    .btn-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.25rem;
+    }
+    
+    .btn-group .btn {
+        flex: 1 1 auto;
+        min-width: 44px;
+    }
+    
+    /* Card improvements */
+    .card-title {
+        font-size: 1.1rem;
+    }
+    
+    .card-subtitle {
+        font-size: 0.9rem;
+    }
+    
+    /* Text improvements */
+    h1 { font-size: 1.75rem; }
+    h2 { font-size: 1.5rem; }
+    h3 { font-size: 1.25rem; }
+    h4 { font-size: 1.1rem; }
+    h5 { font-size: 1rem; }
+    h6 { font-size: 0.9rem; }
+    
+    /* Spacing improvements */
+    .mb-4 { margin-bottom: 1.5rem !important; }
+    .mb-5 { margin-bottom: 2rem !important; }
+    .mt-4 { margin-top: 1.5rem !important; }
+    .mt-5 { margin-top: 2rem !important; }
+    
+    /* Prevent horizontal scroll */
+    body, html {
+        overflow-x: hidden;
+        max-width: 100%;
+    }
+    
+    /* Ensure images are responsive */
+    img {
+        max-width: 100%;
+        height: auto;
+    }
+    
+    /* Dropdown improvements */
+    .dropdown-menu {
+        font-size: 0.9rem;
+        max-width: calc(100vw - 2rem);
+    }
+    
+    .dropdown-item {
+        padding: 0.75rem 1rem;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+}
+
+/* Tablet styles (577px to 768px) */
+@media (min-width: 577px) and (max-width: 768px) {
+    .container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    
+    .btn {
+        min-height: 42px;
+    }
+    
+    .form-control, .form-select {
+        min-height: 42px;
+    }
+    
+    .table th, .table td {
+        padding: 0.6rem 0.5rem;
+    }
+}
+
+/* Small desktop / Large tablet (769px to 992px) */
+@media (min-width: 769px) and (max-width: 992px) {
+    .container {
+        max-width: 100%;
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+    }
+}
+
+/* Responsive adjustments for all screen sizes */
 @media (max-width: 768px) {
     .hero-section {
         padding: 1rem 0;
@@ -127,6 +369,23 @@ body {
     
     .management-card {
         margin-bottom: 1rem;
+    }
+    
+    /* Ensure all containers are responsive */
+    .container-fluid {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+    
+    /* Stack columns on mobile */
+    .row > [class*="col-"] {
+        margin-bottom: 1rem;
+    }
+    
+    /* Improve card grid on mobile */
+    .row.g-3, .row.g-4 {
+        --bs-gutter-x: 0.75rem;
+        --bs-gutter-y: 0.75rem;
     }
 }
 
@@ -230,6 +489,30 @@ main {
 /* Table responsive improvements */
 .table-responsive {
     border-radius: 10px;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure tables don't break layout on mobile */
+@media (max-width: 768px) {
+    .table-responsive {
+        display: block;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Make table cells more readable on mobile */
+    .table th, .table td {
+        white-space: nowrap;
+        min-width: 80px;
+    }
+    
+    /* Allow text wrapping in specific cells if needed */
+    .table td.text-wrap,
+    .table th.text-wrap {
+        white-space: normal;
+        word-break: break-word;
+    }
 }
 
 /* Custom navbar styling */
@@ -245,6 +528,26 @@ main {
 
 .navbar-nav .nav-link:hover {
     background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile navbar improvements */
+@media (max-width: 991px) {
+    .navbar-collapse {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .navbar-nav .nav-link {
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin: 0.25rem 0;
+    }
+    
+    .navbar-text {
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+    }
 }
 
 .result-table th, .result-table td {
@@ -390,4 +693,148 @@ main {
     gap: 0.4rem;
     align-items: center;
     justify-content: flex-end;
+}
+
+/* Global mobile touch improvements */
+@media (max-width: 768px) {
+    /* Increase tap targets */
+    a, button, input[type="button"], input[type="submit"], 
+    input[type="checkbox"], input[type="radio"], label {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* Improve form spacing */
+    .form-group, .mb-3 {
+        margin-bottom: 1.25rem !important;
+    }
+    
+    /* Better spacing for card actions */
+    .card-footer {
+        padding: 1rem;
+    }
+    
+    .card-footer .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+    
+    .card-footer .btn:last-child {
+        margin-bottom: 0;
+    }
+    
+    /* Stack button groups on mobile */
+    .btn-group-vertical {
+        width: 100%;
+    }
+    
+    /* Improve list spacing */
+    .list-group-item {
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Better pagination on mobile */
+    .pagination {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    
+    .page-link {
+        padding: 0.5rem 0.75rem;
+        min-width: 44px;
+    }
+    
+    /* Improve breadcrumb */
+    .breadcrumb {
+        font-size: 0.85rem;
+        padding: 0.75rem 1rem;
+    }
+    
+    /* Better tabs on mobile */
+    .nav-tabs {
+        flex-wrap: wrap;
+    }
+    
+    .nav-tabs .nav-link {
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+    }
+    
+    /* Improve tooltips and popovers */
+    .tooltip {
+        font-size: 0.8rem;
+    }
+    
+    /* Better spacing for alerts */
+    .alert-dismissible {
+        padding-right: 3rem;
+    }
+    
+    /* Improve progress bars */
+    .progress {
+        height: 1.5rem;
+    }
+    
+    /* Better spacing for badges in buttons */
+    .btn .badge {
+        font-size: 0.7rem;
+        padding: 0.25em 0.5em;
+    }
+    
+    /* Container improvements for mobile */
+    .container {
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+    }
+    
+    /* Prevent text overflow */
+    * {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    
+    /* Improve footer on mobile */
+    .footer {
+        padding: 1rem 0.75rem;
+        font-size: 0.85rem;
+    }
+    
+    .footer .container {
+        flex-direction: column;
+        gap: 0.5rem;
+        text-align: center;
+    }
+}
+
+/* Additional mobile utilities */
+@media (max-width: 576px) {
+    /* Hide less important elements on very small screens */
+    .d-mobile-none {
+        display: none !important;
+    }
+    
+    /* Show mobile-specific elements */
+    .d-mobile-block {
+        display: block !important;
+    }
+    
+    /* Full width buttons on mobile */
+    .btn-mobile-full {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Stack form groups */
+    .form-row {
+        flex-direction: column;
+    }
+    
+    .form-row > [class*="col-"] {
+        width: 100%;
+        margin-bottom: 1rem;
+    }
 }

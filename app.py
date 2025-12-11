@@ -135,6 +135,22 @@ def create_app():
     from blueprints.academic_calendar import academic_calendar_bp
     app.register_blueprint(academic_calendar_bp, url_prefix='/academic-calendar')
     
+    # Service Worker route for PWA
+    @app.route('/sw.js')
+    def service_worker():
+        response = send_file('static/sw.js', mimetype='application/javascript')
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    
+    # Manifest route for PWA
+    @app.route('/manifest.json')
+    def manifest():
+        response = send_file('static/manifest.json', mimetype='application/manifest+json')
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        return response
+    
     # Register error handlers for cPanel deployment
     register_error_handlers(app)
     

@@ -1,0 +1,49 @@
+{
+  "name": "Academic Management System - Khulna University",
+  "short_name": "AMS KU",
+  "description": "Academic Management System for Law Discipline, Khulna University",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#4f46e5",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/static/images/KU_logo_2.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/images/KU_logo_2.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/images/KU_logo_2.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "categories": ["education", "productivity"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Go to main dashboard",
+      "url": "/",
+      "icons": [{ "src": "/static/images/KU_logo_2.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Academic Calendar",
+      "short_name": "Calendar",
+      "description": "View academic calendar",
+      "url": "/academic-calendar/",
+      "icons": [{ "src": "/static/images/KU_logo_2.png", "sizes": "96x96" }]
+    }
+  ]
+}
