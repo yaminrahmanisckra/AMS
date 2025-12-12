@@ -838,3 +838,547 @@ main {
         margin-bottom: 1rem;
     }
 }
+
+/* ============================================
+   MOBILE RESPONSIVE STYLES FOR FORMS & TABLES
+   ============================================ */
+
+/* Assessment Form Mobile Styles */
+@media (max-width: 768px) {
+    /* Assessment table improvements */
+    .assessment-input-field {
+        width: 100% !important;
+        min-width: 80px !important;
+        font-size: 16px !important; /* Prevent iOS zoom */
+        padding: 0.5rem !important;
+        min-height: 44px !important;
+    }
+    
+    /* Assessment table container */
+    .table-responsive {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+    
+    /* Assessment table cells */
+    .table.table-bordered th,
+    .table.table-bordered td {
+        padding: 0.5rem 0.35rem !important;
+        font-size: 0.85rem;
+        white-space: normal;
+        word-break: break-word;
+    }
+    
+    /* Student ID and Name columns - wider on mobile */
+    .table.table-bordered th:first-child,
+    .table.table-bordered td:first-child,
+    .table.table-bordered th:nth-child(2),
+    .table.table-bordered td:nth-child(2) {
+        min-width: 100px;
+        max-width: 120px;
+    }
+    
+    /* Assessment input containers */
+    .table.table-bordered td .d-flex {
+        flex-direction: column;
+        gap: 0.5rem;
+        align-items: flex-start;
+    }
+    
+    /* Absent checkbox on mobile */
+    .form-check {
+        margin: 0;
+        padding: 0;
+    }
+    
+    .form-check-label {
+        font-size: 0.8rem;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+    }
+    
+    .form-check-input {
+        width: 20px;
+        height: 20px;
+        margin-right: 0.5rem;
+    }
+    
+    /* Assessment reveal controls */
+    .card.mb-3 .row.g-3 {
+        --bs-gutter-y: 1rem;
+    }
+    
+    .card.mb-3 .col-md-3,
+    .card.mb-3 .col-md-6 {
+        width: 100%;
+        margin-bottom: 0.75rem;
+    }
+    
+    /* Assessment buttons */
+    .d-flex.gap-2.mt-3 {
+        flex-direction: column;
+    }
+    
+    .d-flex.gap-2.mt-3 .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+}
+
+/* Exam Paper Evaluation Mobile Styles */
+@media (max-width: 768px) {
+    /* Exam evaluation table */
+    .table.table-sm {
+        font-size: 0.85rem;
+    }
+    
+    .table.table-sm th,
+    .table.table-sm td {
+        padding: 0.5rem 0.35rem;
+        white-space: normal;
+        word-break: break-word;
+    }
+    
+    /* Exam evaluation table - stack columns on mobile */
+    .table.table-sm tbody tr:not(.table-light) {
+        display: block;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        background: #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .table.table-sm tbody tr:not(.table-light) td {
+        display: block;
+        border: none;
+        padding: 0.5rem 0;
+        text-align: left !important;
+    }
+    
+    .table.table-sm tbody tr:not(.table-light) td:before {
+        content: attr(data-label);
+        font-weight: 600;
+        display: block;
+        margin-bottom: 0.25rem;
+        color: #495057;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+    }
+    
+    /* Exam evaluation action buttons */
+    .table.table-sm tbody tr.table-light td {
+        padding: 0.75rem 0;
+    }
+    
+    .table.table-sm tbody tr.table-light .d-flex {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .table.table-sm tbody tr.table-light .btn {
+        width: 100%;
+        margin-bottom: 0.25rem;
+    }
+    
+    /* Exam evaluation modal */
+    .modal-dialog.modal-lg {
+        max-width: calc(100% - 1rem);
+        margin: 0.5rem;
+    }
+    
+    .modal-body .form-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .modal-body .form-control,
+    .modal-body .form-select {
+        font-size: 16px; /* Prevent iOS zoom */
+        min-height: 44px;
+        padding: 0.6rem 0.75rem;
+    }
+    
+    /* Exam evaluation scrutiny table - only apply to tables with thead */
+    .table.table-sm:has(thead.table-light) thead {
+        display: none;
+    }
+    
+    .table.table-sm:has(thead.table-light) tbody tr {
+        display: block;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .table.table-sm:has(thead.table-light) tbody tr td {
+        display: block;
+        border: none;
+        padding: 0.5rem 0;
+        text-align: left !important;
+        position: relative;
+        padding-left: 40%;
+    }
+    
+    .table.table-sm:has(thead.table-light) tbody tr td:before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0;
+        width: 35%;
+        font-weight: 600;
+        color: #495057;
+        font-size: 0.8rem;
+    }
+    
+    /* Fallback for browsers that don't support :has() */
+    @supports not selector(:has(*)) {
+        .table.table-sm thead.table-light {
+            display: none;
+        }
+        
+        .table.table-sm tbody tr td[data-label] {
+            display: block;
+            border: none;
+            padding: 0.5rem 0;
+            text-align: left !important;
+            position: relative;
+            padding-left: 40%;
+        }
+        
+        .table.table-sm tbody tr td[data-label]:before {
+            content: attr(data-label);
+            position: absolute;
+            left: 0;
+            width: 35%;
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.8rem;
+        }
+    }
+}
+
+/* Remuneration Form Mobile Styles */
+@media (max-width: 768px) {
+    /* Remuneration wrapper */
+    .rem-wrapper {
+        padding: 0.5rem;
+    }
+    
+    .rem-sheet {
+        padding: 1rem 0.75rem;
+    }
+    
+    /* Remuneration heading */
+    .rem-heading {
+        flex-direction: column;
+        gap: 0.75rem;
+        text-align: center;
+    }
+    
+    .rem-heading-logo img {
+        height: 45px;
+    }
+    
+    /* Remuneration meta grid */
+    .meta-grid {
+        font-size: 0.75rem;
+    }
+    
+    .meta-grid td {
+        padding: 0.5rem 0.35rem;
+        display: block;
+        width: 100%;
+        border: none;
+        border-bottom: 1px solid #dee2e6;
+    }
+    
+    .meta-grid td:last-child {
+        border-bottom: none;
+    }
+    
+    .meta-label {
+        width: 100%;
+        background: #f8f9fa;
+        padding: 0.5rem;
+        margin-bottom: 0.25rem;
+        font-weight: 600;
+    }
+    
+    .meta-grid input,
+    .meta-grid select {
+        font-size: 16px; /* Prevent iOS zoom */
+        min-height: 44px;
+        padding: 0.6rem 0.75rem;
+        width: 100%;
+    }
+    
+    /* Remuneration table - make scrollable on very small screens, card layout on larger mobile */
+    .rem-table {
+        font-size: 0.75rem;
+    }
+    
+    /* For screens smaller than 576px, use card layout */
+    @media (max-width: 575px) {
+        .rem-table {
+            display: block;
+        }
+        
+        .rem-table thead {
+            display: none; /* Hide header on mobile */
+        }
+        
+        .rem-table tbody tr {
+            display: block;
+            border: 2px solid #2c3e50;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .rem-table tbody td {
+            display: block;
+            border: none;
+            padding: 0.5rem 0;
+            text-align: left !important;
+            position: relative;
+            padding-left: 45%;
+            min-height: 44px;
+        }
+        
+        .rem-table tbody td:before {
+            content: attr(data-label);
+            position: absolute;
+            left: 0;
+            width: 40%;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 0.8rem;
+            padding-right: 0.5rem;
+        }
+    }
+    
+    /* For screens 576px to 768px, use horizontal scroll */
+    @media (min-width: 576px) and (max-width: 768px) {
+        .rem-table {
+            display: block;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .rem-table th,
+        .rem-table td {
+            min-width: 100px;
+            white-space: nowrap;
+        }
+    }
+    
+    .rem-table tbody td input,
+    .rem-table tbody td select {
+        font-size: 16px; /* Prevent iOS zoom */
+        min-height: 44px;
+        padding: 0.6rem 0.75rem;
+        width: 100%;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        background: #fff;
+    }
+    
+    .rem-table tfoot {
+        display: block;
+        border: 2px solid #2c3e50;
+        border-radius: 8px;
+        padding: 0.75rem;
+        margin-top: 1rem;
+    }
+    
+    .rem-table tfoot th {
+        display: block;
+        border: none;
+        padding: 0.5rem 0;
+        text-align: left !important;
+        position: relative;
+        padding-left: 45%;
+    }
+    
+    .rem-table tfoot th:before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0;
+        width: 40%;
+        font-weight: 600;
+        color: #2c3e50;
+        font-size: 0.8rem;
+    }
+    
+    .rem-table tfoot th input {
+        font-size: 16px;
+        min-height: 44px;
+        padding: 0.6rem 0.75rem;
+        width: 100%;
+    }
+    
+    /* Remuneration signature section */
+    .signature-section {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    /* Remuneration buttons */
+    .rem-sheet .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+        min-height: 44px;
+        font-size: 0.9rem;
+    }
+    
+    /* Remuneration list table */
+    .forms-table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .forms-table thead {
+        display: none;
+    }
+    
+    .forms-table tbody tr {
+        display: block;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: #fff;
+    }
+    
+    .forms-table tbody td {
+        display: block;
+        border: none;
+        padding: 0.5rem 0;
+        text-align: left !important;
+        position: relative;
+        padding-left: 40%;
+    }
+    
+    .forms-table tbody td:before {
+        content: attr(data-label);
+        position: absolute;
+        left: 0;
+        width: 35%;
+        font-weight: 600;
+        color: #495057;
+        font-size: 0.8rem;
+    }
+    
+    .forms-table .action-buttons {
+        flex-direction: column;
+        width: 100%;
+    }
+    
+    .forms-table .btn-action {
+        width: 100%;
+        margin-bottom: 0.5rem;
+        min-height: 44px;
+    }
+}
+
+/* Evaluation Course Assessment Form Mobile Styles */
+@media (max-width: 768px) {
+    .evaluation-score-table {
+        font-size: 0.8rem;
+    }
+    
+    .evaluation-score-table th,
+    .evaluation-score-table td {
+        padding: 0.5rem 0.35rem;
+        white-space: normal;
+        word-break: break-word;
+    }
+    
+    .evaluation-score-table input[type="radio"] {
+        transform: scale(1.8);
+        margin: 12px 8px;
+        width: 24px;
+        height: 24px;
+    }
+    
+    .evaluation-score-table .table-secondary td {
+        font-size: 0.9rem;
+        padding: 0.75rem 0.5rem;
+    }
+}
+
+/* General Form Improvements for Mobile */
+@media (max-width: 768px) {
+    /* All form inputs should be large enough */
+    .form-control,
+    .form-select,
+    .form-control-lg,
+    .form-select-lg {
+        font-size: 16px !important; /* Prevent iOS auto-zoom */
+        min-height: 44px !important;
+        padding: 0.6rem 0.75rem !important;
+    }
+    
+    /* Form labels */
+    .form-label {
+        font-size: 0.9rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Form groups */
+    .mb-3,
+    .form-group {
+        margin-bottom: 1.25rem !important;
+    }
+    
+    /* Input groups */
+    .input-group {
+        flex-direction: column;
+    }
+    
+    .input-group .form-control,
+    .input-group .form-select {
+        border-radius: 8px !important;
+        margin-bottom: 0.5rem;
+    }
+    
+    .input-group .input-group-text {
+        border-radius: 8px !important;
+        width: 100%;
+        justify-content: center;
+    }
+    
+    /* Checkboxes and radios */
+    .form-check {
+        margin-bottom: 0.75rem;
+        padding-left: 2rem;
+    }
+    
+    .form-check-input {
+        width: 20px;
+        height: 20px;
+        margin-left: -2rem;
+        margin-top: 0.2rem;
+    }
+    
+    .form-check-label {
+        font-size: 0.9rem;
+        padding-left: 0.5rem;
+    }
+    
+    /* Form switches */
+    .form-switch .form-check-input {
+        width: 2.5rem;
+        height: 1.25rem;
+    }
+}

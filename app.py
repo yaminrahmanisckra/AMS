@@ -581,6 +581,26 @@ def create_app():
                 ExamPaperEvaluation.submitted_to_committee.is_(True)
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
             scrutiny_entries = [entry for entry in scrutiny_entries if entry.id not in owned_ids]
+        
+        # Determine if current user is evaluator (owner) - if yes, hide scrutinizer info
+        # Evaluators (owners) should not see scrutinizer info, but scrutinizers and admins should
+        hide_scrutinizer_info = False
+        if current_teacher:
+            from role_utils import is_admin
+            is_admin_user = is_admin(current_user)
+            is_head = hasattr(current_user, 'active_role') and current_user.active_role == 'head'
+            
+            # Admins and heads should always see scrutinizer info
+            if is_admin_user or is_head:
+                hide_scrutinizer_info = False
+            # If user has entries as owner (evaluator), hide scrutinizer info
+            # Note: entries are already filtered by owner_teacher_id, so if entries exist, user is evaluator
+            elif entries:
+                # User is an evaluator (owner) - hide scrutinizer info
+                # Exception: If they are also a scrutinizer (have scrutiny_entries), they should see it
+                # But since they're viewing their own entries page, they're primarily an evaluator, so hide it
+                hide_scrutinizer_info = True
+        
         teacher_map = {}
         teacher_ids = {e.assigned_scrutinizer_id for e in entries if e.assigned_scrutinizer_id}
         if teacher_ids:
@@ -636,7 +656,8 @@ def create_app():
                                academic_sessions=available_sessions,
                                curricula=curricula,
                                curriculum_configs_json=curriculum_configs_json,
-                               scrutiny_entries=scrutiny_entries)
+                               scrutiny_entries=scrutiny_entries,
+                               hide_scrutinizer_info=hide_scrutinizer_info)
 
     @app.route('/exam-evaluation/<int:entry_id>/submit-to-committee', methods=['POST'])
     @login_required
@@ -7830,8 +7851,89 @@ if __name__ == '__main__':
     # Get port from environment variable (for Render) or use default
     port = int(os.environ.get('PORT', 5001))
     
-    # Use 0.0.0.0 for production (Render) and 127.0.0.1 for development
-    host = '0.0.0.0' if os.environ.get('RENDER') else '127.0.0.1'
+    # Use 0.0.0.0 for production (Render) or network access, 127.0.0.1 for localhost only
+    # Set ALLOW_NETWORK_ACCESS=1 in environment to enable network access
+    allow_network = os.environ.get('ALLOW_NETWORK_ACCESS', '0') == '1'
+    host = '0.0.0.0' if (os.environ.get('RENDER') or allow_network) else '127.0.0.1'
+    
+    if host == '0.0.0.0':
+        # Try to get local IP address for display
+        local_ip = 'YOUR_LOCAL_IP'
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except:
+            pass
+        
+        print(f"\n{'='*60}")
+        print(f"Server running on ALL network interfaces")
+        print(f"Local access: http://127.0.0.1:{port}")
+        print(f"Network access: http://{local_ip}:{port}")
+        print(f"{'='*60}\n")
+    else:
+        print(f"\nServer running on http://127.0.0.1:{port} (localhost only)")
+        print("To enable network access, set ALLOW_NETWORK_ACCESS=1 environment variable\n")
 
-    app.run(host=host, port=port) 
+    # Suppress harmless socket errors (client disconnections)
+    import logging
+    logging.getLogger('werkzeug').setLevel(logging.ERROR)  # Only show errors
+    
+    # Suppress socket connection errors (harmless client disconnections)
+    import warnings
+    warnings.filterwarnings('ignore', category=RuntimeWarning)
+    
+    try:
+        # Verify host binding
+        if host == '0.0.0.0':
+            print(f"✓ Binding to 0.0.0.0:{port} (all network interfaces)")
+            print(f"✓ Network access enabled")
+        else:
+            print(f"✓ Binding to 127.0.0.1:{port} (localhost only)")
+        
+        print(f"\n🚀 Server started successfully!")
+        if host == '0.0.0.0':
+            print(f"📱 Access from mobile/other devices:")
+            print(f"   http://{local_ip}:{port}")
+            print(f"\n💡 Make sure:")
+            print(f"   1. Both devices are on the same WiFi network")
+            print(f"   2. Firewall allows Python/port {port}")
+            print(f"   3. Use exact URL: http://{local_ip}:{port}\n")
+        
+        # Run with minimal logging to reduce noise
+        import sys
+        from werkzeug.serving import WSGIRequestHandler
+        
+        class QuietHandler(WSGIRequestHandler):
+            def log_request(self, *args, **kwargs):
+                pass  # Don't log normal requests
+        
+        # Ensure we're actually binding to 0.0.0.0 for network access
+        if host == '0.0.0.0':
+            # Double check binding
+            import socket
+            test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                test_socket.bind(('0.0.0.0', port))
+                test_socket.close()
+                print(f"✓ Port {port} is available and will bind to 0.0.0.0")
+            except OSError as e:
+                print(f"⚠️  Port binding test failed: {e}")
+                test_socket.close()
+        
+        app.run(host=host, port=port, threaded=True, use_reloader=False, request_handler=QuietHandler)
+    except OSError as e:
+        if "Address already in use" in str(e):
+            print(f"\n❌ Error: Port {port} is already in use!")
+            print(f"   Please stop the other application or use a different port:")
+            print(f"   PORT=5002 ALLOW_NETWORK_ACCESS=1 python3 app.py\n")
+        else:
+            print(f"\n❌ Error starting server: {e}\n")
+        raise
+    except Exception as e:
+        print(f"\n❌ Unexpected error: {e}\n")
+        raise 
     

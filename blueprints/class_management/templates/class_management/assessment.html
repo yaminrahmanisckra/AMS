@@ -7,6 +7,33 @@
             width: 85px !important;
             text-align: center;
         }
+        
+        /* Mobile responsive styles */
+        @media (max-width: 768px) {
+            .assessment-input-field {
+                width: 100% !important;
+                min-width: 80px !important;
+                font-size: 16px !important;
+                padding: 0.5rem !important;
+                min-height: 44px !important;
+            }
+            
+            .table.table-bordered {
+                min-width: auto !important;
+            }
+            
+            .table.table-bordered th,
+            .table.table-bordered td {
+                padding: 0.5rem 0.35rem !important;
+                font-size: 0.85rem;
+            }
+            
+            .table.table-bordered td .d-flex {
+                flex-direction: column;
+                gap: 0.5rem;
+                align-items: flex-start;
+            }
+        }
     </style>
     <div class="card shadow">
         <div class="card-header bg-primary text-white">

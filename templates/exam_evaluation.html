@@ -31,14 +31,27 @@
                     {% if entries %}
                         <div class="table-responsive">
                             <table class="table table-sm align-middle">
+                                <thead class="d-none d-md-table-header-group">
+                                    <tr>
+                                        <th>Course</th>
+                                        <th>Code</th>
+                                        <th>Year / Term</th>
+                                        <th>Level</th>
+                                        {% if not hide_scrutinizer_info %}
+                                        <th>Scrutinizer</th>
+                                        {% endif %}
+                                        <th>Created</th>
+                                    </tr>
+                                </thead>
                                 <tbody>
                                     {% for entry in entries %}
                                     <tr>
-                                        <td>{{ entry.course_name }}</td>
-                                        <td>{{ entry.course_code }}</td>
-                                        <td>{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
-                                        <td class="text-uppercase">{{ entry.program_level }}</td>
-                                        <td>
+                                        <td data-label="Course">{{ entry.course_name }}</td>
+                                        <td data-label="Code">{{ entry.course_code }}</td>
+                                        <td data-label="Year / Term">{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
+                                        <td class="text-uppercase" data-label="Level">{{ entry.program_level }}</td>
+                                        {% if not hide_scrutinizer_info %}
+                                        <td data-label="Scrutinizer">
                                             {% set scr = teacher_map.get(entry.assigned_scrutinizer_id) %}
                                             {% if scr %}
                                                 <span class="badge bg-success-subtle text-success"><i class="fas fa-user-check me-1"></i>{{ scr.name }}</span>
@@ -46,10 +59,11 @@
                                                 <span class="text-muted small">Not assigned</span>
                                             {% endif %}
                                         </td>
-                                        <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
+                                        {% endif %}
+                                        <td data-label="Created">{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
                                     </tr>
                                     <tr class="table-light">
-                                        <td colspan="6">
+                                        <td colspan="{{ 6 if not hide_scrutinizer_info else 5 }}">
                                             <div class="d-flex flex-wrap gap-2">
                                                 <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
                                                 {% if entry.submitted_to_committee %}
@@ -144,7 +158,7 @@
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
-                            <thead class="table-light">
+                            <thead class="table-light d-none d-md-table-header-group">
                                 <tr>
                                     <th>Course</th>
                                     <th>Code</th>
@@ -157,13 +171,13 @@
                             <tbody>
                                 {% for entry in scrutiny_entries %}
                                 <tr>
-                                    <td>{{ entry.course_name }}</td>
-                                    <td>{{ entry.course_code }}</td>
-                                    <td>{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
-                                    <td>{{ entry.batch or '-' }}</td>
-                                    <td>{{ entry.owner_teacher.name if entry.owner_teacher else 'N/A' }}</td>
-                                    <td>
-                                        <a href="{{ url_for('exam_marks_entry', entry_id=entry.id, role='scrutinizer') }}" class="btn btn-outline-primary btn-sm">
+                                    <td data-label="Course">{{ entry.course_name }}</td>
+                                    <td data-label="Code">{{ entry.course_code }}</td>
+                                    <td data-label="Year / Term">{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
+                                    <td data-label="Batch">{{ entry.batch or '-' }}</td>
+                                    <td data-label="Owner">{{ entry.owner_teacher.name if entry.owner_teacher else 'N/A' }}</td>
+                                    <td data-label="Action">
+                                        <a href="{{ url_for('exam_marks_entry', entry_id=entry.id, role='scrutinizer') }}" class="btn btn-outline-primary btn-sm w-100 w-md-auto">
                                             <i class="fas fa-pen me-1"></i>Scrutinize Marks
                                         </a>
                                     </td>

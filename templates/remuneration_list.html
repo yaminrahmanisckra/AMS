@@ -144,7 +144,7 @@
     
     {% if forms %}
     <table class="forms-table">
-        <thead>
+        <thead class="d-none d-md-table-header-group">
             <tr>
                 <th>Title (Subject/Course)</th>
                 <th>Session</th>
@@ -159,18 +159,18 @@
         <tbody>
             {% for form in forms %}
             <tr>
-                <td><strong>{{ form.course_names or form.title }}</strong></td>
-                <td>{{ form.academic_session or 'N/A' }}</td>
-                <td>{{ form.applicant_name or 'N/A' }}</td>
-                <td>
+                <td data-label="Title"><strong>{{ form.course_names or form.title }}</strong></td>
+                <td data-label="Session">{{ form.academic_session or 'N/A' }}</td>
+                <td data-label="Applicant">{{ form.applicant_name or 'N/A' }}</td>
+                <td data-label="Status">
                     <span class="status-badge status-{{ form.status }}">
                         {{ form.status.title() }}
                     </span>
                 </td>
-                <td>৳{{ "{:,.2f}".format(form.total_amount or 0) }}</td>
-                <td>{{ form.created_at }}</td>
-                <td>{{ form.updated_at }}</td>
-                <td>
+                <td data-label="Amount">৳{{ "{:,.2f}".format(form.total_amount or 0) }}</td>
+                <td data-label="Created">{{ form.created_at }}</td>
+                <td data-label="Updated">{{ form.updated_at }}</td>
+                <td data-label="Actions">
                     <div class="action-buttons">
                         <a href="{{ url_for('remuneration_edit', form_id=form.id) }}" class="btn-action btn-edit">
                             <i class="fas fa-edit"></i> Edit

@@ -403,7 +403,7 @@ def teacher_courses(teacher_id):
     from blueprints.class_management.models import Teacher
     
     courses_data = []
-    
+
     try:
         # Verify teacher exists
         teacher = Teacher.query.get(teacher_id)
@@ -474,7 +474,7 @@ def teacher_courses(teacher_id):
             }
             
             courses_data.append(course_entry)
-            
+
             # Handle shared courses (3-credit courses with Part A and Part B)
             if course_credit == 3.0 and section == 'A':
                 # Check if there's a Part B assignment for the same course
@@ -484,7 +484,7 @@ def teacher_courses(teacher_id):
                     CourseSessionAssignment.curriculum_id == assignment.curriculum_id,
                     CourseSessionAssignment.academic_session == assignment.academic_session
                 ).first()
-                
+
                 if other_assignment and hasattr(other_assignment, 'teacher') and other_assignment.teacher:
                     other_teacher = other_assignment.teacher
                     other_teacher_short = getattr(other_teacher, 'call_sign', None) or getattr(other_teacher, 'short_name', '') or ''
@@ -646,7 +646,7 @@ def load_routine():
                         current_app.logger.error(f'Error getting year/term for routine entry: {e}')
                     except:
                         pass
-        
+
         routine_data.append({
             "day": entry.day,
             "slot": entry.time_slot,
@@ -841,7 +841,7 @@ def download_pdf():
         )
         
         return response
-    
+        
     except Exception as e:
         import traceback
         error_msg = f"PDF generation error: {str(e)}\n{traceback.format_exc()}"

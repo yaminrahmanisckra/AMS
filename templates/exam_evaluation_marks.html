@@ -137,12 +137,106 @@
 .code-input {
     min-width: 200px;
     width: 100%;
+    font-size: 16px; /* Prevent iOS zoom */
 }
 .code-cell {
     width: 220px;
     min-width: 220px;
     max-width: 220px;
     white-space: nowrap;
+}
+
+/* Mobile responsive styles for Code column */
+@media (max-width: 768px) {
+    .code-cell {
+        width: auto !important;
+        min-width: 250px !important; /* Increased from 180px to 250px */
+        max-width: none !important;
+    }
+    
+    .code-input {
+        min-width: 200px !important; /* Increased from 150px to 200px */
+        width: 100% !important;
+        font-size: 16px !important; /* Prevent iOS zoom */
+        padding: 0.6rem 0.75rem !important;
+        min-height: 44px !important;
+    }
+    
+    /* Make input group responsive - ensure code input gets more space */
+    .code-cell .input-group {
+        flex-wrap: nowrap;
+        width: 100%;
+    }
+    
+    .code-cell .input-group .form-control {
+        flex: 1 1 auto;
+        min-width: 200px; /* Ensure minimum width for code input */
+    }
+    
+    .code-cell .input-group .btn {
+        flex-shrink: 0;
+        min-width: 44px;
+        width: 44px;
+        padding: 0.5rem;
+    }
+    
+    /* Ensure table is scrollable on mobile */
+    .marks-table-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+    }
+    
+    #marks-table {
+        min-width: 700px; /* Increased from 600px for better readability */
+    }
+    
+    /* Make all inputs touch-friendly */
+    #marks-table .form-control {
+        font-size: 16px !important; /* Prevent iOS zoom */
+        min-height: 44px !important;
+        padding: 0.6rem 0.75rem !important;
+    }
+    
+    /* Adjust mark inputs */
+    .mark-input {
+        min-width: 80px !important;
+        font-size: 16px !important;
+        padding: 0.6rem 0.5rem !important;
+    }
+    
+    /* Adjust student ID input */
+    .student-id-input {
+        min-width: 150px !important;
+        font-size: 16px !important;
+        padding: 0.6rem 0.75rem !important;
+    }
+    
+    /* Total field */
+    .total-field {
+        min-width: 100px !important;
+        font-size: 16px !important;
+        padding: 0.6rem 0.5rem !important;
+    }
+    
+    /* Serial cell */
+    .serial-cell {
+        min-width: 50px !important;
+        width: 50px !important;
+    }
+    
+    /* Table header improvements */
+    #marks-table thead th {
+        font-size: 0.85rem;
+        padding: 0.75rem 0.5rem;
+        white-space: nowrap;
+    }
+    
+    /* Code header specifically - target second th (after serial #) */
+    #marks-table thead th:nth-child(2) {
+        min-width: 250px !important;
+    }
 }
 .student-id-input {
     min-width: 140px;
