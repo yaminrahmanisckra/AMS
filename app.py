@@ -66,6 +66,13 @@ def create_app():
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a_very_secret_default_key')
     app.config['TEMPLATES_AUTO_RELOAD'] = False
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
+    
+    # Session cookie configuration for ngrok compatibility
+    # Don't set domain to allow cookies to work with any domain (including ngrok)
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_SECURE'] = False  # Set to True only for HTTPS in production
+    app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
 
     # ALWAYS use SQLite for local development - simplest approach
     basedir = os.path.abspath(os.path.dirname(__file__))
@@ -101,7 +108,10 @@ def create_app():
 
     @login_manager.user_loader
     def load_user(user_id):
-        return User.query.get(int(user_id))
+        try:
+            return User.query.get(int(user_id))
+        except (ValueError, TypeError):
+            return None
 
     @app.before_request
     def attach_active_role():
@@ -1795,6 +1805,76 @@ def create_app():
                              academic_sessions=academic_sessions,
                              batches=batches,
                              duty_label_map=duty_label_map)
+
+    @app.route('/head/assign-duties/api/year-term', methods=['GET'])
+    @login_required
+    def head_assign_duty_year_term():
+        """Get Year and Term options based on selected Academic Session"""
+        from blueprints.class_management.models import Session
+        
+        roles = parse_roles(current_user.role)
+        if 'head' not in roles and 'dean' not in roles:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        session_name = request.args.get('session', '').strip()
+        if not session_name:
+            return jsonify({'success': False, 'message': 'Session is required'}), 400
+        
+        try:
+            # Get distinct year and term combinations from CurriculumYearTerm for this session
+            year_term_rows = db.session.query(
+                CurriculumYearTerm.year,
+                CurriculumYearTerm.term
+            ).filter(
+                CurriculumYearTerm.academic_session == session_name
+            ).distinct().order_by(
+                CurriculumYearTerm.year.asc(),
+                CurriculumYearTerm.term.asc()
+            ).all()
+            
+            # Also check Session model for year/term combinations
+            session_rows = db.session.query(
+                Session.year,
+                Session.term
+            ).filter(
+                Session.academic_session == session_name
+            ).distinct().all()
+            
+            # Combine and deduplicate
+            year_term_set = set()
+            for year, term in year_term_rows:
+                if year and term:
+                    year_term_set.add((year, term))
+            for year, term in session_rows:
+                if year and term:
+                    year_term_set.add((year, term))
+            
+            # Convert to sorted list
+            year_term_list = sorted(list(year_term_set), key=lambda x: (x[0], x[1]))
+            
+            years = sorted(list(set([yt[0] for yt in year_term_list if yt[0]])), key=lambda x: (
+                'First' if x == 'First' else
+                'Second' if x == 'Second' else
+                'Third' if x == 'Third' else
+                'Fourth' if x == 'Fourth' else
+                'Fifth' if x == 'Fifth' else
+                'LLM' if x == 'LLM' else x
+            ))
+            
+            terms = sorted(list(set([yt[1] for yt in year_term_list if yt[1]])), key=lambda x: (
+                'First' if x == 'First' else
+                'Second' if x == 'Second' else
+                'Thesis Term' if x == 'Thesis Term' else x
+            ))
+            
+            return jsonify({
+                'success': True,
+                'years': years,
+                'terms': terms
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error getting year-term options: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': 'Error fetching year-term options'}), 500
 
     @app.route('/head/assign-duties/api/courses', methods=['GET'])
     @login_required

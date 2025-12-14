@@ -25,12 +25,13 @@ except ImportError:
     Student = None
 
 try:
-    from blueprints.course_management.models import Curriculum, Course, CurriculumYearTerm, CourseSessionAssignment
+    from blueprints.course_management.models import Curriculum, Course, CurriculumYearTerm, CourseSessionAssignment, StudentCourseRegistration
 except ImportError:
     Curriculum = None
     CourseSessionAssignment = None
     Course = None
     CurriculumYearTerm = None
+    StudentCourseRegistration = None
 import pandas as pd
 import os
 from datetime import datetime, date
@@ -53,7 +54,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from uuid import uuid4
-from role_utils import has_teacher_privileges
+from role_utils import has_teacher_privileges, is_admin, parse_roles
 
 
 COURSE_REVIEW_GRADE_ROWS = [
@@ -155,6 +156,68 @@ def _get_related_sessions(session, include_archived=False):
         query = query.filter_by(archived=False)
     related = query.order_by(Session.id.asc()).all()
     return related or [session]
+
+
+def _carry_on_assessment_marks(class_student, session):
+    """Carry on previous assessment marks for retake students if carry_on is enabled in registration"""
+    if not StudentCourseRegistration or not Student:
+        return
+    
+    try:
+        # Get student record from Students Management
+        student_record = Student.query.filter_by(student_id=class_student.student_id).first()
+        if not student_record:
+            return
+        
+        # Find registration for this course and session
+        registration = StudentCourseRegistration.query.filter_by(
+            student_id=student_record.id,
+            course_code=session.course_code,
+            academic_session=session.academic_session,
+            year=session.year,
+            term=session.term
+        ).first()
+        
+        if not registration or not registration.carry_on:
+            return
+        
+        # Only carry on for retake/re-retake students
+        if registration.remark not in ['Retake', 'Re-retake']:
+            return
+        
+        # Find previous session with same course_code and student_id
+        # Look for sessions with different academic_session/year/term
+        previous_sessions = Session.query.filter(
+            Session.course_code == session.course_code,
+            Session.id != session.id,
+            Session.archived == False
+        ).order_by(Session.academic_session.desc(), Session.created_at.desc()).all()
+        
+        for prev_session in previous_sessions:
+            # Find student in previous session
+            prev_student = ClassStudent.query.filter_by(
+                session_id=prev_session.id,
+                student_id=class_student.student_id
+            ).first()
+            
+            if prev_student:
+                # Copy assessment marks
+                if prev_student.assessment1 is not None:
+                    class_student.assessment1 = prev_student.assessment1
+                if prev_student.assessment2 is not None:
+                    class_student.assessment2 = prev_student.assessment2
+                if prev_student.assessment3 is not None:
+                    class_student.assessment3 = prev_student.assessment3
+                if prev_student.assessment4 is not None:
+                    class_student.assessment4 = prev_student.assessment4
+                
+                current_app.logger.info(
+                    f'Carried on assessment marks for student {class_student.student_id} '
+                    f'from session {prev_session.id} to session {session.id}'
+                )
+                break  # Only carry from the most recent previous session
+    except Exception as e:
+        current_app.logger.error(f'Error carrying on assessment marks: {str(e)}', exc_info=True)
 
 
 def _replicate_student_to_peers(session, source_student, *, old_identifier=None):
@@ -660,6 +723,21 @@ def index():
                                 if students_from_batch:
                                     added_count = 0
                                     for student in students_from_batch:
+                                        # Check if student is registered for this course (finalized registration only)
+                                        if StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
+                                            registration = StudentCourseRegistration.query.filter_by(
+                                                student_id=student.id,
+                                                course_code=session.course_code,
+                                                academic_session=session.academic_session,
+                                                year=session.year,
+                                                term=session.term,
+                                                status='finalized'
+                                            ).first()
+                                            
+                                            if not registration:
+                                                current_app.logger.info(f'Student {student.student_id} ({student.name}) not registered for course {session.course_code}, skipping...')
+                                                continue
+                                        
                                         class_student = ClassStudent(
                                             student_id=student.student_id,
                                             name=student.name,
@@ -667,6 +745,14 @@ def index():
                                             teacher_id=session.teacher_id
                                         )
                                         db.session.add(class_student)
+                                        db.session.flush()  # Flush to get class_student.id before carry on
+                                        
+                                        # Carry on assessment marks if enabled in registration
+                                        _carry_on_assessment_marks(class_student, session)
+                                        
+                                        # Replicate to peer sessions for split courses
+                                        _replicate_student_to_peers(session, class_student)
+                                        
                                         added_count += 1
                                     
                                     if added_count > 0:
@@ -811,6 +897,11 @@ def create_session():
                             teacher_id=teacher.id
                         )
                         db.session.add(class_student)
+                        db.session.flush()  # Flush to get class_student.id before carry on
+                        
+                        # Carry on assessment marks if enabled in registration
+                        _carry_on_assessment_marks(class_student, session_obj)
+                        
                         _replicate_student_to_peers(session_obj, class_student)
                         added_count += 1
                     
@@ -887,6 +978,7 @@ def create_session():
                 students_from_batch = Student.query.filter_by(batch=batch).all()
                 added_count = 0
                 skipped_count = 0
+                not_registered_count = 0
                 
                 for student in students_from_batch:
                     # Check if already exists
@@ -899,6 +991,22 @@ def create_session():
                         skipped_count += 1
                         continue
                     
+                    # Check if student is registered for this course (finalized registration only)
+                    if StudentCourseRegistration and current_session.course_code and current_session.academic_session and current_session.year and current_session.term:
+                        registration = StudentCourseRegistration.query.filter_by(
+                            student_id=student.id,
+                            course_code=current_session.course_code,
+                            academic_session=current_session.academic_session,
+                            year=current_session.year,
+                            term=current_session.term,
+                            status='finalized'
+                        ).first()
+                        
+                        if not registration:
+                            not_registered_count += 1
+                            current_app.logger.info(f'Student {student.student_id} ({student.name}) not registered for course {current_session.course_code}, skipping...')
+                            continue
+                    
                     class_student = ClassStudent(
                         student_id=student.student_id,
                         name=student.name,
@@ -906,6 +1014,11 @@ def create_session():
                         teacher_id=teacher.id
                     )
                     db.session.add(class_student)
+                    db.session.flush()  # Flush to get class_student.id before carry on
+                    
+                    # Carry on assessment marks if enabled in registration
+                    _carry_on_assessment_marks(class_student, current_session)
+                    
                     _replicate_student_to_peers(current_session, class_student)
                     added_count += 1
                 
@@ -913,7 +1026,10 @@ def create_session():
                 db.session.commit()
                 
                 if added_count > 0:
-                    flash(f'Split course created. Invitation sent. Automatically added {added_count} students from batch {batch}.', 'success')
+                    message = f'Split course created. Invitation sent. Automatically added {added_count} students from batch {batch}.'
+                    if not_registered_count > 0:
+                        message += f' Skipped {not_registered_count} student(s) not registered for this course.'
+                    flash(message, 'success')
                 else:
                     flash('Split course created. Invitation sent to the selected teacher.', 'success')
                     if skipped_count > 0:
@@ -1137,12 +1253,158 @@ def take_attendance(session_id):
 def view_attendance(session_id):
     """View attendance for a session and display a detailed report."""
     session = Session.query.get_or_404(session_id)
-    students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
-
+    
+    # Check user permissions: admin/head can view any session, regular teachers only their own
+    user_roles = set(parse_roles(getattr(current_user, 'role', '')))
+    if getattr(current_user, 'active_role', None):
+        user_roles = set(parse_roles(current_user.active_role))
+    can_view_all = is_admin(current_user) or 'head' in user_roles or 'dean' in user_roles
+    
+    # If not admin/head, check if this session belongs to the current teacher
+    if not can_view_all:
+        current_teacher = _ensure_current_teacher()
+        if not current_teacher or session.teacher_id != current_teacher.id:
+            flash('You do not have permission to view attendance for this session.', 'danger')
+            return redirect(url_for('class_management.index'))
+    
     attendance_summary = _build_attendance_summary(session)
     part_total_classes = None
     if session.course_scope in SPLIT_PARTS:
         part_total_classes = attendance_summary.get('per_session_totals', {}).get(session.id, 0)
+    
+    # Check if this is a split course
+    is_split_course = session.split_group_id and session.course_scope in SPLIT_PARTS
+    related_sessions = []
+    if is_split_course:
+        related_sessions = _get_related_sessions(session, include_archived=True)
+    
+    # For split courses, prepare separate attendance data for each teacher
+    teacher_attendance_data = []
+    if is_split_course and related_sessions:
+        # Check user permissions: admin/head can see all parts, regular teachers only their own
+        user_roles = set(parse_roles(getattr(current_user, 'role', '')))
+        if getattr(current_user, 'active_role', None):
+            user_roles = set(parse_roles(current_user.active_role))
+        can_view_all = is_admin(current_user) or 'head' in user_roles or 'dean' in user_roles
+        
+        # Get current teacher if not admin/head
+        current_teacher = None
+        if not can_view_all:
+            current_teacher = _ensure_current_teacher()
+        
+        # Get all students from all related sessions (for marks calculation)
+        all_session_ids = [s.id for s in related_sessions]
+        all_students = ClassStudent.query.filter(ClassStudent.session_id.in_(all_session_ids)).order_by(ClassStudent.student_id).all()
+        student_lookup = {stu.student_id: stu for stu in all_students}
+        
+        # Get combined attendance summary for marks (this stays the same)
+        agg_student_map = attendance_summary.get('per_student', {})
+        agg_total_classes = attendance_summary.get('total_classes', 0)
+        
+        # Prepare data for each teacher/session (filtered by permissions)
+        for related_session in related_sessions:
+            # Skip if user doesn't have permission to view this session
+            if not can_view_all:
+                if not current_teacher or related_session.teacher_id != current_teacher.id:
+                    continue
+            session_students = ClassStudent.query.filter_by(session_id=related_session.id).order_by(ClassStudent.student_id).all()
+            session_attendance_records = ClassAttendance.query.filter_by(session_id=related_session.id).order_by(ClassAttendance.date, ClassAttendance.id).all()
+            
+            if not session_attendance_records:
+                continue
+            
+            # Build attendance data for this session
+            attendance_by_date = defaultdict(list)
+            for record in session_attendance_records:
+                attendance_by_date[record.date].append(record)
+            
+            daily_class_counts = {}
+            for date, records in attendance_by_date.items():
+                student_counts_on_date = defaultdict(int)
+                for record in records:
+                    student_counts_on_date[record.student_id] += 1
+                daily_class_counts[date] = max(student_counts_on_date.values()) if student_counts_on_date else 0
+            
+            headers_with_meta = []
+            sorted_dates = sorted(daily_class_counts.keys())
+            for date in sorted_dates:
+                count = daily_class_counts.get(date, 0)
+                if count == 1:
+                    headers_with_meta.append({'label': date.strftime('%b %d, %Y'), 'date': date.strftime('%Y-%m-%d'), 'slot': 1})
+                else:
+                    for i in range(1, count + 1):
+                        headers_with_meta.append({'label': f"{date.strftime('%b %d')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
+            
+            student_report_data = []
+            for student in session_students:
+                student_records = [r for r in session_attendance_records if r.student_id == student.id]
+                # Use combined stats for marks calculation
+                agg_stats = agg_student_map.get(student.student_id, {'present': 0, 'percentage': 0, 'marks': 0})
+                
+                attendance_row = []
+                student_attendance_by_date = defaultdict(list)
+                for r in student_records:
+                    student_attendance_by_date[r.date].append(r)
+                
+                for date in sorted_dates:
+                    records_for_date = student_attendance_by_date[date]
+                    num_classes_on_day = daily_class_counts.get(date, 0)
+                    for i in range(num_classes_on_day):
+                        cell = {
+                            'status': '-',
+                            'date': date.strftime('%Y-%m-%d'),
+                            'slot': i + 1
+                        }
+                        if i < len(records_for_date):
+                            record = records_for_date[i]
+                            cell['status'] = 'P' if record.is_present else 'A'
+                            cell['record_id'] = record.id
+                        attendance_row.append(cell)
+                
+                student_data = {
+                    'info': student,
+                    'attendance_row': attendance_row,
+                    'total_classes': agg_total_classes,  # Combined total for marks
+                    'present_count': agg_stats['present'],  # Combined present count
+                    'percentage': f"{agg_stats['percentage']:.2f}%",  # Combined percentage
+                    'marks': agg_stats['marks']  # Combined marks
+                }
+                student_report_data.append(student_data)
+            
+            teacher_attendance_data.append({
+                'session': related_session,
+                'teacher_name': related_session.teacher.name if related_session.teacher else 'Unknown',
+                'teacher_short': related_session.teacher.short_name if related_session.teacher else '',
+                'scope_label': COURSE_SCOPE_LABELS.get(related_session.course_scope, 'Part'),
+                'headers_with_meta': headers_with_meta,
+                'student_report_data': student_report_data,
+                'part_total_classes': attendance_summary.get('per_session_totals', {}).get(related_session.id, 0),
+                'unique_dates': sorted(attendance_by_date.keys(), reverse=True)  # For delete modal
+            })
+        
+        # Get unique dates from all sessions for delete modal
+        all_attendance_records = ClassAttendance.query.filter(ClassAttendance.session_id.in_(all_session_ids)).all()
+        attendance_by_date_all = defaultdict(list)
+        for record in all_attendance_records:
+            attendance_by_date_all[record.date].append(record)
+        unique_dates_for_modal = sorted(attendance_by_date_all.keys(), reverse=True)
+        
+        return render_template(
+            'class_management/view_attendance.html',
+            session=session,
+            headers=[],
+            headers_with_meta=[],
+            student_report_data=[],
+            unique_dates=unique_dates_for_modal,
+            split_meta=_build_split_context(session, attendance_summary),
+            attendance_summary=attendance_summary,
+            part_total_classes=part_total_classes,
+            is_split_course=True,
+            teacher_attendance_data=teacher_attendance_data
+        )
+    
+    # Non-split course: original logic
+    students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
     all_attendance_records = ClassAttendance.query.filter_by(session_id=session_id).order_by(ClassAttendance.date, ClassAttendance.id).all()
     student_lookup = {stu.id: stu for stu in students}
 
@@ -1158,7 +1420,9 @@ def view_attendance(session_id):
             unique_dates=[],
             split_meta=_build_split_context(session, attendance_summary),
             attendance_summary=attendance_summary,
-            part_total_classes=part_total_classes
+            part_total_classes=part_total_classes,
+            is_split_course=False,
+            teacher_attendance_data=[]
         )
 
     attendance_by_date = defaultdict(list)
@@ -1243,7 +1507,9 @@ def view_attendance(session_id):
         unique_dates=unique_dates_for_modal,
         split_meta=_build_split_context(session, attendance_summary),
         attendance_summary=attendance_summary,
-        part_total_classes=part_total_classes
+        part_total_classes=part_total_classes,
+        is_split_course=False,
+        teacher_attendance_data=[]
     )
 
 
@@ -1518,6 +1784,7 @@ def add_student(session_id):
         
         added_count = 0
         skipped_count = 0
+        not_registered_count = 0
         
         # Get existing student IDs in this session
         existing_student_ids = {s.student_id for s in ClassStudent.query.filter_by(session_id=session_id).all()}
@@ -1533,6 +1800,22 @@ def add_student(session_id):
                 skipped_count += 1
                 continue
             
+            # Check if student is registered for this course (finalized registration only)
+            if StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
+                registration = StudentCourseRegistration.query.filter_by(
+                    student_id=student.id,
+                    course_code=session.course_code,
+                    academic_session=session.academic_session,
+                    year=session.year,
+                    term=session.term,
+                    status='finalized'
+                ).first()
+                
+                if not registration:
+                    not_registered_count += 1
+                    current_app.logger.info(f'Student {student.student_id} ({student.name}) not registered for course {session.course_code}, skipping...')
+                    continue
+            
             class_student = ClassStudent(
                 student_id=student.student_id,
                 name=student.name,
@@ -1540,6 +1823,11 @@ def add_student(session_id):
                 teacher_id=session.teacher_id or teacher.id
             )
             db.session.add(class_student)
+            db.session.flush()  # Flush to get class_student.id before carry on
+            
+            # Carry on assessment marks if enabled in registration
+            _carry_on_assessment_marks(class_student, session)
+            
             _replicate_student_to_peers(session, class_student)
             existing_student_ids.add(student.student_id)
             added_count += 1
@@ -1549,6 +1837,8 @@ def add_student(session_id):
             message = f'Successfully added {added_count} student(s).'
             if skipped_count > 0:
                 message += f' Skipped {skipped_count} existing student(s).'
+            if not_registered_count > 0:
+                message += f' Skipped {not_registered_count} student(s) not registered for this course.'
             return jsonify({'success': True, 'message': message})
         except Exception as e:
             db.session.rollback()
@@ -1575,6 +1865,11 @@ def add_student(session_id):
         teacher_id=session.teacher_id or teacher.id
     )
     db.session.add(student)
+    db.session.flush()  # Flush to get student.id before carry on
+    
+    # Carry on assessment marks if enabled in registration
+    _carry_on_assessment_marks(student, session)
+    
     _replicate_student_to_peers(session, student)
     db.session.commit()
     flash('Student added successfully!', 'success')
@@ -3212,6 +3507,15 @@ def assessment(session_id):
                 reveal_status = {}
         current_teacher_reveals = reveal_status.get(str(current_teacher.id), {})
         
+        # Default attendance marks to revealed if not set
+        if 'attendance' not in current_teacher_reveals:
+            current_teacher_reveals['attendance'] = True
+            # Save the default if session doesn't have reveal status yet
+            if str(current_teacher.id) not in reveal_status:
+                reveal_status[str(current_teacher.id)] = current_teacher_reveals
+                session.assessment_revealed = json.dumps(reveal_status)
+                db.session.commit()
+        
         if request.method == 'POST':
             try:
                 import json
@@ -3624,6 +3928,9 @@ def student_view_scores():
         # Second pass: build reveal status by combining all sessions with same course key
         for course_key, course_data in course_map.items():
             reveal_status = {}
+            # Default attendance to revealed
+            reveal_status['attendance'] = True
+            
             # Combine reveal status from all sessions with this course key
             for session_id in course_data['session_ids']:
                 session_obj = session_records_map.get(session_id)
@@ -3712,7 +4019,7 @@ def student_view_scores():
             # Get attendance marks if revealed
             # For split courses, aggregate attendance from all related sessions
             attendance_data = None
-            if reveal_status.get('attendance', False):
+            if reveal_status.get('attendance', True):  # Default to True if not set
                 # Use _build_attendance_summary which already handles split courses correctly
                 # It aggregates attendance from all related sessions automatically
                 attendance_summary = _build_attendance_summary(session_obj)

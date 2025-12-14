@@ -8,7 +8,7 @@ from blueprints.student_management.models import Student
 from blueprints.class_management.models import Session, Teacher, ClassStudent
 from role_utils import parse_roles
 from user_models import User
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -20,6 +20,173 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from PIL import Image as PILImage
 import os
 from datetime import datetime
+
+
+def _remove_students_from_class_sessions(course_code, academic_session, year, term, student_ids):
+    """Remove students from class management sessions when registration is deleted"""
+    if not Session or not ClassStudent or not Student:
+        return
+    
+    try:
+        # Find all sessions for this course, session, year, and term
+        sessions = Session.query.filter_by(
+            course_code=course_code,
+            academic_session=academic_session,
+            year=year,
+            term=term
+        ).all()
+        
+        if not sessions:
+            current_app.logger.info(f'No sessions found for course {course_code}, session {academic_session}, year {year}, term {term}')
+            return
+        
+        removed_count = 0
+        
+        for session in sessions:
+            # Get student records - student_ids can be either Student.id (int) or student_id (string)
+            # Try to get by id first, then by student_id
+            students = []
+            student_ids_list = []
+            for sid in student_ids:
+                student = Student.query.get(sid) if isinstance(sid, int) else Student.query.filter_by(student_id=sid).first()
+                if student:
+                    students.append(student)
+                    student_ids_list.append(student.student_id)
+            
+            if not student_ids_list:
+                continue
+            
+            # Find and delete ClassStudent records for these students in this session
+            class_students = ClassStudent.query.filter(
+                ClassStudent.session_id == session.id,
+                ClassStudent.student_id.in_(student_ids_list)
+            ).all()
+            
+            for class_student in class_students:
+                db.session.delete(class_student)
+                removed_count += 1
+                
+                # Also remove from peer sessions for split courses
+                try:
+                    from blueprints.class_management.routes import _replicate_student_to_peers
+                    # Find peer sessions
+                    if hasattr(session, 'split_group_id') and session.split_group_id:
+                        peer_sessions = Session.query.filter_by(
+                            split_group_id=session.split_group_id,
+                            course_code=course_code,
+                            academic_session=academic_session,
+                            year=year,
+                            term=term
+                        ).filter(Session.id != session.id).all()
+                        
+                        for peer_session in peer_sessions:
+                            peer_class_student = ClassStudent.query.filter_by(
+                                session_id=peer_session.id,
+                                student_id=class_student.student_id
+                            ).first()
+                            if peer_class_student:
+                                db.session.delete(peer_class_student)
+                                removed_count += 1
+                except Exception as replicate_error:
+                    current_app.logger.warning(f'Error removing student from peers for {class_student.student_id}: {replicate_error}')
+        
+        if removed_count > 0:
+            db.session.commit()
+            current_app.logger.info(f'Removed {removed_count} student(s) from {len(sessions)} session(s) for course {course_code}')
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error removing students from class sessions: {e}', exc_info=True)
+        raise
+
+
+def _add_students_to_class_sessions(course_code, academic_session, year, term, students_data):
+    """Add students to class management sessions based on course registration"""
+    if not Session or not ClassStudent or not Student:
+        return
+    
+    try:
+        # Find all sessions for this course, session, year, and term
+        sessions = Session.query.filter_by(
+            course_code=course_code,
+            academic_session=academic_session,
+            year=year,
+            term=term
+        ).all()
+        
+        if not sessions:
+            current_app.logger.info(f'No sessions found for course {course_code}, session {academic_session}, year {year}, term {term}')
+            return
+        
+        added_to_sessions = 0
+        
+        for session in sessions:
+            for student_info in students_data:
+                # Handle both dict and int formats
+                if isinstance(student_info, dict):
+                    student_id = student_info.get('student_id')
+                    carry_on = student_info.get('carry_on', False)
+                else:
+                    student_id = student_info
+                    carry_on = False
+                
+                # Get student record
+                student = Student.query.get(student_id)
+                if not student:
+                    current_app.logger.warning(f'Student with id {student_id} not found in Student model, skipping...')
+                    continue
+                
+                current_app.logger.info(f'Processing student: {student.student_id} ({student.name}) for session {session.id} (course: {session.course_code})')
+                
+                # Check if student already exists in this session
+                existing = ClassStudent.query.filter_by(
+                    session_id=session.id,
+                    student_id=student.student_id
+                ).first()
+                
+                if existing:
+                    current_app.logger.info(f'Student {student.student_id} ({student.name}) already exists in session {session.id} for course {course_code}, skipping...')
+                    continue
+                
+                current_app.logger.info(f'Student {student.student_id} ({student.name}) does not exist in session {session.id}, will add...')
+                
+                # Add student to session
+                class_student = ClassStudent(
+                    student_id=student.student_id,
+                    name=student.name,
+                    session_id=session.id,
+                    teacher_id=session.teacher_id
+                )
+                db.session.add(class_student)
+                db.session.flush()  # Flush to get class_student.id
+                
+                # Carry on assessment marks if enabled
+                if carry_on:
+                    try:
+                        from blueprints.class_management.routes import _carry_on_assessment_marks
+                        _carry_on_assessment_marks(class_student, session)
+                    except Exception as carry_on_error:
+                        current_app.logger.warning(f'Error carrying on marks for {student.student_id}: {carry_on_error}')
+                
+                # Replicate to peer sessions for split courses
+                try:
+                    from blueprints.class_management.routes import _replicate_student_to_peers
+                    _replicate_student_to_peers(session, class_student)
+                except Exception as replicate_error:
+                    current_app.logger.warning(f'Error replicating student to peers for {student.student_id}: {replicate_error}')
+                
+                added_to_sessions += 1
+        
+        if added_to_sessions > 0:
+            db.session.commit()
+            current_app.logger.info(f'Successfully added {added_to_sessions} student(s) to {len(sessions)} session(s) for course {course_code}')
+        else:
+            current_app.logger.warning(f'No students were added to Class Management for course {course_code}. They may already exist in the sessions.')
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error adding students to class sessions: {e}', exc_info=True)
+        raise
 
 
 def _get_current_student_record():
@@ -575,6 +742,50 @@ def get_courses_for_registration():
     })
 
 
+@course_management_bp.route('/student/registration/api/year-term', methods=['GET'])
+@login_required
+def get_year_term_by_session():
+    """Get Year and Term options for a given academic session"""
+    session_name = request.args.get('session', '').strip()
+    
+    if not session_name:
+        return jsonify({'success': False, 'message': 'Session is required'}), 400
+    
+    try:
+        # Get distinct Year and Term combinations from Session table for this academic session
+        sessions = Session.query.filter_by(
+            academic_session=session_name
+        ).distinct().all()
+        
+        # Extract unique Year-Term combinations
+        year_term_combinations = set()
+        for session in sessions:
+            if session.year and session.term:
+                year_term_combinations.add((session.year, session.term))
+        
+        # Convert to list of dictionaries
+        year_term_list = [{'year': yt[0], 'term': yt[1]} for yt in sorted(year_term_combinations)]
+        
+        # Also check CurriculumYearTerm for additional combinations
+        curriculum_year_terms = CurriculumYearTerm.query.filter_by(
+            academic_session=session_name
+        ).distinct().all()
+        
+        for cyt in curriculum_year_terms:
+            if cyt.year and cyt.term:
+                year_term_combinations.add((cyt.year, cyt.term))
+        
+        # Update the list with all combinations
+        year_term_list = [{'year': yt[0], 'term': yt[1]} for yt in sorted(year_term_combinations)]
+        
+        return jsonify({
+            'success': True,
+            'year_term_options': year_term_list
+        })
+    except Exception as e:
+        current_app.logger.error(f'Error getting year-term options: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Error fetching year-term options'}), 500
+
 @course_management_bp.route('/student/registration/api/registrations', methods=['GET'])
 @login_required
 def get_saved_registrations():
@@ -593,11 +804,13 @@ def get_saved_registrations():
     if not student_record:
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
 
+    # Get finalized registrations (Head registrations are automatically finalized)
     registrations = StudentCourseRegistration.query.filter_by(
         student_id=student_record.id,
         academic_session=session_name,
         year=year,
-        term=term
+        term=term,
+        status='finalized'
     ).order_by(StudentCourseRegistration.course_code.asc()).all()
 
     data = [{
@@ -607,7 +820,10 @@ def get_saved_registrations():
         'credit': reg.credit,
         'course_type': reg.course_type,
         'nature': reg.nature,
-        'remark': reg.remark
+        'remark': reg.remark,
+        'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False,
+        'status': reg.status,
+        'registered_by': reg.registered_by if hasattr(reg, 'registered_by') else 'student'
     } for reg in registrations]
 
     return jsonify({'success': True, 'registrations': data})
@@ -637,7 +853,7 @@ def save_course_registration():
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
 
     try:
-        # Get existing registrations to preserve status
+        # Get existing registrations to preserve status and registered_by
         existing_regs = StudentCourseRegistration.query.filter_by(
             student_id=student_record.id,
             academic_session=session_name,
@@ -645,20 +861,59 @@ def save_course_registration():
             term=term
         ).all()
         existing_status = {reg.course_code: reg.status for reg in existing_regs}
+        existing_registered_by = {reg.course_code: reg.registered_by for reg in existing_regs}
         
-        # Delete existing registrations
+        # Check if any registration was created by coordinator/head - student cannot edit those
+        coordinator_registrations = [reg for reg in existing_regs if reg.registered_by in ['coordinator', 'head']]
+        if coordinator_registrations:
+            return jsonify({
+                'success': False, 
+                'message': 'Cannot edit registrations created by coordinator/head. Please contact your coordinator for changes.'
+            }), 403
+        
+        # Get existing registrations before deletion to remove from Class Management
+        existing_regs_to_delete = StudentCourseRegistration.query.filter_by(
+            student_id=student_record.id,
+            academic_session=session_name,
+            year=year,
+            term=term
+        ).all()
+        
+        # Group by course_code to remove from Class Management
+        courses_to_remove = {}
+        for reg in existing_regs_to_delete:
+            if reg.status == 'finalized':  # Only remove from Class Management if finalized
+                if reg.course_code not in courses_to_remove:
+                    courses_to_remove[reg.course_code] = []
+                courses_to_remove[reg.course_code].append(student_record.id)
+        
+        # Delete existing registrations (only student-initiated ones)
         StudentCourseRegistration.query.filter_by(
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
             term=term
         ).delete()
+        
+        # Remove students from Class Management for deleted registrations
+        for course_code, student_ids_list in courses_to_remove.items():
+            try:
+                _remove_students_from_class_sessions(
+                    course_code, session_name, year, term, student_ids_list
+                )
+            except Exception as remove_error:
+                current_app.logger.error(f'Error removing students from Class Management: {remove_error}', exc_info=True)
 
         for course in courses:
             # Preserve status if it was finalized, otherwise set to draft
             status = existing_status.get(course.get('course_code', ''), 'draft')
             if status not in ['finalized', 'pending']:
                 status = 'draft'
+            
+            # Preserve registered_by if it was coordinator/head, otherwise set to student
+            registered_by = existing_registered_by.get(course.get('course_code', ''), 'student')
+            if registered_by not in ['coordinator', 'head']:
+                registered_by = 'student'
             
             reg = StudentCourseRegistration(
                 student_id=student_record.id,
@@ -672,7 +927,9 @@ def save_course_registration():
                 course_type=course.get('course_type', ''),
                 nature=course.get('nature', 'Core'),
                 remark=course.get('remark', 'Regular'),
-                status=status
+                carry_on=course.get('carry_on', False),
+                status=status,
+                registered_by=registered_by
             )
             db.session.add(reg)
 
@@ -1102,7 +1359,7 @@ def send_to_coordinator():
 @course_management_bp.route('/coordinator/registrations')
 @login_required
 def coordinator_registrations():
-    """View course registrations as coordinator"""
+    """View course registrations as coordinator with session/batch filters"""
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         flash('This page is available only for coordinators.', 'danger')
@@ -1114,39 +1371,38 @@ def coordinator_registrations():
         flash('Teacher profile not found.', 'warning')
         return redirect(url_for('index'))
 
-    # Get pending invitations
-    invites = CourseRegistrationInvite.query.filter_by(
-        coordinator_teacher_id=teacher.id,
-        status='pending'
-    ).order_by(CourseRegistrationInvite.created_at.desc()).all()
+    # Get filter parameters
+    session_filter = request.args.get('session', '').strip()
+    batch_filter = request.args.get('batch', '').strip()
+    student_id_filter = request.args.get('student_id', type=int)
 
-    # Group registrations by student and session
-    registrations_by_student = {}
-    for invite in invites:
-        reg = invite.registration
-        if reg:
-            key = (reg.student_id, reg.academic_session, reg.year, reg.term)
-            if key not in registrations_by_student:
-                registrations_by_student[key] = {
-                    'student': reg.student,
-                    'session': reg.academic_session,
-                    'year': reg.year,
-                    'term': reg.term,
-                    'registrations': [],
-                    'registration_ids': set(),
-                    'invite_ids': []
-                }
-            entry = registrations_by_student[key]
-            if reg.id not in entry['registration_ids']:
-                entry['registrations'].append(reg)
-                entry['registration_ids'].add(reg.id)
-            registrations_by_student[key]['invite_ids'].append(invite.id)
-
-    # Get finalized registrations
-    finalized_invites = CourseRegistrationInvite.query.filter_by(
-        coordinator_teacher_id=teacher.id,
-        status='finalized'
-    ).order_by(CourseRegistrationInvite.responded_at.desc()).all()
+    # Only show registrations if at least one filter is applied
+    # Coordinators can see ALL finalized registrations (same as Head)
+    finalized_invites = []
+    if session_filter or batch_filter or student_id_filter:
+        # Get all finalized registrations (not filtered by coordinator_teacher_id)
+        # This allows coordinators to see all registrations like Head
+        query = CourseRegistrationInvite.query.filter_by(
+            status='finalized'
+        )
+        
+        # Apply filters
+        if session_filter:
+            query = query.join(StudentCourseRegistration).filter(
+                StudentCourseRegistration.academic_session == session_filter
+            )
+        if batch_filter and Student:
+            # Filter by student batch
+            batch_student_ids = [s.id for s in Student.query.filter_by(batch=batch_filter).all()]
+            if batch_student_ids:
+                query = query.filter(CourseRegistrationInvite.student_id.in_(batch_student_ids))
+            else:
+                # No students in this batch, return empty result
+                query = query.filter(CourseRegistrationInvite.student_id == -1)  # Impossible condition
+        if student_id_filter:
+            query = query.filter_by(student_id=student_id_filter)
+        
+        finalized_invites = query.order_by(CourseRegistrationInvite.responded_at.desc()).all()
 
     finalized_by_student = {}
     for invite in finalized_invites:
@@ -1169,9 +1425,36 @@ def coordinator_registrations():
                 entry['registration_ids'].add(reg.id)
             finalized_by_student[key]['invite_ids'].append(invite.id)
 
+    # Get distinct sessions and batches for filters
+    sessions = db.session.query(Session.academic_session).distinct().filter(
+        Session.academic_session.isnot(None)
+    ).order_by(Session.academic_session.desc()).all()
+    academic_sessions = [s[0] for s in sessions if s[0]]
+    
+    batches = []
+    if Student:
+        batches = db.session.query(Student.batch).distinct().filter(
+            Student.batch.isnot(None),
+            Student.batch != ''
+        ).order_by(Student.batch.desc()).all()
+        batch_list = [b[0] for b in batches if b[0]]
+    else:
+        batch_list = []
+    
+    # Get students for dropdown (filtered by session/batch if provided)
+    students_query = Student.query
+    if batch_filter:
+        students_query = students_query.filter_by(batch=batch_filter)
+    students = students_query.order_by(Student.student_id.asc()).limit(500).all()
+
     return render_template('course_management/coordinator_registrations.html',
-                         pending_registrations=registrations_by_student,
-                         finalized_registrations=finalized_by_student)
+                         finalized_registrations=finalized_by_student,
+                         academic_sessions=academic_sessions,
+                         batches=batch_list,
+                         students=students,
+                         selected_session=session_filter,
+                         selected_batch=batch_filter,
+                         selected_student_id=student_id_filter)
 
 
 @course_management_bp.route('/coordinator/registration/<int:student_id>/view', methods=['GET'])
@@ -1242,6 +1525,8 @@ def update_student_registration():
     term = data.get('term', '').strip()
     courses = data.get('courses', [])
 
+    current_app.logger.info(f'Registration update request: student_id={student_id}, session={session_name}, year={year}, term={term}, courses_count={len(courses)}, user={current_user.username}, roles={roles}')
+
     if not student_id or not session_name or not year or not term:
         return jsonify({'success': False, 'message': 'Student ID, Session, Year, and Term are required'}), 400
 
@@ -1262,6 +1547,12 @@ def update_student_registration():
         existing_codes = {reg.course_code: reg for reg in existing_regs}
         updated_codes = set()
 
+        # Head and Coordinator updates keep finalized status (coordinators have same power as Head)
+        is_head = 'head' in roles
+        is_coordinator = 'teacher' in roles or 'dean' in roles
+        # Both Head and Coordinators can finalize registrations
+        update_status = 'finalized' if (is_head or is_coordinator) else 'pending'
+        
         for course in courses:
             course_code = course.get('course_code', '')
             if course_code in existing_codes:
@@ -1272,9 +1563,21 @@ def update_student_registration():
                 reg.course_type = course.get('course_type', reg.course_type)
                 reg.nature = course.get('nature', reg.nature)
                 reg.remark = course.get('remark', reg.remark)
+                # Keep finalized status if Head, otherwise set to pending
+                was_finalized = reg.status == 'finalized'
+                if is_head:
+                    reg.status = 'finalized'
+                else:
+                    reg.status = 'pending'
                 updated_codes.add(course_code)
+                
+                # If status changed from non-finalized to finalized, add to Class Management
+                if (is_head or is_coordinator) and not was_finalized:
+                    # Will be handled after commit
+                    pass
             else:
                 # Create new
+                registered_by = 'head' if is_head else 'coordinator'
                 reg = StudentCourseRegistration(
                     student_id=student_id,
                     course_id=course.get('course_id'),
@@ -1287,7 +1590,8 @@ def update_student_registration():
                     course_type=course.get('course_type', ''),
                     nature=course.get('nature', 'Core'),
                     remark=course.get('remark', 'Regular'),
-                    status='pending'
+                    status=update_status,
+                    registered_by=registered_by
                 )
                 db.session.add(reg)
                 updated_codes.add(course_code)
@@ -1295,14 +1599,164 @@ def update_student_registration():
         # Delete removed courses
         for code, reg in existing_codes.items():
             if code not in updated_codes:
+                # Remove from Class Management if registration was finalized
+                if reg.status == 'finalized':
+                    try:
+                        _remove_students_from_class_sessions(
+                            reg.course_code, session_name, year, term, [student_id]
+                        )
+                    except Exception as remove_error:
+                        current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
+                
+                # Delete related invites before deleting registration
+                invites_to_delete = CourseRegistrationInvite.query.filter_by(
+                    registration_id=reg.id
+                ).all()
+                for invite in invites_to_delete:
+                    db.session.delete(invite)
+                
                 db.session.delete(reg)
+        
+        # Update invite status if Head or Coordinator (both can finalize)
+        if is_head or is_coordinator:
+            # Get all registration IDs for this student/session/year/term (after updates/deletes)
+            all_regs = StudentCourseRegistration.query.filter_by(
+                student_id=student_id,
+                academic_session=session_name,
+                year=year,
+                term=term
+            ).all()
+            reg_ids = [reg.id for reg in all_regs]
+            
+            if reg_ids:
+                # Update invites to finalized if registrations exist
+                # For coordinators, update/create invites for this teacher
+                # For Head, update all invites for these registrations
+                if is_head:
+                    # Head can update all invites
+                    invites = CourseRegistrationInvite.query.filter(
+                        CourseRegistrationInvite.registration_id.in_(reg_ids)
+                    ).all()
+                else:
+                    # Coordinator updates/create invites for themselves
+                    invites = CourseRegistrationInvite.query.filter(
+                        CourseRegistrationInvite.registration_id.in_(reg_ids),
+                        CourseRegistrationInvite.coordinator_teacher_id == teacher.id
+                    ).all()
+                
+                # Update existing invites
+                for invite in invites:
+                    invite.status = 'finalized'
+                    if not invite.responded_at:
+                        invite.responded_at = datetime.utcnow()
+                
+                # For coordinators, create invites if they don't exist
+                if is_coordinator and not is_head:
+                    existing_invite_reg_ids = {inv.registration_id for inv in invites}
+                    for reg_id in reg_ids:
+                        if reg_id not in existing_invite_reg_ids:
+                            # Create new invite for this coordinator
+                            reg = StudentCourseRegistration.query.get(reg_id)
+                            if reg:
+                                new_invite = CourseRegistrationInvite(
+                                    registration_id=reg_id,
+                                    student_id=student_id,
+                                    coordinator_teacher_id=teacher.id,
+                                    status='finalized',
+                                    responded_at=datetime.utcnow()
+                                )
+                                db.session.add(new_invite)
+            else:
+                # If all registrations are deleted, find and delete related invites
+                if is_head:
+                    # Head can delete all invites for this student/session/year/term
+                    invites = CourseRegistrationInvite.query.join(StudentCourseRegistration).filter(
+                        StudentCourseRegistration.student_id == student_id,
+                        StudentCourseRegistration.academic_session == session_name,
+                        StudentCourseRegistration.year == year,
+                        StudentCourseRegistration.term == term
+                    ).all()
+                else:
+                    # Coordinator deletes only their own invites
+                    invites = CourseRegistrationInvite.query.filter_by(
+                        student_id=student_id,
+                        coordinator_teacher_id=teacher.id
+                    ).all()
+                
+                # Filter invites that match the session/year/term by checking their registration
+                invites_to_delete = []
+                for invite in invites:
+                    reg = StudentCourseRegistration.query.get(invite.registration_id)
+                    if reg and reg.academic_session == session_name and reg.year == year and reg.term == term:
+                        invites_to_delete.append(invite)
+                
+                # Delete invites if all registrations are removed
+                for invite in invites_to_delete:
+                    db.session.delete(invite)
 
         db.session.commit()
+        
+        # Add students to Class Management for finalized registrations (Head and Coordinator updates are automatically finalized)
+        if is_head or is_coordinator:
+            try:
+                # Get all finalized registrations after commit
+                finalized_regs = StudentCourseRegistration.query.filter_by(
+                    student_id=student_id,
+                    academic_session=session_name,
+                    year=year,
+                    term=term,
+                    status='finalized'
+                ).all()
+                
+                # Get student record to ensure it exists
+                student = Student.query.get(student_id)
+                if not student:
+                    current_app.logger.warning(f'Student with id {student_id} not found for Class Management addition')
+                    # Don't return, continue to log the issue
+                else:
+                    current_app.logger.info(f'Found student: {student.student_id} ({student.name}) for Class Management addition')
+                
+                if not finalized_regs:
+                    current_app.logger.warning(f'No finalized registrations found for student {student_id}, session {session_name}, year {year}, term {term}')
+                else:
+                    current_app.logger.info(f'Found {len(finalized_regs)} finalized registration(s) for student {student_id}')
+                
+                # Group by course_code to add to Class Management
+                courses_to_add = {}
+                for reg in finalized_regs:
+                    if reg.course_code not in courses_to_add:
+                        courses_to_add[reg.course_code] = []
+                    courses_to_add[reg.course_code].append({
+                        'student_id': student_id,  # This is Student model's id (primary key)
+                        'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False
+                    })
+                
+                current_app.logger.info(f'Preparing to add student to {len(courses_to_add)} course(s) in Class Management')
+                
+                # Add students to Class Management for each finalized course
+                for course_code, students_data in courses_to_add.items():
+                    try:
+                        current_app.logger.info(f'Adding student {student_id} ({student.student_id if student else "unknown"}) to Class Management for course {course_code}, session {session_name}, year {year}, term {term}')
+                        _add_students_to_class_sessions(
+                            course_code=course_code,
+                            academic_session=session_name,
+                            year=year,
+                            term=term,
+                            students_data=students_data
+                        )
+                        current_app.logger.info(f'Successfully added student {student_id} to Class Management for course {course_code}')
+                    except Exception as session_error:
+                        current_app.logger.error(f'Failed to add student to class sessions for course {course_code}: {session_error}', exc_info=True)
+            except Exception as add_error:
+                current_app.logger.warning(f'Failed to add students to Class Management: {add_error}', exc_info=True)
+                # Don't fail the registration if session addition fails
+        
         return jsonify({'success': True, 'message': 'Registration updated successfully.'})
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to update registration: {exc}', exc_info=True)
-        return jsonify({'success': False, 'message': 'Failed to update registration.'}), 500
+        error_message = str(exc) if str(exc) else 'Failed to update registration.'
+        return jsonify({'success': False, 'message': f'Failed to update registration: {error_message}'}), 500
 
 
 @course_management_bp.route('/coordinator/registration/finalize', methods=['POST'])
@@ -1364,15 +1818,11 @@ def finalize_registration():
 @course_management_bp.route('/coordinator/register-student')
 @login_required
 def coordinator_register_student():
-    """Coordinator can register courses for a student"""
+    """Coordinator can register students for a course (course-wise)"""
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         flash('This page is available only for coordinators.', 'danger')
         return redirect(url_for('index'))
-    
-    # Get all students
-    from blueprints.student_management.models import Student
-    students = Student.query.order_by(Student.student_id.asc()).all()
     
     # Get distinct batches
     batches = db.session.query(Student.batch).distinct().filter(
@@ -1388,7 +1838,6 @@ def coordinator_register_student():
     academic_sessions = [s[0] for s in sessions if s[0]]
     
     return render_template('course_management/coordinator_register_student.html',
-                         students=students,
                          batches=batch_list,
                          academic_sessions=academic_sessions)
 
@@ -1396,28 +1845,47 @@ def coordinator_register_student():
 @course_management_bp.route('/coordinator/register-student/save', methods=['POST'])
 @login_required
 def coordinator_save_student_registration():
-    """Save course registration for a student by coordinator"""
+    """Save course registration for multiple students by coordinator (course-wise)"""
     roles = parse_roles(current_user.role)
     if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
     
+    # Check if user is Head - Head registrations are automatically finalized
+    is_head = 'head' in roles
+    
     data = request.get_json() or {}
-    student_id = data.get('student_id')
+    course_id = data.get('course_id')
+    course_code = data.get('course_code', '').strip()
+    course_name = data.get('course_name', '').strip()
     session_name = data.get('session', '').strip()
     year = data.get('year', '').strip()
     term = data.get('term', '').strip()
-    courses = data.get('courses') or []
     
-    if not student_id or not session_name or not year or not term:
-        return jsonify({'success': False, 'message': 'Student ID, Session, Year, and Term are required'}), 400
+    # Support both old format (student_ids + remark) and new format (students array)
+    students_data = data.get('students', [])  # New format: [{student_id, remark, carry_on}]
+    student_ids = data.get('student_ids', [])  # Old format: list of student IDs
+    remark = data.get('remark', 'Regular').strip()  # Old format: single remark for all
     
-    if not courses:
-        return jsonify({'success': False, 'message': 'No courses selected'}), 400
+    if not course_id or not session_name or not year or not term:
+        return jsonify({'success': False, 'message': 'Course, Session, Year, and Term are required'}), 400
     
-    from blueprints.student_management.models import Student
-    student = Student.query.get(student_id)
-    if not student:
-        return jsonify({'success': False, 'message': 'Student not found'}), 404
+    # Convert old format to new format if needed
+    if student_ids and not students_data:
+        students_data = [{'student_id': sid, 'remark': remark, 'carry_on': False} for sid in student_ids]
+    
+    if not students_data or len(students_data) == 0:
+        return jsonify({'success': False, 'message': 'No students selected'}), 400
+    
+    # Get course details
+    course = Course.query.get(course_id)
+    if not course:
+        return jsonify({'success': False, 'message': 'Course not found'}), 404
+    
+    # Use course details if not provided
+    if not course_code:
+        course_code = course.course_code
+    if not course_name:
+        course_name = course.course_name
     
     # Get current teacher profile
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
@@ -1425,68 +1893,336 @@ def coordinator_save_student_registration():
         return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
     
     try:
-        # Delete existing registrations for this student/session/year/term
-        StudentCourseRegistration.query.filter_by(
-            student_id=student_id,
-            academic_session=session_name,
-            year=year,
-            term=term
-        ).delete()
-        
-        # Create new registrations
-        for course in courses:
-            reg = StudentCourseRegistration(
-                student_id=student_id,
-                course_id=course.get('id'),
-                academic_session=session_name,
-                year=year,
-                term=term,
-                course_code=course.get('course_code', ''),
-                course_name=course.get('course_name', ''),
-                credit=course.get('credit', 0),
-                course_type=course.get('course_type', ''),
-                nature=course.get('nature', 'Core'),
-                remark=course.get('remark', 'Regular'),
-                status='pending'  # Coordinator registrations start as pending
-            )
-            db.session.add(reg)
-        
-        db.session.commit()
-        
-        # Create or update invite for this coordinator
-        registrations = StudentCourseRegistration.query.filter_by(
-            student_id=student_id,
-            academic_session=session_name,
-            year=year,
-            term=term
+        # Get existing registrations for this course to identify removed students
+        # CRITICAL: We need to track which students were in the PREVIOUS save operation for THIS teacher
+        # We do this by checking for invites that belong to THIS teacher BEFORE we make any changes
+        # Store the OLD state before any updates - check BOTH finalized and pending invites
+        existing_invites_before_update = CourseRegistrationInvite.query.filter_by(
+            coordinator_teacher_id=teacher.id
+        ).join(StudentCourseRegistration).filter(
+            StudentCourseRegistration.course_code == course_code,
+            StudentCourseRegistration.academic_session == session_name,
+            StudentCourseRegistration.year == year,
+            StudentCourseRegistration.term == term
         ).all()
         
-        for reg in registrations:
-            # Check if invite already exists
+        # Get existing student IDs from these invites (BEFORE any updates)
+        # Include students with finalized registrations that have invites for this teacher
+        # This ensures we track all students that THIS teacher has worked with
+        existing_student_ids = set()
+        for invite in existing_invites_before_update:
+            if invite.registration and invite.registration.status == 'finalized':
+                existing_student_ids.add(invite.registration.student_id)
+        
+        current_app.logger.info(f'[coordinator_save] Course: {course_code}, Teacher: {teacher.id} ({teacher.name})')
+        current_app.logger.info(f'[coordinator_save] Found {len(existing_invites_before_update)} existing invites for this teacher')
+        current_app.logger.info(f'[coordinator_save] Existing student IDs (before update, finalized only): {existing_student_ids}')
+        
+        registered_count = 0
+        skipped_count = 0
+        new_student_ids = set()
+        
+        for student_info in students_data:
+            # Handle both dict and int formats
+            if isinstance(student_info, dict):
+                student_id = student_info.get('student_id')
+                remark = student_info.get('remark', 'Regular').strip()
+                carry_on = student_info.get('carry_on', False)
+            else:
+                # Old format: just student_id
+                student_id = student_info
+                remark = 'Regular'
+                carry_on = False
+            
+            # Check if student exists
+            student = Student.query.get(student_id)
+            if not student:
+                skipped_count += 1
+                continue
+            
+            # Check if registration already exists
+            existing_reg = StudentCourseRegistration.query.filter_by(
+                student_id=student_id,
+                course_code=course_code,
+                academic_session=session_name,
+                year=year,
+                term=term
+            ).first()
+            
+            # Head registration is automatically finalized
+            is_head = 'head' in roles
+            registration_status = 'finalized' if is_head else 'pending'
+            invite_status = 'finalized' if is_head else 'pending'
+            registered_by = 'head' if is_head else 'coordinator'
+            
+            if existing_reg:
+                # Check if status changed from finalized to something else - need to remove from Class Management
+                was_finalized = existing_reg.status == 'finalized'
+                will_be_finalized = registration_status == 'finalized'
+                
+                # If was finalized but won't be finalized anymore, remove from Class Management
+                if was_finalized and not will_be_finalized:
+                    try:
+                        _remove_students_from_class_sessions(
+                            course_code, session_name, year, term, [student_id]
+                        )
+                    except Exception as remove_error:
+                        current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
+                
+                # Update existing registration - preserve registered_by if it was set by coordinator/head
+                # Only allow update if current user is coordinator/head
+                existing_reg.course_id = course_id
+                existing_reg.course_name = course_name
+                existing_reg.credit = course.credit
+                existing_reg.course_type = course.course_type
+                existing_reg.nature = course.core_optional or 'Core'
+                existing_reg.remark = remark
+                existing_reg.carry_on = carry_on
+                existing_reg.status = registration_status
+                # Preserve registered_by if it was coordinator/head, otherwise update
+                if existing_reg.registered_by in ['coordinator', 'head']:
+                    existing_reg.registered_by = registered_by
+                reg = existing_reg
+            else:
+                # Create new registration
+                reg = StudentCourseRegistration(
+                    student_id=student_id,
+                    course_id=course_id,
+                    academic_session=session_name,
+                    year=year,
+                    term=term,
+                    course_code=course_code,
+                    course_name=course_name,
+                    credit=course.credit,
+                    course_type=course.course_type,
+                    nature=course.core_optional or 'Core',
+                    remark=remark,
+                    carry_on=carry_on,
+                    status=registration_status,
+                    registered_by=registered_by
+                )
+                db.session.add(reg)
+            
+            # Create or update invite for this coordinator
+            db.session.flush()  # Flush to get reg.id
+            
             existing_invite = CourseRegistrationInvite.query.filter_by(
                 registration_id=reg.id,
                 coordinator_teacher_id=teacher.id
             ).first()
             
-            if not existing_invite:
+            if existing_invite:
+                # Update existing invite status
+                existing_invite.status = invite_status
+                if is_head:
+                    existing_invite.responded_at = datetime.utcnow()
+            else:
                 invite = CourseRegistrationInvite(
                     registration_id=reg.id,
                     student_id=student_id,
                     coordinator_teacher_id=teacher.id,
-                    status='pending'
+                    status=invite_status
                 )
+                if is_head:
+                    invite.responded_at = datetime.utcnow()
                 db.session.add(invite)
+            
+            registered_count += 1
+            new_student_ids.add(student_id)
+        
+        current_app.logger.info(f'[coordinator_save] New student IDs (after processing): {new_student_ids}')
+        
+        # CRITICAL FIX: We should NOT remove students just because they're not in the new list
+        # We should ONLY remove students if their registration was actually DELETED in this operation
+        # Check which registrations were actually deleted (existed before but don't exist now)
+        
+        # Get all finalized registrations AFTER the update to see what's still there
+        final_regs_after = StudentCourseRegistration.query.filter_by(
+            course_code=course_code,
+            academic_session=session_name,
+            year=year,
+            term=term,
+            status='finalized'
+        ).all()
+        
+        final_student_ids_after = {reg.student_id for reg in final_regs_after}
+        
+        # Only remove students that:
+        # 1. Were in existing_student_ids (had an invite for this teacher)
+        # 2. Are NOT in final_student_ids_after (their registration was actually deleted/unfinalized)
+        # This ensures we only remove students whose registrations were actually removed, not just missing from the new list
+        removed_student_ids = existing_student_ids - final_student_ids_after
+        
+        current_app.logger.info(f'[coordinator_save] Finalized student IDs after update: {final_student_ids_after}')
+        current_app.logger.info(f'[coordinator_save] Removed student IDs (registrations deleted/unfinalized): {removed_student_ids}')
+        
+        # IMPORTANT: Only remove students from Class Management if:
+        # 1. They were registered by THIS teacher (were in existing_student_ids)
+        # 2. Their registration was actually deleted/unfinalized (not in final_student_ids_after)
+        # 3. The registration status is finalized
+        if removed_student_ids and registration_status == 'finalized':
+            try:
+                current_app.logger.warning(f'[coordinator_save] REMOVING {len(removed_student_ids)} student(s) from Class Management for course {course_code}. Student IDs: {removed_student_ids}')
+                _remove_students_from_class_sessions(
+                    course_code, session_name, year, term, list(removed_student_ids)
+                )
+                current_app.logger.info(f'[coordinator_save] Successfully removed {len(removed_student_ids)} student(s) from Class Management')
+            except Exception as remove_error:
+                current_app.logger.error(f'[coordinator_save] Error removing students from Class Management: {remove_error}', exc_info=True)
+        elif removed_student_ids:
+            current_app.logger.info(f'[coordinator_save] Not removing students because registration_status is not finalized (status: {registration_status})')
+        else:
+            current_app.logger.info(f'[coordinator_save] No students to remove - all existing students still have finalized registrations')
         
         db.session.commit()
         
+        # After registration is saved, add students to class management sessions
+        # Only for finalized registrations (Head registrations are automatically finalized)
+        if registration_status == 'finalized':
+            try:
+                _add_students_to_class_sessions(
+                    course_code=course_code,
+                    academic_session=session_name,
+                    year=year,
+                    term=term,
+                    students_data=students_data
+                )
+            except Exception as session_error:
+                current_app.logger.warning(f'Failed to add students to class sessions: {session_error}', exc_info=True)
+                # Don't fail the registration if session addition fails
+        
         return jsonify({
             'success': True,
-            'message': f'Courses registered successfully for {student.name}'
+            'message': f'Successfully registered {registered_count} student(s) for {course_name}. {skipped_count} student(s) skipped.'
         })
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to save coordinator registration: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': 'Failed to save registration'}), 500
+
+
+@course_management_bp.route('/coordinator/register-student/api/students', methods=['GET'])
+@login_required
+def get_students_for_course_registration():
+    """Get students for course registration based on batch"""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    batch = request.args.get('batch', '').strip()
+    search = request.args.get('search', '').strip()
+    
+    if not batch:
+        return jsonify({'success': False, 'message': 'Batch is required'}), 400
+    
+    try:
+        current_app.logger.info(f'Loading students for batch: {batch}, search: {search}')
+        
+        if not Student:
+            current_app.logger.error('Student model not available')
+            return jsonify({'success': False, 'message': 'Student Management module not available'}), 503
+        
+        # Build query step by step - handle batch filtering
+        try:
+            # Filter by batch, excluding null/empty batches
+            query = Student.query.filter(
+                Student.batch == batch,
+                Student.batch.isnot(None),
+                Student.batch != ''
+            )
+            current_app.logger.info(f'Query built for batch: {batch}')
+        except Exception as query_error:
+            current_app.logger.error(f'Error building query: {query_error}', exc_info=True)
+            import traceback
+            current_app.logger.error(f'Query error traceback: {traceback.format_exc()}')
+            return jsonify({'success': False, 'message': f'Error building query: {str(query_error)}'}), 500
+        
+        # Apply search filter
+        if search:
+            try:
+                query = query.filter(
+                    or_(
+                        Student.name.ilike(f'%{search}%'),
+                        Student.student_id.ilike(f'%{search}%')
+                    )
+                )
+            except Exception as search_error:
+                current_app.logger.warning(f'Error applying search filter: {search_error}')
+                # Continue without search filter if it fails
+        
+        # Execute query
+        try:
+            students = query.order_by(Student.student_id.asc()).limit(500).all()
+            current_app.logger.info(f'Found {len(students)} students for batch {batch}')
+        except Exception as exec_error:
+            current_app.logger.error(f'Error executing query: {exec_error}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error executing query: {str(exec_error)}'}), 500
+        
+        # Get existing registrations for the selected course/session/year/term if provided
+        course_code = request.args.get('course_code', '').strip()
+        session_name = request.args.get('session', '').strip()
+        year = request.args.get('year', '').strip()
+        term = request.args.get('term', '').strip()
+        
+        registered_student_ids = set()
+        if course_code and session_name and year and term:
+            try:
+                # Use raw SQL query to avoid carry_on column issue until migration is run
+                from sqlalchemy import text
+                sql = text("""
+                    SELECT student_id 
+                    FROM student_course_registration 
+                    WHERE course_code = :course_code 
+                    AND academic_session = :session 
+                    AND year = :year 
+                    AND term = :term
+                """)
+                result = db.session.execute(sql, {
+                    'course_code': course_code,
+                    'session': session_name,
+                    'year': year,
+                    'term': term
+                })
+                registered_student_ids = {row[0] for row in result}
+                current_app.logger.info(f'Found {len(registered_student_ids)} already registered students')
+            except Exception as reg_error:
+                current_app.logger.warning(f'Error querying registrations: {reg_error}, continuing without registration check')
+                # Continue without registration check
+        
+        # Build students list with safe attribute access
+        students_list = []
+        for s in students:
+            try:
+                student_data = {
+                    'id': s.id,
+                    'student_id': getattr(s, 'student_id', '') or '',
+                    'name': getattr(s, 'name', '') or '',
+                    'batch': getattr(s, 'batch', '') or '',
+                    'is_registered': s.id in registered_student_ids
+                }
+                # Add optional fields if they exist
+                if hasattr(s, 'email') and s.email:
+                    student_data['email'] = s.email
+                if hasattr(s, 'phone') and s.phone:
+                    student_data['phone'] = s.phone
+                students_list.append(student_data)
+            except Exception as student_error:
+                current_app.logger.warning(f'Error processing student {getattr(s, "id", "unknown")}: {student_error}', exc_info=True)
+                continue
+        
+        return jsonify({
+            'success': True,
+            'students': students_list
+        })
+    except Exception as e:
+        current_app.logger.error(f'Error in get_students_for_course_registration: {str(e)}', exc_info=True)
+        import traceback
+        error_trace = traceback.format_exc()
+        current_app.logger.error(f'Full traceback: {error_trace}')
+        return jsonify({
+            'success': False, 
+            'message': f'Error loading students: {str(e)}. Please check server logs for details.'
+        }), 500
 
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>/year-term-config', methods=['POST'])
@@ -1723,6 +2459,21 @@ def assign_teacher_session():
                         current_app.logger.debug(f'Student {student.student_id} already exists in session {session_obj.id}')
                         continue
                     
+                    # Check if student is registered for this course (finalized registration only)
+                    if StudentCourseRegistration and session_obj.course_code and session_obj.academic_session and session_obj.year and session_obj.term:
+                        registration = StudentCourseRegistration.query.filter_by(
+                            student_id=student.id,
+                            course_code=session_obj.course_code,
+                            academic_session=session_obj.academic_session,
+                            year=session_obj.year,
+                            term=session_obj.term,
+                            status='finalized'
+                        ).first()
+                        
+                        if not registration:
+                            current_app.logger.info(f'Student {student.student_id} ({student.name}) not registered for course {session_obj.course_code}, skipping...')
+                            continue
+                    
                     class_student = ClassStudent(
                         student_id=student.student_id,
                         name=student.name,
@@ -1730,6 +2481,15 @@ def assign_teacher_session():
                         teacher_id=teacher_id
                     )
                     db.session.add(class_student)
+                    db.session.flush()  # Flush to get class_student.id before carry on
+                    
+                    # Carry on assessment marks if enabled in registration
+                    try:
+                        from blueprints.class_management.routes import _carry_on_assessment_marks
+                        _carry_on_assessment_marks(class_student, session_obj)
+                    except Exception as carry_on_error:
+                        current_app.logger.warning(f'Error carrying on marks for {student.student_id}: {carry_on_error}')
+                    
                     added_students_count += 1
                     current_app.logger.debug(f'Added student {student.student_id} ({student.name}) to session {session_obj.id}')
                 

@@ -1,50 +1,106 @@
-import getpass
-from app import app, db, User
+#!/usr/bin/env python3
+"""Create admin user account for Academic Management System"""
+
+from app import create_app
+from extensions import db
+from user_models import User
 from werkzeug.security import generate_password_hash
 
 def create_admin():
-    """Creates a new admin user or updates an existing user to be an admin."""
+    """Creates a new admin user"""
+    app = create_app()
+    
     with app.app_context():
-        print("Admin setup...")
+        print("=" * 50)
+        print("Admin Account Creation")
+        print("=" * 50)
         
-        username = input("Enter username for admin access: ")
-        user = User.query.filter_by(username=username).first()
-
-        if user:
-            print(f"User '{username}' already exists.")
-            if user.role == 'admin':
+        # Check if admin already exists
+        existing_admin = User.query.filter_by(role='admin').first()
+        if existing_admin:
+            print(f"\n⚠️  Admin user already exists: {existing_admin.username}")
+            response = input("Do you want to create another admin? (y/n): ").lower()
+            if response != 'y':
+                print("Admin creation cancelled.")
+                return
+        
+        # Get user input
+        username = input("\nEnter username for admin: ").strip()
+        if not username:
+            print("❌ Username is required!")
+            return
+        
+        # Check if username already exists
+        existing_user = User.query.filter_by(username=username).first()
+        if existing_user:
+            print(f"\n⚠️  User '{username}' already exists.")
+            if existing_user.role == 'admin':
                 print(f"User '{username}' is already an admin.")
                 return
             else:
                 promote = input(f"Do you want to promote '{username}' to admin? (y/n): ").lower()
                 if promote == 'y':
-                    user.role = 'admin'
+                    existing_user.role = 'admin'
                     db.session.commit()
-                    print(f"User '{username}' has been promoted to admin.")
-                else:
-                    print("Admin setup cancelled.")
+                    print(f"✅ User '{username}' has been promoted to admin.")
                     return
-        else:
-            print(f"User '{username}' not found. Creating a new admin user.")
-            email = input("Enter admin email: ")
-            full_name = input("Enter admin's full name: ")
-            password = getpass.getpass("Enter admin password: ")
-            
-            if not all([email, full_name, password]):
-                print("Email, full name, and password are required.")
-                return
-
+                else:
+                    print("Admin creation cancelled.")
+                    return
+        
+        email = input("Enter admin email: ").strip()
+        if not email:
+            print("❌ Email is required!")
+            return
+        
+        # Check if email already exists
+        existing_email = User.query.filter_by(email=email).first()
+        if existing_email:
+            print(f"❌ Email '{email}' is already registered to user '{existing_email.username}'")
+            return
+        
+        full_name = input("Enter admin's full name: ").strip()
+        if not full_name:
+            print("❌ Full name is required!")
+            return
+        
+        import getpass
+        password = getpass.getpass("Enter admin password: ").strip()
+        if not password:
+            print("❌ Password is required!")
+            return
+        
+        password_confirm = getpass.getpass("Confirm admin password: ").strip()
+        if password != password_confirm:
+            print("❌ Passwords do not match!")
+            return
+        
+        try:
+            # Create admin user
             admin = User(
                 username=username,
                 email=email,
                 full_name=full_name,
-                password_hash=generate_password_hash(password),
                 role='admin'
             )
+            admin.set_password(password)
             db.session.add(admin)
             db.session.commit()
             
-            print(f"Admin user '{username}' created successfully!")
+            print("\n" + "=" * 50)
+            print("✅ Admin account created successfully!")
+            print("=" * 50)
+            print(f"Username: {username}")
+            print(f"Email: {email}")
+            print(f"Full Name: {full_name}")
+            print(f"Role: admin")
+            print("=" * 50)
+            
+        except Exception as e:
+            db.session.rollback()
+            print(f"\n❌ Error creating admin account: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == '__main__':
-    create_admin() 
+    create_admin()

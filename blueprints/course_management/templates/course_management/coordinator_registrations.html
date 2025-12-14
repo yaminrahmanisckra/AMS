@@ -5,7 +5,7 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1 class="mb-1">Course Registration Review</h1>
-            <p class="text-muted mb-0">Review and finalize student course registrations</p>
+            <p class="text-muted mb-0">View finalized student course registrations</p>
         </div>
         <div>
             <a href="{{ url_for('course_management.coordinator_register_student') }}" class="btn btn-primary">
@@ -14,76 +14,52 @@
         </div>
     </div>
 
-    <!-- Pending Registrations -->
-    {% if pending_registrations %}
+    <!-- Filter Section -->
     <div class="card shadow-sm mb-4">
-        <div class="card-header bg-warning text-dark">
-            <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Pending Registrations</h5>
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-filter me-2"></i>Filter Registrations</h5>
         </div>
         <div class="card-body">
-            {% for key, data in pending_registrations.items() %}
-            <div class="card mb-3 border-warning">
-                <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>{{ data.student.name }}</strong> ({{ data.student.student_id }})
-                        <br>
-                        <small class="text-muted">
-                            Batch: {{ data.student.batch or 'N/A' }} | 
-                            Session: {{ data.session }} | 
-                            Year: {{ data.year }} | 
-                            Term: {{ data.term }}
-                        </small>
+            <form method="GET" action="{{ url_for('course_management.coordinator_registrations') }}" id="filterForm">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="session" class="form-label">Academic Session</label>
+                        <select class="form-select" id="session" name="session">
+                            <option value="">All Sessions</option>
+                            {% for session in academic_sessions %}
+                            <option value="{{ session }}" {% if selected_session == session %}selected{% endif %}>{{ session }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                    <div>
-                        <button class="btn btn-sm btn-primary me-2" onclick="viewRegistration({{ data.student.id }}, '{{ data.session }}', '{{ data.year }}', '{{ data.term }}')">
-                            <i class="fas fa-eye me-1"></i>View & Edit
+                    <div class="col-md-3">
+                        <label for="batch" class="form-label">Batch</label>
+                        <select class="form-select" id="batch" name="batch">
+                            <option value="">All Batches</option>
+                            {% for batch in batches %}
+                            <option value="{{ batch }}" {% if selected_batch == batch %}selected{% endif %}>{{ batch }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="student_id" class="form-label">Student</label>
+                        <select class="form-select" id="student_id" name="student_id">
+                            <option value="">All Students</option>
+                            {% for student in students %}
+                            <option value="{{ student.id }}" {% if selected_student_id == student.id %}selected{% endif %}>
+                                {{ student.student_id }} - {{ student.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-search me-2"></i>Filter
                         </button>
                     </div>
                 </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>SL</th>
-                                    <th>Course Code</th>
-                                    <th>Course Name</th>
-                                    <th>Credit</th>
-                                    <th>Type</th>
-                                    <th>Nature</th>
-                                    <th>Remarks</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for reg in data.registrations %}
-                                <tr>
-                                    <td>{{ loop.index }}</td>
-                                    <td>{{ reg.course_code }}</td>
-                                    <td>{{ reg.course_name }}</td>
-                                    <td>{{ reg.credit }}</td>
-                                    <td>{{ reg.course_type }}</td>
-                                    <td>{{ reg.nature }}</td>
-                                    <td>{{ reg.remark }}</td>
-                                </tr>
-                                {% endfor %}
-                                <tr class="table-info fw-bold">
-                                    <td colspan="3" class="text-end">Total Credits:</td>
-                                    <td>{{ data.registrations | sum(attribute='credit') | round(1) }}</td>
-                                    <td colspan="3"></td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
+            </form>
         </div>
     </div>
-    {% else %}
-    <div class="alert alert-info">
-        <i class="fas fa-info-circle me-2"></i>No pending registrations at the moment.
-    </div>
-    {% endif %}
 
     <!-- Finalized Registrations -->
     {% if finalized_registrations %}
@@ -150,6 +126,14 @@
             {% endfor %}
         </div>
     </div>
+    {% elif selected_session or selected_batch or selected_student_id %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>No finalized registrations found for the selected filters.
+    </div>
+    {% else %}
+    <div class="alert alert-secondary">
+        <i class="fas fa-info-circle me-2"></i>Please select Session, Batch, or Student from the filters above to view finalized registrations.
+    </div>
     {% endif %}
 </div>
 
@@ -175,9 +159,6 @@
                 <button type="button" class="btn btn-primary" id="saveEditBtn" style="display: none;">
                     <i class="fas fa-save me-2"></i>Save Changes
                 </button>
-                <button type="button" class="btn btn-success" id="finalizeBtn" style="display: none;">
-                    <i class="fas fa-check me-2"></i>Finalize Registration
-                </button>
             </div>
         </div>
     </div>
@@ -186,15 +167,38 @@
 <script>
 let currentEditData = null;
 
+// Update student dropdown when batch changes
+document.getElementById('batch').addEventListener('change', function() {
+    const batch = this.value;
+    const studentSelect = document.getElementById('student_id');
+    
+    if (!batch) {
+        // Show all students
+        studentSelect.innerHTML = '<option value="">All Students</option>';
+        {% for student in students %}
+        studentSelect.innerHTML += '<option value="{{ student.id }}">{{ student.student_id }} - {{ student.name }}</option>';
+        {% endfor %}
+        return;
+    }
+    
+    // Filter students by batch
+    studentSelect.innerHTML = '<option value="">All Students</option>';
+    {% for student in students %}
+    {% if student.batch %}
+    if ('{{ student.batch }}' === batch) {
+        studentSelect.innerHTML += '<option value="{{ student.id }}">{{ student.student_id }} - {{ student.name }}</option>';
+    }
+    {% endif %}
+    {% endfor %}
+});
+
 function viewRegistration(studentId, session, year, term) {
     const modal = new bootstrap.Modal(document.getElementById('registrationModal'));
     const content = document.getElementById('registrationContent');
     const saveBtn = document.getElementById('saveEditBtn');
-    const finalizeBtn = document.getElementById('finalizeBtn');
     
     content.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
     saveBtn.style.display = 'none';
-    finalizeBtn.style.display = 'none';
     modal.show();
     
     fetch(`/course-management/coordinator/registration/${studentId}/view?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
@@ -277,7 +281,6 @@ function viewRegistration(studentId, session, year, term) {
             
             content.innerHTML = html;
             saveBtn.style.display = 'inline-block';
-            finalizeBtn.style.display = 'inline-block';
         })
         .catch(error => {
             console.error('Error:', error);
@@ -367,46 +370,5 @@ document.getElementById('saveEditBtn').addEventListener('click', function() {
         btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
     });
 });
-
-document.getElementById('finalizeBtn').addEventListener('click', function() {
-    if (!currentEditData) return;
-    
-    if (!confirm('Are you sure you want to finalize this registration? It will be marked as finalized.')) {
-        return;
-    }
-    
-    const btn = this;
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Finalizing...';
-    
-    fetch('/course-management/coordinator/registration/finalize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            student_id: currentEditData.student.id,
-            session: currentEditData.session,
-            year: currentEditData.year,
-            term: currentEditData.term
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert('Registration finalized successfully.');
-            location.reload();
-        } else {
-            alert(data.message || 'Failed to finalize registration.');
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Error finalizing registration.');
-    })
-    .finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-check me-2"></i>Finalize Registration';
-    });
-});
 </script>
 {% endblock %}
-

@@ -1,45 +1,25 @@
 {% extends "base.html" %}
-{% block title %}Register Courses for Student{% endblock %}
+{% block title %}Register Students for Course{% endblock %}
 {% block content %}
 <div class="container my-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="mb-1">Register Courses for Student</h1>
-            <p class="text-muted mb-0">Register courses on behalf of a student</p>
+            <h1 class="mb-1">Register Students for Course</h1>
+            <p class="text-muted mb-0">Register multiple students for a course</p>
         </div>
         <a href="{{ url_for('course_management.coordinator_registrations') }}" class="btn btn-outline-secondary">
             <i class="fas fa-arrow-left me-2"></i>Back to Review
         </a>
     </div>
 
-    <!-- Student Selection Form -->
+    <!-- Course & Session Selection Form -->
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-primary text-white">
-            <h5 class="mb-0"><i class="fas fa-user me-2"></i>Select Student & Session Details</h5>
+            <h5 class="mb-0"><i class="fas fa-book me-2"></i>Select Course & Session Details</h5>
         </div>
         <div class="card-body">
             <form id="filterForm">
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label for="batch" class="form-label">Batch <span class="text-danger">*</span></label>
-                        <select class="form-select" id="batch" name="batch" required>
-                            <option value="">Select Batch</option>
-                            {% for batch in batches %}
-                            <option value="{{ batch }}">{{ batch }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label for="student" class="form-label">Student <span class="text-danger">*</span></label>
-                        <select class="form-select" id="student" name="student" required disabled>
-                            <option value="">Select Batch First</option>
-                            {% for student in students %}
-                            <option value="{{ student.id }}" data-batch="{{ student.batch or '' }}">
-                                {{ student.student_id }} - {{ student.name }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
                     <div class="col-md-6">
                         <label for="session" class="form-label">Academic Session <span class="text-danger">*</span></label>
                         <select class="form-select" id="session" name="session" required>
@@ -49,7 +29,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="year" class="form-label">Year <span class="text-danger">*</span></label>
                         <select class="form-select" id="year" name="year" required>
                             <option value="">Select Year</option>
@@ -61,7 +41,7 @@
                             <option value="LLM">LLM</option>
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label for="term" class="form-label">Term <span class="text-danger">*</span></label>
                         <select class="form-select" id="term" name="term" required>
                             <option value="">Select Term</option>
@@ -71,59 +51,104 @@
                         </select>
                     </div>
                 </div>
+                <div class="row g-3 mt-2">
+                    <div class="col-md-12">
+                        <label for="course" class="form-label">Course <span class="text-danger">*</span></label>
+                        <select class="form-select" id="course" name="course" required disabled>
+                            <option value="">Select Session, Year, and Term First</option>
+                        </select>
+                    </div>
+                </div>
                 <div class="mt-3">
                     <button type="submit" class="btn btn-primary">
-                        <i class="fas fa-search me-2"></i>Load Courses
+                        <i class="fas fa-users me-2"></i>Show Student Selection
                     </button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Available Courses -->
-    <div class="card shadow-sm mb-4" id="coursesCard" style="display: none;">
-        <div class="card-header bg-success text-white">
-            <h5 class="mb-0"><i class="fas fa-book me-2"></i>Available Courses</h5>
+    <!-- Student Selection -->
+    <div class="card shadow-sm mb-4" id="studentsCard" style="display: none;">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="fas fa-users me-2"></i>Select Students</h5>
+            <div>
+                <strong>Selected: <span id="selectedCount">0</span> student(s)</strong>
+            </div>
         </div>
         <div class="card-body">
-            <div id="coursesLoading" class="text-center py-4" style="display: none;">
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label for="batchFilter" class="form-label">Filter by Batch <span class="text-danger">*</span></label>
+                    <select class="form-select" id="batchFilter" name="batchFilter" required>
+                        <option value="">Select Batch</option>
+                        {% for batch in batches %}
+                        <option value="{{ batch }}">{{ batch }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label for="searchStudents" class="form-label">Search Students</label>
+                    <input type="text" class="form-control" id="searchStudents" placeholder="Search by name or ID...">
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="button" class="btn btn-primary w-100" onclick="importSelectedToSummary()">
+                        <i class="fas fa-arrow-down me-2"></i>Import to Summary
+                    </button>
+                </div>
+            </div>
+            <div class="mb-3">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="selectAllStudents" onchange="toggleSelectAll()">
+                    <label class="form-check-label" for="selectAllStudents">
+                        <strong>Select All Students</strong>
+                    </label>
+                </div>
+            </div>
+            <div id="studentsLoading" class="text-center py-4" style="display: none;">
                 <div class="spinner-border text-primary" role="status">
                     <span class="visually-hidden">Loading...</span>
                 </div>
             </div>
-            <div id="coursesList" class="table-responsive">
-                <!-- Courses will be loaded here -->
+            <div id="studentsList" class="table-responsive">
+                <!-- Students will be loaded here -->
             </div>
         </div>
     </div>
 
     <div id="registrationStatus"></div>
 
-    <!-- Selected Courses -->
+    <!-- Selected Students Summary -->
     <div class="card shadow-sm" id="selectedCard" style="display: none;">
         <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Selected Courses</h5>
+            <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Registration Summary</h5>
             <div>
-                <strong>Total Credits: <span id="totalCredits">0</span></strong>
+                <strong>Course: <span id="selectedCourseName">-</span></strong>
             </div>
         </div>
         <div class="card-body">
+            <div class="alert alert-warning mb-3" id="retakeWarning" style="display: none;">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>Retake Students Detected:</strong> You can enable "Carry On" to automatically transfer previous assessment marks.
+                <button type="button" class="btn btn-sm btn-warning ms-2" id="enableCarryOnBtn" onclick="enableCarryOn()">
+                    <i class="fas fa-arrow-right me-1"></i>Enable Carry On
+                </button>
+            </div>
             <div class="table-responsive">
                 <table class="table table-bordered table-hover">
                     <thead class="table-light">
                         <tr>
                             <th>SL</th>
-                            <th>Course Code</th>
-                            <th>Course Name</th>
-                            <th>Credit</th>
-                            <th>Type</th>
-                            <th>Nature</th>
-                            <th>Remarks</th>
+                            <th>Student ID</th>
+                            <th>Name</th>
+                            <th>Batch</th>
+                            <th>Remark</th>
+                            <th>Carry On</th>
                             <th>Action</th>
                         </tr>
                     </thead>
-                    <tbody id="selectedCoursesTable">
-                        <!-- Selected courses will be added here -->
+                    <tbody id="selectedStudentsTable">
+                        <!-- Selected students will be added here -->
                     </tbody>
                 </table>
             </div>
@@ -137,187 +162,750 @@
 </div>
 
 <script>
-let selectedCourses = [];
-let currentStudentId = '';
+let selectedStudents = [];
+let currentCourse = null;
 let currentSession = '';
 let currentYear = '';
 let currentTerm = '';
+let allCourses = [];
+let loadedBatches = new Set(); // Track batches from which students have been loaded
 const statusBox = document.getElementById('registrationStatus');
 const saveBtn = document.getElementById('saveRegistrationBtn');
-
-// Store all student options for filtering (store after DOM loads)
-let allStudentOptions = [];
-document.addEventListener('DOMContentLoaded', function() {
-    allStudentOptions = Array.from(document.getElementById('student').querySelectorAll('option'));
-    
-    // Filter students by batch
-    document.getElementById('batch').addEventListener('change', function() {
-        const selectedBatch = this.value;
-        const studentSelect = document.getElementById('student');
-        
-        // Enable/disable student select based on batch selection
-        if (selectedBatch) {
-            studentSelect.disabled = false;
-            studentSelect.innerHTML = '<option value="">Select Student</option>';
-            
-            // Show only students from selected batch
-            allStudentOptions.forEach(option => {
-                if (option.value === '') return; // Skip the placeholder
-                const studentBatch = option.getAttribute('data-batch');
-                if (studentBatch === selectedBatch) {
-                    const newOption = option.cloneNode(true);
-                    studentSelect.appendChild(newOption);
-                }
-            });
-        } else {
-            studentSelect.disabled = true;
-            studentSelect.innerHTML = '<option value="">Select Batch First</option>';
-        }
-        
-        // Reset student selection when batch changes
-        studentSelect.value = '';
-        currentStudentId = '';
-    });
-});
 
 function showStatus(message, type = 'info') {
     statusBox.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
 }
 
-document.getElementById('filterForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    const batch = document.getElementById('batch').value;
-    const studentId = document.getElementById('student').value;
-    const session = document.getElementById('session').value;
-    const year = document.getElementById('year').value;
-    const term = document.getElementById('term').value;
+// Load Year and Term options based on selected Session
+function loadYearTermOptions(session) {
+    const yearSelect = document.getElementById('year');
+    const termSelect = document.getElementById('term');
     
-    if (!batch || !studentId || !session || !year || !term) {
-        alert('Please select Batch, Student, Session, Year, and Term');
+    // Reset dropdowns
+    yearSelect.innerHTML = '<option value="">Select Year</option>';
+    termSelect.innerHTML = '<option value="">Select Term</option>';
+    
+    if (!session) {
         return;
     }
     
-    currentStudentId = studentId;
-    currentSession = session;
-    currentYear = year;
-    currentTerm = term;
+    // Show loading state
+    yearSelect.disabled = true;
+    termSelect.disabled = true;
     
-    loadCourses(year, term);
+    fetch(`/course-management/student/registration/api/year-term?session=${encodeURIComponent(session)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.year_term_options && data.year_term_options.length > 0) {
+                // Get unique years and terms
+                const uniqueYears = [...new Set(data.year_term_options.map(yt => yt.year))].sort();
+                const uniqueTerms = [...new Set(data.year_term_options.map(yt => yt.term))].sort();
+                
+                // Populate Year dropdown
+                uniqueYears.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    yearSelect.appendChild(option);
+                });
+                
+                // Populate Term dropdown
+                uniqueTerms.forEach(term => {
+                    const option = document.createElement('option');
+                    option.value = term;
+                    option.textContent = term;
+                    termSelect.appendChild(option);
+                });
+            } else {
+                // If no options found, show default options
+                const defaultYears = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+                const defaultTerms = ['First', 'Second', 'Thesis Term'];
+                
+                defaultYears.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    yearSelect.appendChild(option);
+                });
+                
+                defaultTerms.forEach(term => {
+                    const option = document.createElement('option');
+                    option.value = term;
+                    option.textContent = term;
+                    termSelect.appendChild(option);
+                });
+            }
+            
+            yearSelect.disabled = false;
+            termSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error loading year-term options:', error);
+            // On error, show default options
+            const defaultYears = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+            const defaultTerms = ['First', 'Second', 'Thesis Term'];
+            
+            defaultYears.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                yearSelect.appendChild(option);
+            });
+            
+            defaultTerms.forEach(term => {
+                const option = document.createElement('option');
+                option.value = term;
+                option.textContent = term;
+                termSelect.appendChild(option);
+            });
+            
+            yearSelect.disabled = false;
+            termSelect.disabled = false;
+        });
+}
+
+// Load courses when session, year, and term are selected
+document.getElementById('year').addEventListener('change', loadCourses);
+document.getElementById('term').addEventListener('change', loadCourses);
+
+// When Session changes, load Year and Term options, then reset and load courses
+document.getElementById('session').addEventListener('change', function() {
+    const session = this.value;
+    
+    // Reset Year and Term when Session changes
+    document.getElementById('year').value = '';
+    document.getElementById('term').value = '';
+    document.getElementById('course').disabled = true;
+    document.getElementById('course').innerHTML = '<option value="">Select Session, Year, and Term First</option>';
+    
+    // Load Year and Term options based on Session
+    loadYearTermOptions(session);
+    
+    // Hide students card if visible
+    document.getElementById('studentsCard').style.display = 'none';
 });
 
-function loadCourses(year, term) {
-    const coursesCard = document.getElementById('coursesCard');
-    const coursesList = document.getElementById('coursesList');
-    const coursesLoading = document.getElementById('coursesLoading');
+function loadCourses() {
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    const courseSelect = document.getElementById('course');
     
-    coursesCard.style.display = 'block';
-    coursesList.innerHTML = '';
-    coursesLoading.style.display = 'block';
+    if (!session || !year || !term) {
+        courseSelect.disabled = true;
+        courseSelect.innerHTML = '<option value="">Select Session, Year, and Term First</option>';
+        return;
+    }
+    
+    courseSelect.disabled = true;
+    courseSelect.innerHTML = '<option value="">Loading courses...</option>';
     
     fetch(`/course-management/student/registration/api/courses?year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
         .then(response => response.json())
         .then(data => {
-            coursesLoading.style.display = 'none';
             if (data.success && data.courses.length > 0) {
-                let html = '<table class="table table-hover"><thead class="table-light"><tr><th>Select</th><th>Code</th><th>Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Remarks</th></tr></thead><tbody>';
+                allCourses = data.courses;
+                courseSelect.innerHTML = '<option value="">Select Course</option>';
                 data.courses.forEach(course => {
-                    const isSelected = selectedCourses.some(c => c.id === course.id);
-                    html += `
-                        <tr>
-                            <td>
-                                <input type="checkbox" class="form-check-input course-checkbox" 
-                                       data-id="${course.id}" 
-                                       data-code="${course.course_code}" 
-                                       data-name="${course.course_name}" 
-                                       data-credit="${course.credit}" 
-                                       data-type="${course.course_type}"
-                                       data-nature="${course.nature}"
-                                       ${isSelected ? 'checked' : ''}
-                                       onchange="toggleCourse(this)">
-                            </td>
-                            <td><strong>${course.course_code}</strong></td>
-                            <td>${course.course_name}</td>
-                            <td>${course.credit}</td>
-                            <td><span class="badge bg-info">${course.course_type}</span></td>
-                            <td><span class="badge bg-${course.nature === 'Core' ? 'success' : 'warning'}">${course.nature}</span></td>
-                            <td>
-                                <select class="form-select form-select-sm remark-select" data-id="${course.id}">
-                                    <option value="Regular">Regular</option>
-                                    <option value="Retake">Retake</option>
-                                    <option value="Re-retake">Re-retake</option>
-                                </select>
-                            </td>
-                        </tr>
-                    `;
+                    const option = document.createElement('option');
+                    option.value = course.id;
+                    option.textContent = `${course.course_code} - ${course.course_name}`;
+                    option.dataset.code = course.course_code;
+                    option.dataset.name = course.course_name;
+                    option.dataset.credit = course.credit;
+                    option.dataset.type = course.course_type;
+                    option.dataset.nature = course.nature;
+                    courseSelect.appendChild(option);
                 });
-                html += '</tbody></table>';
-                coursesList.innerHTML = html;
+                courseSelect.disabled = false;
             } else {
-                coursesList.innerHTML = '<div class="alert alert-info">No courses available for the selected Year and Term.</div>';
+                courseSelect.innerHTML = '<option value="">No courses available</option>';
             }
         })
         .catch(error => {
-            coursesLoading.style.display = 'none';
             console.error('Error loading courses:', error);
-            coursesList.innerHTML = '<div class="alert alert-danger">Error loading courses. Please try again.</div>';
+            courseSelect.innerHTML = '<option value="">Error loading courses</option>';
         });
 }
 
-function toggleCourse(checkbox) {
-    const id = parseInt(checkbox.dataset.id);
-    const code = checkbox.dataset.code;
-    const name = checkbox.dataset.name;
-    const credit = parseFloat(checkbox.dataset.credit);
-    const type = checkbox.dataset.type;
-    const nature = checkbox.dataset.nature;
-    const remarkSelect = document.querySelector(`.remark-select[data-id="${id}"]`);
-    const remark = remarkSelect ? remarkSelect.value : 'Regular';
+// Load students when form is submitted
+document.getElementById('filterForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const courseId = document.getElementById('course').value;
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
     
-    if (checkbox.checked) {
-        selectedCourses.push({ id, code, name, credit, type, nature, remark });
-    } else {
-        selectedCourses = selectedCourses.filter(c => c.id !== id);
-    }
-    
-    updateSelectedTable();
-}
-
-function updateSelectedTable() {
-    const table = document.getElementById('selectedCoursesTable');
-    const selectedCard = document.getElementById('selectedCard');
-    const totalCreditsSpan = document.getElementById('totalCredits');
-    
-    if (selectedCourses.length === 0) {
-        selectedCard.style.display = 'none';
-        saveBtn.disabled = true;
+    if (!courseId || !session || !year || !term) {
+        alert('Please select Course, Session, Year, and Term');
         return;
     }
     
+    const courseOption = document.getElementById('course').selectedOptions[0];
+    currentCourse = {
+        id: courseId,
+        code: courseOption.dataset.code,
+        name: courseOption.dataset.name,
+        credit: courseOption.dataset.credit,
+        type: courseOption.dataset.type,
+        nature: courseOption.dataset.nature
+    };
+    currentSession = session;
+    currentYear = year;
+    currentTerm = term;
+    
+    document.getElementById('selectedCourseName').textContent = `${currentCourse.code} - ${currentCourse.name}`;
+    
+    // Show students card so user can select batch
+    document.getElementById('studentsCard').style.display = 'block';
+    
+    // Show message to select batch
+    document.getElementById('studentsList').innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>Please select a batch above to load students.</div>';
+});
+
+// Import selected students to Registration Summary
+function importSelectedToSummary() {
+    console.log('importSelectedToSummary called');
+    
+    if (!currentCourse) {
+        alert('Please select a course first');
+        return;
+    }
+    
+    const batch = document.getElementById('batchFilter').value;
+    if (!batch) {
+        alert('Please select a batch first');
+        return;
+    }
+    
+    // Check if students are loaded
+    const allCheckboxes = document.querySelectorAll('.student-checkbox');
+    const checkedCheckboxes = document.querySelectorAll('.student-checkbox:checked:not(:disabled)');
+    
+    console.log('Total checkboxes found:', allCheckboxes.length);
+    console.log('Checked checkboxes found:', checkedCheckboxes.length);
+    
+    if (allCheckboxes.length === 0) {
+        alert('Please load students first by selecting a batch');
+        return;
+    }
+    
+    if (checkedCheckboxes.length === 0) {
+        alert('Please select at least one student to import');
+        return;
+    }
+    
+    // Directly add selected students to summary
+    console.log('Adding selected students to summary...');
+    addSelectedStudentsToSummary();
+}
+
+// Add checked students to Registration Summary
+function addSelectedStudentsToSummary() {
+    console.log('=== addSelectedStudentsToSummary START ===');
+    const checkboxes = document.querySelectorAll('.student-checkbox:checked:not(:disabled)');
+    console.log('Found', checkboxes.length, 'checked checkboxes');
+    console.log('Current selectedStudents count:', selectedStudents.length);
+    console.log('Current selectedStudents:', selectedStudents);
+    
+    if (checkboxes.length === 0) {
+        console.warn('No checked checkboxes found!');
+        showStatus('No students selected. Please check students to add them to Registration Summary.', 'warning');
+        return;
+    }
+    
+    let addedCount = 0;
+    
+    checkboxes.forEach((checkbox, index) => {
+        console.log(`Processing checkbox ${index + 1}:`, checkbox);
+        const id = parseInt(checkbox.dataset.id);
+        const studentId = checkbox.dataset.studentId;
+        const name = checkbox.dataset.name;
+        const batch = checkbox.dataset.batch;
+        
+        console.log('Student data:', { id, studentId, name, batch });
+        
+        if (!id || !studentId || !name) {
+            console.error('Invalid student data:', { id, studentId, name, batch });
+            return;
+        }
+        
+        // Check if already in selectedStudents
+        const exists = selectedStudents.some(s => s.id === id);
+        console.log(`Student ${id} (${name}) already exists:`, exists);
+        
+        if (!exists) {
+            const newStudent = {
+                id,
+                student_id: studentId,
+                name,
+                batch: batch || '',
+                remark: 'Regular',
+                carryOn: false
+            };
+            selectedStudents.push(newStudent);
+            addedCount++;
+            console.log('✓ Added student to selectedStudents:', newStudent);
+        } else {
+            console.log('✗ Student already in selectedStudents:', id, name);
+        }
+    });
+    
+    console.log('Total added:', addedCount);
+    console.log('New total selectedStudents:', selectedStudents.length);
+    console.log('Updated selectedStudents:', selectedStudents);
+    console.log('=== addSelectedStudentsToSummary END ===');
+    
+    // Always update table if we have students
+    if (selectedStudents.length > 0) {
+        console.log('Calling updateSelectedTable()...');
+        updateSelectedTable();
+        updateSelectAllCheckboxState();
+        
+        if (addedCount > 0) {
+            showStatus(`Successfully added ${addedCount} student(s) to Registration Summary.`, 'success');
+        } else {
+            showStatus('Selected students are already in Registration Summary. You can modify their remarks and carry-on settings.', 'info');
+        }
+    } else {
+        console.error('No students in selectedStudents array after processing!');
+        showStatus('No students were added. Please check the browser console for details.', 'danger');
+    }
+}
+
+// Load students when batch changes
+document.getElementById('batchFilter').addEventListener('change', function() {
+    const batch = this.value;
+    console.log('Batch changed to:', batch);
+    
+    if (!batch) {
+        document.getElementById('studentsList').innerHTML = '';
+        document.getElementById('selectAllStudents').checked = false;
+        document.getElementById('selectAllStudents').indeterminate = false;
+        return;
+    }
+    
+    if (!currentCourse) {
+        // If course not selected yet, show message
+        document.getElementById('studentsList').innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Please select course, session, year, and term first, then click "Show Student Selection".</div>';
+        return;
+    }
+    
+    loadedBatches.clear(); // Clear when batch changes
+    selectedStudents = []; // Clear selected students when batch changes
+    loadStudents(false);
+});
+document.getElementById('searchStudents').addEventListener('input', debounce(() => loadStudents(false), 300));
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function loadStudents(addToExisting = false, callback = null) {
+    const batch = document.getElementById('batchFilter').value;
+    const search = document.getElementById('searchStudents').value;
+    
+    if (!batch) {
+        if (!addToExisting) {
+            document.getElementById('studentsCard').style.display = 'none';
+        }
+        if (callback) callback();
+        return;
+    }
+    
+    if (!currentCourse) {
+        // Don't show alert, just show message in the list area
+        if (!addToExisting) {
+            document.getElementById('studentsList').innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Please select course, session, year, and term first, then click "Show Student Selection".</div>';
+        }
+        if (callback) callback();
+        return;
+    }
+    
+    // Skip if this batch is already loaded
+    if (loadedBatches.has(batch) && !addToExisting) {
+        if (callback) callback();
+        return;
+    }
+    
+    const studentsCard = document.getElementById('studentsCard');
+    const studentsList = document.getElementById('studentsList');
+    const studentsLoading = document.getElementById('studentsLoading');
+    
+    studentsCard.style.display = 'block';
+    if (!addToExisting) {
+        studentsList.innerHTML = '';
+    }
+    studentsLoading.style.display = 'block';
+    
+    let url = `/course-management/coordinator/register-student/api/students?batch=${encodeURIComponent(batch)}`;
+    if (search) {
+        url += `&search=${encodeURIComponent(search)}`;
+    }
+    if (currentCourse && currentSession && currentYear && currentTerm) {
+        url += `&course_code=${encodeURIComponent(currentCourse.code)}&session=${encodeURIComponent(currentSession)}&year=${encodeURIComponent(currentYear)}&term=${encodeURIComponent(currentTerm)}`;
+    }
+    
+    console.log('Loading students for batch:', batch, 'URL:', url);
+    
+    fetch(url)
+        .then(response => {
+            console.log('Response status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Response data:', data);
+            studentsLoading.style.display = 'none';
+            if (data.success) {
+                if (data.students && data.students.length > 0) {
+                    if (addToExisting) {
+                        // Append to existing list
+                        appendStudentsToList(data.students, batch);
+                        loadedBatches.add(batch);
+                    } else {
+                        // Replace list
+                        renderStudentsList(data.students, batch);
+                        loadedBatches.clear();
+                        loadedBatches.add(batch);
+                    }
+                } else {
+                    if (!addToExisting) {
+                        studentsList.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>No students found for the selected batch "' + batch + '".</div>';
+                    }
+                }
+            } else {
+                if (!addToExisting) {
+                    studentsList.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>' + (data.message || 'Failed to load students') + '</div>';
+                }
+            }
+            if (callback) callback();
+        })
+        .catch(error => {
+            studentsLoading.style.display = 'none';
+            console.error('Error loading students:', error);
+            if (!addToExisting) {
+                studentsList.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle me-2"></i>Error loading students: ' + error.message + '. Please check browser console for details.</div>';
+            }
+            if (callback) callback();
+        });
+}
+
+function renderStudentsList(students, batch) {
+    const studentsList = document.getElementById('studentsList');
+    
+    // Remove duplicates based on student ID
+    const uniqueStudents = [];
+    const seenIds = new Set();
+    students.forEach(student => {
+        if (!seenIds.has(student.id)) {
+            seenIds.add(student.id);
+            uniqueStudents.push(student);
+        }
+    });
+    
+    if (uniqueStudents.length !== students.length) {
+        console.log(`Removed ${students.length - uniqueStudents.length} duplicate students`);
+    }
+    
+    let html = '<table class="table table-hover"><thead class="table-light"><tr><th>Select</th><th>Student ID</th><th>Name</th><th>Batch</th><th>Status</th></tr></thead><tbody>';
+    uniqueStudents.forEach(student => {
+        const isSelected = selectedStudents.some(s => s.id === student.id);
+        const isRegistered = student.is_registered;
+        html += `
+            <tr class="${isRegistered ? 'table-warning' : ''}" data-batch="${student.batch}" data-student-id="${student.id}">
+                <td>
+                    <input type="checkbox" class="form-check-input student-checkbox" 
+                           data-id="${student.id}" 
+                           data-student-id="${student.student_id}" 
+                           data-name="${student.name}" 
+                           data-batch="${student.batch}"
+                           ${isSelected ? 'checked' : ''}
+                           ${isRegistered ? 'disabled' : ''}
+                           onchange="toggleStudent(this)">
+                </td>
+                <td><strong>${student.student_id}</strong></td>
+                <td>${student.name}</td>
+                <td>${student.batch || '-'}</td>
+                <td>${isRegistered ? '<span class="badge bg-warning">Already Registered</span>' : '<span class="badge bg-success">Available</span>'}</td>
+            </tr>
+        `;
+    });
+    html += '</tbody></table>';
+    studentsList.innerHTML = html;
+}
+
+function appendStudentsToList(students, batch) {
+    const studentsList = document.getElementById('studentsList');
+    const existingTable = studentsList.querySelector('table tbody');
+    
+    if (!existingTable) {
+        renderStudentsList(students, batch);
+        return;
+    }
+    
+    // Get existing student IDs to prevent duplicates
+    const existingStudentIds = new Set();
+    existingTable.querySelectorAll('.student-checkbox').forEach(checkbox => {
+        existingStudentIds.add(parseInt(checkbox.dataset.id));
+    });
+    
+    let addedCount = 0;
+    students.forEach(student => {
+        // Skip if student already exists in the table
+        if (existingStudentIds.has(student.id)) {
+            return;
+        }
+        
+        const isSelected = selectedStudents.some(s => s.id === student.id);
+        const isRegistered = student.is_registered;
+        const row = document.createElement('tr');
+        row.className = isRegistered ? 'table-warning' : '';
+        row.setAttribute('data-batch', student.batch);
+        row.innerHTML = `
+            <td>
+                <input type="checkbox" class="form-check-input student-checkbox" 
+                       data-id="${student.id}" 
+                       data-student-id="${student.student_id}" 
+                       data-name="${student.name}" 
+                       data-batch="${student.batch}"
+                       ${isSelected ? 'checked' : ''}
+                       ${isRegistered ? 'disabled' : ''}
+                       onchange="toggleStudent(this)">
+            </td>
+            <td><strong>${student.student_id}</strong></td>
+            <td>${student.name}</td>
+            <td>${student.batch || '-'}</td>
+            <td>${isRegistered ? '<span class="badge bg-warning">Already Registered</span>' : '<span class="badge bg-success">Available</span>'}</td>
+        `;
+        existingTable.appendChild(row);
+        existingStudentIds.add(student.id);
+        addedCount++;
+    });
+    
+    if (addedCount === 0 && students.length > 0) {
+        console.log('All students from this batch are already in the list');
+    }
+}
+
+function toggleSelectAll() {
+    const selectAllCheckbox = document.getElementById('selectAllStudents');
+    const selectAll = selectAllCheckbox.checked;
+    
+    // Get all available (non-disabled) checkboxes
+    const checkboxes = Array.from(document.querySelectorAll('.student-checkbox:not(:disabled)'));
+    
+    console.log('Toggle Select All:', selectAll, 'Total checkboxes:', checkboxes.length);
+    
+    // Batch process all selections to avoid multiple DOM updates
+    if (selectAll) {
+        // Select all students - collect all new students first
+        const newStudents = [];
+        checkboxes.forEach(checkbox => {
+            const id = parseInt(checkbox.dataset.id);
+            // Only process if not already checked and not already in selectedStudents
+            if (!checkbox.checked && !selectedStudents.some(s => s.id === id)) {
+                newStudents.push({
+                    id,
+                    student_id: checkbox.dataset.studentId,
+                    name: checkbox.dataset.name,
+                    batch: checkbox.dataset.batch,
+                    remark: 'Regular',
+                    carryOn: false
+                });
+            }
+            // Always check the checkbox
+            checkbox.checked = true;
+        });
+        
+        // Add all new students at once
+        selectedStudents = [...selectedStudents, ...newStudents];
+        console.log('Selected', newStudents.length, 'new students. Total selected:', selectedStudents.length);
+    } else {
+        // Deselect all students
+        const idsToRemove = new Set();
+        checkboxes.forEach(checkbox => {
+            if (checkbox.checked) {
+                const id = parseInt(checkbox.dataset.id);
+                idsToRemove.add(id);
+                checkbox.checked = false;
+            }
+        });
+        
+        // Remove all at once
+        selectedStudents = selectedStudents.filter(s => !idsToRemove.has(s.id));
+        console.log('Deselected', idsToRemove.size, 'students. Remaining:', selectedStudents.length);
+    }
+    
+    // Update UI once after all changes
+    updateSelectedTable();
+    updateSelectAllCheckboxState();
+}
+
+function updateSelectAllCheckboxState() {
+    const checkboxes = document.querySelectorAll('.student-checkbox:not(:disabled)');
+    const selectAllCheckbox = document.getElementById('selectAllStudents');
+    
+    if (checkboxes.length === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+        return;
+    }
+    
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    
+    if (checkedCount === 0) {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = false;
+    } else if (checkedCount === checkboxes.length) {
+        selectAllCheckbox.checked = true;
+        selectAllCheckbox.indeterminate = false;
+    } else {
+        selectAllCheckbox.checked = false;
+        selectAllCheckbox.indeterminate = true; // Some but not all selected
+    }
+}
+
+function toggleStudent(checkbox) {
+    const id = parseInt(checkbox.dataset.id);
+    const studentId = checkbox.dataset.studentId;
+    const name = checkbox.dataset.name;
+    const batch = checkbox.dataset.batch;
+    
+    console.log('toggleStudent called:', id, name, 'checked:', checkbox.checked);
+    
+    if (checkbox.checked) {
+        // Check if already selected
+        if (!selectedStudents.some(s => s.id === id)) {
+            selectedStudents.push({ 
+                id, 
+                student_id: studentId, 
+                name, 
+                batch,
+                remark: 'Regular',
+                carryOn: false
+            });
+            console.log('Added student to selectedStudents via toggleStudent:', id, name);
+        } else {
+            console.log('Student already in selectedStudents:', id, name);
+        }
+    } else {
+        selectedStudents = selectedStudents.filter(s => s.id !== id);
+        console.log('Removed student from selectedStudents:', id, name);
+    }
+    
+    updateSelectedTable();
+    updateSelectAllCheckboxState();
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const selectedCount = document.getElementById('selectedCount');
+    if (selectedCount) {
+        // Count checked checkboxes in the student list
+        const checkedCount = document.querySelectorAll('.student-checkbox:checked:not(:disabled)').length;
+        selectedCount.textContent = checkedCount;
+    }
+}
+
+function updateSelectedTable() {
+    const table = document.getElementById('selectedStudentsTable');
+    const selectedCard = document.getElementById('selectedCard');
+    const selectedCount = document.getElementById('selectedCount');
+    const retakeWarning = document.getElementById('retakeWarning');
+    
+    console.log('updateSelectedTable called. Selected students count:', selectedStudents.length);
+    console.log('Selected students:', selectedStudents);
+    
+    if (!table) {
+        console.error('selectedStudentsTable element not found!');
+        return;
+    }
+    
+    if (!selectedCard) {
+        console.error('selectedCard element not found!');
+        return;
+    }
+    
+    if (selectedStudents.length === 0) {
+        console.log('No students selected, hiding card');
+        if (selectedCard) {
+            selectedCard.style.display = 'none';
+        }
+        if (saveBtn) {
+            saveBtn.disabled = true;
+        }
+        if (selectedCount) {
+            selectedCount.textContent = '0';
+        }
+        return;
+    }
+    
+    // Show the selected card
     selectedCard.style.display = 'block';
-    saveBtn.disabled = false;
+    if (saveBtn) {
+        saveBtn.disabled = false;
+    }
+    
+    if (selectedCount) {
+        selectedCount.textContent = selectedStudents.length;
+    }
+    
+    // Check if there are retake students
+    const hasRetake = selectedStudents.some(s => s.remark === 'Retake' || s.remark === 'Re-retake');
+    if (retakeWarning) {
+        retakeWarning.style.display = hasRetake ? 'block' : 'none';
+    } else {
+        console.warn('retakeWarning element not found, skipping retake warning display');
+    }
     
     let html = '';
-    let totalCredits = 0;
+    console.log('Generating HTML for', selectedStudents.length, 'students');
     
-    selectedCourses.forEach((course, index) => {
-        totalCredits += course.credit;
+    if (selectedStudents.length === 0) {
+        console.warn('selectedStudents array is empty!');
+        table.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No students selected</td></tr>';
+        return;
+    }
+    
+    selectedStudents.forEach((student, index) => {
+        console.log(`Processing student ${index + 1}:`, student);
+        const isRetake = student.remark === 'Retake' || student.remark === 'Re-retake';
         html += `
             <tr>
                 <td>${index + 1}</td>
-                <td><strong>${course.code}</strong></td>
-                <td>${course.name}</td>
-                <td>${course.credit}</td>
-                <td><span class="badge bg-info">${course.type}</span></td>
-                <td><span class="badge bg-${course.nature === 'Core' ? 'success' : 'warning'}">${course.nature}</span></td>
+                <td><strong>${student.student_id || 'N/A'}</strong></td>
+                <td>${student.name || 'N/A'}</td>
+                <td>${student.batch || '-'}</td>
                 <td>
-                    <select class="form-select form-select-sm" onchange="updateRemark(${course.id}, this.value)">
-                        <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
-                        <option value="Retake" ${course.remark === 'Retake' ? 'selected' : ''}>Retake</option>
-                        <option value="Re-retake" ${course.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
+                    <select class="form-select form-select-sm" onchange="updateStudentRemark(${student.id}, this.value)">
+                        <option value="Regular" ${student.remark === 'Regular' ? 'selected' : ''}>Regular</option>
+                        <option value="Retake" ${student.remark === 'Retake' ? 'selected' : ''}>Retake</option>
+                        <option value="Re-retake" ${student.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
                     </select>
                 </td>
                 <td>
-                    <button class="btn btn-sm btn-danger" onclick="removeCourse(${course.id})">
+                    ${isRetake ? `
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="carryOn_${student.id}" 
+                                   ${student.carryOn ? 'checked' : ''} 
+                                   onchange="toggleCarryOn(${student.id}, this.checked)">
+                            <label class="form-check-label" for="carryOn_${student.id}">Carry On</label>
+                        </div>
+                    ` : '<span class="text-muted">-</span>'}
+                </td>
+                <td>
+                    <button class="btn btn-sm btn-danger" onclick="removeStudent(${student.id})">
                         <i class="fas fa-trash"></i>
                     </button>
                 </td>
@@ -325,20 +913,54 @@ function updateSelectedTable() {
         `;
     });
     
+    console.log('HTML generated, length:', html.length);
+    console.log('HTML preview (first 500 chars):', html.substring(0, 500));
+    
     table.innerHTML = html;
-    totalCreditsSpan.textContent = totalCredits.toFixed(1);
-}
-
-function updateRemark(courseId, remark) {
-    const course = selectedCourses.find(c => c.id === courseId);
-    if (course) {
-        course.remark = remark;
+    console.log('Table innerHTML set. Table element:', table);
+    console.log('Table innerHTML length after setting:', table.innerHTML.length);
+    
+    // Force a reflow to ensure rendering
+    table.offsetHeight;
+    
+    // Double-check the table has content
+    if (table.innerHTML.trim().length === 0) {
+        console.error('Table innerHTML is empty after setting!');
+        console.error('selectedStudents:', JSON.stringify(selectedStudents, null, 2));
     }
 }
 
-function removeCourse(courseId) {
-    selectedCourses = selectedCourses.filter(c => c.id !== courseId);
-    const checkbox = document.querySelector(`.course-checkbox[data-id="${courseId}"]`);
+function updateStudentRemark(studentId, remark) {
+    const student = selectedStudents.find(s => s.id === studentId);
+    if (student) {
+        student.remark = remark;
+        // Reset carryOn if not retake
+        if (remark === 'Regular') {
+            student.carryOn = false;
+        }
+        updateSelectedTable();
+    }
+}
+
+function toggleCarryOn(studentId, enabled) {
+    const student = selectedStudents.find(s => s.id === studentId);
+    if (student) {
+        student.carryOn = enabled;
+    }
+}
+
+function enableCarryOn() {
+    selectedStudents.forEach(student => {
+        if (student.remark === 'Retake' || student.remark === 'Re-retake') {
+            student.carryOn = true;
+        }
+    });
+    updateSelectedTable();
+}
+
+function removeStudent(studentId) {
+    selectedStudents = selectedStudents.filter(s => s.id !== studentId);
+    const checkbox = document.querySelector(`.student-checkbox[data-id="${studentId}"]`);
     if (checkbox) {
         checkbox.checked = false;
     }
@@ -346,36 +968,54 @@ function removeCourse(courseId) {
 }
 
 saveBtn.addEventListener('click', function() {
-    if (!currentStudentId || !currentSession || !currentYear || !currentTerm) {
-        alert('Please select student, session, year, and term first.');
+    if (!currentCourse || !currentSession || !currentYear || !currentTerm) {
+        alert('Please select course, session, year, and term first.');
         return;
     }
-    if (selectedCourses.length === 0) {
-        alert('Please select at least one course.');
+    if (selectedStudents.length === 0) {
+        alert('Please select at least one student.');
         return;
     }
     
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
     
+    // Prepare data with per-student remarks and carryOn flags
+    const registrationData = {
+        course_id: currentCourse.id,
+        course_code: currentCourse.code,
+        course_name: currentCourse.name,
+        session: currentSession,
+        year: currentYear,
+        term: currentTerm,
+        students: selectedStudents.map(s => ({
+            student_id: s.id,
+            remark: s.remark,
+            carry_on: s.carryOn || false
+        }))
+    };
+    
     fetch('/course-management/coordinator/register-student/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            student_id: currentStudentId,
-            session: currentSession,
-            year: currentYear,
-            term: currentTerm,
-            courses: selectedCourses
-        })
+        body: JSON.stringify(registrationData)
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
             showStatus(data.message, 'success');
+            // Reset form
+            selectedStudents = [];
+            currentCourse = null;
+            loadedBatches.clear();
+            document.getElementById('filterForm').reset();
+            document.getElementById('studentsCard').style.display = 'none';
+            document.getElementById('selectedCard').style.display = 'none';
+            document.getElementById('course').innerHTML = '<option value="">Select Session, Year, and Term First</option>';
+            document.getElementById('course').disabled = true;
             setTimeout(() => {
                 window.location.href = '/course-management/coordinator/registrations';
-            }, 1500);
+            }, 2000);
         } else {
             showStatus(data.message || 'Failed to save registration.', 'danger');
             saveBtn.disabled = false;

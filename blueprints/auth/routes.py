@@ -23,17 +23,23 @@ auth_bp = Blueprint('auth', __name__, template_folder='templates')
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
-    
     default_login_role = 'teacher'
     selected_role = default_login_role
     student_default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', 'Student@123')
     
     if request.method == 'POST':
+        # Clear any existing session before processing new login
+        # This prevents session cookie reuse issues (especially with ngrok)
+        if current_user.is_authenticated:
+            current_app.logger.info(f"Logging out existing user: {current_user.username}")
+            logout_user()
+        session.clear()
+        
         username = request.form.get('username')
         password = request.form.get('password')
         selected_role = request.form.get('active_role') or default_login_role
+        
+        current_app.logger.info(f"Login attempt for username: {username}, role: {selected_role}")
         
         def render_form():
             return render_template(
@@ -68,10 +74,36 @@ def login():
                 flash('You are not assigned to that category.', 'error')
                 return render_form()
         
-        login_user(user)
+        # Force logout any existing session first
+        logout_user()
+        session.clear()
+        
+        # Login with the new user, don't remember to prevent cookie persistence issues
+        login_user(user, remember=False)
         session['active_role'] = selected_role
+        current_app.logger.info(f"Successfully logged in user: {user.username} (ID: {user.id}) with role: {selected_role}")
         flash('Login successful!', 'success')
-        return redirect(url_for('index'))
+        
+        # Create response and ensure session cookie is properly set
+        response = redirect(url_for('index'))
+        # Force session to be saved
+        session.permanent = False
+        return response
+    
+    # GET request handling
+    # If already authenticated via ngrok, clear session to prevent cookie reuse
+    if current_user.is_authenticated:
+        # Check if user wants to force logout (via query parameter)
+        if request.args.get('force_logout') == '1':
+            logout_user()
+            session.clear()
+            flash('Session cleared. Please login again.', 'info')
+        else:
+            # If accessing via ngrok, always clear session to prevent cookie reuse
+            host = request.host
+            if 'ngrok' in host.lower() or 'ngrok.io' in host.lower():
+                logout_user()
+                session.clear()
     
     return render_template(
         'auth/login.html',
@@ -85,9 +117,13 @@ def login():
 @login_required
 def logout():
     logout_user()
-    session.pop('active_role', None)
+    session.clear()  # Clear all session data
     flash('You have been logged out.', 'info')
-    return redirect(url_for('auth.login'))
+    response = redirect(url_for('auth.login'))
+    # Delete Flask session cookie and Flask-Login remember cookie
+    response.set_cookie('session', '', expires=0, path='/')
+    response.set_cookie('remember_token', '', expires=0, path='/')
+    return response
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():

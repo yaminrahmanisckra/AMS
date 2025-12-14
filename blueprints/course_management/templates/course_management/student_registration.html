@@ -99,6 +99,7 @@
                             <th>Type</th>
                             <th>Nature</th>
                             <th>Remarks</th>
+                            <th>Carry On</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -150,6 +151,104 @@ function isSameCourse(existing, course) {
     return existing.course_code === course.course_code;
 }
 
+// Load Year and Term options based on selected Session
+function loadYearTermOptions(session) {
+    const yearSelect = document.getElementById('year');
+    const termSelect = document.getElementById('term');
+    
+    // Reset dropdowns
+    yearSelect.innerHTML = '<option value="">Select Year</option>';
+    termSelect.innerHTML = '<option value="">Select Term</option>';
+    
+    if (!session) {
+        return;
+    }
+    
+    // Show loading state
+    yearSelect.disabled = true;
+    termSelect.disabled = true;
+    
+    fetch(`/course-management/student/registration/api/year-term?session=${encodeURIComponent(session)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.year_term_options && data.year_term_options.length > 0) {
+                // Get unique years and terms
+                const uniqueYears = [...new Set(data.year_term_options.map(yt => yt.year))].sort();
+                const uniqueTerms = [...new Set(data.year_term_options.map(yt => yt.term))].sort();
+                
+                // Populate Year dropdown
+                uniqueYears.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    yearSelect.appendChild(option);
+                });
+                
+                // Populate Term dropdown
+                uniqueTerms.forEach(term => {
+                    const option = document.createElement('option');
+                    option.value = term;
+                    option.textContent = term;
+                    termSelect.appendChild(option);
+                });
+            } else {
+                // If no options found, show default options
+                const defaultYears = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+                const defaultTerms = ['First', 'Second', 'Thesis Term'];
+                
+                defaultYears.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    yearSelect.appendChild(option);
+                });
+                
+                defaultTerms.forEach(term => {
+                    const option = document.createElement('option');
+                    option.value = term;
+                    option.textContent = term;
+                    termSelect.appendChild(option);
+                });
+            }
+            
+            yearSelect.disabled = false;
+            termSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error loading year-term options:', error);
+            // On error, show default options
+            const defaultYears = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+            const defaultTerms = ['First', 'Second', 'Thesis Term'];
+            
+            defaultYears.forEach(year => {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                yearSelect.appendChild(option);
+            });
+            
+            defaultTerms.forEach(term => {
+                const option = document.createElement('option');
+                option.value = term;
+                option.textContent = term;
+                termSelect.appendChild(option);
+            });
+            
+            yearSelect.disabled = false;
+            termSelect.disabled = false;
+        });
+}
+
+// Add event listener for Session dropdown change
+document.getElementById('session').addEventListener('change', function() {
+    const session = this.value;
+    loadYearTermOptions(session);
+    
+    // Reset Year and Term when Session changes
+    document.getElementById('year').value = '';
+    document.getElementById('term').value = '';
+});
+
 document.getElementById('filterForm').addEventListener('submit', function(e) {
     e.preventDefault();
     const session = document.getElementById('session').value;
@@ -183,11 +282,22 @@ function loadSavedRegistrations(session, year, term) {
                     credit: course.credit,
                     course_type: course.course_type,
                     nature: course.nature || 'Core',
-                    remark: course.remark || 'Regular'
+                    remark: course.remark || 'Regular',
+                    carry_on: course.carry_on || false,
+                    registered_by: course.registered_by || 'student'
                 }));
+                
+                // Check if any registration was created by coordinator/head
+                const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+                if (hasCoordinatorReg) {
+                    showStatus('Some registrations were created by coordinator/head. You can only download these registrations, not edit them.', 'warning');
+                }
+                
                 updateSelectedTable();
                 if (selectedCourses.length > 0) {
-                    showStatus('Loaded previously saved courses for this session.', 'info');
+                    if (!hasCoordinatorReg) {
+                        showStatus('Loaded previously saved courses for this session.', 'info');
+                    }
                 } else {
                     showStatus('No saved registration found for this session.', 'info');
                 }
@@ -216,12 +326,13 @@ function loadCourses(year, term) {
             coursesLoading.style.display = 'none';
             if (data.success && data.courses.length > 0) {
                 let html = '<table class="table table-bordered table-hover"><thead class="table-light"><tr>';
-                html += '<th>Course Code</th><th>Course Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Remarks</th><th>Action</th>';
+                html += '<th>Course Code</th><th>Course Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Remarks</th><th>Carry On</th><th>Action</th>';
                 html += '</tr></thead><tbody>';
                 
                 data.courses.forEach(course => {
                     const isSelected = selectedCourses.some(c => isSameCourse(c, { id: course.id, course_code: course.course_code }));
                     const remarkSelectId = `remark-${course.id}`;
+                    const carryOnCheckboxId = `carryOn-${course.id}`;
                     html += `<tr>
                         <td>${course.course_code}</td>
                         <td>${course.course_name}</td>
@@ -229,16 +340,22 @@ function loadCourses(year, term) {
                         <td>${course.course_type}</td>
                         <td>${course.nature || 'Core'}</td>
                         <td>
-                            <select id="${remarkSelectId}" class="form-select form-select-sm">
+                            <select id="${remarkSelectId}" class="form-select form-select-sm" onchange="updateCarryOnVisibility(${course.id})">
                                 <option value="Regular">Regular</option>
                                 <option value="Retake">Retake</option>
                                 <option value="Re-retake">Re-retake</option>
                             </select>
                         </td>
+                        <td id="carryOnCell_${course.id}" style="display: none;">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="${carryOnCheckboxId}">
+                                <label class="form-check-label" for="${carryOnCheckboxId}">Carry On</label>
+                            </div>
+                        </td>
                         <td>
                             ${isSelected ? 
                                 '<span class="badge bg-success">Selected</span>' : 
-                                `<button class="btn btn-sm btn-primary" onclick="addCourse(${course.id}, '${course.course_code.replace(/'/g, "\\'")}', '${course.course_name.replace(/'/g, "\\'")}', ${course.credit}, '${course.course_type}', '${course.nature || 'Core'}', document.getElementById('${remarkSelectId}').value)">
+                                `<button class="btn btn-sm btn-primary" onclick="addCourse(${course.id}, '${course.course_code.replace(/'/g, "\\'")}', '${course.course_name.replace(/'/g, "\\'")}', ${course.credit}, '${course.course_type}', '${course.nature || 'Core'}', document.getElementById('${remarkSelectId}').value, document.getElementById('${carryOnCheckboxId}') && document.getElementById('${carryOnCheckboxId}').checked)">
                                     <i class="fas fa-plus me-1"></i>Add
                                 </button>`
                             }
@@ -259,7 +376,24 @@ function loadCourses(year, term) {
         });
 }
 
-function addCourse(id, code, name, credit, type, nature, remark) {
+function updateCarryOnVisibility(courseId) {
+    const remarkSelect = document.getElementById(`remark-${courseId}`);
+    const carryOnCell = document.getElementById(`carryOnCell_${courseId}`);
+    if (remarkSelect && carryOnCell) {
+        const remark = remarkSelect.value;
+        if (remark === 'Retake' || remark === 'Re-retake') {
+            carryOnCell.style.display = '';
+        } else {
+            carryOnCell.style.display = 'none';
+            const carryOnCheckbox = document.getElementById(`carryOn-${courseId}`);
+            if (carryOnCheckbox) {
+                carryOnCheckbox.checked = false;
+            }
+        }
+    }
+}
+
+function addCourse(id, code, name, credit, type, nature, remark, carryOn = false) {
     if (selectedCourses.some(c => isSameCourse(c, { id: id, course_code: code }))) {
         return;
     }
@@ -271,11 +405,31 @@ function addCourse(id, code, name, credit, type, nature, remark) {
         credit: credit,
         course_type: type,
         nature: nature,
-        remark: remark || 'Regular'
+        remark: remark || 'Regular',
+        carry_on: carryOn || false,
+        registered_by: 'student'  // New courses added by student
     });
     
     updateSelectedTable();
     loadCourses(currentYear, currentTerm); // Refresh to update "Selected" badges
+}
+
+function updateSelectedCourseRemark(courseIdOrIndex, remark) {
+    const course = selectedCourses.find(c => (c.id && c.id === courseIdOrIndex) || selectedCourses.indexOf(c) === courseIdOrIndex);
+    if (course) {
+        course.remark = remark;
+        if (remark === 'Regular') {
+            course.carry_on = false;
+        }
+        updateSelectedTable();
+    }
+}
+
+function updateSelectedCourseCarryOn(courseIdOrIndex, carryOn) {
+    const course = selectedCourses.find(c => (c.id && c.id === courseIdOrIndex) || selectedCourses.indexOf(c) === courseIdOrIndex);
+    if (course) {
+        course.carry_on = carryOn;
+    }
 }
 
 function removeCourse(id, code) {
@@ -302,15 +456,23 @@ function updateSelectedTable() {
         return;
     }
     
+    // Check if any registration was created by coordinator/head
+    const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+    
     selectedCard.style.display = 'block';
-    saveBtn.disabled = false;
+    // Disable save and send buttons if coordinator/head registered any course
+    saveBtn.disabled = hasCoordinatorReg;
+    sendToCoordinatorBtn.disabled = hasCoordinatorReg;
+    // Download button is always enabled
     downloadBtn.disabled = false;
-    sendToCoordinatorBtn.disabled = false;
     
     let html = '';
     let totalCredits = 0;
     
     selectedCourses.forEach((course, index) => {
+        const isRetake = course.remark === 'Retake' || course.remark === 'Re-retake';
+        const carryOnId = `selectedCarryOn_${course.id || index}`;
+        const isCoordinatorReg = course.registered_by && (course.registered_by === 'coordinator' || course.registered_by === 'head');
         html += `<tr>
             <td>${index + 1}</td>
             <td>${course.course_code}</td>
@@ -318,11 +480,36 @@ function updateSelectedTable() {
             <td>${course.credit}</td>
             <td>${course.course_type}</td>
             <td>${course.nature || 'Core'}</td>
-            <td>${course.remark || 'Regular'}</td>
             <td>
-                <button class="btn btn-sm btn-danger" onclick="removeCourse(${course.id || 'null'}, '${course.course_code.replace(/'/g, "\\'")}')">
-                    <i class="fas fa-trash me-1"></i>Remove
-                </button>
+                ${isCoordinatorReg ? 
+                    `<span class="badge bg-info">${course.remark || 'Regular'}</span>` :
+                    `<select class="form-select form-select-sm" onchange="updateSelectedCourseRemark(${course.id || index}, this.value)">
+                        <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
+                        <option value="Retake" ${course.remark === 'Retake' ? 'selected' : ''}>Retake</option>
+                        <option value="Re-retake" ${course.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
+                    </select>`
+                }
+            </td>
+            <td>
+                ${isCoordinatorReg ? 
+                    (isRetake && course.carry_on ? '<span class="badge bg-success">Carry On</span>' : '<span class="text-muted">-</span>') :
+                    (isRetake ? `
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="${carryOnId}" 
+                                   ${course.carry_on ? 'checked' : ''} 
+                                   onchange="updateSelectedCourseCarryOn(${course.id || index}, this.checked)">
+                            <label class="form-check-label" for="${carryOnId}">Carry On</label>
+                        </div>
+                    ` : '<span class="text-muted">-</span>')
+                }
+            </td>
+            <td>
+                ${isCoordinatorReg ? 
+                    '<span class="text-muted small">Read-only</span>' :
+                    `<button class="btn btn-sm btn-danger" onclick="removeCourse(${course.id || 'null'}, '${course.course_code.replace(/'/g, "\\'")}')">
+                        <i class="fas fa-trash me-1"></i>Remove
+                    </button>`
+                }
             </td>
         </tr>`;
         totalCredits += parseFloat(course.credit);
@@ -332,7 +519,7 @@ function updateSelectedTable() {
     html += `<tr class="table-info fw-bold">
         <td colspan="3" class="text-end">Total Credits:</td>
         <td>${totalCredits.toFixed(1)}</td>
-        <td colspan="4"></td>
+        <td colspan="5"></td>
     </tr>`;
     
     selectedTable.innerHTML = html;
@@ -346,6 +533,12 @@ saveBtn.addEventListener('click', function() {
     }
     if (selectedCourses.length === 0) {
         alert('Please select at least one course to save.');
+        return;
+    }
+    // Check if any registration was created by coordinator/head
+    const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+    if (hasCoordinatorReg) {
+        alert('Cannot save: Some registrations were created by coordinator/head. You can only download these registrations.');
         return;
     }
     saveBtn.disabled = true;
@@ -427,6 +620,12 @@ sendToCoordinatorBtn.addEventListener('click', function() {
     }
     if (selectedCourses.length === 0) {
         alert('Please select at least one course to send.');
+        return;
+    }
+    // Check if any registration was created by coordinator/head
+    const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+    if (hasCoordinatorReg) {
+        alert('Cannot send: Some registrations were created by coordinator/head. You can only download these registrations.');
         return;
     }
     

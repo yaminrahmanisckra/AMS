@@ -170,7 +170,7 @@
               'Others'
             ] %}
             {% for option in efforts %}
-              <div class="col-md-6">
+              <div class="col-12 col-md-6">
                 <label class="form-check small">
                   <input class="form-check-input" type="checkbox" name="effort_focus" value="{{ option }}">
                   <span class="form-check-label">{{ option }}</span>
@@ -211,11 +211,34 @@
 <style>
   .feedback-form-card {
     max-width: 900px;
+    width: 100%;
     background: #fff;
     border: 2px solid #111;
     padding: 2rem;
     box-shadow: 0 0 20px rgba(0,0,0,0.1);
   }
+  
+  /* Mobile responsive adjustments */
+  @media (max-width: 768px) {
+    .feedback-form-card {
+      padding: 1rem;
+      border-width: 1px;
+    }
+    
+    .container {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+    
+    .feedback-header .logo-placeholder {
+      font-size: 1.1rem;
+    }
+    
+    .feedback-header .logo-placeholder span {
+      font-size: 0.9rem;
+    }
+  }
+  
   .feedback-header .logo-placeholder {
     font-weight: 800;
     font-size: 1.35rem;
@@ -235,39 +258,176 @@
     text-transform: uppercase;
     border: 2px solid #111;
   }
+  
+  /* Make likert table responsive */
+  .feedback-form .likert-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+  
   .feedback-form .likert-table .statement-row td {
     background: #f1f1f1;
     font-weight: 600;
     padding: 0.6rem 0.8rem;
     text-align: left;
+    word-wrap: break-word;
+    word-break: break-word;
   }
+  
   .feedback-form .likert-table .options-row td {
     padding: 0.4rem 0.35rem;
     text-align: center;
     width: 20%;
+    vertical-align: top;
   }
+  
+  /* Mobile: Stack radio buttons vertically */
+  @media (max-width: 768px) {
+    .feedback-form .likert-table {
+      display: block;
+      width: 100%;
+    }
+    
+    .feedback-form .likert-table .statement-row,
+    .feedback-form .likert-table .options-row {
+      display: block;
+      width: 100%;
+    }
+    
+    .feedback-form .likert-table .statement-row td,
+    .feedback-form .likert-table .options-row td {
+      display: block;
+      width: 100% !important;
+      padding: 0.5rem;
+      border: none;
+      border-bottom: 1px solid #dee2e6;
+    }
+    
+    .feedback-form .likert-table .statement-row td {
+      background: #f1f1f1;
+      border-bottom: 2px solid #111;
+      font-size: 0.9rem;
+    }
+    
+    .feedback-form .likert-table .options-row td {
+      text-align: left;
+      padding-left: 1rem;
+    }
+    
+    .feedback-form .option-label {
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+    
+    .feedback-form .option-label span {
+      font-size: 0.85rem;
+      margin-left: 0.5rem;
+    }
+  }
+  
   .feedback-form .option-label span {
     font-size: 0.7rem;
     text-transform: capitalize;
     font-weight: 600;
+    word-wrap: break-word;
+    word-break: break-word;
   }
+  
   .feedback-form .option-label input[type="radio"] {
     margin: 0;
+    flex-shrink: 0;
   }
+  
   .feedback-form .form-check-inline {
     margin-bottom: 0.4rem;
+    display: inline-flex;
+    align-items: center;
   }
+  
+  /* Mobile: Stack inline radio buttons */
+  @media (max-width: 768px) {
+    .feedback-form .form-check-inline {
+      display: block;
+      margin-bottom: 0.5rem;
+      margin-right: 0;
+    }
+  }
+  
   .feedback-form .info-table input {
     height: 3.5rem;
     font-size: 1rem;
     width: 100%;
   }
+  
+  @media (max-width: 768px) {
+    .feedback-form .info-table input {
+      height: 2.5rem;
+      font-size: 0.9rem;
+    }
+  }
+  
   .feedback-form .info-label {
     background: #f1f1f1;
     font-weight: 700;
     text-transform: capitalize;
     display: flex;
     align-items: center;
+    word-wrap: break-word;
+    word-break: break-word;
+  }
+  
+  /* Ensure checkboxes wrap properly on mobile */
+  @media (max-width: 768px) {
+    .feedback-form .row.g-2 > div {
+      flex: 0 0 100%;
+      max-width: 100%;
+    }
+    
+    .feedback-form .form-check-label {
+      word-wrap: break-word;
+      word-break: break-word;
+      white-space: normal;
+    }
+  }
+  
+  /* Ensure all text wraps */
+  .feedback-form p,
+  .feedback-form label,
+  .feedback-form .form-check-label,
+  .feedback-form .form-check span {
+    word-wrap: break-word;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+  
+  /* Mobile adjustments for border tables */
+  @media (max-width: 768px) {
+    .feedback-form .info-table .row {
+      margin: 0;
+    }
+    
+    .feedback-form .info-table .col-lg-4,
+    .feedback-form .info-table .col-md-6 {
+      border-right: none !important;
+      border-bottom: 1px solid #111 !important;
+    }
+    
+    .feedback-form .info-table .col-lg-8,
+    .feedback-form .info-table .col-md-6:last-child {
+      border-bottom: 1px solid #111 !important;
+    }
+    
+    .feedback-form .border.border-dark {
+      border-width: 1px !important;
+    }
+  }
+  
+  /* Ensure textareas are responsive */
+  .feedback-form textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 </style>
 {% endblock %}

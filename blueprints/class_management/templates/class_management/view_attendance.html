@@ -42,7 +42,7 @@
                     </li>
                     {% endfor %}
                 </ul>
-                <small>Total classes counted for attendance marks: {{ attendance_summary.total_classes }}</small>
+                <small><strong>Note:</strong> Attendance tables are shown separately for each teacher. Marks are calculated from combined attendance (Total: {{ attendance_summary.total_classes }} classes).</small>
                 {% endif %}
             </div>
             {% endif %}
@@ -53,7 +53,161 @@
                 <i class="fas fa-trash-alt me-1"></i> Delete by Date
             </button>
             
-            {% if student_report_data %}
+            {% if is_split_course and teacher_attendance_data %}
+                {# Split Course: Show separate tables for each teacher #}
+                <style>
+                    .attendance-table {
+                        border-collapse: collapse;
+                        width: 100%;
+                        background: #fff;
+                        font-size: 14px;
+                    }
+                    .attendance-table th, .attendance-table td {
+                        border: 1px solid #dee2e6;
+                        padding: 0.5rem;
+                        text-align: center;
+                        vertical-align: middle;
+                    }
+                    .attendance-table thead th {
+                        background-color: #343a40;
+                        color: #fff;
+                        position: sticky;
+                        top: 0;
+                        z-index: 1;
+                    }
+                    .attendance-table thead th.freeze-col-1,
+                    .attendance-table thead th.freeze-col-2,
+                    .attendance-table thead th.freeze-col-3 {
+                        position: sticky;
+                        z-index: 10;
+                        background-color: #343a40 !important;
+                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+                    }
+                    .attendance-table thead th.freeze-col-1 { left: 0; }
+                    .attendance-table thead th.freeze-col-2 { left: 0; }
+                    .attendance-table thead th.freeze-col-3 { left: 0; border-right: 2px solid #495057; }
+                    .attendance-table tbody td.freeze-col-1,
+                    .attendance-table tbody td.freeze-col-2,
+                    .attendance-table tbody td.freeze-col-3 {
+                        position: sticky;
+                        z-index: 5;
+                        background-color: #fff !important;
+                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+                    }
+                    .attendance-table tbody td.freeze-col-1 { left: 0; }
+                    .attendance-table tbody td.freeze-col-2 { left: 0; background-color: #fff !important; }
+                    .attendance-table tbody td.freeze-col-3 { left: 0; background-color: #fff !important; border-right: 2px solid #dee2e6; }
+                    .attendance-table tbody tr:nth-child(even) td.freeze-col-1,
+                    .attendance-table tbody tr:nth-child(even) td.freeze-col-2,
+                    .attendance-table tbody tr:nth-child(even) td.freeze-col-3 {
+                        background-color: #f8f9fa !important;
+                    }
+                    .attendance-table tbody tr:nth-child(even) { background-color: #f8f9fa; }
+                    .attendance-table tbody tr:hover { background-color: #e9ecef; }
+                    .attendance-table tbody tr:hover td.freeze-col-1,
+                    .attendance-table tbody tr:hover td.freeze-col-2,
+                    .attendance-table tbody tr:hover td.freeze-col-3 {
+                        background-color: #e9ecef !important;
+                    }
+                    .student-name {
+                        text-align: left;
+                        min-width: 180px;
+                    }
+                    .edit-toggle {
+                        margin-bottom: 1rem;
+                    }
+                    .attendance-cell.editable {
+                        cursor: pointer;
+                        transition: background-color 0.2s ease;
+                    }
+                    .attendance-cell.editable:hover {
+                        background-color: rgba(13, 110, 253, 0.1);
+                    }
+                    .attendance-cell.editable.editing {
+                        box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.7);
+                    }
+                </style>
+                
+                <div class="d-flex justify-content-end edit-toggle">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="editModeToggle">
+                        <label class="form-check-label" for="editModeToggle">Edit mode</label>
+                    </div>
+                </div>
+                
+                {% for teacher_data in teacher_attendance_data %}
+                <div class="card shadow-sm mb-4">
+                    <div class="card-header {% if teacher_data.session.id == session.id %}bg-primary{% else %}bg-secondary{% endif %} text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chalkboard-teacher me-2"></i>
+                            {{ teacher_data.teacher_name }} ({{ teacher_data.teacher_short }}) — {{ teacher_data.scope_label }}
+                            {% if teacher_data.session.id == session.id %}
+                                <span class="badge bg-light text-dark ms-2">Current Session</span>
+                            {% endif %}
+                        </h5>
+                        <small class="d-block mt-1">
+                            Classes in this part: {{ teacher_data.part_total_classes }} | 
+                            Total classes for marks: {{ attendance_summary.total_classes }}
+                        </small>
+                    </div>
+                    <div class="card-body">
+                        {% if teacher_data.student_report_data %}
+                            <div class="table-responsive">
+                                <table class="attendance-table">
+                                    <thead>
+                                        <tr>
+                                            <th rowspan="2" class="freeze-col-1">#</th>
+                                            <th rowspan="2" class="freeze-col-2">Student ID</th>
+                                            <th rowspan="2" class="student-name freeze-col-3">Name</th>
+                                            <th colspan="{{ teacher_data.headers_with_meta|length }}">Attendance ({{ teacher_data.scope_label }})</th>
+                                            <th rowspan="2">Classes (This Part)</th>
+                                            <th rowspan="2">Total Classes</th>
+                                            <th rowspan="2">Present Days</th>
+                                            <th rowspan="2">Percentage</th>
+                                            <th rowspan="2">Marks</th>
+                                        </tr>
+                                        <tr>
+                                            {% for header in teacher_data.headers_with_meta %}
+                                                <th data-date="{{ header.date }}" data-slot="{{ header.slot }}">{{ header.label }}</th>
+                                            {% endfor %}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for data in teacher_data.student_report_data %}
+                                        <tr data-student-db-id="{{ data.info.id }}">
+                                            <td class="freeze-col-1">{{ loop.index }}</td>
+                                            <td class="freeze-col-2"><strong>{{ data.info.student_id }}</strong></td>
+                                            <td class="student-name freeze-col-3">{{ data.info.name }}</td>
+                                            {% for cell in data.attendance_row %}
+                                                <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
+                                                    {% if cell.status == 'P' %}
+                                                        <span class="status text-success fw-bold">P</span>
+                                                    {% elif cell.status == 'A' %}
+                                                        <span class="status text-danger fw-bold">A</span>
+                                                    {% else %}
+                                                        <span class="status text-muted">-</span>
+                                                    {% endif %}
+                                                </td>
+                                            {% endfor %}
+                                            <td>{{ teacher_data.part_total_classes or 0 }}</td>
+                                            <td>{{ data.total_classes }}</td>
+                                            <td class="present-count">{{ data.present_count }}</td>
+                                            <td class="percentage-cell">{{ data.percentage }}</td>
+                                            <td class="marks-cell">{{ data.marks }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="text-center py-3 text-muted">
+                                No attendance data for this teacher yet.
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            {% elif student_report_data %}
                 <style>
                     .attendance-table {
                         border-collapse: collapse;
@@ -222,10 +376,9 @@
     </div>
 </div>
 
-{% if student_report_data %}
+{% if student_report_data or (is_split_course and teacher_attendance_data) %}
 <script>
 const editToggle = document.getElementById('editModeToggle');
-const attendanceCells = document.querySelectorAll('.attendance-cell');
 const toggleBaseUrl = "{{ url_for('class_management.toggle_attendance_record', record_id=0) }}".slice(0, -1);
 
 if (editToggle) {
@@ -235,6 +388,8 @@ if (editToggle) {
 }
 
 function toggleEditableState(enabled) {
+    // Get all attendance cells from all tables (works for both split and non-split)
+    const attendanceCells = document.querySelectorAll('.attendance-cell');
     attendanceCells.forEach(cell => {
         const hasRecord = cell.dataset.recordId;
         cell.classList.remove('editable', 'editing');
@@ -275,6 +430,13 @@ function onAttendanceCellClick(event) {
             statusSpan.textContent = 'A';
             statusSpan.className = 'status text-danger fw-bold';
         }
+        // For split courses, marks are calculated from combined attendance
+        // So we need to reload the page to get updated combined marks
+        // For non-split courses, update inline
+        {% if is_split_course %}
+        // Reload page to get updated combined marks for split courses
+        window.location.reload();
+        {% else %}
         const row = cell.closest('tr');
         if (row) {
             const presentCell = row.querySelector('.present-count');
@@ -284,6 +446,7 @@ function onAttendanceCellClick(event) {
             if (percentageCell) percentageCell.textContent = data.percentage;
             if (marksCell) marksCell.textContent = data.marks;
         }
+        {% endif %}
     })
     .catch(() => alert('Failed to update attendance.'));
 }
@@ -291,40 +454,43 @@ function onAttendanceCellClick(event) {
 toggleEditableState(editToggle && editToggle.checked);
 
 // Calculate and set left positions for freeze columns dynamically
+// Works for both split and non-split courses
 document.addEventListener('DOMContentLoaded', function() {
-    const table = document.querySelector('.attendance-table');
-    if (!table) return;
+    const tables = document.querySelectorAll('.attendance-table');
+    if (!tables.length) return;
     
-    // Wait for table to be fully rendered
+    // Wait for tables to be fully rendered
     setTimeout(function() {
-        const col1 = table.querySelector('th.freeze-col-1');
-        const col2 = table.querySelector('th.freeze-col-2');
-        const col3 = table.querySelector('th.freeze-col-3');
-        
-        if (col1 && col2 && col3) {
-            const col1Width = col1.offsetWidth;
-            const col2Width = col2.offsetWidth;
+        tables.forEach((table, tableIndex) => {
+            const col1 = table.querySelector('th.freeze-col-1');
+            const col2 = table.querySelector('th.freeze-col-2');
+            const col3 = table.querySelector('th.freeze-col-3');
             
-            // Set left positions dynamically for all freeze columns
-            const style = document.createElement('style');
-            style.id = 'freeze-columns-style';
-            style.textContent = `
-                .attendance-table thead th.freeze-col-2,
-                .attendance-table tbody td.freeze-col-2 {
-                    left: ${col1Width}px !important;
+            if (col1 && col2 && col3) {
+                const col1Width = col1.offsetWidth;
+                const col2Width = col2.offsetWidth;
+                
+                // Set left positions dynamically for this table's freeze columns
+                const style = document.createElement('style');
+                style.id = `freeze-columns-style-${tableIndex}`;
+                style.textContent = `
+                    .attendance-table:nth-of-type(${tableIndex + 1}) thead th.freeze-col-2,
+                    .attendance-table:nth-of-type(${tableIndex + 1}) tbody td.freeze-col-2 {
+                        left: ${col1Width}px !important;
+                    }
+                    .attendance-table:nth-of-type(${tableIndex + 1}) thead th.freeze-col-3,
+                    .attendance-table:nth-of-type(${tableIndex + 1}) tbody td.freeze-col-3 {
+                        left: ${col1Width + col2Width}px !important;
+                    }
+                `;
+                // Remove existing style if any
+                const existingStyle = document.getElementById(`freeze-columns-style-${tableIndex}`);
+                if (existingStyle) {
+                    existingStyle.remove();
                 }
-                .attendance-table thead th.freeze-col-3,
-                .attendance-table tbody td.freeze-col-3 {
-                    left: ${col1Width + col2Width}px !important;
-                }
-            `;
-            // Remove existing style if any
-            const existingStyle = document.getElementById('freeze-columns-style');
-            if (existingStyle) {
-                existingStyle.remove();
+                document.head.appendChild(style);
             }
-            document.head.appendChild(style);
-        }
+        });
     }, 100);
 });
 </script>

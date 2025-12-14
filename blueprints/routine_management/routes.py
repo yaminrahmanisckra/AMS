@@ -42,7 +42,10 @@ def manage_teachers():
 
 @routine_management_bp.route('/teacher/edit/<int:id>', methods=['POST'])
 def edit_teacher(id):
+    from user_models import User
+    
     teacher = Teacher.query.get_or_404(id)
+    old_name = teacher.name  # Store old name for User lookup
     
     # Manually get data from the modal form
     new_name = request.form.get('name')
@@ -57,9 +60,27 @@ def edit_teacher(id):
     if existing_teacher:
         flash(f'The short name "{new_short_name}" is already taken.', 'danger')
         return redirect(url_for('routine_management.manage_teachers'))
-        
+    
+    # Update teacher name and short_name
     teacher.name = new_name
     teacher.short_name = new_short_name
+    
+    # Update related User's full_name if name changed
+    if old_name != new_name:
+        # Find User by old name (exact match first)
+        user = User.query.filter_by(full_name=old_name).first()
+        if not user:
+            # Try case-insensitive match
+            user = User.query.filter(func.lower(User.full_name) == func.lower(old_name)).first()
+        
+        if user:
+            user.full_name = new_name
+            db.session.add(user)
+        else:
+            # If no user found, try to find by teacher name pattern
+            # This handles cases where user might have been created differently
+            pass
+    
     db.session.commit()
     flash('Teacher updated successfully!', 'success')
     return redirect(url_for('routine_management.manage_teachers'))

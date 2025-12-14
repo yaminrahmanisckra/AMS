@@ -206,7 +206,9 @@ class StudentCourseRegistration(db.Model):
     course_type = db.Column(db.String(30), nullable=False)
     nature = db.Column(db.String(20), nullable=False, default='Core')
     remark = db.Column(db.String(20), nullable=False, default='Regular')
+    carry_on = db.Column(db.Boolean, nullable=False, default=False)  # Carry on previous assessment marks for retake students
     status = db.Column(db.String(20), nullable=False, default='draft')  # draft | pending | finalized
+    registered_by = db.Column(db.String(20), nullable=False, default='student')  # 'student' | 'coordinator' | 'head' - who initiated the registration
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -232,7 +234,7 @@ class CourseRegistrationInvite(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     responded_at = db.Column(db.DateTime, nullable=True)
     
-    registration = db.relationship('StudentCourseRegistration', backref=db.backref('invites', lazy='dynamic'))
+    registration = db.relationship('StudentCourseRegistration', backref=db.backref('invites', lazy='dynamic', cascade='all, delete-orphan'))
     student = db.relationship('Student', backref=db.backref('registration_invites', lazy='dynamic'))
     coordinator = db.relationship('Teacher', foreign_keys=[coordinator_teacher_id], backref=db.backref('course_registration_invites', lazy='dynamic'))
 
