@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Assessment Schedules - Academic Calendar{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h3><i class="fas fa-calendar-check me-2 text-primary"></i>Assessment Schedules</h3>
+            <p class="text-muted mb-0">Manage assessment schedules for your courses (Class Test, Viva, Presentation, etc.)</p>
+        </div>
+        <a href="{{ url_for('academic_calendar.add_batch_event') }}" class="btn btn-primary">
+            <i class="fas fa-plus me-2"></i>Add Assessment Schedule
+        </a>
+    </div>
+    
+    {% if events %}
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-list me-2"></i>All Assessment Schedules</h5>
+        </div>
+        <div class="card-body">
+            {% for session in sessions %}
+            {% set session_events = events_by_session.get(session.id, []) %}
+            {% if session_events %}
+            <div class="mb-4">
+                <h5 class="text-primary mb-3">
+                    <i class="fas fa-book me-2"></i>
+                    {{ session.course_code or 'N/A' }} - {{ session.course_name or 'Unnamed Course' }}
+                    <small class="text-muted">({{ session.year }}/{{ session.term }})</small>
+                </h5>
+                
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Batch</th>
+                                <th>Event</th>
+                                <th>Type</th>
+                                <th>Location</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for event in session_events %}
+                            <tr>
+                                <td>{{ event.event_date.strftime('%d %b %Y') }}</td>
+                                <td>{% if event.event_time %}{{ event.event_time.strftime('%I:%M %p') }}{% else %}-{% endif %}</td>
+                                <td><span class="badge bg-info">Batch {{ event.batch }}</span></td>
+                                <td>
+                                    <strong>{{ event.title }}</strong>
+                                    {% if event.description %}
+                                    <br><small class="text-muted">{{ event.description[:50] }}{% if event.description|length > 50 %}...{% endif %}</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge bg-secondary">{{ event.event_type|replace('_', ' ')|title }}</span>
+                                </td>
+                                <td>{{ event.location or '-' }}</td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ url_for('academic_calendar.edit_batch_event', event_id=event.id) }}" 
+                                           class="btn btn-outline-primary" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <button type="button" class="btn btn-outline-danger" 
+                                                onclick="deleteEvent({{ event.id }}, '{{ event.title }}')" title="Delete">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="card shadow">
+        <div class="card-body text-center py-5">
+            <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">No Assessment Schedules Found</h5>
+            <p class="text-muted">You haven't created any batch-specific events yet.</p>
+            <a href="{{ url_for('academic_calendar.add_batch_event') }}" class="btn btn-primary">
+                <i class="fas fa-plus me-2"></i>Create Your First Assessment Schedule
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function deleteEvent(eventId, eventTitle) {
+    if (confirm(`Are you sure you want to delete "${eventTitle}"?`)) {
+        fetch(`{{ url_for('academic_calendar.delete_batch_event', event_id=0) }}`.replace('0', eventId), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while deleting the event.');
+        });
+    }
+}
+</script>
+{% endblock %}

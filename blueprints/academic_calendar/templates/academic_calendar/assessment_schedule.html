@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Assessment Schedule - {{ session.course_code }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="fas fa-calendar-alt me-2"></i>Assessment Schedule
+                    </h5>
+                    <div>
+                        <a href="{{ url_for('class_management.index') }}" class="btn btn-light btn-sm">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Courses
+                        </a>
+                        {% if has_teacher_privileges(current_user) %}
+                        <a href="{{ url_for('academic_calendar.add_batch_event') }}?session_id={{ session.id }}" class="btn btn-success btn-sm">
+                            <i class="fas fa-plus me-1"></i>Add Event
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="mb-4">
+                        <h6 class="text-muted mb-2">Course Information</h6>
+                        <p class="mb-1"><strong>Course Code:</strong> {{ session.course_code or 'N/A' }}</p>
+                        <p class="mb-1"><strong>Course Name:</strong> {{ session.course_name or 'Unnamed Course' }}</p>
+                        <p class="mb-0"><strong>Session:</strong> {{ session.year }}/{{ session.term }}</p>
+                    </div>
+
+                    {% if upcoming_events or past_events %}
+                        {% if upcoming_events %}
+                        <div class="mb-4">
+                            <h6 class="text-success mb-3">
+                                <i class="fas fa-clock me-2"></i>Upcoming Assessments
+                            </h6>
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Time</th>
+                                            <th>Title</th>
+                                            <th>Batch</th>
+                                            <th>Location</th>
+                                            <th>Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for event in upcoming_events %}
+                                        <tr>
+                                            <td>
+                                                <strong>{{ event.event_date.strftime('%d %b %Y') }}</strong>
+                                                <br>
+                                                <small class="text-muted">{{ event.event_date.strftime('%A') }}</small>
+                                            </td>
+                                            <td>
+                                                {% if event.event_time %}
+                                                    {{ event.event_time.strftime('%I:%M %p') }}
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <strong>{{ event.title }}</strong>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-info">Batch {{ event.batch }}</span>
+                                            </td>
+                                            <td>
+                                                {% if event.location %}
+                                                    <i class="fas fa-map-marker-alt me-1"></i>{{ event.location }}
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if event.description %}
+                                                    <small>{{ event.description[:100] }}{% if event.description|length > 100 %}...{% endif %}</small>
+                                                {% else %}
+                                                    <span class="text-muted">-</span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        {% if past_events %}
+                        <div class="mb-4">
+                            <h6 class="text-muted mb-3">
+                                <i class="fas fa-history me-2"></i>Past Assessments
+                            </h6>
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Time</th>
+                                            <th>Title</th>
+                                            <th>Batch</th>
+                                            <th>Location</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for event in past_events %}
+                                        <tr class="text-muted">
+                                            <td>{{ event.event_date.strftime('%d %b %Y') }}</td>
+                                            <td>
+                                                {% if event.event_time %}
+                                                    {{ event.event_time.strftime('%I:%M %p') }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ event.title }}</td>
+                                            <td><span class="badge bg-secondary">Batch {{ event.batch }}</span></td>
+                                            <td>
+                                                {% if event.location %}
+                                                    <i class="fas fa-map-marker-alt me-1"></i>{{ event.location }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                            <h6 class="text-muted">No Assessment Schedule Found</h6>
+                            <p class="text-muted">No assessment events have been created for this course yet.</p>
+                            {% if has_teacher_privileges(current_user) %}
+                            <a href="{{ url_for('academic_calendar.add_batch_event') }}?session_id={{ session.id }}" class="btn btn-primary">
+                                <i class="fas fa-plus me-1"></i>Create First Assessment Event
+                            </a>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

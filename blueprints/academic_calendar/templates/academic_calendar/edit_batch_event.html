@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Assessment Schedule - Academic Calendar{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-edit me-2"></i>Edit Assessment Schedule</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Session/Course</label>
+                            <input type="text" class="form-control" 
+                                   value="{{ event.session.course_code or 'N/A' }} - {{ event.session.course_name or 'Unnamed Course' }}" 
+                                   readonly>
+                            <small class="form-text text-muted">Session cannot be changed</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="batch" class="form-label">Batch <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="batch" name="batch" 
+                                   value="{{ event.batch }}" required>
+                            <small class="form-text text-muted">Student batch (e.g., 2021, 2022)</small>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="title" class="form-label">Event Title <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="title" name="title" 
+                                   value="{{ event.title }}" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="event_type" class="form-label">Event Type <span class="text-danger">*</span></label>
+                            <select class="form-select" id="event_type" name="event_type" required>
+                                <option value="class_test" {% if event.event_type == 'class_test' %}selected{% endif %}>Class Test</option>
+                                <option value="viva" {% if event.event_type == 'viva' %}selected{% endif %}>Viva</option>
+                                <option value="presentation" {% if event.event_type == 'presentation' %}selected{% endif %}>Presentation</option>
+                                <option value="assignment" {% if event.event_type == 'assignment' %}selected{% endif %}>Assignment</option>
+                                <option value="quiz" {% if event.event_type == 'quiz' %}selected{% endif %}>Quiz</option>
+                                <option value="midterm" {% if event.event_type == 'midterm' %}selected{% endif %}>Midterm</option>
+                                <option value="final" {% if event.event_type == 'final' %}selected{% endif %}>Final Exam</option>
+                                <option value="custom" {% if event.event_type == 'custom' %}selected{% endif %}>Custom</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="event_date" class="form-label">Event Date <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="event_date" name="event_date" 
+                                   value="{{ event.event_date.strftime('%Y-%m-%d') }}" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="event_time" class="form-label">Event Time (Optional)</label>
+                            <input type="time" class="form-control" id="event_time" name="event_time" 
+                                   value="{% if event.event_time %}{{ event.event_time.strftime('%H:%M') }}{% endif %}">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="location" class="form-label">Location (Optional)</label>
+                            <input type="text" class="form-control" id="location" name="location" 
+                                   value="{{ event.location or '' }}" placeholder="e.g., Room 101, Lab 2">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="description" class="form-label">Description (Optional)</label>
+                            <textarea class="form-control" id="description" name="description" rows="3">{{ event.description or '' }}</textarea>
+                        </div>
+                        
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save me-2"></i>Update Event
+                            </button>
+                            <a href="{{ url_for('academic_calendar.batch_events_index') }}" class="btn btn-secondary">
+                                <i class="fas fa-times me-2"></i>Cancel
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

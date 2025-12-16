@@ -1,11 +1,13 @@
 from flask import render_template, request, redirect, url_for, flash, jsonify, current_app, Response
 from flask_login import login_required, current_user
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from sqlalchemy import or_, and_
 from extensions import db
-from .models import AcademicCalendarEvent
+from .models import AcademicCalendarEvent, BatchCustomEvent
 from user_models import User
-from role_utils import parse_roles
+from role_utils import parse_roles, has_teacher_privileges
+from blueprints.class_management.models import Session, Teacher, ClassStudent
+from blueprints.student_management.models import Student
 from . import academic_calendar_bp
 
 def can_edit_calendar():
@@ -44,7 +46,10 @@ def index():
                                          can_edit=can_edit_calendar(),
                                          current_date=date.today(),
                                          upcoming_events=[],
-                                         view_type='month')
+                                         view_type='month',
+                                         student_batch=None,
+                                         parse_roles=parse_roles,
+                                         has_teacher_privileges=has_teacher_privileges)
         
         # Get view type (year or month), default to month
         view_type = request.args.get('view', 'month')
@@ -153,6 +158,59 @@ def index():
             # Add recurring holiday if not already in events
             events_by_date[holiday_date_str].insert(0, holiday)
         
+        # Add batch-specific custom events for students and teachers
+        batch_events_by_date = {}
+        student_batch = None
+        if current_user.is_authenticated:
+            roles = set(parse_roles(current_user.role))
+            batch_events = []
+            
+            if 'student' in roles:
+                # Get student's batch
+                student = Student.query.filter_by(student_id=current_user.username).first()
+                if student and student.batch:
+                    student_batch = student.batch
+                    # Get all batch events for this student's batch
+                    batch_events = BatchCustomEvent.query.filter_by(batch=student_batch).filter(
+                        or_(
+                            and_(
+                                BatchCustomEvent.event_date >= start_date,
+                                BatchCustomEvent.event_date <= end_date
+                            )
+                        )
+                    ).order_by(BatchCustomEvent.event_date.asc()).all()
+            
+            elif has_teacher_privileges(current_user):
+                # Teachers see all batch events they created
+                batch_events = BatchCustomEvent.query.filter_by(created_by_id=current_user.id).filter(
+                    or_(
+                        and_(
+                            BatchCustomEvent.event_date >= start_date,
+                            BatchCustomEvent.event_date <= end_date
+                        )
+                    )
+                ).order_by(BatchCustomEvent.event_date.asc()).all()
+            
+            # Add batch events to events_by_date
+            for batch_event in batch_events:
+                event_date_str = batch_event.event_date.strftime('%Y-%m-%d')
+                if event_date_str not in events_by_date:
+                    events_by_date[event_date_str] = []
+                # Mark as batch event for display
+                events_by_date[event_date_str].append({
+                    'id': f'batch_{batch_event.id}',
+                    'title': batch_event.title,
+                    'description': batch_event.description,
+                    'event_date': batch_event.event_date,
+                    'event_time': batch_event.event_time,
+                    'event_type': batch_event.event_type,
+                    'location': batch_event.location,
+                    'course_code': batch_event.session.course_code if batch_event.session else None,
+                    'course_name': batch_event.session.course_name if batch_event.session else None,
+                    'is_batch_event': True,
+                    'batch': batch_event.batch
+                })
+        
         can_edit = can_edit_calendar()
         
         # Prepare upcoming events list (sorted by date)
@@ -161,6 +219,40 @@ def index():
         for event in events:
             if event.event_date >= today:
                 upcoming_events_list.append((event.event_date, event))
+        
+        # Add batch events to upcoming events list
+        if current_user.is_authenticated:
+            roles = set(parse_roles(current_user.role))
+            batch_events_for_upcoming = []
+            
+            if 'student' in roles:
+                student = Student.query.filter_by(student_id=current_user.username).first()
+                if student and student.batch:
+                    batch_events_for_upcoming = BatchCustomEvent.query.filter_by(batch=student.batch).filter(
+                        BatchCustomEvent.event_date >= today
+                    ).order_by(BatchCustomEvent.event_date.asc()).all()
+            elif has_teacher_privileges(current_user):
+                # Teachers see their created batch events
+                batch_events_for_upcoming = BatchCustomEvent.query.filter_by(created_by_id=current_user.id).filter(
+                    BatchCustomEvent.event_date >= today
+                ).order_by(BatchCustomEvent.event_date.asc()).all()
+            
+            # Convert batch events to dict format for upcoming list
+            for batch_event in batch_events_for_upcoming:
+                upcoming_events_list.append((batch_event.event_date, {
+                    'id': f'batch_{batch_event.id}',
+                    'title': batch_event.title,
+                    'description': batch_event.description,
+                    'event_date': batch_event.event_date,
+                    'event_time': batch_event.event_time,
+                    'event_type': batch_event.event_type,
+                    'location': batch_event.location,
+                    'course_code': batch_event.session.course_code if batch_event.session else None,
+                    'course_name': batch_event.session.course_name if batch_event.session else None,
+                    'is_batch_event': True,
+                    'batch': batch_event.batch
+                }))
+        
         upcoming_events_list.sort(key=lambda x: x[0])
         
         return render_template(
@@ -171,7 +263,10 @@ def index():
             can_edit=can_edit,
             current_date=today,
             upcoming_events=upcoming_events_list[:10],
-            view_type=view_type
+            view_type=view_type,
+            student_batch=student_batch,
+            parse_roles=parse_roles,
+            has_teacher_privileges=has_teacher_privileges
         )
     except Exception as e:
         current_app.logger.error(f"Error loading academic calendar: {e}", exc_info=True)
@@ -188,14 +283,17 @@ def index():
                 current_app.logger.error(f"Failed to create table: {create_error}", exc_info=True)
                 flash('Database table not found. Please run: python3 create_academic_calendar_table.py', 'warning')
                 # Still render the page with empty data instead of redirecting
-                return render_template('academic_calendar/index.html', 
-                                     year=datetime.now().year, 
-                                     month=datetime.now().month,
-                                     events_by_date={},
-                                     can_edit=can_edit_calendar(),
-                                     current_date=date.today(),
-                                     upcoming_events=[],
-                                     view_type='month')
+            return render_template('academic_calendar/index.html', 
+                                 year=datetime.now().year, 
+                                 month=datetime.now().month,
+                                 events_by_date={},
+                                 can_edit=can_edit_calendar(),
+                                 current_date=date.today(),
+                                 upcoming_events=[],
+                                 view_type='month',
+                                 student_batch=None,
+                                 parse_roles=parse_roles,
+                                 has_teacher_privileges=has_teacher_privileges)
         else:
             # For other errors, still try to show the calendar with empty data
             flash(f'Error loading calendar: {str(e)[:100]}. Showing empty calendar.', 'warning')
@@ -206,7 +304,10 @@ def index():
                                  can_edit=can_edit_calendar(),
                                  current_date=date.today(),
                                  upcoming_events=[],
-                                 view_type='month')
+                                 view_type='month',
+                                 student_batch=None,
+                                 parse_roles=parse_roles,
+                                 has_teacher_privileges=has_teacher_privileges)
 
 @academic_calendar_bp.route('/add', methods=['GET', 'POST'])
 @login_required
@@ -624,3 +725,377 @@ def generate_ics_calendar(events, include_weekly_holidays=False):
     ics_lines.append('END:VCALENDAR')
     
     return '\r\n'.join(ics_lines) + '\r\n'
+
+
+# ============================================================================
+# Batch Custom Events Routes (Teacher-specific events for specific batches)
+# ============================================================================
+
+@academic_calendar_bp.route('/batch-events')
+@login_required
+def batch_events_index():
+    """Display assessment schedules - teachers see their events, students see their batch events"""
+    if not current_user.is_authenticated:
+        flash('Please login to view assessment schedules.', 'warning')
+        return redirect(url_for('auth.login'))
+    
+    roles = set(parse_roles(current_user.role))
+    is_teacher = has_teacher_privileges(current_user)
+    is_student = 'student' in roles
+    
+    if is_teacher:
+        # Teachers see all events they created for their sessions
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            flash('Teacher profile not found.', 'warning')
+            return redirect(url_for('academic_calendar.index'))
+        
+        # Get all sessions for this teacher
+        sessions = Session.query.filter_by(teacher_id=teacher.id, archived=False).all()
+        session_ids = [s.id for s in sessions]
+        
+        # Get all batch events for these sessions
+        events = BatchCustomEvent.query.filter(
+            BatchCustomEvent.session_id.in_(session_ids)
+        ).order_by(BatchCustomEvent.event_date.desc(), BatchCustomEvent.event_time.asc()).all()
+        
+        # Group events by session
+        events_by_session = {}
+        for event in events:
+            if event.session_id not in events_by_session:
+                events_by_session[event.session_id] = []
+            events_by_session[event.session_id].append(event)
+        
+        return render_template('academic_calendar/batch_events_teacher.html',
+                             events=events,
+                             events_by_session=events_by_session,
+                             sessions=sessions)
+    
+    elif is_student:
+        # Students see only events for their batch
+        student = Student.query.filter_by(student_id=current_user.username).first()
+        if not student or not student.batch:
+            flash('Student batch information not found. Please contact administrator.', 'warning')
+            return redirect(url_for('academic_calendar.index'))
+        
+        # Get all events for this batch
+        events = BatchCustomEvent.query.filter_by(batch=student.batch).order_by(
+            BatchCustomEvent.event_date.asc(),
+            BatchCustomEvent.event_time.asc()
+        ).all()
+        
+        # Get upcoming events (today or later)
+        today = date.today()
+        upcoming_events = [e for e in events if e.event_date >= today]
+        past_events = [e for e in events if e.event_date < today]
+        
+        return render_template('academic_calendar/batch_events_student.html',
+                             events=events,
+                             upcoming_events=upcoming_events,
+                             past_events=past_events,
+                             student_batch=student.batch)
+    else:
+        flash('You do not have permission to view assessment schedules.', 'danger')
+        return redirect(url_for('academic_calendar.index'))
+
+
+@academic_calendar_bp.route('/batch-events/add', methods=['GET', 'POST'])
+@login_required
+def add_batch_event():
+    """Add a new batch-specific custom event (Teachers only)"""
+    if not has_teacher_privileges(current_user):
+        flash('Only teachers can create assessment schedules.', 'danger')
+        return redirect(url_for('academic_calendar.batch_events_index'))
+    
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not teacher:
+        flash('Teacher profile not found. Please ensure your name matches the teacher record.', 'warning')
+        current_app.logger.warning(f"Teacher not found for user: {current_user.full_name}")
+        return redirect(url_for('academic_calendar.batch_events_index'))
+    
+    # Get teacher's active sessions
+    sessions = Session.query.filter_by(teacher_id=teacher.id, archived=False).order_by(
+        Session.created_at.desc()
+    ).all()
+    
+    if not sessions:
+        flash('No active courses found. Please create a class session first.', 'warning')
+        return redirect(url_for('class_management.index'))
+    
+    if request.method == 'POST':
+        try:
+            current_app.logger.info(f"Processing batch event creation request from user: {current_user.full_name}")
+            
+            session_id = request.form.get('session_id', type=int)
+            title = request.form.get('title', '').strip()
+            description = request.form.get('description', '').strip()
+            event_date_str = request.form.get('event_date', '').strip()
+            event_time_str = request.form.get('event_time', '').strip()
+            event_type = 'custom'  # Default event type, no longer needed from form
+            location = request.form.get('location', '').strip()
+            
+            current_app.logger.debug(f"Form data: session_id={session_id}, title={title}, date={event_date_str}")
+            
+            # Validation
+            if not session_id or not title or not event_date_str:
+                missing = []
+                if not session_id: missing.append('Course')
+                if not title: missing.append('Title')
+                if not event_date_str: missing.append('Date')
+                flash(f'Missing required fields: {", ".join(missing)}. Please fill in all required fields.', 'error')
+                current_app.logger.warning(f"Validation failed: missing {missing}")
+                return redirect(url_for('academic_calendar.add_batch_event'))
+            
+            # Verify session belongs to teacher
+            session = Session.query.filter_by(id=session_id, teacher_id=teacher.id).first()
+            if not session:
+                flash('Invalid session selected.', 'error')
+                return redirect(url_for('academic_calendar.add_batch_event'))
+            
+            # Parse date
+            try:
+                event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                flash('Invalid date format.', 'error')
+                return redirect(url_for('academic_calendar.add_batch_event'))
+            
+            # Parse time (optional)
+            event_time = None
+            if event_time_str:
+                try:
+                    event_time = datetime.strptime(event_time_str, '%H:%M').time()
+                except ValueError:
+                    flash('Invalid time format. Use HH:MM format.', 'error')
+                    return redirect(url_for('academic_calendar.add_batch_event'))
+            
+            # Get all batches from students enrolled in this session
+            class_students = ClassStudent.query.filter_by(session_id=session_id).all()
+            batch_set = set()
+            for cs in class_students:
+                student = Student.query.filter_by(student_id=cs.student_id).first()
+                if student and student.batch:
+                    batch_set.add(student.batch)
+            
+            if not batch_set:
+                flash('No students found in this course. Please add students to the course first.', 'warning')
+                return redirect(url_for('academic_calendar.add_batch_event'))
+            
+            batches = sorted(list(batch_set), reverse=True)
+            current_app.logger.info(f"Creating batch events for session {session_id}: {title} for batches {batches}")
+            
+            # Create event for each batch in the session
+            events_created = []
+            for batch in batches:
+                event = BatchCustomEvent(
+                    session_id=session_id,
+                    batch=batch,
+                    title=title,
+                    description=description or None,
+                    event_date=event_date,
+                    event_time=event_time,
+                    event_type=event_type,
+                    location=location or None,
+                    created_by_id=current_user.id
+                )
+                db.session.add(event)
+                events_created.append(batch)
+            
+            try:
+                db.session.commit()
+                batch_list = ', '.join([f'Batch {b}' for b in batches])
+                current_app.logger.info(f"✓ Batch events added successfully: {title} for {batch_list} by teacher {current_user.full_name}")
+                if len(batches) == 1:
+                    flash(f'Assessment schedule "{title}" added successfully for {batch_list}.', 'success')
+                else:
+                    flash(f'Assessment schedule "{title}" added successfully for {len(batches)} batches ({batch_list}).', 'success')
+                return redirect(url_for('academic_calendar.batch_events_index'))
+            except Exception as commit_error:
+                db.session.rollback()
+                current_app.logger.error(f"Database commit error: {commit_error}", exc_info=True)
+                raise
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error adding batch event: {e}", exc_info=True)
+            error_msg = str(e)
+            # Check for common database errors
+            if 'no such table' in error_msg.lower() or 'does not exist' in error_msg.lower():
+                flash('Database table not found. Please run: python3 create_batch_custom_event_table.py', 'error')
+            elif 'no such column' in error_msg.lower():
+                flash('Database schema issue. Please run: python3 create_batch_custom_event_table.py', 'error')
+            else:
+                flash(f'Error adding event: {error_msg[:150]}. Please check all fields and try again.', 'error')
+            return redirect(url_for('academic_calendar.add_batch_event'))
+    
+    # Check if session_id is passed as query parameter (from assessment schedule page)
+    preselected_session_id = request.args.get('session_id', type=int)
+    
+    current_app.logger.info(f"Rendering add_batch_event form: {len(sessions)} sessions")
+    
+    return render_template('academic_calendar/add_batch_event.html',
+                         sessions=sessions,
+                         preselected_session_id=preselected_session_id)
+
+
+@academic_calendar_bp.route('/batch-events/edit/<int:event_id>', methods=['GET', 'POST'])
+@login_required
+def edit_batch_event(event_id):
+    """Edit a batch-specific custom event (Teachers only)"""
+    if not has_teacher_privileges(current_user):
+        flash('Only teachers can edit assessment schedules.', 'danger')
+        return redirect(url_for('academic_calendar.batch_events_index'))
+    
+    event = BatchCustomEvent.query.get_or_404(event_id)
+    
+    # Verify teacher owns this event's session
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not teacher or event.session.teacher_id != teacher.id:
+        flash('You do not have permission to edit this event.', 'danger')
+        return redirect(url_for('academic_calendar.batch_events_index'))
+    
+    if request.method == 'POST':
+        try:
+            batch = request.form.get('batch', '').strip()
+            title = request.form.get('title', '').strip()
+            description = request.form.get('description', '').strip()
+            event_date_str = request.form.get('event_date', '').strip()
+            event_time_str = request.form.get('event_time', '').strip()
+            event_type = request.form.get('event_type', 'custom').strip()
+            location = request.form.get('location', '').strip()
+            
+            # Validation
+            if not batch or not title or not event_date_str:
+                flash('Batch, Title, and Date are required.', 'error')
+                return redirect(url_for('academic_calendar.edit_batch_event', event_id=event_id))
+            
+            # Parse date
+            try:
+                event.event_date = datetime.strptime(event_date_str, '%Y-%m-%d').date()
+            except ValueError:
+                flash('Invalid date format.', 'error')
+                return redirect(url_for('academic_calendar.edit_batch_event', event_id=event_id))
+            
+            # Parse time (optional)
+            if event_time_str:
+                try:
+                    event.event_time = datetime.strptime(event_time_str, '%H:%M').time()
+                except ValueError:
+                    flash('Invalid time format. Use HH:MM format.', 'error')
+                    return redirect(url_for('academic_calendar.edit_batch_event', event_id=event_id))
+            else:
+                event.event_time = None
+            
+            # Update fields
+            event.batch = batch
+            event.title = title
+            event.description = description or None
+            event.event_type = event_type
+            event.location = location or None
+            
+            db.session.commit()
+            
+            current_app.logger.info(f"Batch event updated: {title} for batch {batch}")
+            flash(f'Assessment schedule "{title}" updated successfully.', 'success')
+            return redirect(url_for('academic_calendar.batch_events_index'))
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error updating batch event: {e}", exc_info=True)
+            flash(f'Error updating event: {str(e)[:100]}. Please try again.', 'error')
+            return redirect(url_for('academic_calendar.edit_batch_event', event_id=event_id))
+    
+    return render_template('academic_calendar/edit_batch_event.html', event=event)
+
+
+@academic_calendar_bp.route('/assessment-schedule/<int:session_id>')
+@login_required
+def assessment_schedule(session_id):
+    """Display assessment schedule for a specific course/session"""
+    try:
+        session = Session.query.get_or_404(session_id)
+        
+        # Check if user has access to this session
+        if has_teacher_privileges(current_user):
+            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            if teacher and session.teacher_id != teacher.id:
+                flash('You do not have permission to view this course assessment schedule.', 'danger')
+                return redirect(url_for('class_management.index'))
+        elif 'student' in parse_roles(current_user.role):
+            # Students can view their own course schedules
+            student = Student.query.filter_by(student_id=current_user.username).first()
+            if not student:
+                flash('Student profile not found.', 'warning')
+                return redirect(url_for('academic_calendar.index'))
+            
+            # Check if student is enrolled in this session
+            class_student = ClassStudent.query.filter_by(
+                session_id=session_id,
+                student_id=student.student_id
+            ).first()
+            
+            if not class_student:
+                flash('You are not enrolled in this course.', 'warning')
+                return redirect(url_for('academic_calendar.index'))
+        else:
+            flash('You do not have permission to view assessment schedules.', 'danger')
+            return redirect(url_for('academic_calendar.index'))
+        
+        # Get batch events for this session (these are the assessment schedules)
+        batch_events = BatchCustomEvent.query.filter_by(session_id=session_id).order_by(
+            BatchCustomEvent.event_date.asc(),
+            BatchCustomEvent.event_time.asc()
+        ).all()
+        
+        # Group events by date
+        events_by_date = {}
+        for event in batch_events:
+            date_str = event.event_date.strftime('%Y-%m-%d')
+            if date_str not in events_by_date:
+                events_by_date[date_str] = []
+            events_by_date[date_str].append(event)
+        
+        # Get upcoming and past events
+        today = date.today()
+        upcoming_events = [e for e in batch_events if e.event_date >= today]
+        past_events = [e for e in batch_events if e.event_date < today]
+        
+        return render_template('academic_calendar/assessment_schedule.html',
+                             session=session,
+                             events_by_date=events_by_date,
+                             upcoming_events=upcoming_events,
+                             past_events=past_events,
+                             today=today,
+                             parse_roles=parse_roles,
+                             has_teacher_privileges=has_teacher_privileges,
+                             current_user=current_user)
+    except Exception as e:
+        current_app.logger.error(f"Error displaying assessment schedule: {e}", exc_info=True)
+        flash('Error loading assessment schedule.', 'error')
+        return redirect(url_for('class_management.index'))
+
+
+@academic_calendar_bp.route('/batch-events/delete/<int:event_id>', methods=['POST'])
+@login_required
+def delete_batch_event(event_id):
+    """Delete a batch-specific custom event (Teachers only)"""
+    if not has_teacher_privileges(current_user):
+        return jsonify({'success': False, 'message': 'Only teachers can delete assessment schedules.'}), 403
+    
+    try:
+        event = BatchCustomEvent.query.get_or_404(event_id)
+        
+        # Verify teacher owns this event's session
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher or event.session.teacher_id != teacher.id:
+            return jsonify({'success': False, 'message': 'You do not have permission to delete this event.'}), 403
+        
+        event_title = event.title
+        db.session.delete(event)
+        db.session.commit()
+        
+        current_app.logger.info(f"Batch event deleted: {event_title}")
+        return jsonify({'success': True, 'message': 'Event deleted successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting batch event: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Error deleting event.'}), 500

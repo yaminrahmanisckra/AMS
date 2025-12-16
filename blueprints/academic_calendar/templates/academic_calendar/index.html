@@ -90,6 +90,12 @@
         background: #fff3cd;
     }
     
+    .calendar-event.batch-event {
+        background: #d1ecf1;
+        color: #0c5460;
+        border-left: 3px solid #17a2b8;
+    }
+    
     .calendar-day-number {
         font-weight: bold;
         margin-bottom: 0.2rem;
@@ -374,8 +380,25 @@
                 <i class="fas fa-plus me-2"></i>Add Event
             </a>
             {% endif %}
+            {% if has_teacher_privileges(current_user) %}
+            <a href="{{ url_for('academic_calendar.batch_events_index') }}" class="btn btn-info">
+                <i class="fas fa-calendar-alt me-2"></i>Assessment Schedules
+            </a>
+            {% elif 'student' in parse_roles(current_user.role) %}
+            <a href="{{ url_for('academic_calendar.batch_events_index') }}" class="btn btn-info">
+                <i class="fas fa-calendar-check me-2"></i>My Assessment Schedules
+            </a>
+            {% endif %}
         </div>
     </div>
+    
+    {% if student_batch %}
+    <div class="alert alert-info mb-3">
+        <i class="fas fa-info-circle me-2"></i>
+        <strong>Batch {{ student_batch }} Events:</strong> You are viewing calendar with batch-specific events for your batch.
+        <a href="{{ url_for('academic_calendar.batch_events_index') }}" class="alert-link">View all assessment schedules →</a>
+    </div>
+    {% endif %}
     
     <div class="row">
         <div class="{% if view_type == 'year' %}col-12{% else %}col-lg-9{% endif %}">
@@ -460,13 +483,45 @@
                                 {% for event in day_events %}
                                     {% if event is mapping and event.get('is_weekly') %}
                                         <div class="calendar-event holiday">{{ event.get('title', 'ছুটি') }}</div>
+                                    {% elif event is mapping and event.get('is_batch_event') %}
+                                        {# Batch custom event (dictionary) #}
+                                        <div class="calendar-event batch-event clickable-event" 
+                                             data-event-type="batch"
+                                             data-event-id="{{ event.id }}"
+                                             data-event-title="{{ event.title }}"
+                                             data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                                             data-event-time="{% if event.event_time %}{{ event.event_time.strftime('%H:%M') }}{% endif %}"
+                                             data-event-location="{{ event.location or '' }}"
+                                             data-event-description="{{ event.description or '' }}"
+                                             data-event-course-code="{{ event.course_code or '' }}"
+                                             data-event-course-name="{{ event.course_name or '' }}"
+                                             data-event-batch="{{ event.batch or '' }}"
+                                             title="{{ event.title }}{% if event.course_code %} ({{ event.course_code }}){% endif %}{% if event.event_time %} - {{ event.event_time.strftime('%I:%M %p') }}{% endif %}{% if event.location %} - {{ event.location }}{% endif %}">
+                                            <i class="fas fa-user-graduate me-1"></i>{{ event.title }}
+                                        </div>
                                     {% else %}
+                                        {# Regular calendar event (model object) #}
                                         {% if event.end_date and event.end_date > event.event_date %}
-                                            <div class="calendar-event {{ event.event_type }}" title="{{ event.title }}: {{ event.event_date.strftime('%d/%m/%Y') }} - {{ event.end_date.strftime('%d/%m/%Y') }}{% if event.description %} - {{ event.description }}{% endif %}">
+                                            <div class="calendar-event {{ event.event_type }} clickable-event" 
+                                                 data-event-type="regular"
+                                                 data-event-id="{{ event.id }}"
+                                                 data-event-title="{{ event.title }}"
+                                                 data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                                                 data-event-end-date="{% if event.end_date %}{{ event.end_date.strftime('%Y-%m-%d') }}{% endif %}"
+                                                 data-event-type-class="{{ event.event_type }}"
+                                                 data-event-description="{{ event.description or '' }}"
+                                                 title="{{ event.title }}: {{ event.event_date.strftime('%d/%m/%Y') }} - {{ event.end_date.strftime('%d/%m/%Y') }}{% if event.description %} - {{ event.description }}{% endif %}">
                                                 {{ event.title }}
                                             </div>
                                         {% else %}
-                                            <div class="calendar-event {{ event.event_type }}" title="{{ event.description or '' }}">
+                                            <div class="calendar-event {{ event.event_type }} clickable-event" 
+                                                 data-event-type="regular"
+                                                 data-event-id="{{ event.id }}"
+                                                 data-event-title="{{ event.title }}"
+                                                 data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                                                 data-event-type-class="{{ event.event_type }}"
+                                                 data-event-description="{{ event.description or '' }}"
+                                                 title="{{ event.description or '' }}">
                                                 {{ event.title }}
                                             </div>
                                         {% endif %}
@@ -534,13 +589,41 @@
                                             {% for event in day_events %}
                                                 {% if event is mapping and event.get('is_weekly') %}
                                                     <div class="calendar-event holiday" title="{{ event.get('title', 'ছুটি') }}">●</div>
+                                                {% elif event is mapping and event.get('is_batch_event') %}
+                                                    <div class="calendar-event batch-event clickable-event" 
+                                                         data-event-type="batch"
+                                                         data-event-id="{{ event.id }}"
+                                                         data-event-title="{{ event.title }}"
+                                                         data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                                                         data-event-time="{% if event.event_time %}{{ event.event_time.strftime('%H:%M') }}{% endif %}"
+                                                         data-event-location="{{ event.location or '' }}"
+                                                         data-event-description="{{ event.description or '' }}"
+                                                         data-event-course-code="{{ event.course_code or '' }}"
+                                                         data-event-course-name="{{ event.course_name or '' }}"
+                                                         data-event-batch="{{ event.batch or '' }}"
+                                                         title="{{ event.title }}{% if event.course_code %} ({{ event.course_code }}){% endif %}">●</div>
                                                 {% else %}
                                                     {% if event.end_date and event.end_date > event.event_date %}
-                                                        <div class="calendar-event {{ event.event_type }}" title="{{ event.title }}: {{ event.event_date.strftime('%d/%m/%Y') }} - {{ event.end_date.strftime('%d/%m/%Y') }}">
+                                                        <div class="calendar-event {{ event.event_type }} clickable-event" 
+                                                             data-event-type="regular"
+                                                             data-event-id="{{ event.id }}"
+                                                             data-event-title="{{ event.title }}"
+                                                             data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                                                             data-event-end-date="{{ event.end_date.strftime('%Y-%m-%d') }}"
+                                                             data-event-type-class="{{ event.event_type }}"
+                                                             data-event-description="{{ event.description or '' }}"
+                                                             title="{{ event.title }}: {{ event.event_date.strftime('%d/%m/%Y') }} - {{ event.end_date.strftime('%d/%m/%Y') }}">
                                                             ●
                                                         </div>
                                                     {% else %}
-                                                        <div class="calendar-event {{ event.event_type }}" title="{{ event.title }}">
+                                                        <div class="calendar-event {{ event.event_type }} clickable-event" 
+                                                             data-event-type="regular"
+                                                             data-event-id="{{ event.id }}"
+                                                             data-event-title="{{ event.title }}"
+                                                             data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                                                             data-event-type-class="{{ event.event_type }}"
+                                                             data-event-description="{{ event.description or '' }}"
+                                                             title="{{ event.title }}">
                                                             ●
                                                         </div>
                                                     {% endif %}
@@ -572,10 +655,36 @@
                 <h5 class="mb-3">Upcoming Events</h5>
                 {% if upcoming_events %}
                     {% for event_date, event in upcoming_events %}
-                        <div class="event-item {{ event.event_type }}">
+                        <div class="event-item {% if event is mapping and event.get('is_batch_event') %}batch-event{% else %}{{ event.event_type if not (event is mapping) else '' }}{% endif %} clickable-upcoming-event"
+                             {% if event is mapping and event.get('is_batch_event') %}
+                             data-event-type="batch"
+                             data-event-id="{{ event.id }}"
+                             data-event-title="{{ event.title }}"
+                             data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                             data-event-time="{% if event.event_time %}{{ event.event_time.strftime('%H:%M') }}{% endif %}"
+                             data-event-location="{{ event.location or '' }}"
+                             data-event-description="{{ event.description or '' }}"
+                             data-event-course-code="{{ event.course_code or '' }}"
+                             data-event-course-name="{{ event.course_name or '' }}"
+                             data-event-batch="{{ event.batch or '' }}"
+                             {% else %}
+                             data-event-type="regular"
+                             data-event-id="{{ event.id }}"
+                             data-event-title="{{ event.title }}"
+                             data-event-date="{{ event.event_date.strftime('%Y-%m-%d') }}"
+                             data-event-end-date="{% if event.end_date %}{{ event.end_date.strftime('%Y-%m-%d') }}{% endif %}"
+                             data-event-type-class="{{ event.event_type }}"
+                             data-event-description="{{ event.description or '' }}"
+                             {% endif %}
+                             style="cursor: pointer;">
                             <strong>{{ event.title }}</strong><br>
                             <small class="text-muted">
-                                {% if event.end_date and event.end_date > event.event_date %}
+                                {% if event is mapping and event.get('is_batch_event') %}
+                                    {{ event_date.strftime('%B %d, %Y') }}
+                                    {% if event.event_time %}
+                                        at {{ event.event_time.strftime('%I:%M %p') }}
+                                    {% endif %}
+                                {% elif event.end_date and event.end_date > event.event_date %}
                                     {{ event.event_date.strftime('%B %d') }} - {{ event.end_date.strftime('%B %d, %Y') }}
                                 {% else %}
                                     {{ event_date.strftime('%B %d, %Y') }}
@@ -584,17 +693,36 @@
                             {% if event.description %}
                                 <p class="small mb-0 mt-1">{{ event.description }}</p>
                             {% endif %}
+                            {% if event is mapping and event.get('is_batch_event') %}
+                                {% if event.course_code %}
+                                    <small class="text-info d-block mt-1">
+                                        <i class="fas fa-book me-1"></i>{{ event.course_code }}
+                                        {% if event.batch %} - Batch {{ event.batch }}{% endif %}
+                                    </small>
+                                {% endif %}
+                                {% if event.location %}
+                                    <small class="text-muted d-block mt-1">
+                                        <i class="fas fa-map-marker-alt me-1"></i>{{ event.location }}
+                                    </small>
+                                {% endif %}
+                            {% endif %}
                             <div class="mt-2 d-flex gap-1 flex-wrap">
+                                {% if not (event is mapping and event.get('is_batch_event')) %}
                                 <a href="{{ url_for('academic_calendar.export_event_ics', event_id=event.id) }}" 
                                    class="btn btn-sm btn-outline-success" 
-                                   title="Add to Google Calendar or Apple Calendar">
+                                   title="Add to Google Calendar or Apple Calendar"
+                                   onclick="event.stopPropagation();">
                                     <i class="fas fa-calendar-plus"></i> Add to Calendar
                                 </a>
-                                {% if can_edit and not (event is mapping and event.get('is_weekly')) %}
-                                    <a href="{{ url_for('academic_calendar.edit_event', event_id=event.id) }}" class="btn btn-sm btn-outline-primary">
+                                {% endif %}
+                                {% if can_edit and not (event is mapping and event.get('is_weekly')) and not (event is mapping and event.get('is_batch_event')) %}
+                                    <a href="{{ url_for('academic_calendar.edit_event', event_id=event.id) }}" 
+                                       class="btn btn-sm btn-outline-primary"
+                                       onclick="event.stopPropagation();">
                                         <i class="fas fa-edit"></i> Edit
                                     </a>
-                                    <button class="btn btn-sm btn-outline-danger" onclick="deleteEvent({{ event.id }})">
+                                    <button class="btn btn-sm btn-outline-danger" 
+                                            onclick="event.stopPropagation(); deleteEvent({{ event.id }});">
                                         <i class="fas fa-trash"></i> Delete
                                     </button>
                                 {% endif %}
@@ -609,7 +737,177 @@
     </div>
 </div>
 
+<!-- Event Details Modal -->
+<div class="modal fade" id="eventDetailsModal" tabindex="-1" aria-labelledby="eventDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="eventDetailsModalLabel">
+                    <i class="fas fa-calendar-alt me-2"></i>Event Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="eventDetailsContent">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.clickable-event {
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+.clickable-event:hover {
+    opacity: 0.8;
+}
+.clickable-upcoming-event:hover {
+    background-color: #f8f9fa;
+}
+</style>
+
 <script>
+function showEventDetails(element) {
+    const eventType = element.getAttribute('data-event-type');
+    const eventTitle = element.getAttribute('data-event-title');
+    const eventDate = element.getAttribute('data-event-date');
+    const eventDescription = element.getAttribute('data-event-description') || '';
+    
+    let content = '';
+    
+    if (eventType === 'batch') {
+        const eventTime = element.getAttribute('data-event-time');
+        const eventLocation = element.getAttribute('data-event-location');
+        const eventCourseCode = element.getAttribute('data-event-course-code');
+        const eventCourseName = element.getAttribute('data-event-course-name');
+        const eventBatch = element.getAttribute('data-event-batch');
+        
+        // Format date
+        const dateObj = new Date(eventDate + 'T00:00:00');
+        const formattedDate = dateObj.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+        
+        content = `
+            <div class="event-details">
+                <h6 class="text-primary mb-3">${eventTitle}</h6>
+                <div class="mb-2">
+                    <strong><i class="fas fa-calendar me-2"></i>Date:</strong> ${formattedDate}
+                </div>
+                ${eventTime ? `
+                <div class="mb-2">
+                    <strong><i class="fas fa-clock me-2"></i>Time:</strong> ${formatTime(eventTime)}
+                </div>
+                ` : ''}
+                ${eventCourseCode ? `
+                <div class="mb-2">
+                    <strong><i class="fas fa-book me-2"></i>Course:</strong> ${eventCourseCode}${eventCourseName ? ' - ' + eventCourseName : ''}
+                </div>
+                ` : ''}
+                ${eventBatch ? `
+                <div class="mb-2">
+                    <strong><i class="fas fa-users me-2"></i>Batch:</strong> ${eventBatch}
+                </div>
+                ` : ''}
+                ${eventLocation ? `
+                <div class="mb-2">
+                    <strong><i class="fas fa-map-marker-alt me-2"></i>Location:</strong> ${eventLocation}
+                </div>
+                ` : ''}
+                ${eventDescription ? `
+                <div class="mb-2">
+                    <strong><i class="fas fa-info-circle me-2"></i>Description:</strong>
+                    <p class="mt-1 mb-0">${eventDescription}</p>
+                </div>
+                ` : ''}
+            </div>
+        `;
+    } else {
+        // Regular event
+        const eventEndDate = element.getAttribute('data-event-end-date');
+        const eventTypeClass = element.getAttribute('data-event-type-class') || 'event';
+        
+        // Format date
+        const dateObj = new Date(eventDate + 'T00:00:00');
+        let dateRange = dateObj.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+        
+        if (eventEndDate && eventEndDate !== eventDate) {
+            const endDateObj = new Date(eventEndDate + 'T00:00:00');
+            const endDateFormatted = endDateObj.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            dateRange = `${dateRange} - ${endDateFormatted}`;
+        }
+        
+        content = `
+            <div class="event-details">
+                <h6 class="text-primary mb-3">${eventTitle}</h6>
+                <div class="mb-2">
+                    <strong><i class="fas fa-calendar me-2"></i>Date:</strong> ${dateRange}
+                </div>
+                <div class="mb-2">
+                    <strong><i class="fas fa-tag me-2"></i>Type:</strong> <span class="badge bg-info">${eventTypeClass}</span>
+                </div>
+                ${eventDescription ? `
+                <div class="mb-2">
+                    <strong><i class="fas fa-info-circle me-2"></i>Description:</strong>
+                    <p class="mt-1 mb-0">${eventDescription}</p>
+                </div>
+                ` : ''}
+            </div>
+        `;
+    }
+    
+    document.getElementById('eventDetailsContent').innerHTML = content;
+    const modal = new bootstrap.Modal(document.getElementById('eventDetailsModal'));
+    modal.show();
+}
+
+function formatTime(timeStr) {
+    // Convert 24-hour format (HH:MM) to 12-hour format
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+}
+
+// Add click handlers to calendar events
+document.addEventListener('DOMContentLoaded', function() {
+    // Calendar day events
+    document.querySelectorAll('.clickable-event').forEach(function(element) {
+        element.addEventListener('click', function(e) {
+            e.stopPropagation();
+            showEventDetails(this);
+        });
+    });
+    
+    // Upcoming events sidebar
+    document.querySelectorAll('.clickable-upcoming-event').forEach(function(element) {
+        element.addEventListener('click', function(e) {
+            // Don't trigger if clicking on buttons/links inside
+            if (e.target.closest('a, button')) {
+                return;
+            }
+            showEventDetails(this);
+        });
+    });
+});
+
 function copyCalendarLink(event) {
     event.preventDefault();
     const calendarUrl = window.location.origin + '{{ url_for("academic_calendar.export_all_ics") }}';
