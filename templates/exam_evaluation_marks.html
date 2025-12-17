@@ -466,6 +466,7 @@
         });
         const totalField = row.querySelector('.total-field');
         if (totalField) {
+            // Round for exam evaluation (result generation)
             totalField.value = String(Math.round(total));
         }
     }

@@ -159,7 +159,13 @@
                             <td>{{ assignment.year or '-' }}</td>
                             <td>{{ assignment.term or '-' }}</td>
                             <td>{{ assignment.batch or '-' }}</td>
-                            <td>{{ assignment.remarks or '-' }}</td>
+                            <td>
+                                {% if assignment.formatted_remarks %}
+                                    {{ assignment.formatted_remarks|safe }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
                             <td>{{ assignment.created_at.strftime('%Y-%m-%d') if assignment.created_at else '-' }}</td>
                             <td>
                                 <div class="d-flex gap-1">

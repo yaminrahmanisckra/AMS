@@ -212,7 +212,11 @@
                                     {% set best_total = combined_best3.get(student.student_id) %}
                                     <span id="best3total_{{ student.id }}" data-initial-value="{% if best_total is not none %}{{ best_total }}{% endif %}">
                                         {% if best_total is not none %}
-                                            {{ best_total }}
+                                            {% if best_total == best_total|int %}
+                                                {{ best_total|int }}
+                                            {% else %}
+                                                {{ "%.2f"|format(best_total)|replace('.00', '')|replace('.0', '') }}
+                                            {% endif %}
                                         {% else %}
                                             <span class="text-muted">-</span>
                                         {% endif %}
@@ -323,7 +327,7 @@
                                 {% endfor %}
                                 <td class="fw-bold text-end">
                                     {% set pg_total = combined_pg_total.get(student.student_id) %}
-                                    <span id="pg_total_{{ student.id }}">{% if pg_total is not none %}{{ pg_total }}{% else %}<span class="text-muted">-</span>{% endif %}</span>
+                                    <span id="pg_total_{{ student.id }}">{% if pg_total is not none %}{{ pg_total|int }}{% else %}<span class="text-muted">-</span>{% endif %}</span>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -405,11 +409,11 @@ function calcBest3Total(studentId) {
         cell.innerHTML = '<span class="text-muted">-</span>';
     } else if (vals.length < 3) {
         const sum = vals.reduce((a,b) => a+b, 0);
-        cell.textContent = Math.round(sum);
+        cell.textContent = sum.toFixed(2).replace(/\.?0+$/, ''); // Keep fraction, remove trailing zeros
     } else {
         vals.sort((a,b) => b-a);
         const sum = vals.slice(0,3).reduce((a,b) => a+b, 0);
-        cell.textContent = Math.round(sum);
+        cell.textContent = sum.toFixed(2).replace(/\.?0+$/, ''); // Keep fraction, remove trailing zeros
     }
 }
 
@@ -601,8 +605,8 @@ function calcPGTotal(studentId) {
         const best = vals.length >= 3 ? vals.slice(0,3) : vals;
         // Convert to 40 marks scale: always use 30 as max (sum / 30) * 40
         const bestSum = best.reduce((a,b) => a+b, 0);
-        const total = Math.round((bestSum / 30) * 40);
-        totalCell.textContent = Math.round(total); // Ensure round figure (integer)
+        const total = Math.round((bestSum / 30) * 40);  // Round for PG courses
+        totalCell.textContent = total;  // Integer for PG
     }
 }
 

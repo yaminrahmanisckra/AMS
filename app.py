@@ -47,12 +47,138 @@ load_dotenv()
 # Set library path for WeasyPrint on macOS before creating app
 import os
 import platform
+import sys
+
 if platform.system() == 'Darwin':  # macOS
     homebrew_lib_path = '/opt/homebrew/lib'
     if os.path.exists(homebrew_lib_path):
+        # Set both DYLD_LIBRARY_PATH and DYLD_FALLBACK_LIBRARY_PATH for better compatibility
         current_dyld = os.environ.get('DYLD_LIBRARY_PATH', '')
+        current_fallback = os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')
+        
         if homebrew_lib_path not in current_dyld:
             os.environ['DYLD_LIBRARY_PATH'] = f"{homebrew_lib_path}:{current_dyld}" if current_dyld else homebrew_lib_path
+        
+        # DYLD_FALLBACK_LIBRARY_PATH is more reliable on newer macOS versions
+        if homebrew_lib_path not in current_fallback:
+            fallback_paths = [homebrew_lib_path]
+            if current_fallback:
+                fallback_paths.extend(current_fallback.split(':'))
+            os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = ':'.join(fallback_paths)
+        
+        # Set PKG_CONFIG_PATH to help pkg-config find libraries
+        pkg_config_path = '/opt/homebrew/lib/pkgconfig'
+        if os.path.exists(pkg_config_path):
+            current_pkg = os.environ.get('PKG_CONFIG_PATH', '')
+            if pkg_config_path not in current_pkg:
+                os.environ['PKG_CONFIG_PATH'] = f"{pkg_config_path}:{current_pkg}" if current_pkg else pkg_config_path
+        
+        # Pre-load required libraries using ctypes before WeasyPrint imports
+        # This works around SIP restrictions on DYLD_LIBRARY_PATH
+        try:
+            import ctypes
+            from ctypes import util as ctypes_util
+            
+            # Monkey-patch ctypes.util.find_library to check Homebrew path first
+            # This helps cffi (used by WeasyPrint) find the libraries
+            original_find_library = ctypes_util.find_library
+            
+            def patched_find_library(name):
+                # Try Homebrew path first
+                # WeasyPrint looks for libraries like 'gobject-2.0-0' (without lib prefix)
+                # Map common library names to their actual filenames
+                lib_mappings = {
+                    'gobject-2.0-0': 'libgobject-2.0.0.dylib',
+                    'gobject-2.0': 'libgobject-2.0.dylib',
+                    'glib-2.0-0': 'libglib-2.0.0.dylib',
+                    'glib-2.0': 'libglib-2.0.dylib',
+                    'cairo': 'libcairo.2.dylib',
+                    'pango-1.0-0': 'libpango-1.0.0.dylib',
+                    'pango-1.0': 'libpango-1.0.dylib',
+                    'gdk_pixbuf-2.0-0': 'libgdk_pixbuf-2.0.0.dylib',
+                    'gdk_pixbuf-2.0': 'libgdk_pixbuf-2.0.dylib',
+                }
+                
+                # Check if we have a mapping for this library
+                if name in lib_mappings:
+                    lib_file = lib_mappings[name]
+                    lib_path = os.path.join(homebrew_lib_path, lib_file)
+                    if os.path.exists(lib_path):
+                        return lib_path
+                
+                # Also try common patterns
+                for pattern in [f'lib{name}.dylib', f'lib{name}.0.dylib', f'{name}.dylib']:
+                    lib_path = os.path.join(homebrew_lib_path, pattern)
+                    if os.path.exists(lib_path):
+                        return lib_path
+                
+                # Fall back to original find_library
+                result = original_find_library(name)
+                if result:
+                    return result
+                
+                # Last resort: check Homebrew path with the name as-is
+                lib_path = os.path.join(homebrew_lib_path, name)
+                if os.path.exists(lib_path):
+                    return lib_path
+                
+                return None
+            
+            # Apply the monkey patch
+            ctypes_util.find_library = patched_find_library
+            
+            # Also try to patch cffi's library loading if available
+            # This helps WeasyPrint's cffi-based library loading
+            try:
+                import cffi
+                # Pre-load libraries so they're available to cffi's dlopen
+                # cffi uses the system's dlopen which should find pre-loaded libraries
+                pass  # The pre-loading below should make libraries available
+            except ImportError:
+                pass  # cffi not available yet, that's okay
+            
+            # List of libraries that WeasyPrint needs, in dependency order
+            # Load base libraries first, then dependent ones
+            required_libs = [
+                'libglib-2.0.0.dylib',      # Base GLib library
+                'libgobject-2.0.0.dylib',   # GObject (depends on glib)
+                'libgmodule-2.0.0.dylib',   # GModule (depends on glib)
+                'libgthread-2.0.0.dylib',   # GThread (depends on glib)
+                'libcairo.2.dylib',         # Cairo graphics library
+                'libgdk_pixbuf-2.0.0.dylib', # GDK Pixbuf
+                'libpango-1.0.0.dylib',     # Pango text layout
+                'libpangocairo-1.0.0.dylib', # Pango-Cairo integration
+            ]
+            
+            # Try to load libraries from Homebrew path
+            for lib_name in required_libs:
+                lib_path = os.path.join(homebrew_lib_path, lib_name)
+                if os.path.exists(lib_path):
+                    try:
+                        ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                    except (OSError, AttributeError):
+                        # Library might already be loaded or have dependencies
+                        # Try loading with RTLD_LOCAL if RTLD_GLOBAL fails
+                        try:
+                            ctypes.CDLL(lib_path)
+                        except:
+                            pass
+                else:
+                    # Try alternative name (without version)
+                    alt_name = lib_name.replace('.0.dylib', '.dylib').replace('.2.dylib', '.dylib')
+                    alt_path = os.path.join(homebrew_lib_path, alt_name)
+                    if os.path.exists(alt_path):
+                        try:
+                            ctypes.CDLL(alt_path, mode=ctypes.RTLD_GLOBAL)
+                        except (OSError, AttributeError):
+                            try:
+                                ctypes.CDLL(alt_path)
+                            except:
+                                pass
+        except Exception:
+            # ctypes might not be available, but that's okay
+            # The error will be caught when WeasyPrint tries to import
+            pass
 
 def create_app():
     app = Flask(__name__)
@@ -166,6 +292,11 @@ def create_app():
     
     # Setup logging
     setup_error_logging()
+    
+    # WeasyPrint availability check removed from startup to prevent hanging
+    # WeasyPrint will be imported lazily when actually needed (in routes)
+    # This prevents startup hang issues on macOS
+    app.logger.info("WeasyPrint will be imported lazily when needed for PDF generation")
 
     def _migrate_legacy_roles():
         """Convert legacy 'user' roles into the new teacher role."""
@@ -1797,11 +1928,43 @@ def create_app():
             'teaching_assistant': 'Teaching Assistant'
         }
         
+        # Format remarks for display (parse JSON if needed)
+        import json
+        formatted_assignments = []
+        for assignment in assignments:
+            if assignment.remarks:
+                try:
+                    # Try to parse as JSON
+                    if assignment.remarks.strip().startswith('{'):
+                        parsed = json.loads(assignment.remarks)
+                        formatted_remarks = []
+                        if parsed.get('type') == 'chief':
+                            formatted_remarks.append(f"<strong>Designation:</strong> {parsed.get('designation', 'N/A')}")
+                            if parsed.get('institute'):
+                                formatted_remarks.append(f"<strong>Institute:</strong> {parsed.get('institute')}")
+                        elif parsed.get('type') == 'external':
+                            formatted_remarks.append(f"<strong>Name:</strong> {parsed.get('name', 'N/A')}")
+                            formatted_remarks.append(f"<strong>Designation:</strong> {parsed.get('designation', 'N/A')}")
+                            if parsed.get('institute'):
+                                formatted_remarks.append(f"<strong>Institute:</strong> {parsed.get('institute')}")
+                        else:
+                            for key, value in parsed.items():
+                                formatted_remarks.append(f"<strong>{key.replace('_', ' ').title()}:</strong> {value}")
+                        # Add formatted_remarks as a property
+                        assignment.formatted_remarks = '<br>'.join(formatted_remarks)
+                    else:
+                        assignment.formatted_remarks = assignment.remarks
+                except (json.JSONDecodeError, AttributeError, ValueError):
+                    assignment.formatted_remarks = assignment.remarks
+            else:
+                assignment.formatted_remarks = None
+            formatted_assignments.append(assignment)
+        
         return render_template('head/assign_duties.html',
                              teachers=teachers,
                              students=students,
                              courses=courses,
-                             assignments=assignments,
+                             assignments=formatted_assignments,
                              academic_sessions=academic_sessions,
                              batches=batches,
                              duty_label_map=duty_label_map)
@@ -7917,16 +8080,20 @@ def create_app():
 app = create_app()
 
 if __name__ == '__main__':
+    print("Initializing database...")
     with app.app_context():
         try:
             db.create_all()
+            print("✓ Database initialized")
         except Exception as e:
             # If database connection fails, log but continue
             # This allows the app to start even if database is temporarily unavailable
             import logging
             logging.warning(f"Could not create database tables: {e}")
-            print(f"Warning: Database connection issue: {e}")
+            print(f"⚠️  Warning: Database connection issue: {e}")
             print("App will continue, but some features may not work.")
+    
+    print("Setting up server configuration...")
     
     # Get port from environment variable (for Render) or use default
     port = int(os.environ.get('PORT', 5001))
@@ -7937,16 +8104,34 @@ if __name__ == '__main__':
     host = '0.0.0.0' if (os.environ.get('RENDER') or allow_network) else '127.0.0.1'
     
     if host == '0.0.0.0':
+        print("Getting network IP address...")
         # Try to get local IP address for display
         local_ip = 'YOUR_LOCAL_IP'
         try:
             import socket
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(1)  # 1 second timeout to prevent hanging
             s.connect(("8.8.8.8", 80))
             local_ip = s.getsockname()[0]
             s.close()
-        except:
-            pass
+            print(f"✓ Found local IP: {local_ip}")
+        except (socket.timeout, socket.error, OSError, Exception) as e:
+            # If we can't get IP from socket, try alternative method
+            print("⚠️  Could not get IP from network, trying alternative method...")
+            try:
+                import socket
+                hostname = socket.gethostname()
+                local_ip = socket.gethostbyname(hostname)
+                if local_ip.startswith('127.'):
+                    # If we got localhost, try to get real IP from network interfaces
+                    local_ip = 'YOUR_LOCAL_IP'
+                    print("⚠️  Using localhost - network access may be limited")
+                else:
+                    print(f"✓ Found IP via hostname: {local_ip}")
+            except Exception as e2:
+                print(f"⚠️  Could not determine IP address: {e2}")
+                print("   Server will still run, but network access URL won't be shown")
+                pass
         
         print(f"\n{'='*60}")
         print(f"Server running on ALL network interfaces")
@@ -8003,6 +8188,12 @@ if __name__ == '__main__':
             except OSError as e:
                 print(f"⚠️  Port binding test failed: {e}")
                 test_socket.close()
+        
+        print("\n" + "="*60)
+        print("🔄 Starting Flask development server...")
+        print("   (The server will appear to 'hang' - this is NORMAL!)")
+        print("   It's waiting for HTTP requests. Press CTRL+C to stop.")
+        print("="*60 + "\n")
         
         app.run(host=host, port=port, threaded=True, use_reloader=False, request_handler=QuietHandler)
     except OSError as e:

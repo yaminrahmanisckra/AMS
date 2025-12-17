@@ -18,9 +18,10 @@ from datetime import datetime
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import landscape, A4
 import zipfile
-from docx import Document
-from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+# docx imports moved to lazy imports (only when needed) to prevent startup hang
+# from docx import Document
+# from docx.shared import Inches, Pt
+# from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 result_management_bp = Blueprint('result_management', __name__, template_folder='templates/result_management')
 
@@ -738,13 +739,16 @@ def refresh_marks(session_id):
                             
                             # Import continuous assessment
                             if class_student.assessment_total_40 is not None:
+                                # PG: Already rounded in assessment calculation
                                 mark.continuous_assessment = float(class_student.assessment_total_40)
                             elif class_student.assessment_total is not None:
                                 assessment_total = float(class_student.assessment_total)
                                 if assessment_total <= 40:
-                                    mark.continuous_assessment = assessment_total
+                                    # UG: Round for result generation
+                                    mark.continuous_assessment = round(assessment_total)
                                 else:
-                                    mark.continuous_assessment = min(40.0, (assessment_total / 30) * 40)
+                                    # Scale from 30 to 40 if needed, then round for result generation
+                                    mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
                             else:
                                 mark.continuous_assessment = None
                             
@@ -984,16 +988,18 @@ def add_marks(session_id):
                             
                             # Get continuous assessment (sum of best 3 assessments or assessment_total_40)
                             if class_student.assessment_total_40 is not None:
+                                # PG: Already rounded in assessment calculation
                                 mark.continuous_assessment = float(class_student.assessment_total_40)
                             elif class_student.assessment_total is not None:
                                 # assessment_total might be out of 30, convert to out of 40 if needed
                                 assessment_total = float(class_student.assessment_total)
                                 # If it's already out of 40, use as is; otherwise scale it
                                 if assessment_total <= 40:
-                                    mark.continuous_assessment = assessment_total
+                                    # UG: Round for result generation
+                                    mark.continuous_assessment = round(assessment_total)
                                 else:
-                                    # Scale from 30 to 40 if needed
-                                    mark.continuous_assessment = min(40.0, (assessment_total / 30) * 40)
+                                    # Scale from 30 to 40 if needed, then round for result generation
+                                    mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
                             else:
                                 mark.continuous_assessment = None
                             
@@ -2044,6 +2050,11 @@ def download_student_result_docx(session_id, student_id):
         'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
         'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
     }
+
+    # Lazy import docx to prevent startup hang
+    from docx import Document
+    from docx.shared import Inches, Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     # Create DOCX
     doc = Document()

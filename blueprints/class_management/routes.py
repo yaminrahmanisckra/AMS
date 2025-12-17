@@ -48,13 +48,106 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import json
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from docx import Document
-from docx.shared import Pt, Inches
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+# docx imports moved to lazy imports (only when needed) to prevent startup hang
+# from docx import Document
+# from docx.shared import Pt, Inches
+# from docx.oxml.ns import qn
+# from docx.oxml import OxmlElement
+# from docx.enum.text import WD_ALIGN_PARAGRAPH
 from uuid import uuid4
 from role_utils import has_teacher_privileges, is_admin, parse_roles
+
+# WeasyPrint lazy import - only import when needed to prevent startup hang
+# Module-level import removed because it causes startup hang on macOS
+# This prevents the app from hanging during startup
+_WEASYPRINT_HTML = None
+_WEASYPRINT_AVAILABLE = None
+
+def _get_weasyprint_html():
+    """Lazy import WeasyPrint HTML - only import when actually needed"""
+    global _WEASYPRINT_HTML, _WEASYPRINT_AVAILABLE
+    
+    if _WEASYPRINT_AVAILABLE is None:
+        # First time - try to import
+        import logging
+        import os
+        import platform
+        import ctypes
+        from ctypes import util as ctypes_util
+        
+        logger = logging.getLogger(__name__)
+        
+        # Setup library paths for macOS BEFORE importing WeasyPrint
+        if platform.system() == 'Darwin':
+            homebrew_lib_path = '/opt/homebrew/lib'
+            if os.path.exists(homebrew_lib_path):
+                # Set environment variables
+                os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = f"{homebrew_lib_path}:{os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')}"
+                os.environ['PKG_CONFIG_PATH'] = f"/opt/homebrew/lib/pkgconfig:{os.environ.get('PKG_CONFIG_PATH', '')}"
+                
+                # Monkey-patch ctypes.util.find_library
+                original_find_library = ctypes_util.find_library
+                def patched_find_library(name):
+                    lib_mappings = {
+                        'gobject-2.0-0': 'libgobject-2.0.0.dylib',
+                        'gobject-2.0': 'libgobject-2.0.dylib',
+                    }
+                    if name in lib_mappings:
+                        lib_path = os.path.join(homebrew_lib_path, lib_mappings[name])
+                        if os.path.exists(lib_path):
+                            return lib_path
+                    for pattern in [f'lib{name}.dylib', f'lib{name}.0.dylib']:
+                        lib_path = os.path.join(homebrew_lib_path, pattern)
+                        if os.path.exists(lib_path):
+                            return lib_path
+                    result = original_find_library(name)
+                    return result if result else None
+                
+                ctypes_util.find_library = patched_find_library
+                
+                # Pre-load libraries
+                try:
+                    lib_path = os.path.join(homebrew_lib_path, 'libgobject-2.0.0.dylib')
+                    if os.path.exists(lib_path):
+                        ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                except:
+                    pass
+        
+        try:
+            logger.info("Attempting to import WeasyPrint (lazy import)...")
+            from weasyprint import HTML
+            _WEASYPRINT_HTML = HTML
+            _WEASYPRINT_AVAILABLE = True
+            logger.info("✓ WeasyPrint imported successfully (lazy import)")
+        except ImportError as e:
+            _WEASYPRINT_AVAILABLE = False
+            _WEASYPRINT_HTML = None
+            logger.error(f"✗ WeasyPrint ImportError: {e}")
+            logger.warning("PDF generation features will be disabled.")
+        except Exception as e:
+            _WEASYPRINT_AVAILABLE = False
+            _WEASYPRINT_HTML = None
+            logger.error(f"✗ WeasyPrint import error: {e}", exc_info=True)
+            logger.warning("PDF generation features will be disabled.")
+    
+    if _WEASYPRINT_AVAILABLE and _WEASYPRINT_HTML is None:
+        # Retry if somehow HTML is None but available is True
+        try:
+            from weasyprint import HTML
+            _WEASYPRINT_HTML = HTML
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to re-import WeasyPrint: {e}")
+            _WEASYPRINT_AVAILABLE = False
+    
+    return _WEASYPRINT_HTML if _WEASYPRINT_AVAILABLE else None
+
+def _is_weasyprint_available():
+    """Check if WeasyPrint is available (lazy check)"""
+    if _WEASYPRINT_AVAILABLE is None:
+        _get_weasyprint_html()  # Trigger lazy import
+    return _WEASYPRINT_AVAILABLE is True
 
 
 COURSE_REVIEW_GRADE_ROWS = [
@@ -290,7 +383,7 @@ def _recalculate_assessment_totals(session):
                 avg = sum(best) / len(best)
                 # Convert best 3 sum to 40 marks scale: always use 30 as max (sum / 30) * 40
                 best_sum = sum(best)
-                total_40 = int(round((best_sum / 30) * 40))
+                total_40 = int(round((best_sum / 30) * 40))  # Round for PG courses
                 avg_value = round(avg, 2)
             else:
                 avg_value = None
@@ -302,7 +395,7 @@ def _recalculate_assessment_totals(session):
         else:
             if marks:
                 best = marks[:3] if len(marks) >= 3 else marks
-                total = int(round(sum(best)))
+                total = sum(best)  # Keep fraction for UG courses, no rounding
             else:
                 total = None
             for entry in entries:
@@ -396,7 +489,7 @@ def _build_combined_assessment_values(session):
                 avg = sum(best) / len(best)
                 pg_avg_map[student_id] = round(avg, 2)
                 best_sum = sum(best)
-                pg_total_map[student_id] = int(round((best_sum / 30) * 40))
+                pg_total_map[student_id] = int(round((best_sum / 30) * 40))  # Round for PG courses
             else:
                 pg_avg_map[student_id] = None
                 pg_total_map[student_id] = None
@@ -404,7 +497,7 @@ def _build_combined_assessment_values(session):
             # UG: Best 3 total
             if valid_marks:
                 best = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
-                ug_best3[student_id] = int(round(sum(best)))
+                ug_best3[student_id] = sum(best)  # Keep fraction for UG courses, no rounding
             else:
                 ug_best3[student_id] = None
     
@@ -2265,6 +2358,13 @@ def _generate_course_outline_docx(session_id):
     reference_books = json.loads(course_outline.reference_books) if course_outline.reference_books else []
     other_resources = json.loads(course_outline.other_resources) if course_outline.other_resources else []
     
+    # Lazy import docx to prevent startup hang
+    from docx import Document
+    from docx.shared import Pt, Inches
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    
     # Create DOCX document
     doc = Document()
     
@@ -2957,12 +3057,14 @@ def download_pdf_report(session_id):
             assessment_marks_display = 0
             if session.course_type == 'sessional':
                 total = (student.sessional_report or 0) + (student.sessional_viva or 0)
-                assessment_marks_display = int(round(total))
+                assessment_marks_display = int(round(total))  # Round for result generation
             elif session.course_type == 'theory':
                 if session.category == 'pg':
-                    assessment_marks_display = combined_pg_total.get(student.student_id) or 0
+                    assessment_marks_display = combined_pg_total.get(student.student_id) or 0  # Already rounded
                 else:
-                    assessment_marks_display = combined_best3.get(student.student_id) or 0
+                    # UG: Keep fraction in assessment page, but round for result generation
+                    ug_total = combined_best3.get(student.student_id) or 0
+                    assessment_marks_display = int(round(ug_total)) if ug_total else 0  # Round for result generation
 
             student_data_for_pdf.append({
                 'id': student.student_id,
@@ -3321,9 +3423,20 @@ def download_attendance_sheet(session_id):
 @login_required
 def download_attendance_sheet_weasyprint(session_id):
     """Generate attendance sheet PDF using WeasyPrint in legal landscape format."""
+    # Lazy import WeasyPrint - only when actually needed
+    HTML = _get_weasyprint_html()
+    if HTML is None:
+        from error_handler import log_error
+        error_msg = 'Error generating PDF: WeasyPrint is not available. '
+        error_msg += 'Please ensure WeasyPrint dependencies are installed. '
+        error_msg += 'On macOS, run: brew install cairo pango gdk-pixbuf gobject-introspection'
+        flash(error_msg, 'error')
+        current_app.logger.error("WeasyPrint not available for PDF generation")
+        current_app.logger.error(f"Current availability status: {_WEASYPRINT_AVAILABLE}")
+        return redirect(url_for('class_management.view_attendance', session_id=session_id))
+    
     try:
         from error_handler import log_error
-        from weasyprint import HTML
         
         session = Session.query.get_or_404(session_id)
         attendance_summary = _build_attendance_summary(session)
@@ -3459,10 +3572,15 @@ def download_attendance_sheet_weasyprint(session_id):
             data_rows=data_rows
         )
         
-        # Generate PDF with WeasyPrint
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content).write_pdf(pdf_buffer)
-        pdf_buffer.seek(0)
+        # Generate PDF with WeasyPrint (lazy import already done above)
+        try:
+            pdf_buffer = io.BytesIO()
+            HTML(string=html_content).write_pdf(pdf_buffer)
+            pdf_buffer.seek(0)
+        except Exception as e:
+            current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)
+            flash(f'Error generating PDF: {str(e)}', 'error')
+            return redirect(url_for('class_management.view_attendance', session_id=session_id))
         
         filename = f"attendance_sheet_{course_code or session.id}.pdf"
         
@@ -4296,6 +4414,14 @@ def download_assessment_pdf(session_id):
             
             for idx, student in enumerate(students, start=1):
                 best3_total = combined_best3.get(student.student_id) if combined_best3 else '-'
+                # Format total: Keep fraction for UG (show decimals if not whole number)
+                if best3_total != '-' and best3_total is not None:
+                    if best3_total == int(best3_total):
+                        formatted_total = str(int(best3_total))
+                    else:
+                        formatted_total = f"{best3_total:.2f}".rstrip('0').rstrip('.')
+                else:
+                    formatted_total = '-'
                 row = [
                     str(idx),
                     str(student.student_id),
@@ -4303,7 +4429,7 @@ def download_assessment_pdf(session_id):
                     str(get_assessment_value(student, 2)),
                     str(get_assessment_value(student, 3)),
                     str(get_assessment_value(student, 4)),
-                    str(best3_total) if best3_total != '-' else '-'
+                    formatted_total
                 ]
                 table_data.append(row)
         
@@ -4313,6 +4439,11 @@ def download_assessment_pdf(session_id):
             
             for idx, student in enumerate(students, start=1):
                 pg_total = combined_pg_total.get(student.student_id) if combined_pg_total else '-'
+                # Format total: Round for PG (integer)
+                if pg_total != '-' and pg_total is not None:
+                    formatted_total = str(int(round(pg_total)))
+                else:
+                    formatted_total = '-'
                 row = [
                     str(idx),
                     str(student.student_id),
@@ -4320,7 +4451,7 @@ def download_assessment_pdf(session_id):
                     str(get_assessment_value(student, 2)),
                     str(get_assessment_value(student, 3)),
                     str(get_assessment_value(student, 4)),
-                    str(pg_total) if pg_total != '-' else '-'
+                    formatted_total
                 ]
                 table_data.append(row)
         
@@ -5760,6 +5891,17 @@ def student_feedback_responses_pdf(session_id):
 @login_required
 def student_feedback_responses_pdf_weasyprint(session_id):
     """Generate student feedback PDF using WeasyPrint with Kalpurush for Praise and Suggestions."""
+    # Lazy import WeasyPrint - only when actually needed
+    HTML = _get_weasyprint_html()
+    if HTML is None:
+        error_msg = 'Error generating PDF: WeasyPrint is not available. '
+        error_msg += 'Please ensure WeasyPrint dependencies are installed. '
+        error_msg += 'On macOS, run: brew install cairo pango gdk-pixbuf gobject-introspection'
+        flash(error_msg, 'error')
+        current_app.logger.error("WeasyPrint not available for PDF generation")
+        current_app.logger.error(f"Current availability status: {_WEASYPRINT_AVAILABLE}")
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+    
     session_obj = Session.query.get_or_404(session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher or teacher.id != session_obj.teacher_id:
@@ -5782,7 +5924,6 @@ def student_feedback_responses_pdf_weasyprint(session_id):
 
     try:
         from error_handler import log_error
-        from weasyprint import HTML
         import os
         
         # Prepare data for template
@@ -5830,10 +5971,15 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             kalpurush_font_path=font_path if os.path.exists(font_path) else None
         )
         
-        # Generate PDF with WeasyPrint
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
-        pdf_buffer.seek(0)
+        # Generate PDF with WeasyPrint (lazy import already done above)
+        try:
+            pdf_buffer = io.BytesIO()
+            HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+            pdf_buffer.seek(0)
+        except Exception as e:
+            current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)
+            flash(f'Error generating PDF: {str(e)}', 'error')
+            return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
         
         filename = f"student_feedback_responses_{session_obj.course_code or 'course'}.pdf"
         

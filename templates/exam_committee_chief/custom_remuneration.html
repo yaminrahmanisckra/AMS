@@ -3356,10 +3356,10 @@ function populateFormData(data) {
         await updateCourseDropdownsOnly();
         console.log('✅ Courses loaded into dropdowns, now populating table data...');
         
-        // Then populate table data (with delay to ensure courses are loaded)
+        // Then populate table data (with longer delay to ensure courses are fully loaded)
         setTimeout(() => {
             populateTableData(data);
-        }, 1500);
+        }, 2500);
     }, 500);
 }
 
@@ -3377,75 +3377,312 @@ function populateTableData(data) {
         // Table 2: Question Preparation
         if (data.question_preparation && Array.isArray(data.question_preparation)) {
             console.log('📝 Populating Question Preparation table with', data.question_preparation.length, 'items');
-            const rows = document.querySelectorAll('#table_question_preparation tbody tr');
-            rows.forEach((row, index) => {
-                if (data.question_preparation[index]) {
-                    const item = data.question_preparation[index];
-                    const courseSelect = row.querySelector('select[name="question_preparation_course[]"]');
-                    if (courseSelect && item.course) {
-                        // Try to find matching course
-                        const courseValue = item.course;
-                        const options = Array.from(courseSelect.options);
-                        let found = false;
-                        
-                        // First try exact match
-                        for (let opt of options) {
-                            if (opt.value === courseValue || opt.text === courseValue || opt.value.includes(courseValue) || opt.text.includes(courseValue)) {
-                                courseSelect.value = opt.value;
-                                found = true;
-                                console.log('✅ Found course match:', opt.value);
-                                break;
+            const tbody = document.querySelector('#table_question_preparation tbody');
+            if (tbody) {
+                // Don't remove existing rows - they might have data from template
+                // Instead, ensure we have enough rows for all saved items
+                const existingRows = Array.from(tbody.querySelectorAll('tr'));
+                const neededRows = data.question_preparation.length;
+                
+                // Add rows if needed
+                while (existingRows.length < neededRows) {
+                    addQuestionPreparationRow();
+                    existingRows.push(tbody.querySelector('tr:last-child'));
+                }
+                
+                // Now populate all rows
+                data.question_preparation.forEach((item, index) => {
+                    const currentRows = Array.from(tbody.querySelectorAll('tr'));
+                    const row = currentRows[index];
+                    
+                    if (row) {
+                        // Populate course with improved matching
+                        const courseSelect = row.querySelector('select[name="question_preparation_course[]"]');
+                        if (courseSelect && item.course) {
+                            const courseValue = item.course;
+                            const options = Array.from(courseSelect.options);
+                            let found = false;
+                            
+                            // Normalize course value for matching (remove extra spaces, case insensitive)
+                            const normalizedCourseValue = courseValue.trim().toLowerCase();
+                            
+                            // Try exact match first
+                            for (let opt of options) {
+                                if (opt.value && (opt.value === courseValue || opt.value.trim().toLowerCase() === normalizedCourseValue)) {
+                                    courseSelect.value = opt.value;
+                                    found = true;
+                                    console.log('✅ Found exact course match:', opt.value);
+                                    break;
+                                }
+                            }
+                            
+                            // Try text match
+                            if (!found) {
+                                for (let opt of options) {
+                                    const optText = opt.text.trim().toLowerCase();
+                                    if (optText === normalizedCourseValue || optText.includes(normalizedCourseValue) || normalizedCourseValue.includes(optText)) {
+                                        courseSelect.value = opt.value;
+                                        found = true;
+                                        console.log('✅ Found course match by text:', opt.value, 'for saved:', courseValue);
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // Try partial match (course code)
+                            if (!found && courseValue) {
+                                // Extract course code (first part before dash or space)
+                                const courseCodeMatch = courseValue.match(/^([A-Z0-9\s]+)/i);
+                                if (courseCodeMatch) {
+                                    const courseCode = courseCodeMatch[1].trim();
+                                    for (let opt of options) {
+                                        if (opt.value && (opt.value.includes(courseCode) || opt.text.includes(courseCode))) {
+                                            courseSelect.value = opt.value;
+                                            found = true;
+                                            console.log('✅ Found course match by code:', opt.value, 'for saved:', courseValue);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // If still not found, add as new option
+                            if (!found && courseValue) {
+                                const option = document.createElement('option');
+                                option.value = courseValue;
+                                option.text = courseValue;
+                                option.selected = true;
+                                courseSelect.appendChild(option);
+                                courseSelect.value = courseValue;
+                                console.log('✅ Added course as new option:', courseValue);
+                            }
+                            
+                            // Trigger change event to load course data if course was set
+                            if (courseSelect.value && typeof onCourseChange === 'function') {
+                                // Use setTimeout to ensure DOM is ready
+                                setTimeout(() => {
+                                    onCourseChange(courseSelect);
+                                }, 100);
                             }
                         }
                         
-                        // If not found, add as new option
-                        if (!found) {
-                            const option = document.createElement('option');
-                            option.value = courseValue;
-                            option.text = courseValue;
-                            option.selected = true;
-                            courseSelect.appendChild(option);
-                            courseSelect.value = courseValue;
-                            console.log('✅ Added course as new option:', courseValue);
+                        // Populate other fields
+                        if (item.section) {
+                            const sectionInput = row.querySelector('input[name="question_preparation_section[]"]');
+                            if (sectionInput) sectionInput.value = item.section;
+                        }
+                        if (item.questions) {
+                            const questionsInput = row.querySelector('input[name="question_preparation_questions[]"]');
+                            if (questionsInput) questionsInput.value = item.questions;
+                        }
+                        if (item.teacher) {
+                            const teacherSelect = row.querySelector('select[name="question_preparation_teacher_select[]"]');
+                            const teacherInput = row.querySelector('input.question-preparation-custom-name');
+                            if (teacherSelect) {
+                                const teacherOptions = Array.from(teacherSelect.options);
+                                let found = false;
+                                for (let opt of teacherOptions) {
+                                    if (opt.value === item.teacher || opt.text === item.teacher) {
+                                        teacherSelect.value = opt.value;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found && teacherInput) {
+                                    teacherSelect.value = '__CUSTOM__';
+                                    teacherInput.style.display = 'block';
+                                    teacherInput.value = item.teacher;
+                                }
+                                if (typeof onQuestionPreparationTeacherChange === 'function') {
+                                    onQuestionPreparationTeacherChange(teacherSelect);
+                                }
+                            }
+                        }
+                        if (item.designation) {
+                            const designationSelect = row.querySelector('select[name="question_preparation_designation_select[]"]');
+                            const designationInput = row.querySelector('input.question-preparation-custom-designation');
+                            if (designationSelect) {
+                                const designationOptions = Array.from(designationSelect.options);
+                                let found = false;
+                                for (let opt of designationOptions) {
+                                    if (opt.value === item.designation || item.designation.includes(opt.value)) {
+                                        designationSelect.value = opt.value;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found && designationInput) {
+                                    designationSelect.value = '__CUSTOM__';
+                                    designationInput.style.display = 'block';
+                                    designationInput.value = item.designation;
+                                }
+                                if (typeof onQuestionPreparationDesignationChange === 'function') {
+                                    onQuestionPreparationDesignationChange(designationSelect);
+                                }
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
         
         // Table 3: Script Examination
         if (data.script_examination && Array.isArray(data.script_examination)) {
             console.log('📝 Populating Script Examination table with', data.script_examination.length, 'items');
-            const rows = document.querySelectorAll('#table_script_examination tbody tr');
-            rows.forEach((row, index) => {
-                if (data.script_examination[index]) {
-                    const item = data.script_examination[index];
-                    const courseSelect = row.querySelector('select[name="script_examination_course[]"]');
-                    if (courseSelect && item.course) {
-                        const courseValue = item.course;
-                        const options = Array.from(courseSelect.options);
-                        let found = false;
-                        
-                        for (let opt of options) {
-                            if (opt.value === courseValue || opt.text === courseValue || opt.value.includes(courseValue) || opt.text.includes(courseValue)) {
-                                courseSelect.value = opt.value;
-                                found = true;
-                                break;
+            const tbody = document.querySelector('#table_script_examination tbody');
+            if (tbody) {
+                // Don't remove existing rows - they might have data from template
+                const existingRows = Array.from(tbody.querySelectorAll('tr'));
+                const neededRows = data.script_examination.length;
+                
+                // Add rows if needed
+                while (existingRows.length < neededRows) {
+                    addScriptExaminationRow();
+                    existingRows.push(tbody.querySelector('tr:last-child'));
+                }
+                
+                // Now populate all rows
+                data.script_examination.forEach((item, index) => {
+                    const currentRows = Array.from(tbody.querySelectorAll('tr'));
+                    const row = currentRows[index];
+                    
+                    if (row) {
+                        // Populate course with improved matching
+                        const courseSelect = row.querySelector('select[name="script_examination_course[]"]');
+                        if (courseSelect && item.course) {
+                            const courseValue = item.course;
+                            const options = Array.from(courseSelect.options);
+                            let found = false;
+                            
+                            // Normalize course value for matching
+                            const normalizedCourseValue = courseValue.trim().toLowerCase();
+                            
+                            // Try exact match first
+                            for (let opt of options) {
+                                if (opt.value && (opt.value === courseValue || opt.value.trim().toLowerCase() === normalizedCourseValue)) {
+                                    courseSelect.value = opt.value;
+                                    found = true;
+                                    console.log('✅ Found exact course match (Script):', opt.value);
+                                    break;
+                                }
+                            }
+                            
+                            // Try text match
+                            if (!found) {
+                                for (let opt of options) {
+                                    const optText = opt.text.trim().toLowerCase();
+                                    if (optText === normalizedCourseValue || optText.includes(normalizedCourseValue) || normalizedCourseValue.includes(optText)) {
+                                        courseSelect.value = opt.value;
+                                        found = true;
+                                        console.log('✅ Found course match by text (Script):', opt.value);
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // Try partial match (course code)
+                            if (!found && courseValue) {
+                                const courseCodeMatch = courseValue.match(/^([A-Z0-9\s]+)/i);
+                                if (courseCodeMatch) {
+                                    const courseCode = courseCodeMatch[1].trim();
+                                    for (let opt of options) {
+                                        if (opt.value && (opt.value.includes(courseCode) || opt.text.includes(courseCode))) {
+                                            courseSelect.value = opt.value;
+                                            found = true;
+                                            console.log('✅ Found course match by code (Script):', opt.value);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // If still not found, add as new option
+                            if (!found && courseValue) {
+                                const option = document.createElement('option');
+                                option.value = courseValue;
+                                option.text = courseValue;
+                                option.selected = true;
+                                courseSelect.appendChild(option);
+                                courseSelect.value = courseValue;
+                                console.log('✅ Added course as new option (Script):', courseValue);
+                            }
+                            
+                            // Trigger change event
+                            if (courseSelect.value && typeof onCourseChange === 'function') {
+                                setTimeout(() => {
+                                    onCourseChange(courseSelect);
+                                }, 100);
                             }
                         }
                         
-                        if (!found) {
-                            const option = document.createElement('option');
-                            option.value = courseValue;
-                            option.text = courseValue;
-                            option.selected = true;
-                            courseSelect.appendChild(option);
-                            courseSelect.value = courseValue;
+                        // Populate other fields
+                        if (item.section) {
+                            const sectionInput = row.querySelector('input[name="script_examination_section[]"]');
+                            if (sectionInput) sectionInput.value = item.section;
+                        }
+                        if (item.scripts) {
+                            const scriptsInput = row.querySelector('input[name="script_examination_scripts[]"]');
+                            if (scriptsInput) scriptsInput.value = item.scripts;
+                        }
+                        if (item.teacher) {
+                            const teacherSelect = row.querySelector('select[name="script_examination_teacher_select[]"]');
+                            const teacherInput = row.querySelector('input.script-examination-custom-name');
+                            if (teacherSelect) {
+                                const teacherOptions = Array.from(teacherSelect.options);
+                                let found = false;
+                                for (let opt of teacherOptions) {
+                                    if (opt.value === item.teacher || opt.text === item.teacher) {
+                                        teacherSelect.value = opt.value;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found && teacherInput) {
+                                    teacherSelect.value = '__CUSTOM__';
+                                    teacherInput.style.display = 'block';
+                                    teacherInput.value = item.teacher;
+                                }
+                                if (typeof onScriptExaminationTeacherChange === 'function') {
+                                    onScriptExaminationTeacherChange(teacherSelect);
+                                }
+                            }
+                        }
+                        if (item.designation) {
+                            const designationSelect = row.querySelector('select[name="script_examination_designation_select[]"]');
+                            const designationInput = row.querySelector('input.script-examination-custom-designation');
+                            if (designationSelect) {
+                                const designationOptions = Array.from(designationSelect.options);
+                                let found = false;
+                                for (let opt of designationOptions) {
+                                    if (opt.value === item.designation || item.designation.includes(opt.value)) {
+                                        designationSelect.value = opt.value;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found && designationInput) {
+                                    designationSelect.value = '__CUSTOM__';
+                                    designationInput.style.display = 'block';
+                                    designationInput.value = item.designation;
+                                }
+                                if (typeof onScriptExaminationDesignationChange === 'function') {
+                                    onScriptExaminationDesignationChange(designationSelect);
+                                }
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
+        
+        // Update table counts after populating
+        if (typeof updateTableCounts === 'function') {
+            setTimeout(() => {
+                updateTableCounts();
+            }, 500);
+        }
+        
+        // Script Examination table population is now handled above
         
         // Table 4: Class Test
         if (data.class_test && Array.isArray(data.class_test)) {
