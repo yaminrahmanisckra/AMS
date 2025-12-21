@@ -27,6 +27,22 @@ echo ""
 echo "Starting server..."
 echo ""
 
-# Start the app with network access
-ALLOW_NETWORK_ACCESS=1 python3 app.py
+# Set library paths for WeasyPrint on macOS
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    export DYLD_LIBRARY_PATH=/opt/homebrew/lib:$DYLD_LIBRARY_PATH
+    export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib:$DYLD_FALLBACK_LIBRARY_PATH
+    echo "✓ Set WeasyPrint library paths for macOS"
+fi
+
+# Check if .venv exists and use it, otherwise use system Python
+if [ -f ".venv/bin/python" ]; then
+    echo "✓ Using .venv (Python 3.11)"
+    ALLOW_NETWORK_ACCESS=1 .venv/bin/python app.py
+elif [ -f "venv/bin/python" ]; then
+    echo "✓ Using venv"
+    ALLOW_NETWORK_ACCESS=1 venv/bin/python app.py
+else
+    echo "⚠️  No virtual environment found, using system Python"
+    ALLOW_NETWORK_ACCESS=1 python3 app.py
+fi
 

@@ -31,7 +31,7 @@ from blueprints.class_management.models import (
     CourseOutline,
 )
 from blueprints.student_management.models import Student
-from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration
+from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive
 from blueprints.remuneration_management.models import RemunerationForm
 
 try:
@@ -1876,6 +1876,977 @@ def create_app():
             db.session.rollback()
             current_app.logger.error(f'Error restoring committee: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error restoring committee: {str(e)}'}), 500
+
+    @app.route('/head/session-archive')
+    @login_required
+    def head_session_archive():
+        """Session Archive - Archive and restore complete academic sessions"""
+        roles = parse_roles(current_user.role)
+        if 'head' not in roles and 'dean' not in roles:
+            flash('This page is available only for Head or Dean accounts.', 'danger')
+            return redirect(url_for('index'))
+        
+        # Get all archived sessions
+        archived_sessions = SessionArchive.query.order_by(
+            SessionArchive.archived_at.desc()
+        ).all()
+        
+        # Get available sessions to archive (from CurriculumYearTerm)
+        from blueprints.course_management.models import CurriculumYearTerm
+        available_sessions = db.session.query(
+            CurriculumYearTerm.academic_session,
+            CurriculumYearTerm.year,
+            CurriculumYearTerm.term,
+            CurriculumYearTerm.batch
+        ).distinct().filter(
+            CurriculumYearTerm.academic_session.isnot(None)
+        ).order_by(
+            CurriculumYearTerm.academic_session.desc(),
+            CurriculumYearTerm.year.asc(),
+            CurriculumYearTerm.term.asc()
+        ).all()
+        
+        # Group available sessions
+        sessions_to_archive = {}
+        for session_row in available_sessions:
+            key = f"{session_row[0]}|{session_row[1]}|{session_row[2]}"
+            if key not in sessions_to_archive:
+                sessions_to_archive[key] = {
+                    'academic_session': session_row[0],
+                    'year': session_row[1],
+                    'term': session_row[2],
+                    'batches': []
+                }
+            if session_row[3] and session_row[3] not in sessions_to_archive[key]['batches']:
+                sessions_to_archive[key]['batches'].append(session_row[3])
+        
+        sessions_list = list(sessions_to_archive.values())
+        
+        return render_template('head/session_archive.html',
+                             archived_sessions=archived_sessions,
+                             available_sessions=sessions_list)
+
+    @app.route('/head/session-archive/api/archive', methods=['POST'])
+    @login_required
+    def archive_session_api():
+        """Archive a complete academic session with all related data"""
+        roles = parse_roles(current_user.role)
+        if 'head' not in roles and 'dean' not in roles:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        data = request.get_json() or {}
+        academic_session = data.get('academic_session', '').strip()
+        year = data.get('year', '').strip()
+        term = data.get('term', '').strip()
+        description = data.get('description', '').strip()
+        
+        if not academic_session or not year or not term:
+            return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+        
+        try:
+            # Check if already archived
+            existing = SessionArchive.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                is_active=True
+            ).first()
+            
+            if existing:
+                return jsonify({
+                    'success': False,
+                    'message': f'Session {academic_session} - {year} - {term} is already archived.'
+                }), 400
+            
+            # Collect all related data
+            archive_data = {
+                'academic_session': academic_session,
+                'year': year,
+                'term': term,
+                'archived_at': datetime.utcnow().isoformat(),
+                'class_management': {},
+                'result_management': {},
+                'course_registrations': [],
+                'exam_evaluations': {},
+                'academic_calendar': {},
+                'duty_assignments': [],
+                'course_session_assignments': []
+            }
+            
+            # Archive Class Management data
+            try:
+                from blueprints.class_management.models import Session as ClassSession, ClassStudent, ClassAttendance, CourseOutline
+                from blueprints.course_management.models import CourseSessionAssignment
+                
+                # First, find sessions via CourseSessionAssignment (most reliable method)
+                assignments = CourseSessionAssignment.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).all()
+                
+                session_ids_from_assignments = [a.session_id for a in assignments if a.session_id]
+                
+                # Use session_ids from assignments if available (most reliable)
+                if session_ids_from_assignments:
+                    class_sessions = ClassSession.query.filter(
+                        ClassSession.id.in_(session_ids_from_assignments),
+                        ClassSession.archived == False
+                    ).all()
+                    current_app.logger.info(f'Found {len(class_sessions)} sessions via CourseSessionAssignment (session_ids: {session_ids_from_assignments})')
+                    
+                    # Also try direct match for any sessions that might not be in assignments
+                    direct_sessions = ClassSession.query.filter(
+                        ClassSession.academic_session == academic_session,
+                        ClassSession.year == year,
+                        ClassSession.term == term,
+                        ClassSession.archived == False
+                    ).all()
+                    
+                    # Add any direct matches that weren't in assignments
+                    assignment_ids = set(session_ids_from_assignments)
+                    additional_sessions = [s for s in direct_sessions if s.id not in assignment_ids]
+                    if additional_sessions:
+                        class_sessions.extend(additional_sessions)
+                        current_app.logger.info(f'Added {len(additional_sessions)} additional sessions from direct match')
+                else:
+                    # Fallback: use direct match if no assignments found
+                    class_sessions = ClassSession.query.filter(
+                        ClassSession.academic_session == academic_session,
+                        ClassSession.year == year,
+                        ClassSession.term == term,
+                        ClassSession.archived == False
+                    ).all()
+                    current_app.logger.info(f'No CourseSessionAssignments found, using direct match: found {len(class_sessions)} sessions')
+                
+                archive_data['class_management'] = {
+                    'sessions': []
+                }
+                
+                current_app.logger.info(f'Found {len(class_sessions)} class sessions to archive for {academic_session} - {year} - {term}')
+                
+                for s in class_sessions:
+                    try:
+                        outline = CourseOutline.query.filter_by(session_id=s.id).first()
+                        # Collect detailed student data with assessment marks
+                        students_data = []
+                        for cs in s.students:
+                            student_dict = {
+                                'student_id': cs.student_id,
+                                'name': cs.name,
+                                'added_at': cs.added_at.isoformat() if cs.added_at else None,
+                                # Assessment marks
+                                'assessment1': cs.assessment1,
+                                'assessment2': cs.assessment2,
+                                'assessment3': cs.assessment3,
+                                'assessment4': cs.assessment4,
+                                'assessment_total': cs.assessment_total,
+                                'assessment_avg': cs.assessment_avg,
+                                'assessment_total_40': cs.assessment_total_40,
+                                'sessional_report': cs.sessional_report,
+                                'sessional_viva': cs.sessional_viva,
+                                'assessment_absent': cs.assessment_absent  # JSON string
+                            }
+                            students_data.append(student_dict)
+                        
+                        # Collect detailed attendance data
+                        attendances_data = []
+                        for ca in s.attendances:
+                            attendance_dict = {
+                                'student_id': ca.student_id,
+                                'date': ca.date.isoformat() if ca.date else None,
+                                'status': ca.status,
+                                'remark': ca.remark if hasattr(ca, 'remark') else None
+                            }
+                            attendances_data.append(attendance_dict)
+                        
+                        session_data = {
+                            'id': s.id,
+                            'course_code': s.course_code,
+                            'course_name': s.course_name,
+                            'teacher_id': s.teacher_id,
+                            'course_type': s.course_type,
+                            'category': s.category,
+                            'course_scope': s.course_scope,
+                            'created_at': s.created_at.isoformat() if s.created_at else None,
+                            'students': students_data,
+                            'attendances': attendances_data,
+                            'course_outline': None,
+                            'assessment_revealed': s.assessment_revealed  # JSON string for reveal status
+                        }
+                        
+                        if outline:
+                            session_data['course_outline'] = {
+                                'teacher_id': outline.teacher_id,
+                                'course_objectives': outline.course_objectives,
+                                'course_summary': outline.course_summary,
+                                'lesson_plan': outline.lesson_plan,
+                                'created_at': outline.created_at.isoformat() if outline.created_at else None
+                            }
+                        
+                        archive_data['class_management']['sessions'].append(session_data)
+                        
+                        # Mark session as archived (remove from live view)
+                        s.archived = True
+                        current_app.logger.debug(f'Marked session {s.id} ({s.course_name}) as archived')
+                    except Exception as session_error:
+                        current_app.logger.error(f'Error archiving individual session {s.id}: {session_error}', exc_info=True)
+                        # Continue with other sessions even if one fails
+                        continue
+                
+                # Ensure all archived flags are persisted
+                db.session.flush()
+                current_app.logger.info(f'Marked {len(class_sessions)} class sessions as archived (flushed to DB)')
+                
+            except Exception as e:
+                current_app.logger.error(f'Error archiving class management data: {e}', exc_info=True)
+                # Don't re-raise - allow other archive operations to continue
+            
+            # Archive Result Management data
+            try:
+                from blueprints.result_management.models import RSession, RStudent, RSubject, RMark
+                
+                result_sessions = RSession.query.filter_by(
+                    name=academic_session,
+                    year=year,
+                    term=term
+                ).filter_by(is_archived=False).all()
+                
+                archive_data['result_management'] = {
+                    'sessions': []
+                }
+                
+                for rs in result_sessions:
+                    # Get marks for this session
+                    marks_list = []
+                    for student in rs.students:
+                        for subject in rs.subjects:
+                            mark = RMark.query.filter_by(
+                                student_id=student.id,
+                                subject_id=subject.id
+                            ).first()
+                            if mark:
+                                marks_list.append({
+                                    'student_id': student.id,
+                                    'subject_id': subject.id,
+                                    'marks': mark.marks,
+                                    'grade': mark.grade
+                                })
+                    
+                    session_data = {
+                        'id': rs.id,
+                        'batch': rs.batch,
+                        'curriculum_id': rs.curriculum_id,
+                        'students': [{'id': s.id, 'student_id': s.student_id, 'name': s.name} for s in rs.students],
+                        'subjects': [{'id': sub.id, 'code': sub.code, 'name': sub.name, 'credit': sub.credit} for sub in rs.subjects],
+                        'marks': marks_list
+                    }
+                    archive_data['result_management']['sessions'].append(session_data)
+                    
+                    # Mark result session as archived (remove from live view)
+                    rs.is_archived = True
+                
+                # Ensure all archived flags are persisted
+                if result_sessions:
+                    db.session.flush()
+                    current_app.logger.info(f'Marked {len(result_sessions)} result sessions as archived (flushed to DB)')
+                    
+            except Exception as e:
+                current_app.logger.error(f'Error archiving result management data: {e}', exc_info=True)
+            
+            # Archive Course Registrations
+            try:
+                registrations = StudentCourseRegistration.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).filter(StudentCourseRegistration.status != 'archived').all()
+                
+                archive_data['course_registrations'] = []
+                for reg in registrations:
+                    archive_data['course_registrations'].append({
+                        'id': reg.id,
+                        'student_id': reg.student_id,
+                        'course_id': reg.course_id,
+                        'course_code': reg.course_code,
+                        'course_name': reg.course_name,
+                        'credit': reg.credit,
+                        'course_type': reg.course_type,
+                        'nature': reg.nature,
+                        'remark': reg.remark,
+                        'carry_on': reg.carry_on,
+                        'status': reg.status,
+                        'registered_by': reg.registered_by,
+                        'created_at': reg.created_at.isoformat() if reg.created_at else None
+                    })
+                    # Mark registration as archived (remove from live view)
+                    reg.status = 'archived'
+                
+                # Ensure all archived flags are persisted
+                if registrations:
+                    db.session.flush()
+                    current_app.logger.info(f'Marked {len(registrations)} course registrations as archived (flushed to DB)')
+                    
+            except Exception as e:
+                current_app.logger.error(f'Error archiving course registrations: {e}', exc_info=True)
+            
+            # Archive Duty Assignments
+            try:
+                duty_assignments = DutyAssignment.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).filter(DutyAssignment.status != 'archived').all()
+                
+                archive_data['duty_assignments'] = []
+                for da in duty_assignments:
+                    archive_data['duty_assignments'].append({
+                        'id': da.id,
+                        'course_id': da.course_id,
+                        'course_code': da.course_code,
+                        'course_name': da.course_name,
+                        'batch': da.batch,
+                        'duty_type': da.duty_type,
+                        'assigned_teacher_id': da.assigned_teacher_id,
+                        'student_id': da.student_id,
+                        'remarks': da.remarks,
+                        'status': da.status,
+                        'created_at': da.created_at.isoformat() if da.created_at else None
+                    })
+                    # Mark duty assignment as archived (remove from live view)
+                    da.status = 'archived'
+                
+                # Ensure all archived flags are persisted
+                if duty_assignments:
+                    db.session.flush()
+                    current_app.logger.info(f'Marked {len(duty_assignments)} duty assignments as archived (flushed to DB)')
+                    
+            except Exception as e:
+                current_app.logger.error(f'Error archiving duty assignments: {e}', exc_info=True)
+            
+            # Archive Course Session Assignments (store data but keep assignments - they're needed for reference)
+            try:
+                from blueprints.course_management.models import CourseSessionAssignment
+                course_assignments = CourseSessionAssignment.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).all()
+                
+                archive_data['course_session_assignments'] = [{
+                    'id': ca.id,
+                    'course_id': ca.course_id,
+                    'curriculum_id': ca.curriculum_id,
+                    'teacher_id': ca.teacher_id,
+                    'section': ca.section,
+                    'batch': ca.batch,
+                    'session_created': ca.session_created,
+                    'session_id': ca.session_id,
+                    'created_at': ca.created_at.isoformat() if ca.created_at else None
+                } for ca in course_assignments]
+                # Note: CourseSessionAssignments are kept as reference, not marked as archived
+            except Exception as e:
+                current_app.logger.warning(f'Error archiving course session assignments: {e}')
+            
+            # Archive Exam Paper Evaluations
+            try:
+                from blueprints.class_management.models import ExamPaperEvaluation
+                exam_entries = ExamPaperEvaluation.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).filter_by(archived=False).all()
+                
+                archive_data['exam_evaluations'] = [{
+                    'id': ee.id,
+                    'course_code': ee.course_code,
+                    'course_name': ee.course_name,
+                    'batch': ee.batch,
+                    'section': ee.section,
+                    'program_level': ee.program_level,
+                    'marks_data': ee.marks_data,
+                    'owner_teacher_id': ee.owner_teacher_id,
+                    'assigned_scrutinizer_id': ee.assigned_scrutinizer_id,
+                    'submitted_to_committee': ee.submitted_to_committee,
+                    'created_at': ee.created_at.isoformat() if ee.created_at else None
+                } for ee in exam_entries]
+                
+                # Mark exam evaluations as archived (remove from live view)
+                for ee in exam_entries:
+                    ee.archived = True
+                
+                # Ensure all archived flags are persisted
+                if exam_entries:
+                    db.session.flush()
+                    current_app.logger.info(f'Marked {len(exam_entries)} exam paper evaluations as archived (flushed to DB)')
+                    
+            except Exception as e:
+                current_app.logger.error(f'Error archiving exam paper evaluations: {e}', exc_info=True)
+            
+            # Archive Academic Calendar Events
+            try:
+                from blueprints.academic_calendar.models import AcademicCalendarEvent
+                calendar_events = AcademicCalendarEvent.query.filter_by(
+                    academic_session=academic_session
+                ).all()
+                
+                archive_data['academic_calendar'] = {
+                    'events': [{
+                        'id': ev.id,
+                        'title': ev.title,
+                        'description': ev.description,
+                        'event_date': ev.event_date.isoformat() if ev.event_date else None,
+                        'event_type': ev.event_type,
+                        'created_at': ev.created_at.isoformat() if ev.created_at else None
+                    } for ev in calendar_events]
+                }
+                # Note: Calendar events are kept for historical reference, typically not hidden
+            except Exception as e:
+                current_app.logger.error(f'Error archiving academic calendar events: {e}', exc_info=True)
+            
+            # Archive Routine/Schedules
+            try:
+                from blueprints.routine_management.models import Routine
+                routines = Routine.query.filter_by(
+                    year=year,
+                    term=term
+                ).all()
+                
+                archive_data['routines'] = [{
+                    'id': r.id,
+                    'day': r.day,
+                    'time_slot': r.time_slot,
+                    'room_number': r.room_number,
+                    'course_code': r.course_code,
+                    'teacher_short_name': r.teacher_short_name,
+                    'part': r.part,
+                    'is_shared': r.is_shared,
+                    'shared_with': r.shared_with,
+                    'teacher_id': r.teacher_id,
+                    'year': r.year,
+                    'term': r.term
+                } for r in routines]
+                
+                current_app.logger.info(f'Archived {len(routines)} routine entries for {year} - {term}')
+            except Exception as e:
+                current_app.logger.error(f'Error archiving routines: {e}', exc_info=True)
+            
+            # Archive Remuneration Forms
+            try:
+                from blueprints.remuneration_management.models import RemunerationForm
+                # Find remuneration forms matching the session/year/term
+                # Forms have academic_year (which is the session), year, and term fields
+                remuneration_forms = RemunerationForm.query.filter(
+                    RemunerationForm.academic_year == academic_session,
+                    RemunerationForm.year == year,
+                    RemunerationForm.term == term,
+                    RemunerationForm.status != 'archived'
+                ).all()
+                
+                archive_data['remuneration_forms'] = []
+                for form in remuneration_forms:
+                    form_dict = form.to_dict() if hasattr(form, 'to_dict') else {
+                        'id': form.id,
+                        'user_id': form.user_id,
+                        'status': form.status,
+                        'title': form.title,
+                        'applicant_name': form.applicant_name,
+                        'designation': form.designation,
+                        'year': form.year,
+                        'term': form.term,
+                        'academic_year': form.academic_year,
+                        'total_amount': form.total_amount,
+                        'created_at': form.created_at.isoformat() if form.created_at else None,
+                        'form_data': form.form_data  # JSON string
+                    }
+                    archive_data['remuneration_forms'].append(form_dict)
+                    
+                    # Mark form as archived
+                    form.status = 'archived'
+                    form.archived_at = datetime.utcnow()
+                
+                if remuneration_forms:
+                    db.session.flush()
+                    current_app.logger.info(f'Marked {len(remuneration_forms)} remuneration forms as archived (flushed to DB)')
+                else:
+                    current_app.logger.info(f'No remuneration forms found for {academic_session} - {year} - {term}')
+                    
+            except Exception as e:
+                current_app.logger.error(f'Error archiving remuneration forms: {e}', exc_info=True)
+            
+            # Archive Committee Members, Tabulators, and Scrutinizers (already archived via DutyAssignment, but store for reference)
+            # Note: These are already stored in duty_assignments above, but we add explicit committee info
+            try:
+                # Committee members are stored as DutyAssignment with duty_type='committee_member'
+                committee_assignments = [da for da in archive_data.get('duty_assignments', []) if da.get('duty_type') == 'committee_member']
+                tabulator_assignments = [da for da in archive_data.get('duty_assignments', []) if da.get('duty_type') == 'tabulator']
+                scrutinizer_assignments = [da for da in archive_data.get('duty_assignments', []) if da.get('duty_type') == 'scrutinizer']
+                
+                archive_data['committee_info'] = {
+                    'committee_members': committee_assignments,
+                    'tabulators': tabulator_assignments,
+                    'scrutinizers': scrutinizer_assignments,
+                    'total_committee': len(committee_assignments),
+                    'total_tabulators': len(tabulator_assignments),
+                    'total_scrutinizers': len(scrutinizer_assignments)
+                }
+                
+                current_app.logger.info(f'Archived committee info: {len(committee_assignments)} members, {len(tabulator_assignments)} tabulators, {len(scrutinizer_assignments)} scrutinizers')
+            except Exception as e:
+                current_app.logger.error(f'Error archiving committee info: {e}', exc_info=True)
+            
+            # Create archive record
+            archive = SessionArchive(
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                archive_data=json.dumps(archive_data, default=str),
+                archived_by=current_user.full_name or current_user.username,
+                description=description,
+                is_active=True
+            )
+            
+            db.session.add(archive)
+            
+            # Log before commit for debugging
+            archived_class_sessions_count = len(archive_data.get('class_management', {}).get('sessions', []))
+            archived_result_sessions_count = len(archive_data.get('result_management', {}).get('sessions', []))
+            archived_registrations_count = len(archive_data.get('course_registrations', []))
+            archived_exam_entries_count = len(archive_data.get('exam_evaluations', []))
+            archived_duty_assignments_count = len(archive_data.get('duty_assignments', []))
+            
+            current_app.logger.info(f'Archiving session {academic_session} - {year} - {term}: '
+                                  f'{archived_class_sessions_count} class sessions, '
+                                  f'{archived_result_sessions_count} result sessions, '
+                                  f'{archived_registrations_count} registrations, '
+                                  f'{archived_exam_entries_count} exam entries, '
+                                  f'{archived_duty_assignments_count} duty assignments')
+            
+            db.session.commit()
+            
+            current_app.logger.info(f'Session {academic_session} - {year} - {term} archived successfully. All data marked as archived in database.')
+            
+            return jsonify({
+                'success': True,
+                'message': f'Session {academic_session} - {year} - {term} archived successfully. All related data has been archived and removed from live view.'
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f'Error archiving session: {str(e)}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error archiving session: {str(e)}'}), 500
+
+    @app.route('/head/session-archive/api/delete/<int:archive_id>', methods=['DELETE'])
+    @login_required
+    def delete_archive_api(archive_id):
+        """Delete an archived session"""
+        roles = parse_roles(current_user.role)
+        if 'head' not in roles and 'dean' not in roles:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        try:
+            archive = SessionArchive.query.get(archive_id)
+            if not archive:
+                return jsonify({'success': False, 'message': 'Archive not found'}), 404
+            
+            academic_session = archive.academic_session
+            year = archive.year
+            term = archive.term
+            
+            # Delete the archive record
+            db.session.delete(archive)
+            db.session.commit()
+            
+            current_app.logger.info(f'Archive {archive_id} ({academic_session} - {year} - {term}) deleted by {current_user.full_name or current_user.username}')
+            
+            return jsonify({
+                'success': True,
+                'message': f'Archive for {academic_session} - {year} - {term} has been permanently deleted.'
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f'Error deleting archive: {str(e)}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error deleting archive: {str(e)}'}), 500
+
+    @app.route('/head/session-archive/api/details/<int:archive_id>', methods=['GET'])
+    @login_required
+    def archive_details_api(archive_id):
+        """Get archive details"""
+        roles = parse_roles(current_user.role)
+        if 'head' not in roles and 'dean' not in roles:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        try:
+            archive = SessionArchive.query.get(archive_id)
+            if not archive:
+                return jsonify({'success': False, 'message': 'Archive not found'}), 404
+            
+            # Parse archive data
+            try:
+                archive_data = json.loads(archive.archive_data)
+            except json.JSONDecodeError as e:
+                current_app.logger.error(f'Error parsing archive data: {e}')
+                return jsonify({'success': False, 'message': f'Error parsing archive data: {str(e)}'}), 500
+            
+            # Get all teachers from archived sessions for dropdown
+            teachers_map = {}
+            teachers_list = []
+            teacher_ids = set()
+            
+            # Extract teacher_ids from class management sessions
+            if archive_data.get('class_management') and archive_data['class_management'].get('sessions'):
+                for session in archive_data['class_management']['sessions']:
+                    if session.get('teacher_id'):
+                        teacher_ids.add(session['teacher_id'])
+            
+            # Also extract from exam evaluations
+            if archive_data.get('exam_evaluations'):
+                for ee in archive_data['exam_evaluations']:
+                    if ee.get('owner_teacher_id'):
+                        teacher_ids.add(ee['owner_teacher_id'])
+            
+            # Fetch teacher details (teachers might not exist if database was cleared)
+            from blueprints.class_management.models import Teacher
+            if teacher_ids:
+                try:
+                    teachers = Teacher.query.filter(Teacher.id.in_(teacher_ids)).all()
+                    found_teacher_ids = {t.id for t in teachers}
+                    
+                    for teacher in teachers:
+                        teachers_map[teacher.id] = {
+                            'id': teacher.id,
+                            'name': teacher.name,
+                            'short_name': teacher.short_name,
+                            'designation': teacher.designation or ''
+                        }
+                        teachers_list.append({
+                            'id': teacher.id,
+                            'name': teacher.name,
+                            'short_name': teacher.short_name,
+                            'designation': teacher.designation or ''
+                        })
+                    
+                    # Add placeholder entries for teachers that don't exist in database
+                    for teacher_id in teacher_ids:
+                        if teacher_id not in found_teacher_ids:
+                            teachers_list.append({
+                                'id': teacher_id,
+                                'name': f'Teacher ID {teacher_id}',
+                                'short_name': f'T{teacher_id}',
+                                'designation': ''
+                            })
+                except Exception as teacher_error:
+                    current_app.logger.warning(f'Error fetching teachers: {teacher_error}')
+                    # If teachers query fails, create placeholder entries from teacher_ids
+                    for teacher_id in teacher_ids:
+                        teachers_list.append({
+                            'id': teacher_id,
+                            'name': f'Teacher ID {teacher_id}',
+                            'short_name': f'T{teacher_id}',
+                            'designation': ''
+                        })
+            
+            return jsonify({
+                'success': True,
+                'archive_data': archive_data,
+                'teachers': teachers_list,
+                'metadata': {
+                    'archived_by': archive.archived_by,
+                    'archived_at': archive.archived_at.isoformat() if archive.archived_at else None,
+                    'restored_at': archive.restored_at.isoformat() if archive.restored_at else None,
+                    'restored_by': archive.restored_by,
+                    'description': archive.description
+                }
+            })
+            
+        except Exception as e:
+            current_app.logger.error(f'Error getting archive details: {str(e)}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error loading archive details: {str(e)}'}), 500
+
+    @app.route('/head/session-archive/api/restore', methods=['POST'])
+    @login_required
+    def restore_session_api():
+        """Restore an archived session (safely archives current session first)"""
+        roles = parse_roles(current_user.role)
+        if 'head' not in roles and 'dean' not in roles:
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        data = request.get_json() or {}
+        archive_id = data.get('archive_id')
+        
+        if not archive_id:
+            return jsonify({'success': False, 'message': 'Archive ID is required'}), 400
+        
+        try:
+            archive = SessionArchive.query.get(archive_id)
+            if not archive:
+                return jsonify({'success': False, 'message': 'Archive not found'}), 404
+            
+            if not archive.is_active:
+                return jsonify({'success': False, 'message': 'This archive has already been restored'}), 400
+            
+            academic_session = archive.academic_session
+            year = archive.year
+            term = archive.term
+            
+            # Step 1: Archive current active session data to prevent data loss
+            current_app.logger.info(f'Step 1: Archiving current active session before restoring: {academic_session} - {year} - {term}')
+            
+            # Check if there's any active data for this session/year/term
+            from blueprints.class_management.models import Session as ClassSession
+            active_class_sessions = ClassSession.query.filter(
+                ClassSession.academic_session == academic_session,
+                ClassSession.year == year,
+                ClassSession.term == term,
+                ClassSession.archived == False
+            ).all()
+            
+            if active_class_sessions:
+                # Archive current active session automatically
+                current_app.logger.info(f'Found {len(active_class_sessions)} active class sessions. Archiving them first...')
+                
+                # Create a backup archive for current active data
+                current_archive_data = {
+                    'academic_session': academic_session,
+                    'year': year,
+                    'term': term,
+                    'class_management': {'sessions': []},
+                    'note': 'Auto-archived before restore operation'
+                }
+                
+                # Archive current class sessions
+                for s in active_class_sessions:
+                    s.archived = True
+                    current_app.logger.info(f'Marked active session {s.id} ({s.course_name}) as archived before restore')
+                
+                # Create backup archive record
+                backup_archive = SessionArchive(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term,
+                    archive_data=json.dumps(current_archive_data, default=str),
+                    archived_by=current_user.full_name or current_user.username,
+                    description=f'Auto-archived before restoring archive #{archive_id}',
+                    is_active=True
+                )
+                db.session.add(backup_archive)
+                db.session.flush()
+                current_app.logger.info(f'Created backup archive {backup_archive.id} for current active data')
+            
+            # Step 2: Parse archive data
+            archive_data = json.loads(archive.archive_data)
+            current_app.logger.info(f'Step 2: Parsed archive data for restoration')
+            
+            # Step 3: Restore Class Management data
+            restored_count = 0
+            try:
+                from blueprints.class_management.models import Session as ClassSession, ClassStudent, ClassAttendance, CourseOutline
+                
+                if archive_data.get('class_management') and archive_data['class_management'].get('sessions'):
+                    for session_data in archive_data['class_management']['sessions']:
+                        try:
+                            # Check if session already exists (by ID)
+                            existing_session = ClassSession.query.get(session_data.get('id'))
+                            
+                            if existing_session:
+                                # Update existing session (unarchive it)
+                                existing_session.archived = False
+                                current_app.logger.info(f'Unarchived existing session {existing_session.id} ({existing_session.course_name})')
+                                
+                                # Restore students
+                                if session_data.get('students'):
+                                    for student_data in session_data['students']:
+                                        student = ClassStudent.query.filter_by(
+                                            session_id=existing_session.id,
+                                            student_id=student_data.get('student_id')
+                                        ).first()
+                                        
+                                        if not student:
+                                            # Create new student record
+                                            student = ClassStudent(
+                                                student_id=student_data.get('student_id'),
+                                                name=student_data.get('name', ''),
+                                                session_id=existing_session.id,
+                                                teacher_id=existing_session.teacher_id
+                                            )
+                                            db.session.add(student)
+                                        
+                                        # Restore assessment marks
+                                        if student_data.get('assessment1') is not None:
+                                            student.assessment1 = student_data.get('assessment1')
+                                        if student_data.get('assessment2') is not None:
+                                            student.assessment2 = student_data.get('assessment2')
+                                        if student_data.get('assessment3') is not None:
+                                            student.assessment3 = student_data.get('assessment3')
+                                        if student_data.get('assessment4') is not None:
+                                            student.assessment4 = student_data.get('assessment4')
+                                        if student_data.get('assessment_total') is not None:
+                                            student.assessment_total = student_data.get('assessment_total')
+                                        if student_data.get('assessment_avg') is not None:
+                                            student.assessment_avg = student_data.get('assessment_avg')
+                                        if student_data.get('assessment_total_40') is not None:
+                                            student.assessment_total_40 = student_data.get('assessment_total_40')
+                                        if student_data.get('sessional_report') is not None:
+                                            student.sessional_report = student_data.get('sessional_report')
+                                        if student_data.get('sessional_viva') is not None:
+                                            student.sessional_viva = student_data.get('sessional_viva')
+                                        if student_data.get('assessment_absent'):
+                                            student.assessment_absent = student_data.get('assessment_absent')
+                                
+                                # Restore attendances
+                                if session_data.get('attendances'):
+                                    for att_data in session_data['attendances']:
+                                        # Check if attendance already exists
+                                        if att_data.get('date'):
+                                            try:
+                                                try:
+                                                    att_date = datetime.fromisoformat(att_data['date'].replace('Z', '+00:00'))
+                                                except:
+                                                    try:
+                                                        att_date = datetime.strptime(att_data['date'], '%Y-%m-%d')
+                                                    except:
+                                                        att_date = None
+                                                
+                                                if att_date:
+                                                    attendance = ClassAttendance.query.filter_by(
+                                                        session_id=existing_session.id,
+                                                        student_id=att_data.get('student_id'),
+                                                        date=att_date.date() if hasattr(att_date, 'date') else att_date
+                                                    ).first()
+                                                    
+                                                    if not attendance:
+                                                        attendance = ClassAttendance(
+                                                            session_id=existing_session.id,
+                                                            student_id=att_data.get('student_id'),
+                                                            date=att_date.date() if hasattr(att_date, 'date') else att_date,
+                                                            status=att_data.get('status', 'present'),
+                                                            teacher_id=existing_session.teacher_id
+                                                        )
+                                                        if att_data.get('remark'):
+                                                            attendance.remark = att_data.get('remark')
+                                                        db.session.add(attendance)
+                                            except Exception as att_error:
+                                                current_app.logger.warning(f'Error restoring attendance: {att_error}')
+                                
+                                # Restore course outline
+                                if session_data.get('course_outline'):
+                                    outline = CourseOutline.query.filter_by(session_id=existing_session.id).first()
+                                    if not outline:
+                                        outline = CourseOutline(
+                                            session_id=existing_session.id,
+                                            teacher_id=session_data['course_outline'].get('teacher_id', existing_session.teacher_id)
+                                        )
+                                        db.session.add(outline)
+                                    
+                                    outline.course_objectives = session_data['course_outline'].get('course_objectives')
+                                    outline.course_summary = session_data['course_outline'].get('course_summary')
+                                    outline.lesson_plan = session_data['course_outline'].get('lesson_plan')
+                                
+                                # Restore assessment_revealed status
+                                if session_data.get('assessment_revealed'):
+                                    existing_session.assessment_revealed = session_data.get('assessment_revealed')
+                                
+                                restored_count += 1
+                        except Exception as session_error:
+                            current_app.logger.error(f'Error restoring session {session_data.get("id")}: {session_error}', exc_info=True)
+                            continue
+                
+                db.session.flush()
+                current_app.logger.info(f'Step 3: Restored {restored_count} class sessions')
+            except Exception as e:
+                current_app.logger.error(f'Error restoring class management data: {e}', exc_info=True)
+            
+            # Step 4: Restore Result Management data
+            try:
+                from blueprints.result_management.models import RSession, RStudent, RSubject, RMark
+                
+                if archive_data.get('result_management') and archive_data['result_management'].get('sessions'):
+                    for rs_data in archive_data['result_management']['sessions']:
+                        try:
+                            existing_rsession = RSession.query.get(rs_data.get('id'))
+                            if existing_rsession:
+                                existing_rsession.is_archived = False
+                                # Restore marks if needed
+                                if rs_data.get('marks'):
+                                    for mark_data in rs_data['marks']:
+                                        mark = RMark.query.filter_by(
+                                            student_id=mark_data.get('student_id'),
+                                            subject_id=mark_data.get('subject_id')
+                                        ).first()
+                                        if mark:
+                                            mark.marks = mark_data.get('marks')
+                                            mark.grade = mark_data.get('grade')
+                        except Exception as rs_error:
+                            current_app.logger.error(f'Error restoring result session {rs_data.get("id")}: {rs_error}', exc_info=True)
+                            continue
+                
+                db.session.flush()
+                current_app.logger.info(f'Step 4: Restored result management data')
+            except Exception as e:
+                current_app.logger.error(f'Error restoring result management data: {e}', exc_info=True)
+            
+            # Step 5: Restore Course Registrations
+            try:
+                if archive_data.get('course_registrations'):
+                    for reg_data in archive_data['course_registrations']:
+                        reg = StudentCourseRegistration.query.get(reg_data.get('id'))
+                        if reg:
+                            reg.status = 'active'  # Unarchive
+            except Exception as e:
+                current_app.logger.error(f'Error restoring course registrations: {e}', exc_info=True)
+            
+            # Step 6: Restore Exam Paper Evaluations
+            try:
+                from blueprints.class_management.models import ExamPaperEvaluation
+                if archive_data.get('exam_evaluations'):
+                    for ee_data in archive_data['exam_evaluations']:
+                        ee = ExamPaperEvaluation.query.get(ee_data.get('id'))
+                        if ee:
+                            ee.archived = False
+            except Exception as e:
+                current_app.logger.error(f'Error restoring exam evaluations: {e}', exc_info=True)
+            
+            # Step 7: Restore Duty Assignments
+            try:
+                if archive_data.get('duty_assignments'):
+                    for da_data in archive_data['duty_assignments']:
+                        da = DutyAssignment.query.get(da_data.get('id'))
+                        if da:
+                            da.status = 'active'  # Unarchive
+            except Exception as e:
+                current_app.logger.error(f'Error restoring duty assignments: {e}', exc_info=True)
+            
+            # Step 8: Restore Remuneration Forms
+            try:
+                from blueprints.remuneration_management.models import RemunerationForm
+                if archive_data.get('remuneration_forms'):
+                    for form_data in archive_data['remuneration_forms']:
+                        form = RemunerationForm.query.get(form_data.get('id'))
+                        if form:
+                            form.status = 'draft'  # Unarchive
+                            form.archived_at = None
+            except Exception as e:
+                current_app.logger.error(f'Error restoring remuneration forms: {e}', exc_info=True)
+            
+            # Step 9: Mark archive as restored
+            archive.is_active = False
+            archive.restored_at = datetime.utcnow()
+            archive.restored_by = current_user.full_name or current_user.username
+            
+            db.session.commit()
+            
+            current_app.logger.info(f'Session {academic_session} - {year} - {term} restored successfully. Restored {restored_count} class sessions.')
+            
+            return jsonify({
+                'success': True,
+                'message': f'Session {academic_session} - {year} - {term} restored successfully. {restored_count} class sessions restored. Current active data was automatically archived for safety.'
+            })
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f'Error restoring session: {str(e)}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error restoring session: {str(e)}'}), 500
 
     @app.route('/head/assign-duties')
     @login_required
@@ -4069,6 +5040,8 @@ def create_app():
             form_entry.academic_year = session if session else ''
             form_entry.year = year if year else ''
             form_entry.term = term if term else ''
+            form_entry.exam_start_date = data.get('exam_start_date', '')
+            form_entry.exam_end_date = data.get('exam_end_date', '')
             
             # Calculate total amount if provided
             total_amount_str = data.get('total_amount', '0') or '0'
@@ -4252,6 +5225,8 @@ def create_app():
             form_entry.academic_year = session or ''
             form_entry.year = year or ''
             form_entry.term = term or ''
+            form_entry.exam_start_date = data.get('exam_start_date', '')
+            form_entry.exam_end_date = data.get('exam_end_date', '')
             
             # Total amount
             total_amount_str = data.get('total_amount', '0') or '0'
@@ -4362,6 +5337,11 @@ def create_app():
                 try:
                     saved_data = json.loads(form_entry.form_data)
                     saved_data['form_id'] = form_entry.id
+                    # Merge exam dates from database fields (in case they're not in JSON)
+                    if form_entry.exam_start_date:
+                        saved_data['exam_start_date'] = form_entry.exam_start_date
+                    if form_entry.exam_end_date:
+                        saved_data['exam_end_date'] = form_entry.exam_end_date
                     return jsonify({'success': True, 'data': saved_data})
                 except Exception as e:
                     current_app.logger.error(f'Error parsing form_data JSON: {str(e)}')
@@ -4463,6 +5443,11 @@ def create_app():
             try:
                 saved_data = json.loads(form_entry.form_data)
                 saved_data['form_id'] = form_entry.id
+                # Include exam dates from database fields (in case they're not in JSON)
+                if form_entry.exam_start_date:
+                    saved_data['exam_start_date'] = form_entry.exam_start_date
+                if form_entry.exam_end_date:
+                    saved_data['exam_end_date'] = form_entry.exam_end_date
                 return jsonify({
                     'success': True,
                     'data': saved_data,
@@ -7340,8 +8325,49 @@ def create_app():
                 if rate_val == 'custom':
                     rate_val = get_val(f'rate_custom_{idx}')
                 
-                # For row 4, show calculation process (student_count × multiplier = product)
+                # Initialize rate display (default to rate_val)
+                rate_val_display = rate_val
+                
+                # For row 3, show simplified quantity (sum of individual quantities like "33+1")
                 quantity_display = get_val(f'quantity_{idx}')
+                if idx == 3:
+                    # Get breakdown from form data (sent from frontend)
+                    breakdown_text = request.form.get('row3_breakdown', '').strip()
+                    if breakdown_text:
+                        # Extract individual quantities from breakdown text
+                        # Format: "042 A: 33 × 100 = 3300" or "042 B: 1 × 100 = 100 < 600 → 600"
+                        import re
+                        # Extract numbers before "×" (these are the quantities)
+                        quantities = re.findall(r':\s*(\d+)\s*×', breakdown_text)
+                        if quantities:
+                            # Show as sum format: "33+1" or just the sum "34"
+                            quantity_display = '+'.join(quantities)
+                        else:
+                            # Fallback: use total quantity
+                            quantity_display = get_val(f'quantity_{idx}') or '0'
+                    else:
+                        # Fallback: show total quantity if breakdown not available
+                        quantity_display = get_val(f'quantity_{idx}') or '0'
+                    
+                    # For rate, check if rate display shows multiple rates
+                    rate_display_text = request.form.get('rate_display_3_text', '').strip()
+                    if rate_display_text:
+                        # Use the rate display text which shows all rates (e.g., "100, 600")
+                        rate_val_display = rate_display_text.replace('৳', '').strip()
+                    else:
+                        # Extract unique rates from breakdown if available
+                        courses = request.form.getlist(f'course_no_{idx}[]')
+                        sections = request.form.getlist(f'section_{idx}[]')
+                        if courses and sections:
+                            # Try to determine rates from breakdown text
+                            # If breakdown shows "100" and "600", show both
+                            if '600' in breakdown_text or '→ 600' in breakdown_text:
+                                # Check if there are courses with different rates
+                                rate_val_display = '100, 600'  # Show both rates
+                            else:
+                                rate_val_display = rate_val
+                
+                # For row 4, show calculation process (student_count × multiplier = product)
                 if idx == 4:
                     student_count = get_val('student_count_4')
                     section_multiplier = get_val('section_multiplier_4')
@@ -7386,6 +8412,14 @@ def create_app():
                         courses_val = get_val('course_custom_16') or ''  # Row 16 uses custom text input
                     else:
                         courses_val = get_course_sections(str(idx))
+                        # For row 1 (প্রশ্নপত্র প্রণয়ন), row 2 (প্রশ্নপত্র মডারেশন), 
+                        # row 5 (সেশনাল), and row 6 (সেশনাল মৌখিক পরীক্ষা), remove "(Full)" part
+                        if idx in [1, 2, 5, 6] and courses_val:
+                            # Remove "(Full)" from all course entries
+                            courses_val = courses_val.replace(' (Full)', '').replace(' (full)', '')
+                    
+                    # Use rate_val_display for Row 3 if it was set, otherwise use rate_val
+                    final_rate_val = rate_val_display if idx == 3 and 'rate_val_display' in locals() else rate_val
                     
                     jobs_data.append({
                         'serial': str(serial),
@@ -7393,7 +8427,7 @@ def create_app():
                         'courses': courses_val,
                         'quantity': quantity_display,
                         'paper_type': get_val(f'paper_type_{idx}'),
-                        'rate': rate_val,
+                        'rate': rate_val_display,
                         'amount': get_val(f'amount_{idx}')
                     })
                 
@@ -7534,11 +8568,11 @@ def create_app():
             # Generate PDF using WeasyPrint
             pdf_buffer = BytesIO()
             
-            # Create CSS for PDF - slightly increased spacing, single page
+            # Create CSS for PDF - Optimized for single page layout
             css_string = """
             @page {
                 size: 8.5in 14in; /* Legal size */
-                margin: 0.18in 0.28in; /* Slightly increased margins */
+                margin: 0.12in 0.2in; /* Optimized margins */
             }
             * {
                 page-break-inside: avoid !important;
@@ -7548,163 +8582,177 @@ def create_app():
             body {
                 margin: 0 !important;
                 padding: 0 !important;
-                font-size: 0.56rem !important; /* Slightly smaller to compensate spacing */
-                line-height: 1.18 !important; /* Slightly more breathing room */
+                font-size: 0.5rem !important;
+                line-height: 1.2 !important;
+            }
+            .pdf-container {
+                width: 100%;
             }
             .rem-wrapper {
                 margin: 0 !important;
                 padding: 0 !important;
             }
             .rem-sheet {
-                padding: 10px 17px !important; /* Slightly increased padding */
+                padding: 6px 12px !important;
                 margin: 0 !important;
                 border: none !important;
                 border-radius: 0 !important;
             }
             .rem-heading {
-                margin-bottom: 0.15rem !important;
-                gap: 0.7rem !important;
+                margin-bottom: 0.1rem !important;
+                gap: 0.5rem !important;
             }
             .rem-heading-logo img {
-                height: 38px !important; /* Larger logo */
+                height: 32px !important;
             }
             .rem-heading-content .text-muted {
-                font-size: 0.62rem !important;
-                margin-bottom: 0.04rem !important;
+                font-size: 0.55rem !important;
+                margin-bottom: 0.02rem !important;
             }
             .rem-heading h4 {
-                font-size: 0.78rem !important;
-                margin-bottom: 0.015rem !important;
+                font-size: 0.68rem !important;
+                margin-bottom: 0.01rem !important;
             }
             .rem-heading-content > div {
-                font-size: 0.72rem !important;
-                margin-bottom: 0.015rem !important;
+                font-size: 0.64rem !important;
+                margin-bottom: 0.01rem !important;
             }
             .rem-heading-content small {
-                font-size: 0.56rem !important;
-                margin-top: 0.04rem !important;
+                font-size: 0.5rem !important;
+                margin-top: 0.02rem !important;
             }
             .voucher-box {
-                padding: 0.12rem 0.35rem 0.015rem 0.35rem !important;
-                font-size: 0.56rem !important;
-                width: 210px !important;
+                padding: 0.08rem 0.25rem 0.01rem 0.25rem !important;
+                font-size: 0.5rem !important;
+                width: 180px !important;
             }
             .voucher-box div {
-                padding: 0.04rem 0 !important;
+                padding: 0.03rem 0 !important;
             }
             .voucher-box span {
-                min-width: 52px !important;
-                font-size: 0.56rem !important;
+                min-width: 50px !important;
+                font-size: 0.54rem !important;
             }
             .voucher-box input {
-                font-size: 0.56rem !important;
-                padding: 0.06rem 0.16rem !important;
+                font-size: 0.54rem !important;
+                padding: 0.05rem 0.14rem !important;
             }
             .meta-grid {
-                margin-top: 0.25rem !important;
-                margin-bottom: 0.25rem !important;
+                margin-top: 0.3rem !important;
+                margin-bottom: 0.3rem !important;
             }
             .meta-grid td {
-                padding: 0.18rem 0.32rem !important;
-                font-size: 0.56rem !important;
+                padding: 0.2rem 0.35rem !important;
+                font-size: 0.5rem !important;
             }
             .meta-label {
-                font-size: 0.56rem !important;
-                width: 142px !important;
+                font-size: 0.5rem !important;
+                width: 125px !important;
             }
             .meta-grid input,
             .meta-grid select {
-                font-size: 0.56rem !important;
-                padding: 0.11rem 0.22rem !important;
+                font-size: 0.5rem !important;
+                padding: 0.08rem 0.18rem !important;
             }
             .rem-table {
-                margin: 0.25rem 0 !important;
-                font-size: 0.51rem !important;
+                margin: 0.45rem 0 !important;
+                font-size: 0.46rem !important;
+                border-collapse: collapse !important;
             }
             .rem-table th,
             .rem-table td {
-                padding: 0.18rem 0.27rem !important;
-                font-size: 0.51rem !important;
-                line-height: 1.12 !important;
+                padding: 0.28rem 0.45rem !important;
+                font-size: 0.46rem !important;
+                line-height: 1.22 !important;
             }
             .rem-table th {
-                padding: 0.22rem 0.27rem !important;
-                font-size: 0.51rem !important;
+                padding: 0.32rem 0.45rem !important;
+                font-size: 0.46rem !important;
+                font-weight: 600 !important;
             }
             .section-title {
-                margin-top: 0.65rem !important;
-                margin-bottom: 0.35rem !important;
-                font-size: 0.71rem !important;
+                margin-top: 0.35rem !important;
+                margin-bottom: 0.2rem !important;
+                font-size: 0.62rem !important;
+            }
+            .section-title.finance {
+                margin-top: 0.6rem !important;
             }
             .signature-box {
-                min-height: 38px !important;
-                padding: 0.22rem !important;
-                font-size: 0.56rem !important;
+                min-height: 30px !important;
+                min-width: 115px !important;
+                padding: 0.2rem !important;
+                font-size: 0.5rem !important;
             }
             .signature-box span {
-                margin-top: 0.55rem !important;
-                padding-top: 0.18rem !important;
+                margin-top: 0.35rem !important;
+                padding-top: 0.12rem !important;
+            }
+            .signature-section {
+                gap: 0.3rem !important;
+                margin-top: 0.3rem !important;
             }
             .controller-signature-section,
             .finance-signature-section,
             .audit-approval-section {
-                margin-top: 0.25rem !important;
-                margin-bottom: 0.28rem !important;
-                gap: 0.25rem !important;
+                margin-top: 0.15rem !important;
+                margin-bottom: 0.18rem !important;
+                gap: 0.3rem !important;
             }
             .controller-signature-box,
             .finance-signature-box,
             .audit-signature-box-single {
-                min-height: 32px !important;
-                padding: 0.17rem 0.16rem !important;
+                min-height: 26px !important;
+                min-width: 115px !important;
+                padding: 0.15rem 0.15rem !important;
             }
             .controller-designation,
             .finance-designation,
             .audit-designation {
-                font-size: 0.51rem !important;
-                margin-bottom: 0.27rem !important;
-                padding-bottom: 0.16rem !important;
+                font-size: 0.49rem !important;
+                margin-bottom: 0.22rem !important;
+                padding-bottom: 0.14rem !important;
             }
             .controller-signature-line,
             .finance-signature-line,
             .audit-signature-line {
-                margin-top: 0.22rem !important;
-                font-size: 0.51rem !important;
+                margin-top: 0.18rem !important;
+                font-size: 0.49rem !important;
             }
             .foot-table {
-                margin: 0.25rem 0 0.18rem 0 !important;
+                margin: 0.35rem 0 0.3rem 0 !important;
             }
             .foot-table td {
-                padding: 0.18rem 0.32rem !important;
-                font-size: 0.56rem !important;
+                padding: 0.2rem 0.35rem !important;
+                font-size: 0.5rem !important;
             }
             .foot-table input {
-                font-size: 0.56rem !important;
-                padding: 0.11rem 0.22rem !important;
+                font-size: 0.5rem !important;
+                padding: 0.13rem 0.25rem !important;
             }
             .info-note,
             .statement-note,
             .finance-release-note,
             .audit-approval-text {
-                font-size: 0.51rem !important;
-                margin: 0.18rem 0 !important;
-                line-height: 1.22 !important;
+                font-size: 0.46rem !important;
+                margin: 0.12rem 0 !important;
+                line-height: 1.2 !important;
             }
             .info-note input,
             .statement-note input {
-                font-size: 0.51rem !important;
-                padding: 0.04rem 0.11rem !important;
+                font-size: 0.46rem !important;
+                padding: 0.03rem 0.08rem !important;
             }
             .bank-declaration {
-                padding: 0.27rem !important;
-                margin-top: 0.25rem !important;
-                font-size: 0.51rem !important;
-                line-height: 1.22 !important;
+                padding: 0.18rem !important;
+                margin-top: 0.15rem !important;
+                font-size: 0.46rem !important;
+                line-height: 1.2 !important;
             }
             .revenue-ticket {
-                width: 26px !important;
-                height: 26px !important;
-                margin-left: 0.35rem !important;
+                width: 24mm !important;
+                height: 24mm !important;
+                margin-left: 0.3rem !important;
             }
             """
             
@@ -7737,14 +8785,40 @@ def create_app():
             # Create HTML object
             html_obj = HTML(string=html_content, base_url=request.url_root)
             
-            # Create CSS object if font CSS exists
-            css_obj = CSS(string=css_string) if css_string else None
+            # Create CSS object
+            css_obj = None
+            if css_string:
+                try:
+                    css_obj = CSS(string=css_string)
+                except Exception as css_error:
+                    current_app.logger.error(f'Error parsing CSS: {str(css_error)}', exc_info=True)
+                    # Fallback: try without CSS or with minimal CSS
+                    css_string = """
+                    @page {
+                        size: 8.5in 14in;
+                        margin: 0.15in 0.25in;
+                    }
+                    * {
+                        page-break-inside: avoid !important;
+                        page-break-after: avoid !important;
+                        page-break-before: avoid !important;
+                    }
+                    """
+                    try:
+                        css_obj = CSS(string=css_string)
+                    except:
+                        css_obj = None
             
             # Write PDF with CSS
-            if css_obj:
-                html_obj.write_pdf(pdf_buffer, stylesheets=[css_obj], presentational_hints=True)
-            else:
-                html_obj.write_pdf(pdf_buffer, presentational_hints=True)
+            try:
+                if css_obj:
+                    html_obj.write_pdf(pdf_buffer, stylesheets=[css_obj], presentational_hints=True)
+                else:
+                    html_obj.write_pdf(pdf_buffer, presentational_hints=True)
+            except Exception as pdf_error:
+                current_app.logger.error(f'Error writing PDF: {str(pdf_error)}', exc_info=True)
+                raise
+            
             pdf_buffer.seek(0)
             
             return send_file(
@@ -7756,7 +8830,11 @@ def create_app():
             
         except Exception as e:
             current_app.logger.error(f'Error generating PDF: {str(e)}', exc_info=True)
-            return jsonify({'error': 'Failed to generate PDF document'}), 500
+            import traceback
+            error_trace = traceback.format_exc()
+            current_app.logger.error(f'Full traceback: {error_trace}')
+            # Return more detailed error for debugging
+            return jsonify({'error': f'Failed to generate PDF document: {str(e)}'}), 500
 
     @app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
     @login_required
@@ -8131,7 +9209,7 @@ if __name__ == '__main__':
             except Exception as e2:
                 print(f"⚠️  Could not determine IP address: {e2}")
                 print("   Server will still run, but network access URL won't be shown")
-                pass
+            pass
         
         print(f"\n{'='*60}")
         print(f"Server running on ALL network interfaces")

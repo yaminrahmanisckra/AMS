@@ -69,7 +69,8 @@ def check_dependencies():
         'reportlab': 'reportlab',
         'python-docx': 'docx',
         'Pillow': 'PIL',
-        'numpy': 'numpy'
+        'numpy': 'numpy',
+        'weasyprint': 'weasyprint'
     }
     
     missing_deps = []

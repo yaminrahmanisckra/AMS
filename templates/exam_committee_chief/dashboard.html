@@ -657,12 +657,17 @@ function removeChief() {
 function updateChiefDisplay() {
     const displayDiv = document.getElementById('chiefDisplay');
     if (selectedChief) {
-        document.getElementById('chiefNameDisplay').textContent = selectedChief.name;
-        document.getElementById('chiefDesignationDisplay').textContent = selectedChief.designation || 'No designation';
-        document.getElementById('chiefInstituteDisplay').textContent = selectedChief.institute || 'Law Discipline, KU';
-        displayDiv.style.display = 'block';
+        const chiefNameDisplay = document.getElementById('chiefNameDisplay');
+        const chiefDesignationDisplay = document.getElementById('chiefDesignationDisplay');
+        const chiefInstituteDisplay = document.getElementById('chiefInstituteDisplay');
+        
+        if (chiefNameDisplay) chiefNameDisplay.textContent = selectedChief.name;
+        if (chiefDesignationDisplay) chiefDesignationDisplay.textContent = selectedChief.designation || 'No designation';
+        if (chiefInstituteDisplay) chiefInstituteDisplay.textContent = selectedChief.institute || 'Law Discipline, KU';
+        
+        if (displayDiv) displayDiv.style.display = 'block';
     } else {
-        displayDiv.style.display = 'none';
+        if (displayDiv) displayDiv.style.display = 'none';
     }
 }
 
@@ -1081,9 +1086,13 @@ function showCommitteeMembersList() {
     const actionsDiv = document.getElementById('committeeCardActions');
     
     // Update saved data display
-    document.getElementById('savedSession').textContent = savedCommitteeData.session || '-';
-    document.getElementById('savedYear').textContent = savedCommitteeData.year || '-';
-    document.getElementById('savedTerm').textContent = savedCommitteeData.term || '-';
+    const savedSessionEl = document.getElementById('savedSession');
+    const savedYearEl = document.getElementById('savedYear');
+    const savedTermEl = document.getElementById('savedTerm');
+    
+    if (savedSessionEl) savedSessionEl.textContent = savedCommitteeData.session || '-';
+    if (savedYearEl) savedYearEl.textContent = savedCommitteeData.year || '-';
+    if (savedTermEl) savedTermEl.textContent = savedCommitteeData.term || '-';
     
     // Show Chief
     let chiefHtml = '';
@@ -1096,9 +1105,15 @@ function showCommitteeMembersList() {
                 <br><small class="text-muted">${designation}, ${institute}</small>
             </div>
         `;
-        document.getElementById('committeeChiefList').innerHTML = `<div class="list-group">${chiefHtml}</div>`;
+        const committeeChiefListEl = document.getElementById('committeeChiefList');
+        if (committeeChiefListEl) {
+            committeeChiefListEl.innerHTML = `<div class="list-group">${chiefHtml}</div>`;
+        }
     } else {
-        document.getElementById('committeeChiefList').innerHTML = '<small class="text-muted">No chief assigned.</small>';
+        const committeeChiefListEl = document.getElementById('committeeChiefList');
+        if (committeeChiefListEl) {
+            committeeChiefListEl.innerHTML = '<small class="text-muted">No chief assigned.</small>';
+        }
     }
     
     // Show Internal Members
@@ -1114,9 +1129,15 @@ function showCommitteeMembersList() {
                 </div>
             `;
         });
-        document.getElementById('savedInternalMembersList').innerHTML = `<div class="list-group">${internalHtml}</div>`;
+        const savedInternalMembersListEl = document.getElementById('savedInternalMembersList');
+        if (savedInternalMembersListEl) {
+            savedInternalMembersListEl.innerHTML = `<div class="list-group">${internalHtml}</div>`;
+        }
     } else {
-        document.getElementById('savedInternalMembersList').innerHTML = '<small class="text-muted">No internal members.</small>';
+        const savedInternalMembersListEl = document.getElementById('savedInternalMembersList');
+        if (savedInternalMembersListEl) {
+            savedInternalMembersListEl.innerHTML = '<small class="text-muted">No internal members.</small>';
+        }
     }
     
     // Show External Members
@@ -1130,17 +1151,25 @@ function showCommitteeMembersList() {
                 </div>
             `;
         });
-        document.getElementById('savedExternalMembersList').innerHTML = `<div class="list-group">${externalHtml}</div>`;
+        const savedExternalMembersListEl = document.getElementById('savedExternalMembersList');
+        if (savedExternalMembersListEl) {
+            savedExternalMembersListEl.innerHTML = `<div class="list-group">${externalHtml}</div>`;
+        }
     } else {
-        document.getElementById('savedExternalMembersList').innerHTML = '<small class="text-muted">No external members.</small>';
+        const savedExternalMembersListEl = document.getElementById('savedExternalMembersList');
+        if (savedExternalMembersListEl) {
+            savedExternalMembersListEl.innerHTML = '<small class="text-muted">No external members.</small>';
+        }
     }
     
     // Show Remarks
+    const savedRemarksTextEl = document.getElementById('savedRemarksText');
+    const savedRemarksEl = document.getElementById('savedRemarks');
     if (savedCommitteeData.remarks) {
-        document.getElementById('savedRemarksText').textContent = savedCommitteeData.remarks;
-        document.getElementById('savedRemarks').style.display = 'block';
+        if (savedRemarksTextEl) savedRemarksTextEl.textContent = savedCommitteeData.remarks;
+        if (savedRemarksEl) savedRemarksEl.style.display = 'block';
     } else {
-        document.getElementById('savedRemarks').style.display = 'none';
+        if (savedRemarksEl) savedRemarksEl.style.display = 'none';
     }
     
     // Show/Hide views

@@ -284,13 +284,24 @@ function loadSavedRegistrations(session, year, term) {
                     nature: course.nature || 'Core',
                     remark: course.remark || 'Regular',
                     carry_on: course.carry_on || false,
-                    registered_by: course.registered_by || 'student'
+                    registered_by: course.registered_by || 'student',
+                    status: course.status || 'pending'  // Include status to check if finalized
                 }));
                 
-                // Check if any registration was created by coordinator/head
-                const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+                // Check if any registration was created by coordinator/head OR finalized by coordinator
+                const hasCoordinatorReg = selectedCourses.some(c => {
+                    // Cannot edit if created by coordinator/head
+                    if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+                        return true;
+                    }
+                    // Cannot edit if finalized (even if registered_by is 'student' - means coordinator finalized it)
+                    if (c.status === 'finalized') {
+                        return true;
+                    }
+                    return false;
+                });
                 if (hasCoordinatorReg) {
-                    showStatus('Some registrations were created by coordinator/head. You can only download these registrations, not edit them.', 'warning');
+                    showStatus('Some registrations are finalized or created by coordinator/head. You can only download these registrations, not edit them.', 'warning');
                 }
                 
                 updateSelectedTable();
@@ -346,8 +357,8 @@ function loadCourses(year, term) {
                                 <option value="Re-retake">Re-retake</option>
                             </select>
                         </td>
-                        <td id="carryOnCell_${course.id}" style="display: none;">
-                            <div class="form-check form-switch">
+                        <td id="carryOnCell_${course.id}">
+                            <div class="form-check form-switch" style="display: none;">
                                 <input class="form-check-input" type="checkbox" id="${carryOnCheckboxId}">
                                 <label class="form-check-label" for="${carryOnCheckboxId}">Carry On</label>
                             </div>
@@ -381,13 +392,16 @@ function updateCarryOnVisibility(courseId) {
     const carryOnCell = document.getElementById(`carryOnCell_${courseId}`);
     if (remarkSelect && carryOnCell) {
         const remark = remarkSelect.value;
-        if (remark === 'Retake' || remark === 'Re-retake') {
-            carryOnCell.style.display = '';
-        } else {
-            carryOnCell.style.display = 'none';
-            const carryOnCheckbox = document.getElementById(`carryOn-${courseId}`);
-            if (carryOnCheckbox) {
-                carryOnCheckbox.checked = false;
+        const carryOnDiv = carryOnCell.querySelector('.form-check');
+        if (carryOnDiv) {
+            if (remark === 'Retake' || remark === 'Re-retake') {
+                carryOnDiv.style.display = '';
+            } else {
+                carryOnDiv.style.display = 'none';
+                const carryOnCheckbox = document.getElementById(`carryOn-${courseId}`);
+                if (carryOnCheckbox) {
+                    carryOnCheckbox.checked = false;
+                }
             }
         }
     }
@@ -407,7 +421,8 @@ function addCourse(id, code, name, credit, type, nature, remark, carryOn = false
         nature: nature,
         remark: remark || 'Regular',
         carry_on: carryOn || false,
-        registered_by: 'student'  // New courses added by student
+        registered_by: 'student',  // New courses added by student
+        status: 'pending'  // New courses are pending by default
     });
     
     updateSelectedTable();
@@ -456,11 +471,21 @@ function updateSelectedTable() {
         return;
     }
     
-    // Check if any registration was created by coordinator/head
-    const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+    // Check if any registration was created by coordinator/head OR finalized
+    const hasCoordinatorReg = selectedCourses.some(c => {
+        // Cannot edit if created by coordinator/head
+        if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+            return true;
+        }
+        // Cannot edit if finalized (even if registered_by is 'student' - means coordinator finalized it)
+        if (c.status === 'finalized') {
+            return true;
+        }
+        return false;
+    });
     
     selectedCard.style.display = 'block';
-    // Disable save and send buttons if coordinator/head registered any course
+    // Disable save and send buttons if coordinator/head registered any course OR if finalized
     saveBtn.disabled = hasCoordinatorReg;
     sendToCoordinatorBtn.disabled = hasCoordinatorReg;
     // Download button is always enabled
@@ -472,7 +497,8 @@ function updateSelectedTable() {
     selectedCourses.forEach((course, index) => {
         const isRetake = course.remark === 'Retake' || course.remark === 'Re-retake';
         const carryOnId = `selectedCarryOn_${course.id || index}`;
-        const isCoordinatorReg = course.registered_by && (course.registered_by === 'coordinator' || course.registered_by === 'head');
+        // Check if cannot edit: created by coordinator/head OR finalized
+        const isCoordinatorReg = (course.registered_by && (course.registered_by === 'coordinator' || course.registered_by === 'head')) || course.status === 'finalized';
         html += `<tr>
             <td>${index + 1}</td>
             <td>${course.course_code}</td>
@@ -535,10 +561,18 @@ saveBtn.addEventListener('click', function() {
         alert('Please select at least one course to save.');
         return;
     }
-    // Check if any registration was created by coordinator/head
-    const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+    // Check if any registration was created by coordinator/head OR finalized
+    const hasCoordinatorReg = selectedCourses.some(c => {
+        if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+            return true;
+        }
+        if (c.status === 'finalized') {
+            return true;
+        }
+        return false;
+    });
     if (hasCoordinatorReg) {
-        alert('Cannot save: Some registrations were created by coordinator/head. You can only download these registrations.');
+        alert('Cannot save: Some registrations are finalized or created by coordinator/head. You can only download these registrations.');
         return;
     }
     saveBtn.disabled = true;
@@ -622,10 +656,18 @@ sendToCoordinatorBtn.addEventListener('click', function() {
         alert('Please select at least one course to send.');
         return;
     }
-    // Check if any registration was created by coordinator/head
-    const hasCoordinatorReg = selectedCourses.some(c => c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head'));
+    // Check if any registration was created by coordinator/head OR finalized
+    const hasCoordinatorReg = selectedCourses.some(c => {
+        if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+            return true;
+        }
+        if (c.status === 'finalized') {
+            return true;
+        }
+        return false;
+    });
     if (hasCoordinatorReg) {
-        alert('Cannot send: Some registrations were created by coordinator/head. You can only download these registrations.');
+        alert('Cannot send: Some registrations are finalized or created by coordinator/head. You can only download these registrations.');
         return;
     }
     

@@ -489,6 +489,17 @@
                 }
             }
             
+            // Check for teaching assistant: ta1, ta2, ta3, etc. (pattern: ta followed by digits)
+            if (/^ta\d+$/.test(usernameValue)) {
+                const taOption = Array.from(roleSelect.options).find(option => 
+                    option.value.toLowerCase() === 'teaching_assistant'
+                );
+                if (taOption) {
+                    roleSelect.value = taOption.value;
+                    return;
+                }
+            }
+            
             // Check if username contains "28" (format: XX28XX) for student
             if (usernameValue.includes('28')) {
                 const studentOptions = Array.from(roleSelect.options).filter(option => {

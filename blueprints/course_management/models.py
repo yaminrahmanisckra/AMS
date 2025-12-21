@@ -268,3 +268,46 @@ class DutyAssignment(db.Model):
         db.Index('idx_duty_course_session', 'course_id', 'academic_session', 'year', 'term', 'duty_type'),
     )
 
+
+class SessionArchive(db.Model):
+    """Model to archive complete academic session data"""
+    __tablename__ = 'session_archive'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    academic_session = db.Column(db.String(50), nullable=False)
+    year = db.Column(db.String(50), nullable=True)
+    term = db.Column(db.String(50), nullable=True)
+    batch = db.Column(db.String(50), nullable=True)
+    
+    # Archive data (JSON format)
+    archive_data = db.Column(db.Text, nullable=False)  # JSON string containing all archived data
+    
+    # Metadata
+    archived_by = db.Column(db.String(100), nullable=True)  # User who archived
+    archived_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    restored_at = db.Column(db.DateTime, nullable=True)
+    restored_by = db.Column(db.String(100), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)  # False if restored
+    
+    # Description/notes
+    description = db.Column(db.String(500), nullable=True)
+    
+    def __repr__(self):
+        return f'<SessionArchive {self.academic_session} - {self.year} - {self.term}>'
+    
+    def to_dict(self):
+        """Convert archive to dictionary"""
+        return {
+            'id': self.id,
+            'academic_session': self.academic_session,
+            'year': self.year,
+            'term': self.term,
+            'batch': self.batch,
+            'archived_by': self.archived_by,
+            'archived_at': self.archived_at.isoformat() if self.archived_at else None,
+            'restored_at': self.restored_at.isoformat() if self.restored_at else None,
+            'restored_by': self.restored_by,
+            'is_active': self.is_active,
+            'description': self.description
+        }
+

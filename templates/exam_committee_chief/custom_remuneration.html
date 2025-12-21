@@ -114,6 +114,17 @@
             </div>
         </div>
         
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label class="form-label">Exam Start Date</label>
+                <input type="date" class="form-control" id="exam_start_date" name="exam_start_date" value="{{ saved_data.exam_start_date if saved_data else '' }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Exam Finish Date</label>
+                <input type="date" class="form-control" id="exam_end_date" name="exam_end_date" value="{{ saved_data.exam_end_date if saved_data else '' }}">
+            </div>
+        </div>
+        
     </div>
     
     <!-- Section 1: Examination Committee -->
@@ -1062,11 +1073,20 @@ function addRow(tableId, columnTypes) {
 
 // Fetch courses based on session, year, term
 async function fetchCourses() {
-    const session = document.getElementById('session_hidden')?.value || document.getElementById('session').value;
-    const year = document.getElementById('year_hidden')?.value || document.getElementById('year').value;
-    const term = document.getElementById('term_hidden')?.value || document.getElementById('term').value;
+    // Try hidden fields first, then visible dropdowns
+    let session = document.getElementById('session_hidden')?.value;
+    let year = document.getElementById('year_hidden')?.value;
+    let term = document.getElementById('term_hidden')?.value;
+    
+    // Fallback to visible dropdowns if hidden fields are empty
+    if (!session) session = document.getElementById('session')?.value;
+    if (!year) year = document.getElementById('year')?.value;
+    if (!term) term = document.getElementById('term')?.value;
+    
+    console.log('🔍 fetchCourses called with:', { session, year, term });
     
     if (!session || !year || !term) {
+        console.warn('⚠️ Cannot fetch courses: missing session/year/term');
         return [];
     }
     
@@ -1258,20 +1278,38 @@ async function handleSessionYearTermChange() {
 // Update only course dropdowns without auto-loading theory courses
 async function updateCourseDropdownsOnly() {
     console.log('🔄 Updating course dropdowns only (edit mode)');
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session').value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year').value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term').value;
+    
+    if (!session || !year || !term) {
+        console.warn('⚠️ Session/Year/Term not set, cannot fetch courses');
+        return;
+    }
+    
+    console.log(`📋 Fetching courses for: Session=${session}, Year=${year}, Term=${term}`);
     const courses = await fetchCourses();
+    console.log(`✅ Fetched ${courses.length} regular courses`);
     const sessionalCourses = await fetchSessionalCourses();
+    console.log(`✅ Fetched ${sessionalCourses.length} sessional courses`);
     
     // Load regular courses into dropdowns (preserve existing selection)
-    document.querySelectorAll('.course-select').forEach(select => {
+    const courseSelects = document.querySelectorAll('.course-select');
+    console.log(`📝 Loading courses into ${courseSelects.length} course dropdowns`);
+    courseSelects.forEach(select => {
         const currentValue = select.value; // Preserve current selection
         loadCoursesIntoSelect(select, courses, currentValue);
     });
     
     // Load sessional courses (preserve existing selection)
-    document.querySelectorAll('.sessional-course-select').forEach(select => {
+    const sessionalSelects = document.querySelectorAll('.sessional-course-select');
+    console.log(`📝 Loading courses into ${sessionalSelects.length} sessional dropdowns`);
+    sessionalSelects.forEach(select => {
         const currentValue = select.value; // Preserve current selection
         loadCoursesIntoSelect(select, sessionalCourses, currentValue);
     });
+    
+    console.log('✅ Course dropdowns updated');
 }
 
 document.getElementById('session')?.addEventListener('change', function() {
@@ -1315,15 +1353,23 @@ async function autoLoadCoursesForTables() {
     // Auto-load Theory courses for Table 2 (Question Preparation) and Table 3 (Script Examination)
     await autoLoadTheoryCoursesForTables(theoryCourses);
     
-    // Load regular courses into dropdowns
+    // Load regular courses into dropdowns (including empty ones)
     document.querySelectorAll('.course-select').forEach(select => {
+        // Only load if dropdown is empty (only has "Select Course" option)
+        if (select.options.length <= 1 || select.value === '') {
         loadCoursesIntoSelect(select, courses);
+        }
     });
     
-    // Load sessional courses
+    // Load sessional courses (including empty ones)
     document.querySelectorAll('.sessional-course-select').forEach(select => {
+        // Only load if dropdown is empty (only has "Select Course" option)
+        if (select.options.length <= 1 || select.value === '') {
         loadCoursesIntoSelect(select, sessionalCourses);
+        }
     });
+    
+    console.log(`✅ Loaded courses into ${document.querySelectorAll('.course-select').length} course dropdowns and ${document.querySelectorAll('.sessional-course-select').length} sessional dropdowns`);
 }
 
 // Auto-load Theory courses for Table 2, 3, 4 - Only Course and Section columns
@@ -2875,7 +2921,16 @@ function addQuestionPreparationRow() {
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
     tbody.appendChild(newRow);
-    autoLoadCoursesForTables();
+    // Load courses into the new row's dropdown
+    setTimeout(async () => {
+        const newSelect = newRow.querySelector('.course-select');
+        if (newSelect) {
+            const courses = await fetchCourses();
+            if (courses.length > 0) {
+                loadCoursesIntoSelect(newSelect, courses);
+            }
+        }
+    }, 100);
 }
 
 function addScriptExaminationRow() {
@@ -2911,7 +2966,16 @@ function addScriptExaminationRow() {
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
     tbody.appendChild(newRow);
-    autoLoadCoursesForTables();
+    // Load courses into the new row's dropdown
+    setTimeout(async () => {
+        const newSelect = newRow.querySelector('.course-select');
+        if (newSelect) {
+            const courses = await fetchCourses();
+            if (courses.length > 0) {
+                loadCoursesIntoSelect(newSelect, courses);
+            }
+        }
+    }, 100);
     updateTableCounts();
 }
 
@@ -2962,7 +3026,7 @@ function addModerationCommitteeRow() {
     tbody.appendChild(newRow);
 }
 
-function addSessionalAssessmentRow() {
+async function addSessionalAssessmentRow() {
     const tbody = document.querySelector('#table_sessional_assessment tbody');
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
@@ -2983,11 +3047,18 @@ function addSessionalAssessmentRow() {
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
     tbody.appendChild(newRow);
-    autoLoadCoursesForTables();
+    
+    // Load sessional courses into the new dropdown
+    const courseSelect = newRow.querySelector('select[name="sessional_assessment_course[]"]');
+    if (courseSelect) {
+        const sessionalCourses = await fetchSessionalCourses();
+        loadCoursesIntoSelect(courseSelect, sessionalCourses);
+    }
+    
     updateTableCounts();
 }
 
-function addSessionalVivaRow() {
+async function addSessionalVivaRow() {
     const tbody = document.querySelector('#table_sessional_viva tbody');
     const newRow = document.createElement('tr');
     newRow.innerHTML = `
@@ -3008,7 +3079,14 @@ function addSessionalVivaRow() {
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
     tbody.appendChild(newRow);
-    autoLoadCoursesForTables();
+    
+    // Load sessional courses into the new dropdown
+    const courseSelect = newRow.querySelector('select[name="sessional_viva_course[]"]');
+    if (courseSelect) {
+        const sessionalCourses = await fetchSessionalCourses();
+        loadCoursesIntoSelect(courseSelect, sessionalCourses);
+    }
+    
     updateTableCounts();
 }
 
@@ -3111,7 +3189,9 @@ function collectFormData() {
         session: document.getElementById('session_hidden').value || document.getElementById('session').value || '',
         year: document.getElementById('year_hidden').value || document.getElementById('year').value || '',
         term: document.getElementById('term_hidden').value || document.getElementById('term').value || '',
-        batch: document.getElementById('batch_hidden').value || document.getElementById('batch').value || ''
+        batch: document.getElementById('batch_hidden').value || document.getElementById('batch').value || '',
+        exam_start_date: document.getElementById('exam_start_date')?.value || '',
+        exam_end_date: document.getElementById('exam_end_date')?.value || ''
     };
     
     // Get form_id if exists
@@ -3331,12 +3411,42 @@ function collectFormData() {
 function populateFormData(data) {
     if (!data) return;
     
+    // Populate exam dates
+    if (data.exam_start_date) {
+        const examStartDateField = document.getElementById('exam_start_date');
+        if (examStartDateField) examStartDateField.value = data.exam_start_date;
+    }
+    if (data.exam_end_date) {
+        const examEndDateField = document.getElementById('exam_end_date');
+        if (examEndDateField) examEndDateField.value = data.exam_end_date;
+    }
+    
     // Populate header fields
     if (data.program) document.getElementById('program').value = data.program;
-    if (data.session) document.getElementById('session').value = data.session;
-    if (data.year) document.getElementById('year').value = data.year;
-    if (data.term) document.getElementById('term').value = data.term;
-    if (data.batch) document.getElementById('batch').value = data.batch;
+    if (data.session) {
+        const sessionField = document.getElementById('session');
+        const sessionHidden = document.getElementById('session_hidden');
+        if (sessionField) sessionField.value = data.session;
+        if (sessionHidden) sessionHidden.value = data.session;
+    }
+    if (data.year) {
+        const yearField = document.getElementById('year');
+        const yearHidden = document.getElementById('year_hidden');
+        if (yearField) yearField.value = data.year;
+        if (yearHidden) yearHidden.value = data.year;
+    }
+    if (data.term) {
+        const termField = document.getElementById('term');
+        const termHidden = document.getElementById('term_hidden');
+        if (termField) termField.value = data.term;
+        if (termHidden) termHidden.value = data.term;
+    }
+    if (data.batch) {
+        const batchField = document.getElementById('batch');
+        const batchHidden = document.getElementById('batch_hidden');
+        if (batchField) batchField.value = data.batch;
+        if (batchHidden) batchHidden.value = data.batch;
+    }
     if (data.form_id) {
         let formIdInput = document.getElementById('form_id');
         if (!formIdInput) {
@@ -3352,15 +3462,202 @@ function populateFormData(data) {
     // After loading header fields, trigger course loading
     setTimeout(async () => {
         console.log('🔄 Starting course loading and data population...');
-        // Load courses into dropdowns (including sessional courses)
-        await updateCourseDropdownsOnly();
-        console.log('✅ Courses loaded into dropdowns, now populating table data...');
+        console.log('📋 Session/Year/Term values:', {
+            session: document.getElementById('session_hidden')?.value || document.getElementById('session')?.value,
+            year: document.getElementById('year_hidden')?.value || document.getElementById('year')?.value,
+            term: document.getElementById('term_hidden')?.value || document.getElementById('term')?.value
+        });
         
-        // Then populate table data (with longer delay to ensure courses are fully loaded)
-        setTimeout(() => {
+        // Retry course loading up to 3 times if needed
+        let coursesLoaded = false;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            console.log(`🔄 Course loading attempt ${attempt}/3...`);
+        await updateCourseDropdownsOnly();
+            
+            // Wait and verify courses are loaded
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            // Verify courses are loaded by checking a dropdown
+            const testSelect = document.querySelector('select[name="question_preparation_course[]"]');
+            if (testSelect) {
+                const optionCount = testSelect.options.length;
+                console.log(`📊 Course dropdown has ${optionCount} options (including "Select Course")`);
+                if (optionCount > 1) {
+                    coursesLoaded = true;
+                    console.log('✅ Courses successfully loaded!');
+                    break;
+                } else {
+                    console.warn(`⚠️ Attempt ${attempt}: Courses not loaded yet (only ${optionCount} options)`);
+                }
+            }
+        }
+        
+        if (!coursesLoaded) {
+            console.error('❌ Failed to load courses after 3 attempts');
+        }
+        
+        console.log('✅ Starting table data population...');
+        // Then populate table data
             populateTableData(data);
-        }, 2500);
     }, 500);
+}
+
+// Helper function to populate script examination course in a row
+function populateScriptCourseInRow(row, item, courseValue) {
+    const courseSelect = row.querySelector('select[name="script_examination_course[]"]');
+    if (!courseSelect) return;
+    
+    const options = Array.from(courseSelect.options);
+    let found = false;
+    const normalizedCourseValue = courseValue.trim().toLowerCase();
+    
+    // Try exact match first
+    for (let opt of options) {
+        if (!opt.value || opt.value === '') continue;
+        if (opt.value === courseValue || opt.value.trim().toLowerCase() === normalizedCourseValue) {
+            courseSelect.value = opt.value;
+            found = true;
+            console.log('✅ Found exact course match (Script):', opt.value);
+            break;
+        }
+    }
+    
+    // Try text match
+    if (!found) {
+        for (let opt of options) {
+            if (!opt.value || opt.value === '') continue;
+            const optText = opt.text.trim().toLowerCase();
+            const optValue = opt.value.trim().toLowerCase();
+            if (optText === normalizedCourseValue || optValue === normalizedCourseValue ||
+                optText.includes(normalizedCourseValue) || normalizedCourseValue.includes(optText) ||
+                optValue.includes(normalizedCourseValue) || normalizedCourseValue.includes(optValue)) {
+                courseSelect.value = opt.value;
+                found = true;
+                console.log('✅ Found course match by text (Script):', opt.value);
+                break;
+            }
+        }
+    }
+    
+    // Try partial match (course code)
+    if (!found && courseValue) {
+        const courseCodeMatch = courseValue.match(/^([A-Z0-9\s]+)/i);
+        if (courseCodeMatch) {
+            const courseCode = courseCodeMatch[1].trim();
+            for (let opt of options) {
+                if (!opt.value || opt.value === '') continue;
+                const optText = opt.text.trim();
+                const optValue = opt.value.trim();
+                if (optValue.includes(courseCode) || optText.includes(courseCode) ||
+                    courseCode.includes(optValue.split(' - ')[0]) || optValue.split(' - ')[0].includes(courseCode)) {
+                    courseSelect.value = opt.value;
+                    found = true;
+                    console.log('✅ Found course match by code (Script):', opt.value);
+                    break;
+                    }
+            }
+        }
+    }
+    
+    // If still not found, add as new option
+    if (!found && courseValue) {
+        const option = document.createElement('option');
+        option.value = courseValue;
+        option.text = courseValue;
+        option.selected = true;
+        courseSelect.appendChild(option);
+        courseSelect.value = courseValue;
+        console.log('✅ Added course as new option (Script):', courseValue);
+    }
+    
+    // Trigger change event
+    if (courseSelect.value && typeof onCourseChange === 'function') {
+        setTimeout(() => {
+            onCourseChange(courseSelect);
+        }, 100);
+    }
+}
+
+// Helper function to populate course in a row
+function populateCourseInRow(row, item, courseValue) {
+                        const courseSelect = row.querySelector('select[name="question_preparation_course[]"]');
+    if (!courseSelect) return;
+    
+                            const options = Array.from(courseSelect.options);
+                            let found = false;
+                            
+    // Normalize course value for matching (remove extra spaces, case insensitive)
+    const normalizedCourseValue = courseValue.trim().toLowerCase();
+    console.log(`🔍 Matching course: "${courseValue}" (normalized: "${normalizedCourseValue}")`);
+    
+    // Try exact match first
+                            for (let opt of options) {
+        if (!opt.value || opt.value === '') continue;
+        if (opt.value === courseValue || opt.value.trim().toLowerCase() === normalizedCourseValue) {
+                                    courseSelect.value = opt.value;
+                                    found = true;
+            console.log('✅ Found exact course match:', opt.value);
+            break;
+        }
+    }
+    
+    // Try text match
+    if (!found) {
+        for (let opt of options) {
+            if (!opt.value || opt.value === '') continue;
+            const optText = opt.text.trim().toLowerCase();
+            const optValue = opt.value.trim().toLowerCase();
+            if (optText === normalizedCourseValue || optValue === normalizedCourseValue ||
+                optText.includes(normalizedCourseValue) || normalizedCourseValue.includes(optText) ||
+                optValue.includes(normalizedCourseValue) || normalizedCourseValue.includes(optValue)) {
+                courseSelect.value = opt.value;
+                found = true;
+                console.log('✅ Found course match by text:', opt.value, 'for saved:', courseValue);
+                                    break;
+                                }
+                            }
+    }
+    
+    // Try partial match (course code)
+    if (!found && courseValue) {
+        // Extract course code (first part before dash or space)
+        const courseCodeMatch = courseValue.match(/^([A-Z0-9\s]+)/i);
+        if (courseCodeMatch) {
+            const courseCode = courseCodeMatch[1].trim();
+            console.log(`🔍 Trying to match by course code: "${courseCode}"`);
+            for (let opt of options) {
+                if (!opt.value || opt.value === '') continue;
+                const optText = opt.text.trim();
+                const optValue = opt.value.trim();
+                if (optValue.includes(courseCode) || optText.includes(courseCode) ||
+                    courseCode.includes(optValue.split(' - ')[0]) || optValue.split(' - ')[0].includes(courseCode)) {
+                    courseSelect.value = opt.value;
+                    found = true;
+                    console.log('✅ Found course match by code:', opt.value, 'for saved:', courseValue);
+                    break;
+                }
+            }
+        }
+    }
+    
+    // If still not found, add as new option
+                            if (!found && courseValue) {
+                                const option = document.createElement('option');
+                                option.value = courseValue;
+                                option.text = courseValue;
+                                option.selected = true;
+                                courseSelect.appendChild(option);
+                                courseSelect.value = courseValue;
+                                console.log('✅ Added course as new option:', courseValue);
+    }
+    
+    // Trigger change event to load course data if course was set
+    if (courseSelect.value && typeof onCourseChange === 'function') {
+        // Use setTimeout to ensure DOM is ready
+        setTimeout(() => {
+                                    onCourseChange(courseSelect);
+        }, 100);
+                            }
 }
 
 // Populate table data - This runs after courses are loaded
@@ -3368,6 +3665,14 @@ function populateTableData(data) {
     console.log('📊 populateTableData called with data:', data);
     if (!data) {
         console.log('⚠️ No data provided to populateTableData');
+        return;
+    }
+    
+    // Verify courses are loaded before proceeding
+    const testSelect = document.querySelector('select[name="question_preparation_course[]"]');
+    if (testSelect && testSelect.options.length <= 1) {
+        console.warn('⚠️ Courses not loaded yet, waiting...');
+        setTimeout(() => populateTableData(data), 1000);
         return;
     }
     
@@ -3400,70 +3705,19 @@ function populateTableData(data) {
                         const courseSelect = row.querySelector('select[name="question_preparation_course[]"]');
                         if (courseSelect && item.course) {
                             const courseValue = item.course;
-                            const options = Array.from(courseSelect.options);
-                            let found = false;
+                            console.log(`🔍 Looking for course: "${courseValue}" in dropdown with ${courseSelect.options.length} options`);
                             
-                            // Normalize course value for matching (remove extra spaces, case insensitive)
-                            const normalizedCourseValue = courseValue.trim().toLowerCase();
-                            
-                            // Try exact match first
-                            for (let opt of options) {
-                                if (opt.value && (opt.value === courseValue || opt.value.trim().toLowerCase() === normalizedCourseValue)) {
-                                    courseSelect.value = opt.value;
-                                    found = true;
-                                    console.log('✅ Found exact course match:', opt.value);
-                                    break;
-                                }
-                            }
-                            
-                            // Try text match
-                            if (!found) {
-                                for (let opt of options) {
-                                    const optText = opt.text.trim().toLowerCase();
-                                    if (optText === normalizedCourseValue || optText.includes(normalizedCourseValue) || normalizedCourseValue.includes(optText)) {
-                                        courseSelect.value = opt.value;
-                                        found = true;
-                                        console.log('✅ Found course match by text:', opt.value, 'for saved:', courseValue);
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            // Try partial match (course code)
-                            if (!found && courseValue) {
-                                // Extract course code (first part before dash or space)
-                                const courseCodeMatch = courseValue.match(/^([A-Z0-9\s]+)/i);
-                                if (courseCodeMatch) {
-                                    const courseCode = courseCodeMatch[1].trim();
-                                    for (let opt of options) {
-                                        if (opt.value && (opt.value.includes(courseCode) || opt.text.includes(courseCode))) {
-                                            courseSelect.value = opt.value;
-                                            found = true;
-                                            console.log('✅ Found course match by code:', opt.value, 'for saved:', courseValue);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // If still not found, add as new option
-                            if (!found && courseValue) {
-                                const option = document.createElement('option');
-                                option.value = courseValue;
-                                option.text = courseValue;
-                                option.selected = true;
-                                courseSelect.appendChild(option);
-                                courseSelect.value = courseValue;
-                                console.log('✅ Added course as new option:', courseValue);
-                            }
-                            
-                            // Trigger change event to load course data if course was set
-                            if (courseSelect.value && typeof onCourseChange === 'function') {
-                                // Use setTimeout to ensure DOM is ready
+                            // Wait a moment if dropdown is not populated yet
+                            if (courseSelect.options.length <= 1) {
+                                console.warn('⚠️ Course dropdown not populated yet, waiting...');
                                 setTimeout(() => {
-                                    onCourseChange(courseSelect);
-                                }, 100);
+                                    // Retry after a delay
+                                    populateCourseInRow(row, item, courseValue);
+                                }, 500);
+                                return; // Use return instead of continue in forEach
                             }
+                            
+                            populateCourseInRow(row, item, courseValue);
                         }
                         
                         // Populate other fields
@@ -3539,7 +3793,7 @@ function populateTableData(data) {
                 while (existingRows.length < neededRows) {
                     addScriptExaminationRow();
                     existingRows.push(tbody.querySelector('tr:last-child'));
-                }
+                    }
                 
                 // Now populate all rows
                 data.script_examination.forEach((item, index) => {
@@ -3551,68 +3805,16 @@ function populateTableData(data) {
                         const courseSelect = row.querySelector('select[name="script_examination_course[]"]');
                         if (courseSelect && item.course) {
                             const courseValue = item.course;
-                            const options = Array.from(courseSelect.options);
-                            let found = false;
                             
-                            // Normalize course value for matching
-                            const normalizedCourseValue = courseValue.trim().toLowerCase();
-                            
-                            // Try exact match first
-                            for (let opt of options) {
-                                if (opt.value && (opt.value === courseValue || opt.value.trim().toLowerCase() === normalizedCourseValue)) {
-                                    courseSelect.value = opt.value;
-                                    found = true;
-                                    console.log('✅ Found exact course match (Script):', opt.value);
-                                    break;
-                                }
-                            }
-                            
-                            // Try text match
-                            if (!found) {
-                                for (let opt of options) {
-                                    const optText = opt.text.trim().toLowerCase();
-                                    if (optText === normalizedCourseValue || optText.includes(normalizedCourseValue) || normalizedCourseValue.includes(optText)) {
-                                        courseSelect.value = opt.value;
-                                        found = true;
-                                        console.log('✅ Found course match by text (Script):', opt.value);
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            // Try partial match (course code)
-                            if (!found && courseValue) {
-                                const courseCodeMatch = courseValue.match(/^([A-Z0-9\s]+)/i);
-                                if (courseCodeMatch) {
-                                    const courseCode = courseCodeMatch[1].trim();
-                                    for (let opt of options) {
-                                        if (opt.value && (opt.value.includes(courseCode) || opt.text.includes(courseCode))) {
-                                            courseSelect.value = opt.value;
-                                            found = true;
-                                            console.log('✅ Found course match by code (Script):', opt.value);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // If still not found, add as new option
-                            if (!found && courseValue) {
-                                const option = document.createElement('option');
-                                option.value = courseValue;
-                                option.text = courseValue;
-                                option.selected = true;
-                                courseSelect.appendChild(option);
-                                courseSelect.value = courseValue;
-                                console.log('✅ Added course as new option (Script):', courseValue);
-                            }
-                            
-                            // Trigger change event
-                            if (courseSelect.value && typeof onCourseChange === 'function') {
+                            // Wait if dropdown not populated
+                            if (courseSelect.options.length <= 1) {
                                 setTimeout(() => {
-                                    onCourseChange(courseSelect);
-                                }, 100);
+                                    populateScriptCourseInRow(row, item, courseValue);
+                                }, 500);
+                                return; // Use return instead of continue in forEach
                             }
+                            
+                            populateScriptCourseInRow(row, item, courseValue);
                         }
                         
                         // Populate other fields
@@ -3732,6 +3934,11 @@ function populateTableData(data) {
                     }
                 });
                 
+                // Load sessional courses first (async), then populate
+                (async () => {
+                    const sessionalCourses = await fetchSessionalCourses();
+                    console.log(`✅ Loaded ${sessionalCourses.length} sessional courses for Table 6`);
+                
                 // Populate each item
                 data.sessional_assessment.forEach((item, index) => {
                     let row;
@@ -3761,29 +3968,10 @@ function populateTableData(data) {
                         tbody.appendChild(row);
                     }
                     
-                    // Populate course
+                        // Load courses into dropdown first, then set selected value
                     const courseSelect = row.querySelector('select[name="sessional_assessment_course[]"]');
-                    if (courseSelect && item.course) {
-                        const courseValue = item.course;
-                        const options = Array.from(courseSelect.options);
-                        let found = false;
-                        
-                        for (let opt of options) {
-                            if (opt.value === courseValue || opt.text === courseValue || opt.value.includes(courseValue) || opt.text.includes(courseValue)) {
-                                courseSelect.value = opt.value;
-                                found = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!found && courseValue) {
-                            const option = document.createElement('option');
-                            option.value = courseValue;
-                            option.text = courseValue;
-                            option.selected = true;
-                            courseSelect.appendChild(option);
-                            courseSelect.value = courseValue;
-                        }
+                        if (courseSelect) {
+                            loadCoursesIntoSelect(courseSelect, sessionalCourses, item.course || '');
                     }
                     
                     // Populate teacher
@@ -3818,6 +4006,8 @@ function populateTableData(data) {
                         studentsInput.value = item.students;
                     }
                 });
+                    updateTableCounts();
+                })();
             }
         }
         
@@ -3834,6 +4024,11 @@ function populateTableData(data) {
                         row.remove(); // Remove empty rows
                     }
                 });
+                
+                // Load sessional courses first (async), then populate
+                (async () => {
+                    const sessionalCourses = await fetchSessionalCourses();
+                    console.log(`✅ Loaded ${sessionalCourses.length} sessional courses for Table 7`);
                 
                 // Populate each item
                 data.sessional_viva.forEach((item, index) => {
@@ -3864,29 +4059,10 @@ function populateTableData(data) {
                         tbody.appendChild(row);
                     }
                     
-                    // Populate course
+                        // Load courses into dropdown first, then set selected value
                     const courseSelect = row.querySelector('select[name="sessional_viva_course[]"]');
-                    if (courseSelect && item.course) {
-                        const courseValue = item.course;
-                        const options = Array.from(courseSelect.options);
-                        let found = false;
-                        
-                        for (let opt of options) {
-                            if (opt.value === courseValue || opt.text === courseValue || opt.value.includes(courseValue) || opt.text.includes(courseValue)) {
-                                courseSelect.value = opt.value;
-                                found = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!found && courseValue) {
-                            const option = document.createElement('option');
-                            option.value = courseValue;
-                            option.text = courseValue;
-                            option.selected = true;
-                            courseSelect.appendChild(option);
-                            courseSelect.value = courseValue;
-                        }
+                        if (courseSelect) {
+                            loadCoursesIntoSelect(courseSelect, sessionalCourses, item.course || '');
                     }
                     
                     // Populate teacher
@@ -3921,6 +4097,8 @@ function populateTableData(data) {
                         studentsInput.value = item.students;
                     }
                 });
+                    updateTableCounts();
+                })();
             }
         }
         
@@ -4438,10 +4616,59 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // Sync hidden fields from visible dropdowns for new forms
+    function syncHiddenFields() {
+        const session = document.getElementById('session')?.value;
+        const year = document.getElementById('year')?.value;
+        const term = document.getElementById('term')?.value;
+        const batch = document.getElementById('batch')?.value;
+        
+        if (session) {
+            const sessionHidden = document.getElementById('session_hidden');
+            if (sessionHidden) sessionHidden.value = session;
+        }
+        if (year) {
+            const yearHidden = document.getElementById('year_hidden');
+            if (yearHidden) yearHidden.value = year;
+        }
+        if (term) {
+            const termHidden = document.getElementById('term_hidden');
+            if (termHidden) termHidden.value = term;
+        }
+        if (batch) {
+            const batchHidden = document.getElementById('batch_hidden');
+            if (batchHidden) batchHidden.value = batch;
+        }
+        
+        console.log('🔄 Synced hidden fields:', {
+            session: session || document.getElementById('session_hidden')?.value,
+            year: year || document.getElementById('year_hidden')?.value,
+            term: term || document.getElementById('term_hidden')?.value
+        });
+    }
+    
+    // Sync hidden fields immediately
+    syncHiddenFields();
+    
     // Auto-load courses on initial page load (only if not in edit mode)
     setTimeout(async () => {
+        // Sync again before loading courses
+        syncHiddenFields();
+        
         if (!isEditMode) {
+            console.log('🔄 Starting auto-load for new form...');
+            const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+            const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+            const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+            
+            console.log('📋 Session/Year/Term for auto-load:', { session, year, term });
+            
+            if (session && year && term) {
             await autoLoadCoursesForTables();
+            } else {
+                console.warn('⚠️ Cannot auto-load courses: session/year/term not all set');
+                console.log('Session:', session, 'Year:', year, 'Term:', term);
+            }
         } else {
             console.log('⏭️ Edit mode active, skipping initial auto-load');
             // Only update course dropdowns
@@ -4451,14 +4678,18 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Auto-load Theory courses for Table 2 and 3 on initial load (if session/year/term are selected)
     setTimeout(async () => {
-        const session = document.getElementById('session')?.value;
-        const year = document.getElementById('year')?.value;
-        const term = document.getElementById('term')?.value;
+        // Sync hidden fields again
+        syncHiddenFields();
+        
+        const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+        const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+        const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
         
         if (session && year && term) {
-            console.log('🔄 Initial auto-load triggered for session/year/term:', session, year, term);
+            console.log('🔄 Initial theory courses auto-load triggered for session/year/term:', session, year, term);
             const courses = await fetchCourses();
             console.log('📚 Initial courses fetched:', courses.length);
+            if (courses.length > 0) {
             const theoryCourses = courses.filter(c => {
                 const courseType = (c.course_type || '').toLowerCase();
                 // If course_type is empty or not provided, assume it's Theory
@@ -4468,9 +4699,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 return courseType === 'theory';
             });
             console.log('📖 Initial theory courses:', theoryCourses.length);
+                if (!isEditMode) {
             await autoLoadTheoryCoursesForTables(theoryCourses);
+                }
         } else {
-            console.log('⏸️ Initial auto-load skipped - session/year/term not all selected');
+                console.warn('⚠️ No courses fetched for session/year/term:', session, year, term);
+            }
+        } else {
+            console.log('⏸️ Initial theory courses auto-load skipped - session/year/term not all selected:', { session, year, term });
         }
     }, 1500);
 });

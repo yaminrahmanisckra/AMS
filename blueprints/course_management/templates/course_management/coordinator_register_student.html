@@ -80,11 +80,8 @@
             <div class="row g-3 mb-3">
                 <div class="col-md-4">
                     <label for="batchFilter" class="form-label">Filter by Batch <span class="text-danger">*</span></label>
-                    <select class="form-select" id="batchFilter" name="batchFilter" required>
-                        <option value="">Select Batch</option>
-                        {% for batch in batches %}
-                        <option value="{{ batch }}">{{ batch }}</option>
-                        {% endfor %}
+                    <select class="form-select" id="batchFilter" name="batchFilter" required disabled>
+                        <option value="">Select Session, Year, and Term First</option>
                     </select>
                 </div>
                 <div class="col-md-5">
@@ -264,9 +261,88 @@ function loadYearTermOptions(session) {
         });
 }
 
+// Load batches based on selected session, year, and term
+function loadBatches() {
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    const batchSelect = document.getElementById('batchFilter');
+    
+    // Reset batch dropdown
+    batchSelect.innerHTML = '<option value="">Select Batch</option>';
+    
+    if (!session || !year || !term) {
+        batchSelect.disabled = true;
+        return;
+    }
+    
+    batchSelect.disabled = true;
+    
+    fetch(`/course-management/coordinator/register-student/api/batches?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.batches && data.batches.length > 0) {
+                const primaryBatches = new Set(data.primary_batches || []);
+                const allBatches = data.batches || [];
+                
+                // Separate primary batches and other batches
+                const primary = [];
+                const others = [];
+                
+                allBatches.forEach(batch => {
+                    if (primaryBatches.has(batch)) {
+                        primary.push(batch);
+                    } else {
+                        others.push(batch);
+                    }
+                });
+                
+                // Add primary batches with optgroup if available
+                if (primary.length > 0) {
+                    const primaryGroup = document.createElement('optgroup');
+                    primaryGroup.label = `Recommended Batches (${session}, ${year}, ${term})`;
+                    primary.forEach(batch => {
+                        const option = document.createElement('option');
+                        option.value = batch;
+                        option.textContent = batch;
+                        primaryGroup.appendChild(option);
+                    });
+                    batchSelect.appendChild(primaryGroup);
+                }
+                
+                // Add other batches (for retake students) with optgroup if available
+                if (others.length > 0) {
+                    const otherGroup = document.createElement('optgroup');
+                    otherGroup.label = 'Other Batches (for Retake)';
+                    others.forEach(batch => {
+                        const option = document.createElement('option');
+                        option.value = batch;
+                        option.textContent = batch;
+                        otherGroup.appendChild(option);
+                    });
+                    batchSelect.appendChild(otherGroup);
+                }
+            } else {
+                batchSelect.innerHTML = '<option value="">No batches available</option>';
+            }
+            batchSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error loading batches:', error);
+            batchSelect.innerHTML = '<option value="">Error loading batches</option>';
+            batchSelect.disabled = false;
+        });
+}
+
 // Load courses when session, year, and term are selected
-document.getElementById('year').addEventListener('change', loadCourses);
-document.getElementById('term').addEventListener('change', loadCourses);
+document.getElementById('year').addEventListener('change', function() {
+    loadCourses();
+    loadBatches(); // Also load batches when year changes
+});
+document.getElementById('term').addEventListener('change', function() {
+    loadCourses();
+    loadBatches(); // Also load batches when term changes
+});
 
 // When Session changes, load Year and Term options, then reset and load courses
 document.getElementById('session').addEventListener('change', function() {
@@ -277,6 +353,11 @@ document.getElementById('session').addEventListener('change', function() {
     document.getElementById('term').value = '';
     document.getElementById('course').disabled = true;
     document.getElementById('course').innerHTML = '<option value="">Select Session, Year, and Term First</option>';
+    
+    // Reset batch dropdown
+    const batchSelect = document.getElementById('batchFilter');
+    batchSelect.innerHTML = '<option value="">Select Batch</option>';
+    batchSelect.disabled = true;
     
     // Load Year and Term options based on Session
     loadYearTermOptions(session);

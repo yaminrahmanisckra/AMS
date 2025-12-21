@@ -283,13 +283,13 @@ def index():
                 current_app.logger.error(f"Failed to create table: {create_error}", exc_info=True)
                 flash('Database table not found. Please run: python3 create_academic_calendar_table.py', 'warning')
                 # Still render the page with empty data instead of redirecting
-            return render_template('academic_calendar/index.html', 
-                                 year=datetime.now().year, 
-                                 month=datetime.now().month,
-                                 events_by_date={},
-                                 can_edit=can_edit_calendar(),
-                                 current_date=date.today(),
-                                 upcoming_events=[],
+                return render_template('academic_calendar/index.html', 
+                                     year=datetime.now().year, 
+                                     month=datetime.now().month,
+                                     events_by_date={},
+                                     can_edit=can_edit_calendar(),
+                                     current_date=date.today(),
+                                     upcoming_events=[],
                                  view_type='month',
                                  student_batch=None,
                                  parse_roles=parse_roles,

@@ -196,7 +196,7 @@ def _get_current_student_record():
     return Student.query.filter_by(student_id=username).first()
 
 def _get_teachers_excluding_head():
-    """Get all teachers excluding Head of the Discipline"""
+    """Get all teachers excluding Head of the Discipline and Teaching Assistants"""
     try:
         from blueprints.class_management.models import Teacher
         if not Teacher:
@@ -214,8 +214,20 @@ def _get_teachers_excluding_head():
         ).all()
         head_names = {user.full_name for user in head_users}
         
-        # Filter out Head of the Discipline from teachers list
-        teachers = [teacher for teacher in all_teachers if teacher.name not in head_names]
+        # Get Teaching Assistant users
+        ta_users = User.query.filter(
+            or_(
+                User.role.like('%teaching_assistant%'),
+                User.role.like('%teaching assistant%'),
+                User.role == 'teaching_assistant',
+                User.role == 'teaching assistant'
+            )
+        ).all()
+        ta_names = {user.full_name for user in ta_users}
+        
+        # Filter out Head of the Discipline and Teaching Assistants from teachers list
+        excluded_names = head_names | ta_names
+        teachers = [teacher for teacher in all_teachers if teacher.name not in excluded_names]
         return teachers
     except ImportError:
         return []
@@ -863,12 +875,12 @@ def save_course_registration():
         existing_status = {reg.course_code: reg.status for reg in existing_regs}
         existing_registered_by = {reg.course_code: reg.registered_by for reg in existing_regs}
         
-        # Check if any registration was created by coordinator/head - student cannot edit those
-        coordinator_registrations = [reg for reg in existing_regs if reg.registered_by in ['coordinator', 'head']]
+        # Check if any registration was created by coordinator/head OR finalized - student cannot edit those
+        coordinator_registrations = [reg for reg in existing_regs if reg.registered_by in ['coordinator', 'head'] or reg.status == 'finalized']
         if coordinator_registrations:
             return jsonify({
                 'success': False, 
-                'message': 'Cannot edit registrations created by coordinator/head. Please contact your coordinator for changes.'
+                'message': 'Cannot edit finalized registrations or registrations created by coordinator/head. Please contact your coordinator for changes.'
             }), 403
         
         # Get existing registrations before deletion to remove from Class Management
@@ -1376,41 +1388,62 @@ def coordinator_registrations():
     batch_filter = request.args.get('batch', '').strip()
     student_id_filter = request.args.get('student_id', type=int)
 
-    # Only show registrations if at least one filter is applied
+    # Get pending invites for this coordinator (always show, even without filters)
+    # Exclude invites for archived registrations
+    pending_invites_query = CourseRegistrationInvite.query.filter_by(
+        status='pending',
+        coordinator_teacher_id=teacher.id
+    ).join(StudentCourseRegistration).filter(
+        StudentCourseRegistration.status != 'archived'
+    )
+    
+    # Apply filters to pending invites if provided
+    if session_filter:
+        pending_invites_query = pending_invites_query.filter(
+            StudentCourseRegistration.academic_session == session_filter
+        )
+    if batch_filter and Student:
+        batch_student_ids = [s.id for s in Student.query.filter_by(batch=batch_filter).all()]
+        if batch_student_ids:
+            pending_invites_query = pending_invites_query.filter(CourseRegistrationInvite.student_id.in_(batch_student_ids))
+        else:
+            pending_invites_query = pending_invites_query.filter(CourseRegistrationInvite.student_id == -1)
+    if student_id_filter:
+        pending_invites_query = pending_invites_query.filter_by(student_id=student_id_filter)
+    
+    pending_invites = pending_invites_query.order_by(CourseRegistrationInvite.created_at.desc()).all()
+    
+    # Only show finalized registrations if at least one filter is applied
     # Coordinators can see ALL finalized registrations (same as Head)
-    finalized_invites = []
+    # Get finalized registrations directly - this ensures all finalized registrations are visible
+    finalized_regs = []
     if session_filter or batch_filter or student_id_filter:
-        # Get all finalized registrations (not filtered by coordinator_teacher_id)
-        # This allows coordinators to see all registrations like Head
-        query = CourseRegistrationInvite.query.filter_by(
+        reg_query = StudentCourseRegistration.query.filter_by(
             status='finalized'
         )
         
-        # Apply filters
+        # Apply filters to registrations
         if session_filter:
-            query = query.join(StudentCourseRegistration).filter(
-                StudentCourseRegistration.academic_session == session_filter
-            )
+            reg_query = reg_query.filter(StudentCourseRegistration.academic_session == session_filter)
         if batch_filter and Student:
-            # Filter by student batch
             batch_student_ids = [s.id for s in Student.query.filter_by(batch=batch_filter).all()]
             if batch_student_ids:
-                query = query.filter(CourseRegistrationInvite.student_id.in_(batch_student_ids))
+                reg_query = reg_query.filter(StudentCourseRegistration.student_id.in_(batch_student_ids))
             else:
-                # No students in this batch, return empty result
-                query = query.filter(CourseRegistrationInvite.student_id == -1)  # Impossible condition
+                reg_query = reg_query.filter(StudentCourseRegistration.student_id == -1)
         if student_id_filter:
-            query = query.filter_by(student_id=student_id_filter)
+            reg_query = reg_query.filter_by(student_id=student_id_filter)
         
-        finalized_invites = query.order_by(CourseRegistrationInvite.responded_at.desc()).all()
+        finalized_regs = reg_query.order_by(StudentCourseRegistration.id.desc()).all()
 
-    finalized_by_student = {}
-    for invite in finalized_invites:
+    # Group pending invites by student/session/year/term
+    pending_by_student = {}
+    for invite in pending_invites:
         reg = invite.registration
         if reg:
             key = (reg.student_id, reg.academic_session, reg.year, reg.term)
-            if key not in finalized_by_student:
-                finalized_by_student[key] = {
+            if key not in pending_by_student:
+                pending_by_student[key] = {
                     'student': reg.student,
                     'session': reg.academic_session,
                     'year': reg.year,
@@ -1419,11 +1452,39 @@ def coordinator_registrations():
                     'registration_ids': set(),
                     'invite_ids': []
                 }
-            entry = finalized_by_student[key]
+            entry = pending_by_student[key]
             if reg.id not in entry['registration_ids']:
                 entry['registrations'].append(reg)
                 entry['registration_ids'].add(reg.id)
-            finalized_by_student[key]['invite_ids'].append(invite.id)
+            pending_by_student[key]['invite_ids'].append(invite.id)
+    
+    # Group finalized registrations by student/session/year/term
+    finalized_by_student = {}
+    for reg in finalized_regs:
+        key = (reg.student_id, reg.academic_session, reg.year, reg.term)
+        if key not in finalized_by_student:
+            finalized_by_student[key] = {
+                'student': reg.student,
+                'session': reg.academic_session,
+                'year': reg.year,
+                'term': reg.term,
+                'registrations': [],
+                'registration_ids': set(),
+                'invite_ids': []
+            }
+        entry = finalized_by_student[key]
+        if reg.id not in entry['registration_ids']:
+            entry['registrations'].append(reg)
+            entry['registration_ids'].add(reg.id)
+        
+        # Get invite IDs for this registration if any exist
+        invites_for_reg = CourseRegistrationInvite.query.filter_by(
+            registration_id=reg.id,
+            status='finalized'
+        ).all()
+        for invite in invites_for_reg:
+            if invite.id not in entry['invite_ids']:
+                entry['invite_ids'].append(invite.id)
 
     # Get distinct sessions and batches for filters
     sessions = db.session.query(Session.academic_session).distinct().filter(
@@ -1448,6 +1509,7 @@ def coordinator_registrations():
     students = students_query.order_by(Student.student_id.asc()).limit(500).all()
 
     return render_template('course_management/coordinator_registrations.html',
+                         pending_registrations=pending_by_student,
                          finalized_registrations=finalized_by_student,
                          academic_sessions=academic_sessions,
                          batches=batch_list,
@@ -1473,6 +1535,7 @@ def view_student_registration(student_id):
         return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
 
     student = Student.query.get_or_404(student_id)
+    # Get all registrations (both pending and finalized) for coordinator to review
     registrations = StudentCourseRegistration.query.filter_by(
         student_id=student_id,
         academic_session=session_name,
@@ -1489,6 +1552,7 @@ def view_student_registration(student_id):
         'course_type': reg.course_type,
         'nature': reg.nature,
         'remark': reg.remark,
+        'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False,
         'status': reg.status
     } for reg in registrations]
 
@@ -1550,8 +1614,11 @@ def update_student_registration():
         # Head and Coordinator updates keep finalized status (coordinators have same power as Head)
         is_head = 'head' in roles
         is_coordinator = 'teacher' in roles or 'dean' in roles
+        # Check if this is a finalization request (from pending invite)
+        finalize_request = data.get('finalize', False)
         # Both Head and Coordinators can finalize registrations
-        update_status = 'finalized' if (is_head or is_coordinator) else 'pending'
+        # If finalize_request is True, always finalize (coordinator is finalizing a pending invite)
+        update_status = 'finalized' if (is_head or is_coordinator or finalize_request) else 'pending'
         
         for course in courses:
             course_code = course.get('course_code', '')
@@ -1563,21 +1630,33 @@ def update_student_registration():
                 reg.course_type = course.get('course_type', reg.course_type)
                 reg.nature = course.get('nature', reg.nature)
                 reg.remark = course.get('remark', reg.remark)
-                # Keep finalized status if Head, otherwise set to pending
+                # Update carry_on if provided
+                if 'carry_on' in course:
+                    reg.carry_on = course.get('carry_on', False)
+                # Keep finalized status if Head/Coordinator or if finalizing
                 was_finalized = reg.status == 'finalized'
-                if is_head:
+                if is_head or is_coordinator or finalize_request:
                     reg.status = 'finalized'
+                    # When coordinator finalizes, keep registered_by as 'student' if it was student-initiated
+                    # Don't change registered_by if it was already set
+                    if not reg.registered_by:
+                        reg.registered_by = 'student'
                 else:
                     reg.status = 'pending'
                 updated_codes.add(course_code)
                 
                 # If status changed from non-finalized to finalized, add to Class Management
-                if (is_head or is_coordinator) and not was_finalized:
+                if (is_head or is_coordinator or finalize_request) and not was_finalized:
                     # Will be handled after commit
                     pass
             else:
                 # Create new
-                registered_by = 'head' if is_head else 'coordinator'
+                # If finalizing a pending invite, keep registered_by as 'student'
+                # Otherwise, set based on who is creating
+                if finalize_request:
+                    registered_by = 'student'  # Student initiated, coordinator is finalizing
+                else:
+                    registered_by = 'head' if is_head else 'coordinator'
                 reg = StudentCourseRegistration(
                     student_id=student_id,
                     course_id=course.get('course_id'),
@@ -1590,6 +1669,7 @@ def update_student_registration():
                     course_type=course.get('course_type', ''),
                     nature=course.get('nature', 'Core'),
                     remark=course.get('remark', 'Regular'),
+                    carry_on=course.get('carry_on', False),
                     status=update_status,
                     registered_by=registered_by
                 )
@@ -1618,7 +1698,8 @@ def update_student_registration():
                 db.session.delete(reg)
         
         # Update invite status if Head or Coordinator (both can finalize)
-        if is_head or is_coordinator:
+        # Also update if finalizing a pending invite
+        if is_head or is_coordinator or finalize_request:
             # Get all registration IDs for this student/session/year/term (after updates/deletes)
             all_regs = StudentCourseRegistration.query.filter_by(
                 student_id=student_id,
@@ -1630,7 +1711,7 @@ def update_student_registration():
             
             if reg_ids:
                 # Update invites to finalized if registrations exist
-                # For coordinators, update/create invites for this teacher
+                # For coordinators finalizing pending invites, update their own invites
                 # For Head, update all invites for these registrations
                 if is_head:
                     # Head can update all invites
@@ -1638,7 +1719,7 @@ def update_student_registration():
                         CourseRegistrationInvite.registration_id.in_(reg_ids)
                     ).all()
                 else:
-                    # Coordinator updates/create invites for themselves
+                    # Coordinator updates/create invites for themselves (especially when finalizing pending)
                     invites = CourseRegistrationInvite.query.filter(
                         CourseRegistrationInvite.registration_id.in_(reg_ids),
                         CourseRegistrationInvite.coordinator_teacher_id == teacher.id
@@ -1650,8 +1731,8 @@ def update_student_registration():
                     if not invite.responded_at:
                         invite.responded_at = datetime.utcnow()
                 
-                # For coordinators, create invites if they don't exist
-                if is_coordinator and not is_head:
+                # For coordinators, create invites if they don't exist (when finalizing)
+                if (is_coordinator and not is_head) or finalize_request:
                     existing_invite_reg_ids = {inv.registration_id for inv in invites}
                     for reg_id in reg_ids:
                         if reg_id not in existing_invite_reg_ids:
@@ -1824,17 +1905,15 @@ def coordinator_register_student():
         flash('This page is available only for coordinators.', 'danger')
         return redirect(url_for('index'))
     
-    # Get distinct batches
-    batches = db.session.query(Student.batch).distinct().filter(
-        Student.batch.isnot(None),
-        Student.batch != ''
-    ).order_by(Student.batch.desc()).all()
-    batch_list = [b[0] for b in batches if b[0]]
+    # Batches will be loaded dynamically via API based on selected session/year/term
+    # No need to load all batches initially
+    batch_list = []
     
-    # Get distinct academic sessions
-    sessions = db.session.query(Session.academic_session).distinct().filter(
-        Session.academic_session.isnot(None)
-    ).order_by(Session.academic_session.desc()).all()
+    # Get distinct academic sessions from curriculum year/term configuration
+    # This shows all sessions that are assigned in the curriculum
+    sessions = db.session.query(CurriculumYearTerm.academic_session).distinct().filter(
+        CurriculumYearTerm.academic_session.isnot(None)
+    ).order_by(CurriculumYearTerm.academic_session.desc()).all()
     academic_sessions = [s[0] for s in sessions if s[0]]
     
     return render_template('course_management/coordinator_register_student.html',
@@ -2099,6 +2178,60 @@ def coordinator_save_student_registration():
         db.session.rollback()
         current_app.logger.error(f'Failed to save coordinator registration: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': 'Failed to save registration'}), 500
+
+
+@course_management_bp.route('/coordinator/register-student/api/batches', methods=['GET'])
+@login_required
+def get_batches_for_registration():
+    """Get batches assigned in curriculum for a given session, year, and term"""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    session_name = request.args.get('session', '').strip()
+    year = request.args.get('year', '').strip()
+    term = request.args.get('term', '').strip()
+    
+    if not session_name or not year or not term:
+        return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
+    
+    try:
+        # Get distinct batches from CurriculumYearTerm for the given session, year, and term (primary batches)
+        primary_batch_query = db.session.query(CurriculumYearTerm.batch).distinct().filter(
+            CurriculumYearTerm.academic_session == session_name,
+            CurriculumYearTerm.year == year,
+            CurriculumYearTerm.term == term,
+            CurriculumYearTerm.batch.isnot(None),
+            CurriculumYearTerm.batch != ''
+        ).order_by(CurriculumYearTerm.batch.desc()).all()
+        
+        primary_batches = [b[0] for b in primary_batch_query if b[0]]
+        
+        # Also get all batches from Student table (for retake students who might be from other batches)
+        all_batches_set = set(primary_batches)
+        if Student:
+            all_student_batches = db.session.query(Student.batch).distinct().filter(
+                Student.batch.isnot(None),
+                Student.batch != ''
+            ).order_by(Student.batch.desc()).all()
+            for batch_tuple in all_student_batches:
+                if batch_tuple[0]:
+                    all_batches_set.add(batch_tuple[0])
+        
+        # Convert to list and sort: primary batches first (descending), then others (descending)
+        # Sort key: (0 if primary, 1 if not primary, then batch name for descending order)
+        all_batches_list = sorted(all_batches_set, key=lambda x: (x not in primary_batches, x), reverse=False)
+        # Reverse the entire list to get descending order within each group
+        all_batches_list = [b for b in sorted(primary_batches, reverse=True)] + [b for b in sorted(all_batches_set - set(primary_batches), reverse=True)]
+        
+        return jsonify({
+            'success': True,
+            'batches': all_batches_list,
+            'primary_batches': primary_batches  # For UI indication if needed
+        })
+    except Exception as e:
+        current_app.logger.error(f'Error getting batches: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Error fetching batches'}), 500
 
 
 @course_management_bp.route('/coordinator/register-student/api/students', methods=['GET'])

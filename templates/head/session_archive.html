@@ -1,0 +1,1028 @@
+{% extends "base.html" %}
+{% block title %}Session Archive{% endblock %}
+{% block extra_css %}
+<style>
+    .archive-card {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        transition: all 0.2s;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        background: white;
+    }
+    .archive-card:hover {
+        box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+    .archive-header {
+        background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+        padding: 0.75rem 1rem;
+        border-bottom: 2px solid #20c997;
+        border-radius: 8px 8px 0 0;
+    }
+    .archive-header h5 {
+        font-size: 0.95rem;
+        margin: 0;
+        font-weight: 600;
+    }
+    .archive-header small {
+        font-size: 0.75rem;
+        color: #666;
+    }
+    .badge-archived {
+        background-color: #6c757d;
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 500;
+    }
+    .badge-restored {
+        background-color: #28a745;
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 500;
+    }
+    .session-item {
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid #f5f5f5;
+        font-size: 0.85rem;
+    }
+    .session-item:last-child {
+        border-bottom: none;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1"><i class="fas fa-box-archive me-2"></i>Session Archive</h4>
+            <p class="text-muted mb-0" style="font-size: 0.85rem;">Archive and restore complete academic sessions with all data</p>
+        </div>
+        <a href="{{ url_for('head_dashboard') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+        </a>
+    </div>
+
+    <!-- Archive New Session Section -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-archive me-2"></i>Archive Current Session</h5>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">Select a session to archive. This will backup all related data including classes, results, registrations, exam evaluations, and academic calendar.</p>
+            {% if available_sessions %}
+            <div class="row g-2">
+                {% for session in available_sessions %}
+                <div class="col-md-6 col-lg-4">
+                    <div class="session-item border rounded p-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ session.academic_session }}</strong><br>
+                                <small class="text-muted">{{ session.year }} Year - {{ session.term }} Term</small>
+                                {% if session.batches %}
+                                <br><small class="text-muted">Batches: {{ session.batches|join(', ') }}</small>
+                                {% endif %}
+                            </div>
+                            <button class="btn btn-sm btn-warning" 
+                                    onclick="archiveSession('{{ session.academic_session }}', '{{ session.year }}', '{{ session.term }}')">
+                                <i class="fas fa-archive me-1"></i>Archive
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>No sessions available to archive.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Archived Sessions List -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="fas fa-history me-2"></i>Archived Sessions</h5>
+        </div>
+        <div class="card-body">
+            {% if archived_sessions %}
+            <div class="row g-3">
+                {% for archive in archived_sessions %}
+                <div class="col-12 col-md-6 col-lg-4">
+                    <div class="archive-card">
+                        <div class="archive-header">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h5 class="mb-0">
+                                    <strong>{{ archive.academic_session }}</strong><br>
+                                    <small>{{ archive.year }} Year - {{ archive.term }} Term</small>
+                                </h5>
+                                {% if archive.is_active %}
+                                <span class="badge-archived">Archived</span>
+                                {% else %}
+                                <span class="badge-restored">Restored</span>
+                                {% endif %}
+                            </div>
+                            {% if archive.description %}
+                            <p class="mb-2" style="font-size: 0.8rem;">{{ archive.description }}</p>
+                            {% endif %}
+                            <small class="text-muted">
+                                <i class="fas fa-user me-1"></i>{{ archive.archived_by or 'System' }}<br>
+                                <i class="fas fa-calendar me-1"></i>{{ archive.archived_at.strftime('%Y-%m-%d %H:%M') if archive.archived_at else 'N/A' }}
+                            </small>
+                            {% if archive.restored_at %}
+                            <br><small class="text-muted">
+                                <i class="fas fa-undo me-1"></i>Restored: {{ archive.restored_at.strftime('%Y-%m-%d %H:%M') }}
+                            </small>
+                            {% endif %}
+                        </div>
+                        <div class="card-body">
+                            <button class="btn btn-sm btn-info w-100" 
+                                    onclick="viewArchiveDetails({{ archive.id }})">
+                                <i class="fas fa-eye me-1"></i>View Details
+                            </button>
+                            <button class="btn btn-sm btn-danger w-100 mt-2" 
+                                    onclick="deleteArchive({{ archive.id }}, '{{ archive.academic_session }}', '{{ archive.year }}', '{{ archive.term }}')">
+                                <i class="fas fa-trash me-1"></i>Delete Archive
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="alert alert-info text-center">
+                <i class="fas fa-info-circle me-2"></i>No archived sessions found.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Archive Details Modal -->
+<div class="modal fade" id="archiveDetailsModal" tabindex="-1" aria-labelledby="archiveDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title" id="archiveDetailsModalLabel">
+                    <i class="fas fa-eye me-2"></i>Archive Details
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="archiveDetailsBody" style="max-height: 70vh; overflow-y: auto;">
+                <!-- Teacher Filter -->
+                <div class="mb-3" id="teacherFilterSection" style="display: none;">
+                    <label for="teacherFilter" class="form-label"><i class="fas fa-user-tie me-2"></i>Filter by Teacher:</label>
+                    <select class="form-select" id="teacherFilter" onchange="filterByTeacher()">
+                        <option value="">All Teachers</option>
+                    </select>
+                </div>
+                <!-- Content will be loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function archiveSession(session, year, term) {
+    if (!confirm(`Are you sure you want to archive this session?\n\nSession: ${session}\nYear: ${year}\nTerm: ${term}\n\nThis will backup all related data. The process may take a few moments.`)) {
+        return;
+    }
+    
+    const description = prompt('Enter a description for this archive (optional):', '');
+    
+    fetch('/head/session-archive/api/archive', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            academic_session: session,
+            year: year,
+            term: term,
+            description: description || ''
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || 'Session archived successfully!');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to archive session.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while archiving the session.');
+    });
+}
+
+function restoreSession(archiveId, session, year, term) {
+    if (!confirm(`Are you sure you want to restore this session?\n\nSession: ${session}\nYear: ${year}\nTerm: ${term}\n\nWARNING: Current active sessions will be archived first to prevent data loss.`)) {
+        return;
+    }
+    
+    if (!confirm('This will archive all current active sessions for this session/year/term combination before restoring. Continue?')) {
+        return;
+    }
+    
+    fetch('/head/session-archive/api/restore', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            archive_id: archiveId
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || 'Session restored successfully!');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to restore session.');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while restoring the session.');
+    });
+}
+
+function deleteArchive(archiveId, session, year, term) {
+    if (!confirm(`Are you sure you want to DELETE this archive?\n\nSession: ${session}\nYear: ${year}\nTerm: ${term}\n\n⚠️  WARNING: This action cannot be undone! All archived data will be permanently deleted.`)) {
+        return;
+    }
+    
+    if (!confirm('This will permanently delete the archive. Are you absolutely sure?')) {
+        return;
+    }
+    
+    // Show loading state
+    const deleteBtn = event.target.closest('.btn-danger');
+    const originalHTML = deleteBtn.innerHTML;
+    deleteBtn.disabled = true;
+    deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+    
+    fetch(`/head/session-archive/api/delete/${archiveId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message || 'Archive deleted successfully!');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to delete archive.');
+            deleteBtn.disabled = false;
+            deleteBtn.innerHTML = originalHTML;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('An error occurred while deleting the archive.');
+        deleteBtn.disabled = false;
+        deleteBtn.innerHTML = originalHTML;
+    });
+}
+
+function viewArchiveDetails(archiveId) {
+    // Show loading state
+    const modal = new bootstrap.Modal(document.getElementById('archiveDetailsModal'));
+    const modalBody = document.getElementById('archiveDetailsBody');
+    modalBody.innerHTML = '<div class="text-center p-4"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+    modal.show();
+    
+    fetch(`/head/session-archive/api/details/${archiveId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayArchiveDetails(data);
+            } else {
+                modalBody.innerHTML = `<div class="alert alert-danger">${data.message || 'Failed to load archive details'}</div>`;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            modalBody.innerHTML = `<div class="alert alert-danger">Error loading archive details</div>`;
+        });
+}
+
+// Store current archive data for filtering
+let currentArchiveData = null;
+let currentTeachers = [];
+
+function displayArchiveDetails(responseData) {
+    const modalBody = document.getElementById('archiveDetailsBody');
+    
+    if (!modalBody) {
+        console.error('Modal body not found');
+        return;
+    }
+    
+    try {
+        // Parse response - could be just archiveData or full response object
+        let data, metadata;
+        if (responseData.archive_data) {
+            data = typeof responseData.archive_data === 'string' ? JSON.parse(responseData.archive_data) : responseData.archive_data;
+            metadata = responseData.metadata || {};
+            currentTeachers = responseData.teachers || [];
+        } else {
+            data = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
+            metadata = {};
+            currentTeachers = [];
+        }
+        
+        // Store for filtering
+        currentArchiveData = data;
+        
+        // Store metadata globally for filter function
+        window.currentArchiveMetadata = metadata;
+        
+        // Render data (initially show all)
+        renderArchiveDetails(data, metadata, null);
+    } catch (error) {
+        console.error('Error in displayArchiveDetails:', error);
+        modalBody.innerHTML = `<div class="alert alert-danger">Error displaying archive details: ${error.message}</div>`;
+    }
+}
+
+function filterByTeacher() {
+    const teacherFilter = document.getElementById('teacherFilterDisplay') || document.getElementById('teacherFilter');
+    const selectedTeacherId = teacherFilter && teacherFilter.value ? parseInt(teacherFilter.value) : null;
+    
+    if (currentArchiveData) {
+        // Get metadata from current data (we need to get it from the original response)
+        // For now, we'll use empty metadata as it's mainly for display
+        renderArchiveDetails(currentArchiveData, {}, selectedTeacherId);
+    }
+}
+
+function renderArchiveDetails(data, metadata, filterTeacherId) {
+    const modalBody = document.getElementById('archiveDetailsBody');
+    
+    if (!modalBody) {
+        console.error('Modal body not found in renderArchiveDetails');
+        return;
+    }
+    
+    if (!data) {
+        modalBody.innerHTML = '<div class="alert alert-danger">No archive data available</div>';
+        return;
+    }
+    
+    let html = '';
+    
+    try {
+        // Always show teacher filter if we have sessions with teachers
+        // Even if teachers list is empty, we'll extract teacher_ids from sessions
+        const hasTeachers = currentTeachers && currentTeachers.length > 0;
+        const hasSessions = data.class_management && data.class_management.sessions && data.class_management.sessions.length > 0;
+        
+        // Extract unique teacher_ids from sessions if teachers list is empty
+        if (!hasTeachers && hasSessions) {
+            const teacherIdsFromSessions = new Set();
+            data.class_management.sessions.forEach(session => {
+                if (session.teacher_id) {
+                    teacherIdsFromSessions.add(session.teacher_id);
+                }
+            });
+            
+            // Also from exam evaluations
+            if (data.exam_evaluations) {
+                data.exam_evaluations.forEach(ee => {
+                    if (ee.owner_teacher_id) {
+                        teacherIdsFromSessions.add(ee.owner_teacher_id);
+                    }
+                });
+            }
+            
+            // Create placeholder teachers
+            if (teacherIdsFromSessions.size > 0) {
+                currentTeachers = Array.from(teacherIdsFromSessions).map(tid => ({
+                    id: tid,
+                    name: `Teacher ID ${tid}`,
+                    short_name: `T${tid}`,
+                    designation: ''
+                }));
+            }
+        }
+        
+        // Show teacher filter if we have teachers or teacher_ids
+        if ((currentTeachers && currentTeachers.length > 0) || hasSessions) {
+            html += `
+                <div class="mb-3">
+                    <label for="teacherFilterDisplay" class="form-label"><i class="fas fa-user-tie me-2"></i>Filter by Teacher:</label>
+                    <select class="form-select" id="teacherFilterDisplay" onchange="filterByTeacher()">
+                        <option value="">All Teachers</option>
+            `;
+            currentTeachers.forEach(teacher => {
+                const selected = filterTeacherId && teacher.id === filterTeacherId ? 'selected' : '';
+                html += `<option value="${teacher.id}" ${selected}>${teacher.name}${teacher.designation ? ' - ' + teacher.designation : ''}</option>`;
+            });
+            html += `
+                    </select>
+                </div>
+            `;
+        }
+        
+        // Store metadata in a way we can access it
+        if (!window.currentArchiveMetadata) {
+            window.currentArchiveMetadata = metadata;
+        }
+        
+        // Use stored metadata or passed metadata
+        const displayMetadata = window.currentArchiveMetadata || metadata || {};
+        
+        // Basic Information
+    html += `
+        <div class="mb-4">
+            <h5 class="border-bottom pb-2"><i class="fas fa-info-circle me-2"></i>Session Information</h5>
+            <div class="row g-2">
+                <div class="col-md-6"><strong>Academic Session:</strong> ${data.academic_session || 'N/A'}</div>
+                <div class="col-md-6"><strong>Year:</strong> ${data.year || 'N/A'}</div>
+                <div class="col-md-6"><strong>Term:</strong> ${data.term || 'N/A'}</div>
+                <div class="col-md-6"><strong>Archived At:</strong> ${displayMetadata.archived_at ? new Date(displayMetadata.archived_at).toLocaleString() : 'N/A'}</div>
+                ${displayMetadata.archived_by ? `<div class="col-md-6"><strong>Archived By:</strong> ${displayMetadata.archived_by}</div>` : ''}
+                ${displayMetadata.description ? `<div class="col-md-12"><strong>Description:</strong> ${displayMetadata.description}</div>` : ''}
+            </div>
+        </div>
+    `;
+    
+    // Filter sessions by teacher if filter is selected
+    let sessionsToShow = data.class_management && data.class_management.sessions ? data.class_management.sessions : [];
+    if (filterTeacherId !== null && filterTeacherId !== undefined) {
+        sessionsToShow = sessionsToShow.filter(s => s.teacher_id === filterTeacherId);
+    }
+    
+    // Show message if no data
+    if (!sessionsToShow || sessionsToShow.length === 0) {
+        if (filterTeacherId !== null && filterTeacherId !== undefined) {
+            html += `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>No class sessions found for the selected teacher.
+                </div>
+            `;
+        } else {
+            html += `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>No class sessions found in this archive.
+                </div>
+            `;
+        }
+    }
+    
+    // Class Management
+    if (sessionsToShow && sessionsToShow.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2">
+                    <i class="fas fa-chalkboard-teacher me-2"></i>Class Management 
+                    ${filterTeacherId ? '(Filtered by Teacher)' : ''} 
+                    (${sessionsToShow.length} session${sessionsToShow.length !== 1 ? 's' : ''})
+                </h5>
+                <div class="accordion" id="classSessionsAccordion">
+        `;
+        
+        sessionsToShow.forEach((session, idx) => {
+            const sessionId = `session_${idx}`;
+            const hasAssessments = session.students && session.students.some(s => s.assessment1 !== null || s.assessment2 !== null || s.assessment3 !== null || s.assessment4 !== null);
+            const hasAttendance = session.attendances && session.attendances.length > 0;
+            
+            html += `
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading_${sessionId}">
+                        <button class="accordion-button ${idx === 0 ? '' : 'collapsed'}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_${sessionId}" aria-expanded="${idx === 0}">
+                            <strong>${session.course_code || 'N/A'}</strong> - ${session.course_name || 'N/A'}
+                            ${!filterTeacherId ? (() => {
+                                const teacher = currentTeachers.find(t => t.id === session.teacher_id);
+                                return teacher ? `<span class="badge bg-secondary ms-2">${teacher.name}</span>` : '';
+                            })() : ''}
+                            <span class="badge bg-primary ms-2">${session.students ? session.students.length : 0} Students</span>
+                            <span class="badge bg-info ms-2">${session.attendances ? session.attendances.length : 0} Attendance</span>
+                            ${hasAssessments ? '<span class="badge bg-success ms-2">Has Assessments</span>' : ''}
+                        </button>
+                    </h2>
+                    <div id="collapse_${sessionId}" class="accordion-collapse collapse ${idx === 0 ? 'show' : ''}" data-bs-parent="#classSessionsAccordion">
+                        <div class="accordion-body">
+            `;
+            
+            // Students with Assessment Marks
+            if (session.students && session.students.length > 0) {
+                html += `
+                    <h6 class="mt-3"><i class="fas fa-user-graduate me-2"></i>Students & Assessment Marks (${session.students.length} students)</h6>
+                    <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                        <table class="table table-sm table-bordered table-hover">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Student ID</th>
+                                    <th>Name</th>
+                                    <th>Assessment 1</th>
+                                    <th>Assessment 2</th>
+                                    <th>Assessment 3</th>
+                                    <th>Assessment 4</th>
+                                    <th>Total (40)</th>
+                                    <th>Sessional Report</th>
+                                    <th>Sessional Viva</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                session.students.forEach(student => {
+                    html += `
+                        <tr>
+                            <td><strong>${student.student_id || 'N/A'}</strong></td>
+                            <td>${student.name || 'N/A'}</td>
+                            <td class="text-center">${student.assessment1 !== null && student.assessment1 !== undefined ? student.assessment1.toFixed(2) : '-'}</td>
+                            <td class="text-center">${student.assessment2 !== null && student.assessment2 !== undefined ? student.assessment2.toFixed(2) : '-'}</td>
+                            <td class="text-center">${student.assessment3 !== null && student.assessment3 !== undefined ? student.assessment3.toFixed(2) : '-'}</td>
+                            <td class="text-center">${student.assessment4 !== null && student.assessment4 !== undefined ? student.assessment4.toFixed(2) : '-'}</td>
+                            <td class="text-center"><strong class="text-primary">${student.assessment_total_40 !== null && student.assessment_total_40 !== undefined ? student.assessment_total_40.toFixed(2) : '-'}</strong></td>
+                            <td class="text-center">${student.sessional_report !== null && student.sessional_report !== undefined ? student.sessional_report.toFixed(2) : '-'}</td>
+                            <td class="text-center">${student.sessional_viva !== null && student.sessional_viva !== undefined ? student.sessional_viva.toFixed(2) : '-'}</td>
+                        </tr>
+                    `;
+                });
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-info-circle me-2"></i>No students found for this course.
+                    </div>
+                `;
+            }
+            
+            // Attendance Details
+            if (hasAttendance && session.attendances && session.attendances.length > 0) {
+                html += `
+                    <h6 class="mt-3"><i class="fas fa-calendar-check me-2"></i>Attendance Records (${session.attendances.length} records)</h6>
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm table-bordered table-hover">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Student ID</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    ${session.attendances[0] && session.attendances[0].remark ? '<th>Remark</th>' : ''}
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                session.attendances.forEach(att => { // Show all attendance records
+                    html += `
+                        <tr>
+                            <td>${att.student_id || 'N/A'}</td>
+                            <td>${att.date ? new Date(att.date).toLocaleDateString() : 'N/A'}</td>
+                            <td><span class="badge ${att.status === 'present' ? 'bg-success' : (att.status === 'absent' ? 'bg-danger' : 'bg-warning')}">${att.status || 'N/A'}</span></td>
+                            ${att.remark ? `<td>${att.remark}</td>` : ''}
+                        </tr>
+                    `;
+                });
+                html += `
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } else if (session.attendances !== undefined && session.attendances.length === 0) {
+                html += `
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-info-circle me-2"></i>No attendance records found for this course.
+                    </div>
+                `;
+            }
+            
+            html += `
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+            </div>
+        `;
+    }
+    
+    // Result Management
+    if (data.result_management && data.result_management.sessions && data.result_management.sessions.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-poll me-2"></i>Result Management (${data.result_management.sessions.length} sessions)</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Batch</th>
+                                <th>Students</th>
+                                <th>Subjects</th>
+                                <th>Marks Records</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        data.result_management.sessions.forEach(session => {
+            html += `
+                <tr>
+                    <td>${session.batch || 'N/A'}</td>
+                    <td>${session.students ? session.students.length : 0}</td>
+                    <td>${session.subjects ? session.subjects.length : 0}</td>
+                    <td>${session.marks ? session.marks.length : 0}</td>
+                </tr>
+            `;
+        });
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Course Registrations
+    if (data.course_registrations && data.course_registrations.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-clipboard-list me-2"></i>Course Registrations (${data.course_registrations.length} registrations)</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Course Code</th>
+                                <th>Course Name</th>
+                                <th>Credit</th>
+                                <th>Status</th>
+                                <th>Remark</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        data.course_registrations.forEach(reg => {
+            html += `
+                <tr>
+                    <td>${reg.course_code || 'N/A'}</td>
+                    <td>${reg.course_name || 'N/A'}</td>
+                    <td>${reg.credit || 0}</td>
+                    <td><span class="badge bg-info">${reg.status || 'N/A'}</span></td>
+                    <td>${reg.remark || 'Regular'}</td>
+                </tr>
+            `;
+        });
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Exam Evaluations (filter by teacher if selected)
+    let examEvaluationsToShow = data.exam_evaluations || [];
+    if (filterTeacherId !== null && filterTeacherId !== undefined) {
+        examEvaluationsToShow = examEvaluationsToShow.filter(ee => ee.owner_teacher_id === filterTeacherId);
+    }
+    
+    if (examEvaluationsToShow && examEvaluationsToShow.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2">
+                    <i class="fas fa-file-alt me-2"></i>Exam Paper Evaluations 
+                    ${filterTeacherId ? '(Filtered by Teacher)' : ''} 
+                    (${examEvaluationsToShow.length} entr${examEvaluationsToShow.length !== 1 ? 'ies' : 'y'})
+                </h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Course Code</th>
+                                <th>Course Name</th>
+                                <th>Batch</th>
+                                <th>Section</th>
+                                ${!filterTeacherId ? '<th>Teacher</th>' : ''}
+                                <th>Marks Data</th>
+                                <th>Submitted</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        examEvaluationsToShow.forEach(ee => {
+            // Parse marks_data if it's a JSON string
+            let marksDataDisplay = 'N/A';
+            try {
+                if (ee.marks_data) {
+                    const marksData = typeof ee.marks_data === 'string' ? JSON.parse(ee.marks_data) : ee.marks_data;
+                    if (marksData && typeof marksData === 'object') {
+                        const studentCount = Object.keys(marksData).length;
+                        marksDataDisplay = `${studentCount} student${studentCount !== 1 ? 's' : ''}`;
+                    }
+                }
+            } catch (e) {
+                marksDataDisplay = 'Data available';
+            }
+            
+            html += `
+                <tr>
+                    <td><strong>${ee.course_code || 'N/A'}</strong></td>
+                    <td>${ee.course_name || 'N/A'}</td>
+                    <td><span class="badge bg-info">${ee.batch || 'N/A'}</span></td>
+                    <td><span class="badge bg-secondary">${ee.section || 'Full'}</span></td>
+                    ${!filterTeacherId ? (() => {
+                        const teacher = currentTeachers.find(t => t.id === ee.owner_teacher_id);
+                        return `<td>${teacher ? teacher.name : 'N/A'}</td>`;
+                    })() : ''}
+                    <td>${marksDataDisplay}</td>
+                    <td>${ee.submitted_to_committee ? '<span class="badge bg-success">Yes</span>' : '<span class="badge bg-warning">No</span>'}</td>
+                </tr>
+            `;
+        });
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    } else if (data.exam_evaluations && data.exam_evaluations.length === 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-file-alt me-2"></i>Exam Paper Evaluations</h5>
+                <div class="alert alert-info">No exam paper evaluations found in this archive.</div>
+            </div>
+        `;
+    }
+    
+    // Duty Assignments
+    if (data.duty_assignments && data.duty_assignments.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-user-tie me-2"></i>Duty Assignments (${data.duty_assignments.length} assignments)</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Duty Type</th>
+                                <th>Course Code</th>
+                                <th>Batch</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        data.duty_assignments.forEach(da => {
+            html += `
+                <tr>
+                    <td><span class="badge bg-secondary">${da.duty_type || 'N/A'}</span></td>
+                    <td>${da.course_code || 'N/A'}</td>
+                    <td>${da.batch || 'N/A'}</td>
+                    <td><span class="badge bg-warning">${da.status || 'N/A'}</span></td>
+                </tr>
+            `;
+        });
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Academic Calendar
+    if (data.academic_calendar && data.academic_calendar.events && data.academic_calendar.events.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-calendar me-2"></i>Academic Calendar (${data.academic_calendar.events.length} events)</h5>
+                <div class="list-group">
+        `;
+        data.academic_calendar.events.forEach(event => {
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>${event.title || 'N/A'}</strong>
+                            <br><small class="text-muted">${event.description || ''}</small>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-primary">${event.event_type || 'N/A'}</span>
+                            <br><small>${event.event_date ? new Date(event.event_date).toLocaleDateString() : 'N/A'}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += `
+                </div>
+            </div>
+        `;
+    }
+    
+    // Routines/Schedules
+    if (data.routines && data.routines.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-calendar-alt me-2"></i>Class Routine/Schedules (${data.routines.length} entries)</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Day</th>
+                                <th>Time Slot</th>
+                                <th>Room</th>
+                                <th>Course Code</th>
+                                <th>Teacher</th>
+                                <th>Part</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        data.routines.forEach(r => {
+            html += `
+                <tr>
+                    <td>${r.day || 'N/A'}</td>
+                    <td>${r.time_slot || 'N/A'}</td>
+                    <td>${r.room_number || 'N/A'}</td>
+                    <td>${r.course_code || 'N/A'}</td>
+                    <td>${r.teacher_short_name || 'N/A'}</td>
+                    <td>${r.part || 'Full'}</td>
+                </tr>
+            `;
+        });
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Remuneration Forms
+    if (data.remuneration_forms && data.remuneration_forms.length > 0) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-file-invoice-dollar me-2"></i>Remuneration Forms (${data.remuneration_forms.length} forms)</h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Applicant</th>
+                                <th>Designation</th>
+                                <th>Total Amount</th>
+                                <th>Status</th>
+                                <th>Created At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+        data.remuneration_forms.forEach(form => {
+            html += `
+                <tr>
+                    <td>${form.applicant_name || 'N/A'}</td>
+                    <td>${form.designation || 'N/A'}</td>
+                    <td>${form.total_amount ? form.total_amount.toFixed(2) : '0.00'}</td>
+                    <td><span class="badge bg-info">${form.status || 'N/A'}</span></td>
+                    <td>${form.created_at ? new Date(form.created_at).toLocaleDateString() : 'N/A'}</td>
+                </tr>
+            `;
+        });
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Committee Info Summary
+    if (data.committee_info) {
+        html += `
+            <div class="mb-4">
+                <h5 class="border-bottom pb-2"><i class="fas fa-users me-2"></i>Committee & Duty Assignments Summary</h5>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <div class="h4 text-primary">${data.committee_info.total_committee || 0}</div>
+                                <small class="text-muted">Committee Members</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <div class="h4 text-info">${data.committee_info.total_tabulators || 0}</div>
+                                <small class="text-muted">Tabulators</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-light">
+                            <div class="card-body text-center">
+                                <div class="h4 text-success">${data.committee_info.total_scrutinizers || 0}</div>
+                                <small class="text-muted">Scrutinizers</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Summary Statistics
+    let totalStudents = 0;
+    let totalAttendance = 0;
+    let totalAssessmentRecords = 0;
+    if (data.class_management && data.class_management.sessions) {
+        data.class_management.sessions.forEach(s => {
+            if (s.students) {
+                totalStudents += s.students.length;
+                // Count students with assessment marks
+                s.students.forEach(st => {
+                    if (st.assessment1 !== null || st.assessment2 !== null || st.assessment3 !== null || st.assessment4 !== null) {
+                        totalAssessmentRecords++;
+                    }
+                });
+            }
+            totalAttendance += s.attendances ? s.attendances.length : 0;
+        });
+    }
+    
+    html += `
+        <div class="card bg-light">
+            <div class="card-body">
+                <h6 class="card-title"><i class="fas fa-chart-bar me-2"></i>Summary Statistics</h6>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-primary">${data.class_management && data.class_management.sessions ? data.class_management.sessions.length : 0}</div>
+                            <small class="text-muted">Class Sessions</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-success">${totalStudents}</div>
+                            <small class="text-muted">Total Students</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-info">${totalAttendance}</div>
+                            <small class="text-muted">Attendance Records</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-warning">${totalAssessmentRecords}</div>
+                            <small class="text-muted">Assessment Records</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-secondary">${data.course_registrations ? data.course_registrations.length : 0}</div>
+                            <small class="text-muted">Course Registrations</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-danger">${data.exam_evaluations ? data.exam_evaluations.length : 0}</div>
+                            <small class="text-muted">Exam Evaluations</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-dark">${data.routines ? data.routines.length : 0}</div>
+                            <small class="text-muted">Routine Entries</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <div class="h4 text-primary">${data.remuneration_forms ? data.remuneration_forms.length : 0}</div>
+                            <small class="text-muted">Remuneration Forms</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+        modalBody.innerHTML = html;
+    } catch (error) {
+        console.error('Error rendering archive details:', error);
+        modalBody.innerHTML = `<div class="alert alert-danger">Error rendering archive details: ${error.message}</div>`;
+    }
+}
+</script>
+{% endblock %}

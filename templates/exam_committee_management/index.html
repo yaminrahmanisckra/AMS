@@ -110,9 +110,16 @@
                                                         {% endif %}
                                                     </div>
                                                 </div>
-                                                <a href="{{ url_for('exam_committee_chief_custom_remuneration', form_id=form.id) }}" class="btn btn-sm btn-primary ms-2" style="font-size: 0.7rem; padding: 0.2rem 0.5rem; white-space: nowrap;" title="Edit Chief's Form">
+                                                <div class="d-flex gap-1 ms-2">
+                                                    <a href="{{ url_for('exam_committee_chief_custom_remuneration', form_id=form.id) }}" class="btn btn-sm btn-primary" style="font-size: 0.7rem; padding: 0.2rem 0.5rem; white-space: nowrap;" title="Edit Chief's Form">
                                                     <i class="fas fa-edit me-1"></i>Edit
                                                 </a>
+                                                    {% if is_chief %}
+                                                    <button class="btn btn-sm btn-danger" style="font-size: 0.7rem; padding: 0.2rem 0.5rem; white-space: nowrap;" title="Delete Form" onclick="deleteRemunerationForm({{ form.id }}, '{{ (form.title or 'Untitled Form')|replace("'", "\\'") }}')">
+                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                    </button>
+                                                    {% endif %}
+                                                </div>
                                             </div>
                                             {% endfor %}
                                         </div>
@@ -215,5 +222,33 @@
     background-color: #f8f9fa;
 }
 </style>
+
+<script>
+function deleteRemunerationForm(formId, formTitle) {
+    if (!confirm(`Are you sure you want to delete "${formTitle}"?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    fetch(`/exam-committee-chief/custom-remuneration/delete/${formId}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Form deleted successfully!');
+            location.reload();
+        } else {
+            alert(data.message || 'Failed to delete form');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error deleting form');
+    });
+}
+</script>
 {% endblock %}
 

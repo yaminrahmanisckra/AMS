@@ -132,3 +132,23 @@ class RemunerationForm(db.Model):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -237,8 +237,8 @@
         .revenue-ticket {
             display: inline-block;
             border: 1px solid #000;
-            width: 42.25px;
-            height: 42.25px;
+            width: 25mm;
+            height: 25mm;
             margin-left: 0.5rem;
             margin-top: 0.3rem;
             vertical-align: top;
@@ -484,7 +484,7 @@
                     <td class="text-center">{{ job_data.serial }}</td>
                     <td>{{ job_data.description }}</td>
                     <td class="english-text">{{ job_data.courses }}</td>
-                    <td class="english-text">{{ job_data.quantity }}</td>
+                    <td class="english-text">{% if job_data.quantity %}{{ job_data.quantity|safe }}{% endif %}</td>
                     <td class="english-text">{{ job_data.paper_type }}</td>
                     <td class="english-text">{{ job_data.rate }}</td>
                     <td class="text-right english-text">{{ job_data.amount }}</td>
@@ -505,7 +505,7 @@
         <table class="foot-table">
             <tr>
                 <td><strong>সর্বমোট টাকার পরিমাণ (কথায়):</strong></td>
-                <td class="english-text">{{ total_in_words or '' }}</td>
+                <td style="font-family: {% if font_path %}'Kalpurush', {% endif %}'Noto Sans Bengali', 'Hind Siliguri', 'SolaimanLipi', 'Mukti', 'Siyam Rupali', sans-serif;">{{ total_in_words or '' }}</td>
             </tr>
         </table>
         

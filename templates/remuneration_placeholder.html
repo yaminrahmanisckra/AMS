@@ -692,8 +692,8 @@
     .revenue-ticket {
         display: inline-block;
         border: 1px solid #000;
-        width: 40px;
-        height: 40px;
+        width: 25mm;
+        height: 25mm;
         margin-left: 1rem;
         vertical-align: top;
     }
@@ -937,8 +937,8 @@
                                     <select class="form-select form-select-sm course-select" name="course_no_{{ loop.index }}[]" style="border: 1px solid #ddd; font-size: 0.85rem; flex: 1;" disabled>
                                         <option value="">Select Session/Year/Term first</option>
                                         {% if loop.index == 2 %}
-                                        {# Row 2: Add "All" option in dropdown #}
-                                        <option value="ALL">All</option>
+                                        {# Row 2: Add "All" option in dropdown and select it by default #}
+                                        <option value="ALL" selected>All</option>
                                         {% endif %}
                                     </select>
                                     <select class="form-select form-select-sm section-select" name="section_{{ loop.index }}[]" id="section_{{ loop.index }}_0" style="border: 1px solid #ddd; font-size: 0.85rem; width: 60px;" {% if loop.index == 4 %}onchange="updateRow4Calculation()"{% endif %}>
@@ -955,7 +955,14 @@
                         {% endif %}
                     </td>
                     <td style="padding: 0.5rem;">
-                        {% if loop.index == 4 %}
+                        {% if loop.index == 3 %}
+                        {# Row 3: Breakdown display for per-course calculation with minimum 600 #}
+                        <div id="row3_calculations" style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            {# Breakdown will be populated dynamically by JavaScript #}
+                        </div>
+                        {# Total quantity (visible) #}
+                        <input type="text" name="quantity_3" id="quantity_3" value="0" readonly style="border: none; background: transparent; text-align: center; width: 100%; font-weight: 600; font-size: 0.85rem;">
+                        {% elif loop.index == 4 %}
                         {# Row 4: Special calculation with student count × section multiplier - supports multiple sub-rows #}
                         <div id="row4_calculations" style="display: flex; flex-direction: column; gap: 0.25rem;">
                             {# First calculation (main) #}
@@ -1479,13 +1486,235 @@ function calculateRow(rowIndex) {
     const amountField = document.querySelector(`input[name="amount_${rowIndex}"]`);
     if (amountField) {
         // Special handling for row 3 (উত্তরপত্র পরীক্ষণ - Answer Script Examination)
-        // If rate is "ন্যূনতম (প্রতি কোর্স) ৬০০" or value is 600, set amount to 600 without multiplication
-        if (rowIndex == 3 && (rate == 600 || rateLabel.includes('ন্যূনতম') || rateLabel.includes('প্রতি কোর্স'))) {
-            amountField.value = '600.00';
+        // Calculate per-course with minimum 600 per course
+        if (rowIndex == 3) {
+            calculateRow3WithMinimumPerCourse(amountField);
         } else {
             amountField.value = (quantity * rate).toFixed(2);
         }
         updateTotal();
+    }
+}
+
+// Calculate Row 3 (Answer Script Examination) with minimum 600 per course
+function calculateRow3WithMinimumPerCourse(amountField) {
+    const container = document.getElementById('container_3');
+    const calculationsContainer = document.getElementById('row3_calculations');
+    const quantityInput = document.querySelector('input[name="quantity_3"]');
+    
+    if (!container) {
+        // Fallback to simple calculation if container not found
+        const rateSelect = document.getElementById('rate_3');
+        if (quantityInput && rateSelect && rateSelect.value) {
+            const quantity = parseFloat(quantityInput.value) || 0;
+            const rate = parseFloat(rateSelect.value) || 0;
+            amountField.value = (quantity * rate).toFixed(2);
+        }
+        if (calculationsContainer) calculationsContainer.innerHTML = '';
+        return;
+    }
+    
+    // Get current teacher name for matching
+    const currentTeacherName = getCurrentTeacherName();
+    
+    // Get all course-section pairs
+    const courseSectionItems = container.querySelectorAll('.course-section-item');
+    
+    if (courseSectionItems.length === 0) {
+        // No courses selected, set amount to 0
+        amountField.value = '0.00';
+        if (quantityInput) quantityInput.value = '0';
+        if (calculationsContainer) calculationsContainer.innerHTML = '';
+        return;
+    }
+    
+    let totalAmount = 0;
+    let totalScripts = 0;
+    let hasAnyScriptData = false;
+    const breakdownItems = [];
+    
+    // Process each course-section pair individually
+    courseSectionItems.forEach((item, index) => {
+        const courseSelect = item.querySelector('.course-select');
+        const sectionSelect = item.querySelector('.section-select');
+        
+        if (!courseSelect || !courseSelect.value) {
+            return; // Skip if no course selected
+        }
+        
+        const courseValue = courseSelect.value;
+        const sectionValue = (sectionSelect?.value || 'Full').toUpperCase();
+        
+        // Determine if UG or PG
+        const isPG = isPostgraduateCourse(courseValue);
+        
+        // Get rate: 80 for UG, 100 for PG
+        const rate = isPG ? 100 : 80;
+        
+        // Get script count for this course-section pair
+        let scripts = 0;
+        
+        // Try to get from Statement of Remuneration data
+        if (globalRemunerationStatementData && globalRemunerationStatementData.script_examination && currentTeacherName) {
+            const courseCode = courseValue.split(' - ')[0].trim();
+            
+            const matchingItem = globalRemunerationStatementData.script_examination.find(item => {
+                if (!item.course_code && !item.course) return false;
+                const itemCourseCode = (item.course_code || item.course).toString().split(' - ')[0].trim();
+                const itemSection = (item.section || '').toUpperCase();
+                
+                // Match course
+                const courseMatches = itemCourseCode === courseCode || 
+                                     (item.course_code || item.course).toString() === courseValue ||
+                                     (item.course_code || item.course).toString().includes(courseCode) ||
+                                     courseCode.includes(itemCourseCode);
+                
+                // Match section (A, B, or Full/empty)
+                const sectionMatches = sectionValue === 'FULL' || sectionValue === '' || 
+                                       itemSection === sectionValue ||
+                                       (sectionValue === '' && (itemSection === '' || itemSection === 'FULL'));
+                
+                // Match teacher - flexible matching
+                let teacherMatches = false;
+                if (item.teacher) {
+                    const itemTeacher = item.teacher.toString().trim();
+                    const currentTeacher = currentTeacherName.trim();
+                    
+                    if (itemTeacher === currentTeacher ||
+                        itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
+                        itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+                        currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase())) {
+                        teacherMatches = true;
+                    }
+                }
+                
+                return courseMatches && sectionMatches && teacherMatches;
+            });
+            
+            if (matchingItem && matchingItem.scripts) {
+                scripts = parseInt(matchingItem.scripts) || 0;
+                hasAnyScriptData = true;
+                console.log(`Row 3: Found ${scripts} scripts for course ${courseValue}, section ${sectionValue} from Statement data`);
+            } else {
+                console.log(`Row 3: No matching data found for course ${courseValue}, section ${sectionValue} in Statement`);
+            }
+        }
+        
+        // If no data from Statement, skip this course (can't calculate without script count)
+        if (scripts === 0) {
+            console.log(`Row 3: No script count found for course ${courseValue}, section ${sectionValue} - skipping from calculation`);
+            return;
+        }
+        
+        totalScripts += scripts;
+        
+        // Calculate amount for this course: scripts × rate
+        const calculatedAmount = scripts * rate;
+        let courseAmount = calculatedAmount;
+        const usedMinimum = calculatedAmount < 600;
+        
+        // Apply minimum: if < 600, use 600
+        if (usedMinimum) {
+            courseAmount = 600;
+            console.log(`Row 3: Course ${courseValue} (${scripts} scripts × ${rate} = ${calculatedAmount}) < 600, using minimum 600`);
+        } else {
+            console.log(`Row 3: Course ${courseValue} (${scripts} scripts × ${rate} = ${courseAmount})`);
+        }
+        
+        // Store breakdown item
+        breakdownItems.push({
+            course: courseValue,
+            courseCode: courseValue.split(' - ')[0].trim(),
+            section: sectionValue,
+            scripts: scripts,
+            rate: rate,
+            calculatedAmount: calculatedAmount,
+            finalAmount: courseAmount,
+            finalRate: usedMinimum ? 600 : rate, // The rate to display (600 if minimum applied)
+            usedMinimum: usedMinimum
+        });
+        
+        totalAmount += courseAmount;
+    });
+    
+    // Update quantity input with total scripts (visible in main row)
+    if (quantityInput) {
+        quantityInput.value = totalScripts;
+    }
+    
+    // Update breakdown display
+    if (calculationsContainer) {
+        if (breakdownItems.length === 0) {
+            calculationsContainer.innerHTML = '';
+        } else {
+            calculationsContainer.innerHTML = breakdownItems.map((item, idx) => {
+                const courseDisplay = item.course.split(' - ')[0].trim() + (item.section !== 'FULL' ? ' ' + item.section : '');
+                // Format like Row 4: "scripts × rate = amount" or "scripts × rate = amount < 600 → 600"
+                const calculationText = item.usedMinimum 
+                    ? `${item.scripts} × ${item.rate} = ${item.calculatedAmount} < 600 → 600`
+                    : `${item.scripts} × ${item.rate} = ${item.finalAmount}`;
+                
+                return `
+                    <div class="row3-calculation-item" data-index="${idx}" style="display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; justify-content: flex-start; max-width: 100%; font-size: 0.75rem; padding: 0.15rem 0.25rem;">
+                        <span style="font-weight: 600; min-width: 50px;">${courseDisplay}:</span>
+                        <span>${calculationText}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+    
+    // If no script data found at all, fall back to simple calculation
+    if (!hasAnyScriptData) {
+        console.log('Row 3: No Statement data available, falling back to simple calculation');
+        const rateSelect = document.getElementById('rate_3');
+        if (quantityInput && rateSelect && rateSelect.value) {
+            const quantity = parseFloat(quantityInput.value) || 0;
+            const rate = parseFloat(rateSelect.value) || 0;
+            amountField.value = (quantity * rate).toFixed(2);
+        } else {
+            amountField.value = '0.00';
+        }
+        if (calculationsContainer) calculationsContainer.innerHTML = '';
+        return;
+    }
+    
+    // Set the total amount
+    amountField.value = totalAmount.toFixed(2);
+    console.log(`Row 3: Total amount calculated (per-course with minimum): ${totalAmount.toFixed(2)}`);
+    
+    // Update rate display to show all rates being used (e.g., "100, 600" if both are used)
+    const rateSelect = document.getElementById('rate_3');
+    const rateDisplay = document.getElementById('rate_display_3');
+    const rateDisplayContainer = document.getElementById('rate_display_container_3');
+    
+    if (breakdownItems.length > 0 && rateDisplay && rateDisplayContainer) {
+        // Get unique rates being used (finalRate includes 600 if minimum applied)
+        const ratesUsed = new Set();
+        breakdownItems.forEach(item => {
+            ratesUsed.add(item.finalRate);
+        });
+        
+        const ratesArray = Array.from(ratesUsed).sort((a, b) => a - b);
+        const rateDisplayText = ratesArray.join(', ');
+        
+        // Show the rate display with all rates
+        rateDisplay.textContent = '৳' + rateDisplayText;
+        rateDisplayContainer.style.display = 'flex';
+        if (rateSelect) {
+            rateSelect.style.display = 'none';
+        }
+        
+        // Store rate display text in hidden input for PDF
+        let rateDisplayInput = document.getElementById('rate_display_3_text');
+        if (!rateDisplayInput) {
+            rateDisplayInput = document.createElement('input');
+            rateDisplayInput.type = 'hidden';
+            rateDisplayInput.id = 'rate_display_3_text';
+            rateDisplayInput.name = 'rate_display_3_text';
+            document.body.appendChild(rateDisplayInput);
+        }
+        rateDisplayInput.value = rateDisplayText;
     }
 }
 
@@ -1686,13 +1915,751 @@ function populateBillFormFromRemunerationStatement(remunerationData) {
     console.log('Populating Bill Form from Remuneration Statement data...');
     globalRemunerationStatementData = remunerationData;
     
+    // Populate exam dates from Remuneration Statement
+    if (remunerationData) {
+        const examStartDateField = document.querySelector('input[name="exam_start_date"]');
+        const examEndDateField = document.querySelector('input[name="exam_end_date"]');
+        
+        if (remunerationData.exam_start_date && examStartDateField) {
+            examStartDateField.value = remunerationData.exam_start_date;
+            console.log('✅ Populated Exam Start Date:', remunerationData.exam_start_date);
+        }
+        
+        if (remunerationData.exam_end_date && examEndDateField) {
+            examEndDateField.value = remunerationData.exam_end_date;
+            console.log('✅ Populated Exam End Date:', remunerationData.exam_end_date);
+        }
+    }
+    
     // Set up event listeners for course selection changes
     // Use setTimeout to ensure DOM is ready
     setTimeout(() => {
+        // First, auto-populate courses and rates for all rows
+        autoPopulateCoursesAndRates();
+        // Then set up event listeners
         setupRemunerationDataLoaders();
         // Also populate any already selected courses
         populateExistingSelections();
     }, 500);
+}
+
+// Helper function to detect if a course is UG or PG
+function isPostgraduateCourse(courseValue, courseData = null) {
+    if (!courseValue) return false;
+    
+    const courseCode = courseValue.toString().split(' - ')[0].trim();
+    
+    // Method 1: Check if course data has category field
+    if (courseData && courseData.category) {
+        return courseData.category.toLowerCase() === 'pg' || 
+               courseData.category.toLowerCase() === 'postgraduate';
+    }
+    
+    // Method 2: Check course code pattern
+    // PG courses typically have year digit 5 (LLM) or start with certain patterns
+    const digits = courseCode.match(/\d+/g);
+    if (digits && digits.length > 0) {
+        const lastDigits = digits[digits.length - 1];
+        if (lastDigits && lastDigits.length >= 4) {
+            const yearDigit = parseInt(lastDigits.charAt(lastDigits.length - 4));
+            // Year digit 5 typically means LLM (PG)
+            if (yearDigit === 5) {
+                return true;
+            }
+        }
+    }
+    
+    // Method 3: Check if course code contains PG indicators
+    const pgIndicators = ['LLM', 'MPhil', 'PhD', 'PG', '5'];
+    const upperCode = courseCode.toUpperCase();
+    if (pgIndicators.some(indicator => upperCode.includes(indicator))) {
+        return true;
+    }
+    
+    // Method 4: Check year field from form (if available)
+    const yearField = document.getElementById('year');
+    if (yearField && yearField.value) {
+        const yearValue = yearField.value.toString().toUpperCase();
+        if (yearValue.includes('LLM') || yearValue.includes('PG') || yearValue.includes('MPhil') || yearValue.includes('PhD')) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Auto-populate courses and rates from Remuneration Statement for all rows
+function autoPopulateCoursesAndRates() {
+    if (!globalRemunerationStatementData) {
+        console.log('autoPopulateCoursesAndRates: No Remuneration Statement data');
+        return;
+    }
+    
+    console.log('🔄 Auto-populating courses and rates from Remuneration Statement...');
+    
+    // Get current teacher name
+    const currentTeacherName = getCurrentTeacherName();
+    if (!currentTeacherName) {
+        console.log('⚠️ No teacher name found, cannot auto-populate');
+        return;
+    }
+    
+    // Wait for course dropdowns to be populated first
+    setTimeout(() => {
+        // Check if course dropdowns are populated
+        const testSelect = document.querySelector('.course-select');
+        if (testSelect && testSelect.options.length <= 1) {
+            console.log('⏳ Course dropdowns not ready yet, waiting...');
+            setTimeout(() => autoPopulateCoursesAndRates(), 1000);
+            return;
+        }
+        
+        // Row 1: প্রশ্নপত্র প্রণয়ন (Question Preparation)
+        autoPopulateRow1(currentTeacherName);
+        
+        // Row 2: প্রশ্নপত্র মডারেশন (Question Moderation) - Auto-select quantity and rate when "All" is selected
+        autoPopulateRow2();
+
+        // Row 3: উত্তরপত্র পরীক্ষণ (Script Examination)
+        autoPopulateRow3(currentTeacherName);
+        
+        // Row 4: ক্লাস টেস্ট/টার্ম পেপার (Class Test/Term Paper)
+        autoPopulateRow4(currentTeacherName);
+        
+        // Row 5: সেশনাল (Sessional)
+        autoPopulateRow5(currentTeacherName);
+        
+        // Row 6: সেশনাল মৌখিক পরীক্ষা (Sessional Oral Examination)
+        autoPopulateRow6(currentTeacherName);
+        
+        // Row 7: প্রফেশনাল এ্যাটাসমেন্ট (Professional Attachment)
+        autoPopulateRow7(currentTeacherName);
+        
+        // Row 8: উত্তরপত্র নিরীক্ষণ (Script Scrutiny) - No course selection needed
+        
+        // Row 11: পরীক্ষা কমিটির সভাপতি/সদস্য - Wait for Year field to be populated
+        setTimeout(() => {
+            console.log('🔄 Row 11: Loading exam committee data...');
+            loadDataForRow11();
+        }, 2000); // Wait longer for Year field to be populated
+        
+        console.log('✅ Auto-population completed');
+    }, 1500); // Wait for course dropdowns to be populated
+}
+
+// Auto-select rate for Row 1 based on course type
+function autoSelectRateForRow1(courseValue) {
+    if (!courseValue) return;
+    
+    const rateSelect = document.getElementById('rate_1');
+    if (!rateSelect || rateSelect.value) return; // Don't override if already selected
+    
+    const isPG = isPostgraduateCourse(courseValue);
+    
+    if (isPG) {
+        const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
+        if (pgOption) {
+            rateSelect.value = '2400';
+            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log('✅ Row 1: Auto-selected PG rate (2400) for course:', courseValue);
+        }
+    } else {
+        const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '2300');
+        if (ugOption) {
+            rateSelect.value = '2300';
+            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log('✅ Row 1: Auto-selected UG rate (2300) for course:', courseValue);
+        }
+    }
+}
+
+// Auto-select rate for Row 3 based on course type and section
+function autoSelectRateForRow3(container) {
+    if (!container) return;
+    
+    const rateSelect = document.getElementById('rate_3');
+    if (!rateSelect || rateSelect.value) return; // Don't override if already selected
+    
+    const courseSelect = container.querySelector('.course-select');
+    const sectionSelect = container.querySelector('.section-select');
+    
+    if (!courseSelect || !courseSelect.value) return;
+    
+    const courseValue = courseSelect.value;
+    const sectionValue = (sectionSelect?.value || 'Full').toUpperCase();
+    const isPG = isPostgraduateCourse(courseValue);
+    
+    let rateValue = null;
+    if (sectionValue === 'FULL' || sectionValue === '') {
+        // Full paper
+        if (isPG) {
+            rateValue = '160'; // PG Final Term full paper
+        } else {
+            rateValue = '80'; // UG half paper rate for full paper
+        }
+    } else {
+        // Half paper (A or B)
+        if (isPG) {
+            rateValue = '100'; // PG half paper
+        } else {
+            rateValue = '80'; // UG half paper
+        }
+    }
+    
+    if (rateValue) {
+        const option = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
+        if (option) {
+            rateSelect.value = rateValue;
+            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log(`✅ Row 3: Auto-selected rate (${rateValue}) for ${isPG ? 'PG' : 'UG'} course, section: ${sectionValue}`);
+        }
+    }
+}
+
+// Auto-select rate for Row 4 based on course type
+function autoSelectRateForRow4(container) {
+    if (!container) return;
+    
+    const rateSelect = document.getElementById('rate_4');
+    if (!rateSelect || rateSelect.value) return; // Don't override if already selected
+    
+    const courseSelect = container.querySelector('.course-select');
+    if (!courseSelect || !courseSelect.value) return;
+    
+    const courseValue = courseSelect.value;
+    const isPG = isPostgraduateCourse(courseValue);
+    
+    if (isPG) {
+        const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '80');
+        if (pgOption) {
+            rateSelect.value = '80';
+            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log('✅ Row 4: Auto-selected PG rate (80) for course:', courseValue);
+        }
+    } else {
+        const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '30');
+        if (ugOption) {
+            rateSelect.value = '30';
+            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            console.log('✅ Row 4: Auto-selected UG rate (30) for course:', courseValue);
+        }
+    }
+}
+
+// Auto-populate Row 2: প্রশ্নপত্র মডারেশন - Set quantity and rate when "All" is selected
+function autoPopulateRow2() {
+    const container2 = document.getElementById('container_2');
+    if (!container2) return;
+    
+    const courseSelect = container2.querySelector('.course-select');
+    if (!courseSelect) return;
+    
+    // Check if "All" is selected (either by default or manually)
+    if (courseSelect.value === 'ALL') {
+        setTimeout(() => {
+            // Set quantity
+            const quantityInput = document.querySelector('input[name="quantity_2"]');
+            if (quantityInput && quantityInput.value !== 'All') {
+                quantityInput.value = 'All';
+                quantityInput.setAttribute('data-actual-quantity', '1');
+                console.log('✅ Row 2: Set quantity to "All"');
+            }
+            
+            // Auto-select rate (সর্বোচ্চ - 2400)
+            const rateSelect = document.getElementById('rate_2');
+            if (rateSelect && !rateSelect.value) {
+                const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
+                if (maxOption) {
+                    rateSelect.value = '2400';
+                    rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
+                }
+            }
+            
+            // Calculate row total
+            calculateRow(2);
+        }, 300);
+    }
+}
+
+// Auto-populate Row 1: প্রশ্নপত্র প্রণয়ন
+function autoPopulateRow1(teacherName) {
+    if (!globalRemunerationStatementData || !globalRemunerationStatementData.question_preparation) {
+        return;
+    }
+    
+    const container1 = document.getElementById('container_1');
+    if (!container1) return;
+    
+    // Find all courses for this teacher
+    const teacherCourses = globalRemunerationStatementData.question_preparation.filter(item => {
+        if (!item.teacher) return false;
+        const itemTeacher = item.teacher.toString().trim();
+        const currentTeacher = teacherName.trim();
+        return itemTeacher === currentTeacher ||
+               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
+               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+    });
+    
+    if (teacherCourses.length === 0) return;
+    
+    // Get the first course select (or create if needed)
+    let courseSelect = container1.querySelector('.course-select');
+    if (!courseSelect) return;
+    
+    // Populate courses
+    teacherCourses.forEach((item, index) => {
+        const courseValue = item.course_code || item.course;
+        if (!courseValue) return;
+        
+        if (index === 0) {
+            // Set first course
+            courseSelect.value = courseValue;
+            courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+            // Add more courses using the add button
+            const addBtn = container1.querySelector('.add-course-btn');
+            if (addBtn) {
+                addBtn.click();
+                setTimeout(() => {
+                    const newSelects = container1.querySelectorAll('.course-select');
+                    const newSelect = newSelects[newSelects.length - 1];
+                    if (newSelect) {
+                        newSelect.value = courseValue;
+                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }, 100);
+            }
+        }
+    });
+    
+    // Auto-select rate based on course type (UG or PG)
+    setTimeout(() => {
+        const rateSelect = document.getElementById('rate_1');
+        if (rateSelect && !rateSelect.value) {
+            const firstCourse = teacherCourses[0];
+            const courseValue = firstCourse.course_code || firstCourse.course;
+            const isPG = isPostgraduateCourse(courseValue, firstCourse);
+            
+            if (isPG) {
+                // PG rate: স্নাতকোত্তর/এমফিল/পিএইচডি (প্রতি প্রশ্নপত্র) - 2400
+                const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
+                if (pgOption) {
+                    rateSelect.value = '2400';
+                    console.log('✅ Row 1: Selected PG rate (2400) for course:', courseValue);
+                }
+            } else {
+                // UG rate: স্নাতক (প্রতি প্রশ্নপত্র) - 2300
+                const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '2300');
+                if (ugOption) {
+                    rateSelect.value = '2300';
+                    console.log('✅ Row 1: Selected UG rate (2300) for course:', courseValue);
+                }
+            }
+            if (rateSelect.value) {
+                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+    }, 500);
+}
+
+// Auto-populate Row 3: উত্তরপত্র পরীক্ষণ
+function autoPopulateRow3(teacherName) {
+    if (!globalRemunerationStatementData || !globalRemunerationStatementData.script_examination) {
+        return;
+    }
+    
+    const container3 = document.getElementById('container_3');
+    if (!container3) return;
+    
+    // Find all courses for this teacher
+    const teacherCourses = globalRemunerationStatementData.script_examination.filter(item => {
+        if (!item.teacher) return false;
+        const itemTeacher = item.teacher.toString().trim();
+        const currentTeacher = teacherName.trim();
+        return itemTeacher === currentTeacher ||
+               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
+               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+    });
+    
+    if (teacherCourses.length === 0) return;
+    
+    // Group by course and section
+    const courseSectionMap = new Map();
+    teacherCourses.forEach(item => {
+        const course = item.course_code || item.course;
+        const section = (item.section || 'Full').toUpperCase();
+        const key = `${course}_${section}`;
+        if (!courseSectionMap.has(key)) {
+            courseSectionMap.set(key, item);
+        }
+    });
+    
+    // Populate courses
+    let index = 0;
+    courseSectionMap.forEach((item, key) => {
+        const courseValue = item.course_code || item.course;
+        const sectionValue = item.section || 'Full';
+        
+        if (index === 0) {
+            // Set first course
+            const courseSelect = container3.querySelector('.course-select');
+            const sectionSelect = container3.querySelector('.section-select');
+            if (courseSelect && sectionSelect) {
+                courseSelect.value = courseValue;
+                sectionSelect.value = sectionValue;
+                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } else {
+            // Add more courses
+            const addBtn = container3.querySelector('.add-course-btn');
+            if (addBtn) {
+                addBtn.click();
+                setTimeout(() => {
+                    const items = container3.querySelectorAll('.course-section-item');
+                    const lastItem = items[items.length - 1];
+                    if (lastItem) {
+                        const courseSelect = lastItem.querySelector('.course-select');
+                        const sectionSelect = lastItem.querySelector('.section-select');
+                        if (courseSelect && sectionSelect) {
+                            courseSelect.value = courseValue;
+                            sectionSelect.value = sectionValue;
+                            courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                            sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                }, 100);
+            }
+        }
+        index++;
+    });
+    
+    // Auto-select rate based on course type and section
+    setTimeout(() => {
+        const rateSelect = document.getElementById('rate_3');
+        if (rateSelect && !rateSelect.value) {
+            // Get the first course to determine UG/PG
+            const firstItem = courseSectionMap.values().next().value;
+            if (firstItem) {
+                const courseValue = firstItem.course_code || firstItem.course;
+                const sectionValue = (firstItem.section || 'Full').toUpperCase();
+                const isPG = isPostgraduateCourse(courseValue, firstItem);
+                
+                let rateValue = null;
+                if (sectionValue === 'FULL' || sectionValue === '') {
+                    // Full paper
+                    if (isPG) {
+                        // PG: Check if Mid Term or Final Term
+                        // For now, default to Final Term (160)
+                        rateValue = '160';
+                    } else {
+                        // UG: Default to half paper rate (80) for full paper
+                        rateValue = '80';
+                    }
+                } else {
+                    // Half paper (A or B)
+                    if (isPG) {
+                        rateValue = '100'; // PG half paper
+                    } else {
+                        rateValue = '80'; // UG half paper
+                    }
+                }
+                
+                if (rateValue) {
+                    const option = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
+                    if (option) {
+                        rateSelect.value = rateValue;
+                        console.log(`✅ Row 3: Selected rate (${rateValue}) for ${isPG ? 'PG' : 'UG'} course, section: ${sectionValue}`);
+                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }
+            }
+        }
+        loadScriptCountForRow3(container3);
+    }, 1000);
+}
+
+// Auto-populate Row 4: ক্লাস টেস্ট/টার্ম পেপার
+function autoPopulateRow4(teacherName) {
+    if (!globalRemunerationStatementData || !globalRemunerationStatementData.class_test) {
+        return;
+    }
+    
+    const container4 = document.getElementById('container_4');
+    if (!container4) return;
+    
+    // Find all courses for this teacher
+    const teacherCourses = globalRemunerationStatementData.class_test.filter(item => {
+        if (!item.teacher && !item.teacher_name) return false;
+        const itemTeacher = (item.teacher || item.teacher_name).toString().trim();
+        const currentTeacher = teacherName.trim();
+        return itemTeacher === currentTeacher ||
+               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
+               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+    });
+    
+    if (teacherCourses.length === 0) return;
+    
+    // Group by course and section
+    const courseSectionMap = new Map();
+    teacherCourses.forEach(item => {
+        const course = item.course_code || item.course;
+        const section = (item.section || 'Full').toUpperCase();
+        const key = `${course}_${section}`;
+        if (!courseSectionMap.has(key)) {
+            courseSectionMap.set(key, item);
+        }
+    });
+    
+    // Populate courses
+    let index = 0;
+    courseSectionMap.forEach((item, key) => {
+        const courseValue = item.course_code || item.course;
+        const sectionValue = item.section || 'Full';
+        
+        if (index === 0) {
+            const courseSelect = container4.querySelector('.course-select');
+            const sectionSelect = container4.querySelector('.section-select');
+            if (courseSelect && sectionSelect) {
+                courseSelect.value = courseValue;
+                sectionSelect.value = sectionValue;
+                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } else {
+            const addBtn = container4.querySelector('.add-course-btn');
+            if (addBtn) {
+                addBtn.click();
+                setTimeout(() => {
+                    const items = container4.querySelectorAll('.course-section-item');
+                    const lastItem = items[items.length - 1];
+                    if (lastItem) {
+                        const courseSelect = lastItem.querySelector('.course-select');
+                        const sectionSelect = lastItem.querySelector('.section-select');
+                        if (courseSelect && sectionSelect) {
+                            courseSelect.value = courseValue;
+                            sectionSelect.value = sectionValue;
+                            courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                            sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    }
+                }, 100);
+            }
+        }
+        index++;
+    });
+    
+    // Auto-select rate and load student count
+    setTimeout(() => {
+        const rateSelect = document.getElementById('rate_4');
+        if (rateSelect && !rateSelect.value) {
+            const firstCourse = teacherCourses[0];
+            const courseValue = firstCourse.course_code || firstCourse.course;
+            const isPG = isPostgraduateCourse(courseValue, firstCourse);
+            
+            if (isPG) {
+                // PG: স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী) - 80
+                const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '80');
+                if (pgOption) {
+                    rateSelect.value = '80';
+                    console.log('✅ Row 4: Selected PG rate (80) for course:', courseValue);
+                }
+            } else {
+                // UG: স্নাতক - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী) - 30
+                const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '30');
+                if (ugOption) {
+                    rateSelect.value = '30';
+                    console.log('✅ Row 4: Selected UG rate (30) for course:', courseValue);
+                }
+            }
+            if (rateSelect.value) {
+                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+        loadStudentCountForRow4(container4);
+    }, 1000);
+}
+
+// Auto-populate Row 5: সেশনাল
+function autoPopulateRow5(teacherName) {
+    if (!globalRemunerationStatementData || !globalRemunerationStatementData.sessional_assessment) {
+        return;
+    }
+    
+    const container5 = document.getElementById('container_5');
+    if (!container5) return;
+    
+    const teacherCourses = globalRemunerationStatementData.sessional_assessment.filter(item => {
+        if (!item.teacher) return false;
+        const itemTeacher = item.teacher.toString().trim();
+        const currentTeacher = teacherName.trim();
+        return itemTeacher === currentTeacher ||
+               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
+               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+    });
+    
+    if (teacherCourses.length === 0) return;
+    
+    // Get unique courses
+    const uniqueCourses = [...new Set(teacherCourses.map(item => item.course_code || item.course))];
+    
+    uniqueCourses.forEach((courseValue, index) => {
+        if (!courseValue) return;
+        
+        if (index === 0) {
+            const courseSelect = container5.querySelector('.course-select');
+            if (courseSelect) {
+                courseSelect.value = courseValue;
+                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } else {
+            const addBtn = container5.querySelector('.add-course-btn');
+            if (addBtn) {
+                addBtn.click();
+                setTimeout(() => {
+                    const selects = container5.querySelectorAll('.course-select');
+                    const newSelect = selects[selects.length - 1];
+                    if (newSelect) {
+                        newSelect.value = courseValue;
+                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }, 100);
+            }
+        }
+    });
+    
+    setTimeout(() => {
+        loadDataForRow5(container5);
+    }, 1000);
+}
+
+// Auto-populate Row 6: সেশনাল মৌখিক পরীক্ষা
+function autoPopulateRow6(teacherName) {
+    if (!globalRemunerationStatementData || !globalRemunerationStatementData.sessional_viva) {
+        return;
+    }
+    
+    const container6 = document.getElementById('container_6');
+    if (!container6) return;
+    
+    const teacherCourses = globalRemunerationStatementData.sessional_viva.filter(item => {
+        if (!item.teacher) return false;
+        const itemTeacher = item.teacher.toString().trim();
+        const currentTeacher = teacherName.trim();
+        return itemTeacher === currentTeacher ||
+               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
+               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+    });
+    
+    if (teacherCourses.length === 0) return;
+    
+    const uniqueCourses = [...new Set(teacherCourses.map(item => item.course_code || item.course))];
+    
+    uniqueCourses.forEach((courseValue, index) => {
+        if (!courseValue) return;
+        
+        if (index === 0) {
+            const courseSelect = container6.querySelector('.course-select');
+            if (courseSelect) {
+                courseSelect.value = courseValue;
+                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } else {
+            const addBtn = container6.querySelector('.add-course-btn');
+            if (addBtn) {
+                addBtn.click();
+                setTimeout(() => {
+                    const selects = container6.querySelectorAll('.course-select');
+                    const newSelect = selects[selects.length - 1];
+                    if (newSelect) {
+                        newSelect.value = courseValue;
+                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }, 100);
+            }
+        }
+    });
+    
+    // Auto-select rate (usually 50 per student)
+    setTimeout(() => {
+        const rateSelect = document.getElementById('rate_6');
+        if (rateSelect && !rateSelect.value) {
+            const option = Array.from(rateSelect.options).find(opt => opt.value === '50');
+            if (option) {
+                rateSelect.value = '50';
+                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+        loadDataForRow6(container6);
+    }, 1000);
+}
+
+// Auto-populate Row 7: প্রফেশনাল এ্যাটাসমেন্ট
+function autoPopulateRow7(teacherName) {
+    if (!globalRemunerationStatementData || !globalRemunerationStatementData.professional_attachment) {
+        return;
+    }
+    
+    const container7 = document.getElementById('container_7');
+    if (!container7) return;
+    
+    const teacherCourses = globalRemunerationStatementData.professional_attachment.filter(item => {
+        if (!item.teacher) return false;
+        const itemTeacher = item.teacher.toString().trim();
+        const currentTeacher = teacherName.trim();
+        return itemTeacher === currentTeacher ||
+               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
+               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+    });
+    
+    if (teacherCourses.length === 0) return;
+    
+    const uniqueCourses = [...new Set(teacherCourses.map(item => item.course_code || item.course))];
+    
+    uniqueCourses.forEach((courseValue, index) => {
+        if (!courseValue) return;
+        
+        if (index === 0) {
+            const courseSelect = container7.querySelector('.course-select');
+            if (courseSelect) {
+                courseSelect.value = courseValue;
+                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } else {
+            const addBtn = container7.querySelector('.add-course-btn');
+            if (addBtn) {
+                addBtn.click();
+                setTimeout(() => {
+                    const selects = container7.querySelectorAll('.course-select');
+                    const newSelect = selects[selects.length - 1];
+                    if (newSelect) {
+                        newSelect.value = courseValue;
+                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }, 100);
+            }
+        }
+    });
+    
+    // Auto-select rate (usually 100 per student)
+    setTimeout(() => {
+        const rateSelect = document.getElementById('rate_7');
+        if (rateSelect && !rateSelect.value) {
+            const option = Array.from(rateSelect.options).find(opt => opt.value === '100');
+            if (option) {
+                rateSelect.value = '100';
+                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+        loadDataForRow7(container7);
+    }, 1000);
 }
 
 // Populate data for courses that are already selected
@@ -1769,6 +2736,9 @@ function populateExistingSelections() {
     // Row 9 doesn't have course selection, so load it directly based on teacher
     loadDataForRow9(null);
     
+    // Row 10: প্রশ্নপত্র প্রস্তুতকরণ - Load from question_typing table (Table 14)
+    loadDataForRow10();
+    
     // Row 11: পরীক্ষা কমিটির সভাপতি/সদস্য - Check if teacher is in exam committee
     loadDataForRow11();
     
@@ -1799,6 +2769,8 @@ function setupRemunerationDataLoaders() {
         container1.addEventListener('change', function(e) {
             if (e.target.classList.contains('course-select') && e.target.value) {
                 loadQuestionCountForRow1(e.target);
+                // Auto-select rate based on UG/PG
+                autoSelectRateForRow1(e.target.value);
             }
         });
         
@@ -1819,6 +2791,17 @@ function setupRemunerationDataLoaders() {
         container3.addEventListener('change', function(e) {
             if (e.target.classList.contains('course-select') || e.target.classList.contains('section-select')) {
                 loadScriptCountForRow3(container3);
+                // Auto-select rate based on UG/PG and section
+                if (e.target.classList.contains('course-select') || e.target.classList.contains('section-select')) {
+                    setTimeout(() => {
+                        autoSelectRateForRow3(container3);
+                        // Recalculate after rate is selected
+                        setTimeout(() => calculateRow(3), 300);
+                    }, 200);
+                } else {
+                    // Recalculate immediately if not selecting rate
+                    setTimeout(() => calculateRow(3), 100);
+                }
             }
         });
         
@@ -1839,6 +2822,10 @@ function setupRemunerationDataLoaders() {
         container4.addEventListener('change', function(e) {
             if (e.target.classList.contains('course-select') || e.target.classList.contains('section-select')) {
                 loadStudentCountForRow4(container4);
+                // Auto-select rate based on UG/PG
+                if (e.target.classList.contains('course-select')) {
+                    setTimeout(() => autoSelectRateForRow4(container4), 200);
+                }
             }
         });
         
@@ -2048,6 +3035,30 @@ function loadDataForRow5(container) {
             // Trigger change event to update calculations
             quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
             quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // Auto-select first/default rate if quantity > 0 and rate not already selected
+            if (totalStudents > 0) {
+                const rateSelect = document.getElementById('rate_5');
+                if (rateSelect && !rateSelect.value) {
+                    // Get the first rate option (value '230' - প্রজেক্ট পেপার/এ্যাসাইনমেন্ট)
+                    const firstRateOption = Array.from(rateSelect.options).find(opt => opt.value === '230');
+                    if (firstRateOption) {
+                        rateSelect.value = '230';
+                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('✅ Row 5: Auto-selected first rate (230 - প্রজেক্ট পেপার/এ্যাসাইনমেন্ট)');
+                    } else {
+                        // If '230' not found, select the first available option (excluding empty and custom)
+                        const availableOptions = Array.from(rateSelect.options).filter(opt => opt.value && opt.value !== '' && opt.value !== 'custom');
+                        if (availableOptions.length > 0) {
+                            rateSelect.value = availableOptions[0].value;
+                            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                            console.log(`✅ Row 5: Auto-selected first available rate (${availableOptions[0].value})`);
+                        }
+                    }
+                }
+                // Calculate row total
+                calculateRow(5);
+            }
         }, 300);
     } else {
         console.error('❌ Row 5: quantity_5 input field not found!');
@@ -2286,6 +3297,21 @@ function loadDataForRow8(container) {
             }
             quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
             quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // Auto-select rate if quantity > 0 and rate not already selected
+            if (totalScripts > 0) {
+                const rateSelect = document.getElementById('rate_8');
+                if (rateSelect && !rateSelect.value) {
+                    const rateOption = Array.from(rateSelect.options).find(opt => opt.value === '8');
+                    if (rateOption) {
+                        rateSelect.value = '8';
+                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('✅ Row 8: Auto-selected rate (8 - প্রতি উত্তরপত্র)');
+                    }
+                }
+                // Calculate row total
+                calculateRow(8);
+            }
         }, 300);
     } else {
         console.error('❌ Row 8: quantity_8 input field not found!');
@@ -2368,6 +3394,19 @@ function loadDataForRow9(container) {
             }
             quantityInput9a.dispatchEvent(new Event('change', { bubbles: true }));
             quantityInput9a.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // Auto-select rate for 9a if quantity > 0 and rate not already selected
+            if (totalCourseWise > 0) {
+                const rateSelect9a = document.getElementById('rate_9a');
+                if (rateSelect9a && !rateSelect9a.value) {
+                    const rateOption9a = Array.from(rateSelect9a.options).find(opt => opt.value === '200');
+                    if (rateOption9a) {
+                        rateSelect9a.value = '200';
+                        rateSelect9a.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('✅ Row 9a: Auto-selected rate (200 - কোর্স ভিত্তিক)');
+                    }
+                }
+            }
         }, 300);
     } else {
         console.error('❌ Row 9: quantity_9a input field not found!');
@@ -2389,10 +3428,29 @@ function loadDataForRow9(container) {
             }
             quantityInput9b.dispatchEvent(new Event('change', { bubbles: true }));
             quantityInput9b.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // Auto-select rate for 9b if quantity > 0 and rate not already selected
+            if (totalStudentWise > 0) {
+                const rateSelect9b = document.getElementById('rate_9b');
+                if (rateSelect9b && !rateSelect9b.value) {
+                    const rateOption9b = Array.from(rateSelect9b.options).find(opt => opt.value === '80');
+                    if (rateOption9b) {
+                        rateSelect9b.value = '80';
+                        rateSelect9b.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('✅ Row 9b: Auto-selected rate (80 - পরীক্ষার্থী ভিত্তিক)');
+                    }
+                }
+            }
         }, 300);
     } else {
         console.error('❌ Row 9: quantity_9b input field not found!');
     }
+    
+    // Calculate totals for both sub-rows
+    setTimeout(() => {
+        calculateRow('9a');
+        calculateRow('9b');
+    }, 500);
     
     if (matchingItems.length === 0) {
         console.log(`❌ Row 9: No matching data found for teacher ${currentTeacherName}`);
@@ -2400,7 +3458,143 @@ function loadDataForRow9(container) {
 }
 
 // Load data for Row 11 (পরীক্ষা কমিটির সভাপতি/সদস্য) - checks if teacher is in exam committee
+// Load data for Row 10 (প্রশ্নপত্র প্রস্তুতকরণ) - loads drawing and photocopy from question_typing table (Table 14)
+function loadDataForRow10() {
+    if (!globalRemunerationStatementData) {
+        console.log('Row 10: No Remuneration Statement data');
+        const quantityInput10a = document.querySelector('input[name="quantity_10a"]');
+        const quantityInput10b = document.querySelector('input[name="quantity_10b"]');
+        if (quantityInput10a) quantityInput10a.value = '0';
+        if (quantityInput10b) quantityInput10b.value = '0';
+        return;
+    }
+    
+    const currentTeacherName = getCurrentTeacherName();
+    if (!currentTeacherName) {
+        console.log('Row 10: No teacher name found in Bill Form');
+        const quantityInput10a = document.querySelector('input[name="quantity_10a"]');
+        const quantityInput10b = document.querySelector('input[name="quantity_10b"]');
+        if (quantityInput10a) quantityInput10a.value = '0';
+        if (quantityInput10b) quantityInput10b.value = '0';
+        return;
+    }
+    
+    console.log('Row 10: Matching for teacher:', currentTeacherName);
+    
+    // Load from question_typing (Table 14) for drawing (10a)
+    let totalDrawingQuestions = 0;
+    if (globalRemunerationStatementData.question_typing && Array.isArray(globalRemunerationStatementData.question_typing)) {
+        console.log('Row 10: Available question_typing data:', globalRemunerationStatementData.question_typing);
+        
+        const matchingItems = globalRemunerationStatementData.question_typing.filter(item => {
+            const itemName = (item.name || '').toString().trim();
+            const currentTeacher = currentTeacherName.trim();
+            
+            const nameMatches = itemName === currentTeacher ||
+                              itemName.toLowerCase() === currentTeacher.toLowerCase() ||
+                              itemName.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+                              currentTeacher.toLowerCase().includes(itemName.toLowerCase());
+            
+            if (nameMatches) {
+                console.log(`Row 10: Match found - Name: ${itemName}, Questions: ${item.questions || 0}`);
+            }
+            
+            return nameMatches;
+        });
+        
+        matchingItems.forEach(item => {
+            totalDrawingQuestions += parseInt(item.questions || 0) || 0;
+        });
+    }
+    
+    // Load from question_photocopy (if exists) for photocopy (10b), otherwise use question_typing
+    let totalPhotocopyQuestions = 0;
+    if (globalRemunerationStatementData.question_photocopy && Array.isArray(globalRemunerationStatementData.question_photocopy)) {
+        console.log('Row 10: Available question_photocopy data:', globalRemunerationStatementData.question_photocopy);
+        
+        const matchingItems = globalRemunerationStatementData.question_photocopy.filter(item => {
+            const itemName = (item.name || '').toString().trim();
+            const currentTeacher = currentTeacherName.trim();
+            
+            const nameMatches = itemName === currentTeacher ||
+                              itemName.toLowerCase() === currentTeacher.toLowerCase() ||
+                              itemName.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+                              currentTeacher.toLowerCase().includes(itemName.toLowerCase());
+            
+            if (nameMatches) {
+                console.log(`Row 10: Match found - Name: ${itemName}, Questions: ${item.questions || 0}`);
+            }
+            
+            return nameMatches;
+        });
+        
+        matchingItems.forEach(item => {
+            totalPhotocopyQuestions += parseInt(item.questions || 0) || 0;
+        });
+    } else {
+        // If question_photocopy doesn't exist, use question_typing for photocopy as well
+        // (assuming Table 14 contains both drawing and photocopy data)
+        if (globalRemunerationStatementData.question_typing && Array.isArray(globalRemunerationStatementData.question_typing)) {
+            const matchingItems = globalRemunerationStatementData.question_typing.filter(item => {
+                const itemName = (item.name || '').toString().trim();
+                const currentTeacher = currentTeacherName.trim();
+                
+                const nameMatches = itemName === currentTeacher ||
+                                  itemName.toLowerCase() === currentTeacher.toLowerCase() ||
+                                  itemName.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+                                  currentTeacher.toLowerCase().includes(itemName.toLowerCase());
+                
+                return nameMatches;
+            });
+            
+            matchingItems.forEach(item => {
+                totalPhotocopyQuestions += parseInt(item.questions || 0) || 0;
+            });
+        }
+    }
+    
+    const setValue = (inputName, value, label, rateRowId = null, rateValue = null) => {
+        const input = document.querySelector(`input[name="${inputName}"]`);
+        if (input) {
+            setTimeout(() => {
+                input.value = value;
+                input.setAttribute('value', value);
+                console.log(`✅ ${inputName} (${label}): ${value}`);
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Auto-select rate if quantity > 0 and rate info provided
+                if (value > 0 && rateRowId && rateValue) {
+                    const rateSelect = document.getElementById(`rate_${rateRowId}`);
+                    if (rateSelect && !rateSelect.value) {
+                        const rateOption = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
+                        if (rateOption) {
+                            rateSelect.value = rateValue;
+                            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                            console.log(`✅ Row ${rateRowId}: Auto-selected rate (${rateValue}) for ${label}`);
+                        }
+                    }
+                    // Calculate row total
+                    calculateRow(rateRowId);
+                }
+            }, 300);
+        }
+    };
+    
+    // Set quantities and auto-select rates
+    // 10a: অংকন - Rate: 250 (অংকনসহ অন্যান্য কাজ)
+    setValue('quantity_10a', totalDrawingQuestions, 'অংকন', '10a', '250');
+    
+    // 10b: ফটোকপি - Rate: 7 (ফটোকপি)
+    setValue('quantity_10b', totalPhotocopyQuestions, 'ফটোকপি', '10b', '7');
+    
+    if (totalDrawingQuestions === 0 && totalPhotocopyQuestions === 0) {
+        console.log(`❌ Row 10: No matching data found for teacher ${currentTeacherName}`);
+    }
+}
+
 function loadDataForRow11() {
+    console.log('🔍 Row 11: loadDataForRow11() called');
+    
     if (!globalRemunerationStatementData || !globalRemunerationStatementData.examination_committee) {
         console.log('Row 11: No Remuneration Statement data or examination_committee array');
         // If no data, set to 0
@@ -2421,12 +3615,38 @@ function loadDataForRow11() {
         return;
     }
     
+    console.log('Row 11: Teacher name found:', currentTeacherName);
+    
+    // Check Year field to determine UG/PG
+    const yearField = document.getElementById('year');
+    let isPostgraduate = false;
+    
+    if (!yearField) {
+        console.warn('Row 11: Year field not found! Retrying in 500ms...');
+        setTimeout(() => {
+            loadDataForRow11();
+        }, 500);
+        return;
+    }
+    
+    if (!yearField.value) {
+        console.warn('Row 11: Year field is empty! Retrying in 500ms...');
+        setTimeout(() => {
+            loadDataForRow11();
+        }, 500);
+        return;
+    }
+    
+    const yearValue = yearField.value.toString().toUpperCase().trim();
+    isPostgraduate = yearValue.includes('LLM');
+    console.log(`Row 11: Year = "${yearField.value}", isPostgraduate = ${isPostgraduate}`);
+    
     console.log('Row 11: Checking if teacher is in exam committee:', currentTeacherName);
     console.log('Row 11: Available examination_committee data:', globalRemunerationStatementData.examination_committee);
     
-    // Check if current teacher is in the examination committee
-    // Position can be: Chairman, Member, External Member, or any variation
-    const isInCommittee = globalRemunerationStatementData.examination_committee.some(member => {
+    // Find the teacher in examination committee and get their position
+    let teacherPosition = null;
+    const matchingMember = globalRemunerationStatementData.examination_committee.find(member => {
         const memberName = (member.name || '').toString().trim();
         const currentTeacher = currentTeacherName.trim();
         
@@ -2437,19 +3657,26 @@ function loadDataForRow11() {
                           currentTeacher.toLowerCase().includes(memberName.toLowerCase());
         
         if (nameMatches) {
-            const position = (member.position || '').toString().trim().toLowerCase();
-            console.log(`Row 11: Found teacher in committee - Name: ${memberName}, Position: ${member.position}`);
-            // Check if position is Chief/Chairman, Member, or External Member
-            return position.includes('chief') || 
-                   position.includes('chairman') || 
-                   position.includes('member') ||
-                   position.includes('সদস্য') ||
-                   position.includes('চীফ') ||
-                   position.includes('সভাপতি');
+            teacherPosition = (member.position || '').toString().trim();
+            console.log(`Row 11: Found teacher in committee - Name: ${memberName}, Position: ${teacherPosition}`);
+            return true;
         }
         
         return false;
     });
+    
+    // Check if teacher is in committee (any position)
+    const isInCommittee = matchingMember !== undefined;
+    
+    // Determine if position is Chairman
+    let isChairman = false;
+    if (teacherPosition) {
+        const positionLower = teacherPosition.toLowerCase();
+        isChairman = positionLower.includes('chief') || 
+                     positionLower.includes('chairman') || 
+                     positionLower.includes('সভাপতি') ||
+                     positionLower.includes('চীফ');
+    }
     
     // Set quantity to 1 if teacher is in committee, 0 otherwise
     const quantityValue = isInCommittee ? '1' : '0';
@@ -2469,6 +3696,169 @@ function loadDataForRow11() {
             }
             quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
             quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
+            
+            // Auto-select rate based on Year and Position
+            if (isInCommittee && quantityValue === '1') {
+                const rateSelect = document.getElementById('rate_11');
+                if (rateSelect && !rateSelect.value) {
+                    let rateValue = null;
+                    
+                    // Determine rate based on requirements:
+                    // 1. LLM + Chairman → "স্নাতকোত্তর - সভাপতি" (3000)
+                    // 2. LLM + Member → "স্নাতকোত্তর - সদস্য" (1000)
+                    // 3. Non-LLM + Member → "স্নাতক - সদস্য" (1000)
+                    // 4. Non-LLM + Chairman → "স্নাতক - সভাপতি" (2500)
+                    
+                    if (isPostgraduate && isChairman) {
+                        rateValue = '3000';
+                    } else if (isPostgraduate && !isChairman) {
+                        rateValue = '1000';
+                    } else if (!isPostgraduate && isChairman) {
+                        rateValue = '2500';
+                    } else if (!isPostgraduate && !isChairman) {
+                        rateValue = '1000';
+                    }
+                    
+                    if (rateValue) {
+                        console.log(`Row 11: ✅ Rate value determined - Value: ${rateValue}, isPostgraduate: ${isPostgraduate}, isChairman: ${isChairman}`);
+                        
+                        // Log ALL options with value 1000 for debugging
+                        const all1000Options = Array.from(rateSelect.options).filter(opt => opt.value === '1000');
+                        console.log(`Row 11: All options with value 1000:`, all1000Options.map(opt => {
+                            const dataLabel = opt.getAttribute('data-label') || '';
+                            const textContent = (opt.textContent || opt.innerText || opt.text || '').trim();
+                            return {
+                                value: opt.value,
+                                dataLabel: dataLabel,
+                                textContent: textContent,
+                                fullText: textContent
+                            };
+                        }));
+                        
+                        // For value 1000, we need to distinguish between UG and PG Member
+                        if (rateValue === '1000' && isPostgraduate && !isChairman) {
+                            // Find option with "স্নাতকোত্তর - সদস্য" (Postgraduate - Member)
+                            console.log('Row 11: 🔍 Looking for PG Member option (1000 - স্নাতকোত্তর - সদস্য)');
+                            
+                            let pgOption = null;
+                            
+                            // Try to find PG Member option
+                            for (const opt of all1000Options) {
+                                if (!opt.value || opt.value !== '1000') continue;
+                                
+                                // Get label from data-label or textContent
+                                let label = opt.getAttribute('data-label') || '';
+                                if (!label) {
+                                    label = (opt.textContent || opt.innerText || opt.text || '').trim();
+                                    // Remove " - ৳1000/-" suffix if present
+                                    if (label.includes(' - ৳')) {
+                                        label = label.split(' - ৳')[0].trim();
+                                    }
+                                }
+                                
+                                // Check for PG Member: must have "স্নাতকোত্তর" AND "সদস্য"
+                                const hasPostgraduate = label.includes('স্নাতকোত্তর');
+                                const hasMember = label.includes('সদস্য');
+                                // Must NOT be just "স্নাতক" without "োত্তর"
+                                const hasOnlyUndergraduate = label.includes('স্নাতক') && !label.includes('স্নাতকোত্তর');
+                                
+                                console.log(`Row 11: Checking option - Label: "${label}", hasPostgraduate: ${hasPostgraduate}, hasMember: ${hasMember}, hasOnlyUndergraduate: ${hasOnlyUndergraduate}`);
+                                
+                                // Match: has "স্নাতকোত্তর" AND "সদস্য" AND NOT just "স্নাতক"
+                                if (hasPostgraduate && hasMember && !hasOnlyUndergraduate) {
+                                    pgOption = opt;
+                                    console.log(`Row 11: ✅ Found PG Member option! Label: "${label}", Value: "${opt.value}"`);
+                                    break;
+                                } else {
+                                    console.log(`Row 11: ❌ Not a match - hasPostgraduate: ${hasPostgraduate}, hasMember: ${hasMember}, hasOnlyUndergraduate: ${hasOnlyUndergraduate}`);
+                                }
+                            }
+                            
+                            if (pgOption) {
+                                // Set the option as selected
+                                rateSelect.value = pgOption.value;
+                                
+                                // Force selection by setting selectedIndex
+                                const optionIndex = Array.from(rateSelect.options).indexOf(pgOption);
+                                if (optionIndex >= 0) {
+                                    rateSelect.selectedIndex = optionIndex;
+                                }
+                                
+                                // Trigger change event
+                                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                rateSelect.dispatchEvent(new Event('input', { bubbles: true }));
+                                
+                                // Verify selection
+                                const selectedLabel = (pgOption.getAttribute('data-label') || pgOption.textContent || '').trim();
+                                const verifiedValue = rateSelect.value;
+                                const verifiedLabel = rateSelect.options[rateSelect.selectedIndex] ? 
+                                    (rateSelect.options[rateSelect.selectedIndex].getAttribute('data-label') || rateSelect.options[rateSelect.selectedIndex].textContent || '').trim() : '';
+                                
+                                console.log(`✅ Row 11: Selected PG Member rate - Value: "${verifiedValue}", Label: "${verifiedLabel}"`);
+                                console.log(`✅ Row 11: Original option label: "${selectedLabel}"`);
+                                
+                                // Double-check: verify it's actually the PG option
+                                if (verifiedLabel.includes('স্নাতকোত্তর') && verifiedLabel.includes('সদস্য')) {
+                                    console.log(`✅ Row 11: Verification PASSED - Correct PG Member option selected`);
+                                } else {
+                                    console.error(`❌ Row 11: Verification FAILED - Selected label doesn't match PG Member!`);
+                                    console.error(`Row 11: Selected label: "${verifiedLabel}"`);
+                                }
+                                
+                                calculateRow(11);
+                            } else {
+                                console.error(`❌ Row 11: PG Member option NOT FOUND!`);
+                                console.error(`Row 11: Searched through ${all1000Options.length} options with value 1000`);
+                                console.error(`Row 11: Expected: Option with "স্নাতকোত্তর" AND "সদস্য" but NOT just "স্নাতক"`);
+                                console.error(`Row 11: All 1000 options:`, all1000Options.map(opt => ({
+                                    value: opt.value,
+                                    dataLabel: opt.getAttribute('data-label'),
+                                    text: opt.textContent
+                                })));
+                            }
+                        } else if (rateValue === '1000' && !isPostgraduate && !isChairman) {
+                            // Find option with "স্নাতক - সদস্য" (Undergraduate - Member)
+                            console.log('Row 11: Looking for UG Member option (1000 - স্নাতক - সদস্য)');
+                            
+                            const ugOption = Array.from(rateSelect.options).find(opt => {
+                                if (!opt.value || opt.value !== '1000') return false;
+                                
+                                // Get label from data-label or textContent
+                                let label = opt.getAttribute('data-label') || '';
+                                if (!label) {
+                                    label = (opt.textContent || opt.innerText || opt.text || '').trim();
+                                    // Remove " - ৳1000/-" suffix if present
+                                    if (label.includes(' - ৳')) {
+                                        label = label.split(' - ৳')[0].trim();
+                                    }
+                                }
+                                
+                                const hasUndergraduate = label.includes('স্নাতক');
+                                const hasPostgraduate = label.includes('স্নাতকোত্তর');
+                                const hasMember = label.includes('সদস্য');
+                                
+                                return hasUndergraduate && !hasPostgraduate && hasMember;
+                            });
+                            
+                            if (ugOption) {
+                                rateSelect.value = ugOption.value;
+                                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                console.log(`✅ Row 11: Selected UG Member rate (1000 - স্নাতক - সদস্য)`);
+                                calculateRow(11);
+                            }
+                        } else {
+                            // For other rates (3000, 2500), just match by value
+                            const option = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
+                            if (option) {
+                                rateSelect.value = rateValue;
+                                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                console.log(`✅ Row 11: Selected rate (${rateValue})`);
+                                calculateRow(11);
+                            }
+                        }
+                    }
+                }
+            }
         }, 300);
     } else {
         console.error('❌ Row 11: quantity_11 input field not found!');
@@ -2525,7 +3915,7 @@ function loadDataForRow12() {
         totalInvigilation += parseInt(item.invigilation || 0) || 0;
     });
     
-    const setValue = (inputName, value, label) => {
+    const setValue = (inputName, value, label, rateRowId = null, rateValue = null) => {
         const input = document.querySelector(`input[name="${inputName}"]`);
         if (input) {
             setTimeout(() => {
@@ -2533,12 +3923,27 @@ function loadDataForRow12() {
                 input.setAttribute('value', value);
                 console.log(`✅ ${inputName} (${label}): ${value}`);
                 input.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Auto-select rate if quantity > 0 and rate info provided
+                if (value > 0 && rateRowId && rateValue) {
+                    const rateSelect = document.getElementById(`rate_${rateRowId}`);
+                    if (rateSelect && !rateSelect.value) {
+                        const rateOption = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
+                        if (rateOption) {
+                            rateSelect.value = rateValue;
+                            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                            console.log(`✅ Row ${rateRowId}: Auto-selected rate (${rateValue}) for ${label}`);
+                        }
+                    }
+                    // Calculate row total
+                    calculateRow(rateRowId);
+                }
             }, 300);
         }
     };
     
-    setValue('quantity_12a', totalChief, 'চীফ ইনভিজিলেশন');
-    setValue('quantity_12b', totalInvigilation, 'ইনভিজিলেশন');
+    setValue('quantity_12a', totalChief, 'চীফ ইনভিজিলেশন', '12a', '3000');
+    setValue('quantity_12b', totalInvigilation, 'ইনভিজিলেশন', '12b', '2000');
     
     if (matchingItems.length === 0) {
         console.log(`❌ Row 12: No matching data found for teacher ${currentTeacherName}`);
@@ -2593,7 +3998,18 @@ function loadDataForRow13() {
         totalViva += parseInt(item.viva || 0) || 0;
     });
     
-    const setValue = (inputName, value, label) => {
+    // Check if Year contains "LLM" to determine UG/PG
+    const yearField = document.getElementById('year');
+    let isPostgraduate = false;
+    if (yearField && yearField.value) {
+        const yearValue = yearField.value.toString().toUpperCase();
+        isPostgraduate = yearValue.includes('LLM');
+        console.log(`Row 13: Year = "${yearField.value}", isPostgraduate = ${isPostgraduate}`);
+    } else {
+        console.log('Row 13: Year field not found or empty, defaulting to UG');
+    }
+    
+    const setValue = (inputName, value, label, rateRowId = null, rateValueUG = null, rateValuePG = null) => {
         const input = document.querySelector(`input[name="${inputName}"]`);
         if (input) {
             setTimeout(() => {
@@ -2601,14 +4017,53 @@ function loadDataForRow13() {
                 input.setAttribute('value', value);
                 console.log(`✅ ${inputName} (${label}): ${value}`);
                 input.dispatchEvent(new Event('change', { bubbles: true }));
+                
+                // Auto-select rate if quantity > 0 and rate info provided
+                if (value > 0 && rateRowId) {
+                    const rateSelect = document.getElementById(`rate_${rateRowId}`);
+                    if (rateSelect && !rateSelect.value) {
+                        let rateValue = null;
+                        if (isPostgraduate && rateValuePG) {
+                            rateValue = rateValuePG;
+                        } else if (!isPostgraduate && rateValueUG) {
+                            rateValue = rateValueUG;
+                        }
+                        
+                        if (rateValue) {
+                            const rateOption = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
+                            if (rateOption) {
+                                rateSelect.value = rateValue;
+                                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                console.log(`✅ Row ${rateRowId}: Auto-selected rate (${rateValue}) for ${isPostgraduate ? 'PG' : 'UG'} - ${label}`);
+                            } else {
+                                console.warn(`⚠️ Row ${rateRowId}: Rate option ${rateValue} not found in dropdown for ${label}`);
+                            }
+                        } else {
+                            console.log(`ℹ️ Row ${rateRowId}: No rate available for ${isPostgraduate ? 'PG' : 'UG'} - ${label}`);
+                        }
+                    }
+                    // Calculate row total
+                    if (rateSelect && rateSelect.value) {
+                        calculateRow(rateRowId);
+                    }
+                }
             }, 300);
         }
     };
     
-    setValue('quantity_13a', totalExamine, 'পরীক্ষণ');
-    setValue('quantity_13b', totalSupervision, 'সুপারভিশন');
-    setValue('quantity_13c', totalCoSupervision, 'কো-সুপারভিশন');
-    setValue('quantity_13d', totalViva, 'মৌখিক পরীক্ষা');
+    // Set quantities and auto-select rates based on UG/PG
+    // 13a: পরীক্ষণ - UG: 1200, PG: 2500
+    setValue('quantity_13a', totalExamine, 'পরীক্ষণ', '13a', '1200', '2500');
+    
+    // 13b: সুপারভিশন - UG: 2000, PG: 5000
+    setValue('quantity_13b', totalSupervision, 'সুপারভিশন', '13b', '2000', '5000');
+    
+    // 13c: কো-সুপারভিশন - Only PG rates available (1500 for PG, 15000 for PhD)
+    // For UG, no rate should be set (rateValueUG = null)
+    setValue('quantity_13c', totalCoSupervision, 'কো-সুপারভিশন', '13c', null, '1500');
+    
+    // 13d: মৌখিক পরীক্ষা - UG: 120, PG: 500
+    setValue('quantity_13d', totalViva, 'মৌখিক পরীক্ষা', '13d', '120', '500');
     
     if (matchingItems.length === 0) {
         console.log(`❌ Row 13: No matching data found for teacher ${currentTeacherName}`);
@@ -2665,6 +4120,21 @@ function loadDataForRow14() {
             quantityInput.setAttribute('value', totalStudents);
             console.log(`✅ Row 14: Total students loaded: ${totalStudents}`);
             quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // Auto-select rate if quantity > 0 and rate not already selected
+            if (totalStudents > 0) {
+                const rateSelect = document.getElementById('rate_14');
+                if (rateSelect && !rateSelect.value) {
+                    const rateOption = Array.from(rateSelect.options).find(opt => opt.value === '50');
+                    if (rateOption) {
+                        rateSelect.value = '50';
+                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('✅ Row 14: Auto-selected rate (50 - পরীক্ষার্থী প্রতি)');
+                    }
+                }
+                // Calculate row total
+                calculateRow(14);
+            }
         }, 300);
     }
     
@@ -2723,6 +4193,21 @@ function loadDataForRow15() {
             quantityInput.setAttribute('value', totalScripts);
             console.log(`✅ Row 15: Total scripts loaded: ${totalScripts}`);
             quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            // Auto-select rate if quantity > 0 and rate not already selected
+            if (totalScripts > 0) {
+                const rateSelect = document.getElementById('rate_15');
+                if (rateSelect && !rateSelect.value) {
+                    const rateOption = Array.from(rateSelect.options).find(opt => opt.value === '50');
+                    if (rateOption) {
+                        rateSelect.value = '50';
+                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('✅ Row 15: Auto-selected rate (50 - পরীক্ষার্থী প্রতি)');
+                    }
+                }
+                // Calculate row total
+                calculateRow(15);
+            }
         }, 300);
     }
     
@@ -3735,9 +5220,43 @@ document.addEventListener('DOMContentLoaded', function() {
                         
                         // Always enable the dropdown - never disable after selection
                         select.disabled = false;
-                        // Restore previous value if it exists
+                        
+                        // For row 2, select "All" by default if no previous value
+                        if (rowId === '2') {
+                            if (!currentValue || currentValue === '') {
+                                select.value = 'ALL';
+                                // Trigger change event to update calculations and auto-select quantity/rate
+                                setTimeout(() => {
+                                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                                    
+                                    // Auto-set quantity and rate
+                                    const quantityInput = document.querySelector('input[name="quantity_2"]');
+                                    if (quantityInput) {
+                                        quantityInput.value = 'All';
+                                        quantityInput.setAttribute('data-actual-quantity', '1');
+                                    }
+                                    
+                                    const rateSelect = document.getElementById('rate_2');
+                                    if (rateSelect && !rateSelect.value) {
+                                        const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
+                                        if (maxOption) {
+                                            rateSelect.value = '2400';
+                                            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                            console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
+                                        }
+                                    }
+                                    
+                                    // Calculate row total
+                                    calculateRow(2);
+                                }, 200);
+                            } else {
+                                select.value = currentValue;
+                            }
+                        } else {
+                            // Restore previous value if it exists for other rows
                         if (currentValue) {
                             select.value = currentValue;
+                            }
                         }
                     });
                     console.log('Courses loaded successfully');
@@ -3987,12 +5506,38 @@ document.addEventListener('DOMContentLoaded', function() {
             const container = e.target.closest('.course-section-container');
             if (container) {
                 const rowId = container.id.replace('container_', '');
+                
+                // Auto-select rate based on course type for relevant rows
+                if (rowId === '1' && e.target.value) {
+                    autoSelectRateForRow1(e.target.value);
+                } else if (rowId === '3' && e.target.value) {
+                    setTimeout(() => autoSelectRateForRow3(container), 200);
+                } else if (rowId === '4' && e.target.value) {
+                    setTimeout(() => autoSelectRateForRow4(container), 200);
+                }
+                
                 if (rowId === '2') {
                     const quantityInput = document.querySelector(`input[name="quantity_${rowId}"]`);
                     if (quantityInput) {
                         if (e.target.value === 'ALL') {
                             // When "All" is selected, show "All" in quantity field
                             quantityInput.value = 'All';
+                            quantityInput.setAttribute('data-actual-quantity', '1'); // Use 1 for calculation
+                            
+                            // Auto-select rate (সর্বোচ্চ - 2400)
+                            setTimeout(() => {
+                                const rateSelect = document.getElementById('rate_2');
+                                if (rateSelect && !rateSelect.value) {
+                                    const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
+                                    if (maxOption) {
+                                        rateSelect.value = '2400';
+                                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                        console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
+                                    }
+                                }
+                                // Calculate row total
+                                calculateRow(2);
+                            }, 100);
                             // Store actual quantity (1) in a data attribute for calculation
                             quantityInput.setAttribute('data-actual-quantity', '1');
                         } else {
@@ -4513,6 +6058,24 @@ function exportToPdf() {
         });
     });
     
+    // For Row 3, collect breakdown data for PDF display
+    const row3Calculations = document.getElementById('row3_calculations');
+    if (row3Calculations) {
+        const breakdownItems = row3Calculations.querySelectorAll('.row3-calculation-item');
+        const breakdownTexts = [];
+        breakdownItems.forEach(item => {
+            // Get the text content, which includes course name and calculation
+            const text = item.textContent.trim();
+            if (text) {
+                breakdownTexts.push(text);
+            }
+        });
+        if (breakdownTexts.length > 0) {
+            // Join with newline for better readability in PDF
+            formData.append('row3_breakdown', breakdownTexts.join('\n'));
+        }
+    }
+    
     // Show loading
     const btn = event.target.closest('button');
     const originalText = btn.innerHTML;
@@ -4524,9 +6087,27 @@ function exportToPdf() {
         method: 'POST',
         body: formData
     })
-    .then(response => {
-        if (!response.ok) throw new Error('PDF export failed');
-        return response.blob();
+    .then(async response => {
+        if (!response.ok) {
+            // Try to get error message from response
+            let errorMsg = 'PDF export failed';
+            try {
+                const errorData = await response.json();
+                errorMsg = errorData.error || errorData.message || errorMsg;
+            } catch (e) {
+                errorMsg = `PDF export failed (Status: ${response.status})`;
+            }
+            throw new Error(errorMsg);
+        }
+        // Check if response is actually a PDF
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/pdf')) {
+            return response.blob();
+        } else {
+            // Might be JSON error
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Invalid response from server');
+        }
     })
     .then(blob => {
         // Create download link
@@ -4544,8 +6125,8 @@ function exportToPdf() {
         btn.innerHTML = originalText;
     })
     .catch(error => {
-        console.error('Error:', error);
-        alert('Failed to export PDF. Please try again.');
+        console.error('PDF Export Error:', error);
+        alert(`Failed to export PDF: ${error.message || 'Unknown error'}. Please check the console for details.`);
         btn.disabled = false;
         btn.innerHTML = originalText;
     });

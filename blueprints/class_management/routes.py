@@ -4586,8 +4586,10 @@ def course_assessment(session_id):
             flash(f'Error creating invitation: {str(e)}', 'danger')
         return redirect(url_for('class_management.course_assessment', session_id=session_id))
 
-    # List of other teachers to invite (exclude self)
-    other_teachers = Teacher.query.filter(Teacher.id != session.teacher_id).order_by(Teacher.name).all()
+    # List of other teachers to invite (exclude self, head, and teaching assistants)
+    from role_utils import get_teachers_excluding_head
+    all_teachers = get_teachers_excluding_head()
+    other_teachers = [t for t in all_teachers if t.id != session.teacher_id]
     # Existing invites for this session
     invites = EvaluationInvite.query.filter_by(session_id=session_id).all()
     session_ids = [inv.session_id for inv in invites]

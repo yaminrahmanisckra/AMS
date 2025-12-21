@@ -61,6 +61,73 @@
         </div>
     </div>
 
+    <!-- Pending Registrations (Invitations) -->
+    {% if pending_registrations %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Pending Registrations (Invitations)</h5>
+        </div>
+        <div class="card-body">
+            {% for key, data in pending_registrations.items() %}
+            <div class="card mb-3 border-warning">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ data.student.name }}</strong> ({{ data.student.student_id }})
+                        <br>
+                        <small class="text-muted">
+                            Batch: {{ data.student.batch or 'N/A' }} | 
+                            Session: {{ data.session }} | 
+                            Year: {{ data.year }} | 
+                            Term: {{ data.term }}
+                        </small>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-primary me-2 review-finalize-btn" 
+                                data-student-id="{{ data.student.id }}" 
+                                data-session="{{ data.session }}" 
+                                data-year="{{ data.year }}" 
+                                data-term="{{ data.term }}" 
+                                data-is-pending="true">
+                            <i class="fas fa-edit me-1"></i>Review & Finalize
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>SL</th>
+                                    <th>Course Code</th>
+                                    <th>Course Name</th>
+                                    <th>Credit</th>
+                                    <th>Type</th>
+                                    <th>Nature</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for reg in data.registrations %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td>{{ reg.course_code }}</td>
+                                    <td>{{ reg.course_name }}</td>
+                                    <td>{{ reg.credit }}</td>
+                                    <td>{{ reg.course_type }}</td>
+                                    <td>{{ reg.nature or 'Core' }}</td>
+                                    <td>{{ reg.remark or 'Regular' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Finalized Registrations -->
     {% if finalized_registrations %}
     <div class="card shadow-sm mb-4">
@@ -82,7 +149,12 @@
                         </small>
                     </div>
                     <div>
-                        <button class="btn btn-sm btn-primary me-2" onclick="viewRegistration({{ data.student.id }}, '{{ data.session }}', '{{ data.year }}', '{{ data.term }}')">
+                        <button class="btn btn-sm btn-primary me-2 edit-registration-btn" 
+                                data-student-id="{{ data.student.id }}" 
+                                data-session="{{ data.session }}" 
+                                data-year="{{ data.year }}" 
+                                data-term="{{ data.term }}" 
+                                data-is-pending="false">
                             <i class="fas fa-edit me-1"></i>Edit
                         </button>
                     </div>
@@ -164,6 +236,30 @@
     </div>
 </div>
 
+<!-- Add Course Modal -->
+<div class="modal fade" id="addCourseModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Course</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="addCourseContent">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 let currentEditData = null;
 
@@ -192,20 +288,79 @@ document.getElementById('batch').addEventListener('change', function() {
     {% endfor %}
 });
 
-function viewRegistration(studentId, session, year, term) {
-    const modal = new bootstrap.Modal(document.getElementById('registrationModal'));
+function viewRegistration(studentId, session, year, term, isPending) {
+    // Handle default parameter for older browsers
+    if (typeof isPending === 'undefined') {
+        isPending = false;
+    }
+    
+    console.log('viewRegistration called:', { studentId, session, year, term, isPending });
+    
+    // Check if Bootstrap is available
+    if (typeof bootstrap === 'undefined') {
+        alert('Bootstrap is not loaded. Please refresh the page.');
+        console.error('Bootstrap is not defined');
+        return;
+    }
+    
+    const modalElement = document.getElementById('registrationModal');
+    if (!modalElement) {
+        alert('Modal element not found. Please refresh the page.');
+        console.error('registrationModal element not found');
+        return;
+    }
+    
+    let modal;
+    try {
+        modal = new bootstrap.Modal(modalElement);
+    } catch (error) {
+        console.error('Error creating modal:', error);
+        alert('Error initializing modal. Please refresh the page.');
+        return;
+    }
+    
     const content = document.getElementById('registrationContent');
     const saveBtn = document.getElementById('saveEditBtn');
     
+    if (!content || !saveBtn) {
+        alert('Required elements not found. Please refresh the page.');
+        console.error('Required elements not found:', { content: !!content, saveBtn: !!saveBtn });
+        return;
+    }
+    
+    // Update modal title based on status
+    const modalTitle = document.querySelector('#registrationModal .modal-title');
+    if (modalTitle) {
+        modalTitle.textContent = isPending ? 'Review & Finalize Registration' : 'View/Edit Registration';
+    }
+    
     content.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
     saveBtn.style.display = 'none';
-    modal.show();
+    saveBtn.setAttribute('data-is-pending', isPending ? 'true' : 'false');
+    
+    try {
+        modal.show();
+    } catch (error) {
+        console.error('Error showing modal:', error);
+        alert('Error opening modal. Please refresh the page.');
+        return;
+    }
     
     fetch(`/course-management/coordinator/registration/${studentId}/view?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
             if (!data.success) {
                 content.innerHTML = `<div class="alert alert-danger">${data.message || 'Error loading registration'}</div>`;
+                return;
+            }
+            
+            if (!data.courses || data.courses.length === 0) {
+                content.innerHTML = `<div class="alert alert-warning">No courses found for this registration.</div>`;
                 return;
             }
             
@@ -219,6 +374,11 @@ function viewRegistration(studentId, session, year, term) {
                     <p><strong>Batch:</strong> ${data.student.batch || 'N/A'}</p>
                     <p><strong>Session:</strong> ${data.session} | <strong>Year:</strong> ${data.year} | <strong>Term:</strong> ${data.term}</p>
                 </div>
+                <div class="mb-3">
+                    <button type="button" class="btn btn-sm btn-primary" onclick="showAddCourseModal('${data.session}', '${data.year}', '${data.term}')">
+                        <i class="fas fa-plus me-1"></i>Add Course
+                    </button>
+                </div>
                 <div class="table-responsive">
                     <table class="table table-bordered" id="editTable">
                         <thead class="table-light">
@@ -230,6 +390,7 @@ function viewRegistration(studentId, session, year, term) {
                                 <th>Type</th>
                                 <th>Nature</th>
                                 <th>Remarks</th>
+                                <th>Carry On</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -237,25 +398,30 @@ function viewRegistration(studentId, session, year, term) {
             `;
             
             data.courses.forEach((course, index) => {
+                const isRetake = course.remark === 'Retake' || course.remark === 'Re-retake';
+                const carryOnId = `carryOn_${course.id}_${index}`;
                 html += `
-                    <tr data-course-id="${course.id}">
+                    <tr data-course-id="${course.id}" data-course-table-id="${course.course_id || course.id}">
                         <td>${index + 1}</td>
                         <td>${course.course_code}</td>
                         <td>${course.course_name}</td>
                         <td>${course.credit}</td>
                         <td>${course.course_type}</td>
+                        <td>${course.nature || 'Core'}</td>
                         <td>
-                            <select class="form-select form-select-sm" data-field="nature">
-                                <option value="Core" ${course.nature === 'Core' ? 'selected' : ''}>Core</option>
-                                <option value="Optional" ${course.nature === 'Optional' ? 'selected' : ''}>Optional</option>
-                            </select>
-                        </td>
-                        <td>
-                            <select class="form-select form-select-sm" data-field="remark">
+                            <select class="form-select form-select-sm remark-select" data-course-id="${course.id}" data-index="${index}">
                                 <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
                                 <option value="Retake" ${course.remark === 'Retake' ? 'selected' : ''}>Retake</option>
                                 <option value="Re-retake" ${course.remark === 'Re-retake' ? 'selected' : ''}>Re-retake</option>
                             </select>
+                        </td>
+                        <td>
+                            <div class="form-check form-switch" id="carryOnContainer_${course.id}_${index}" style="display: ${isRetake ? 'block' : 'none'};">
+                                <input class="form-check-input" type="checkbox" id="${carryOnId}" 
+                                       ${course.carry_on ? 'checked' : ''}>
+                                <label class="form-check-label" for="${carryOnId}">Carry On</label>
+                            </div>
+                            <span class="text-muted" id="carryOnPlaceholder_${course.id}_${index}" style="display: ${isRetake ? 'none' : 'inline'};">-</span>
                         </td>
                         <td>
                             <button class="btn btn-sm btn-danger" onclick="removeCourseFromEdit(${course.id})">
@@ -272,7 +438,7 @@ function viewRegistration(studentId, session, year, term) {
                             <tr class="table-info fw-bold">
                                 <td colspan="3" class="text-end">Total Credits:</td>
                                 <td id="totalCreditsEdit">${data.total_credits.toFixed(1)}</td>
-                                <td colspan="4"></td>
+                                <td colspan="5"></td>
                             </tr>
                         </tfoot>
                     </table>
@@ -281,10 +447,44 @@ function viewRegistration(studentId, session, year, term) {
             
             content.innerHTML = html;
             saveBtn.style.display = 'inline-block';
+            // Update button text based on pending status
+            if (isPending) {
+                saveBtn.innerHTML = '<i class="fas fa-check me-2"></i>Finalize';
+            } else {
+                saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+            }
+            
+            // Add event listeners for Remarks dropdown to show/hide Carry on
+            document.querySelectorAll('.remark-select').forEach(select => {
+                select.addEventListener('change', function() {
+                    const courseId = this.getAttribute('data-course-id');
+                    const index = this.getAttribute('data-index');
+                    const remark = this.value;
+                    const isRetake = remark === 'Retake' || remark === 'Re-retake';
+                    
+                    const carryOnContainer = document.getElementById(`carryOnContainer_${courseId}_${index}`);
+                    const carryOnPlaceholder = document.getElementById(`carryOnPlaceholder_${courseId}_${index}`);
+                    
+                    if (carryOnContainer && carryOnPlaceholder) {
+                        if (isRetake) {
+                            carryOnContainer.style.display = 'block';
+                            carryOnPlaceholder.style.display = 'none';
+                        } else {
+                            carryOnContainer.style.display = 'none';
+                            carryOnPlaceholder.style.display = 'inline';
+                            // Uncheck carry on if Regular is selected
+                            const carryOnCheckbox = document.getElementById(`carryOn_${courseId}_${index}`);
+                            if (carryOnCheckbox) {
+                                carryOnCheckbox.checked = false;
+                            }
+                        }
+                    }
+                });
+            });
         })
         .catch(error => {
-            console.error('Error:', error);
-            content.innerHTML = '<div class="alert alert-danger">Error loading registration</div>';
+            console.error('Error loading registration:', error);
+            content.innerHTML = `<div class="alert alert-danger">Error loading registration: ${error.message || 'Unknown error'}</div>`;
         });
 }
 
@@ -314,6 +514,176 @@ function updateTotalCredits() {
     }
 }
 
+function showAddCourseModal(session, year, term) {
+    const modalElement = document.getElementById('addCourseModal');
+    if (!modalElement) {
+        alert('Modal element not found.');
+        return;
+    }
+    
+    const modal = new bootstrap.Modal(modalElement);
+    const content = document.getElementById('addCourseContent');
+    
+    content.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
+    modal.show();
+    
+    // Fetch available courses
+    fetch(`/course-management/student/registration/api/courses?year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success || !data.courses || data.courses.length === 0) {
+                content.innerHTML = '<div class="alert alert-warning">No courses available for this Year and Term.</div>';
+                return;
+            }
+            
+            // Get already registered course codes (check by course code, not ID, to allow re-adding deleted courses)
+            const registeredCourseCodes = new Set();
+            document.querySelectorAll('#editTableBody tr').forEach(row => {
+                const courseCode = row.cells[1] ? row.cells[1].textContent.trim() : null;
+                if (courseCode) {
+                    registeredCourseCodes.add(courseCode);
+                }
+            });
+            
+            // Filter out already registered courses by course code
+            const availableCourses = data.courses.filter(c => !registeredCourseCodes.has(c.course_code));
+            
+            if (availableCourses.length === 0) {
+                content.innerHTML = '<div class="alert alert-info">All available courses are already registered.</div>';
+                return;
+            }
+            
+            let html = '<div class="table-responsive"><table class="table table-bordered table-hover"><thead class="table-light"><tr><th>Course Code</th><th>Course Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Action</th></tr></thead><tbody>';
+            
+            availableCourses.forEach(course => {
+                html += `
+                    <tr>
+                        <td>${course.course_code}</td>
+                        <td>${course.course_name}</td>
+                        <td>${course.credit}</td>
+                        <td>${course.course_type || 'Theory'}</td>
+                        <td>${course.nature || 'Core'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="addCourseToEdit(${course.id}, '${course.course_code.replace(/'/g, "\\'")}', '${course.course_name.replace(/'/g, "\\'")}', ${course.credit}, '${course.course_type || 'Theory'}', '${course.nature || 'Core'}')">
+                                <i class="fas fa-plus me-1"></i>Add
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += '</tbody></table></div>';
+            content.innerHTML = html;
+        })
+        .catch(error => {
+            console.error('Error loading courses:', error);
+            content.innerHTML = `<div class="alert alert-danger">Error loading courses: ${error.message || 'Unknown error'}</div>`;
+        });
+}
+
+function addCourseToEdit(courseId, courseCode, courseName, credit, courseType, nature) {
+    const tbody = document.getElementById('editTableBody');
+    if (!tbody) {
+        alert('Table body not found.');
+        return;
+    }
+    
+    // Check if course already exists by course code (not ID, to allow re-adding deleted courses)
+    const existingRows = tbody.querySelectorAll('tr');
+    for (let row of existingRows) {
+        const existingCourseCode = row.cells[1] ? row.cells[1].textContent.trim() : '';
+        if (existingCourseCode === courseCode) {
+            alert('This course is already added.');
+            return;
+        }
+    }
+    
+    const rows = tbody.querySelectorAll('tr');
+    const newIndex = rows.length + 1;
+    const carryOnId = `carryOn_${courseId}_${newIndex}`;
+    
+    const newRow = document.createElement('tr');
+    newRow.setAttribute('data-course-id', courseId); // For new courses, this is the Course ID
+    newRow.setAttribute('data-course-table-id', courseId); // Store Course table ID
+    newRow.innerHTML = `
+        <td>${newIndex}</td>
+        <td>${courseCode}</td>
+        <td>${courseName}</td>
+        <td>${credit}</td>
+        <td>${courseType}</td>
+        <td>${nature}</td>
+        <td>
+            <select class="form-select form-select-sm remark-select" data-course-id="${courseId}" data-index="${newIndex}">
+                <option value="Regular" selected>Regular</option>
+                <option value="Retake">Retake</option>
+                <option value="Re-retake">Re-retake</option>
+            </select>
+        </td>
+        <td>
+            <div class="form-check form-switch" id="carryOnContainer_${courseId}_${newIndex}" style="display: none;">
+                <input class="form-check-input" type="checkbox" id="${carryOnId}">
+                <label class="form-check-label" for="${carryOnId}">Carry On</label>
+            </div>
+            <span class="text-muted" id="carryOnPlaceholder_${courseId}_${newIndex}">-</span>
+        </td>
+        <td>
+            <button class="btn btn-sm btn-danger" onclick="removeCourseFromEdit(${courseId})">
+                <i class="fas fa-trash"></i>
+            </button>
+        </td>
+    `;
+    
+    tbody.appendChild(newRow);
+    
+    // Add event listener for the new Remarks dropdown
+    const remarkSelect = newRow.querySelector('.remark-select');
+    if (remarkSelect) {
+        remarkSelect.addEventListener('change', function() {
+            const courseId = this.getAttribute('data-course-id');
+            const index = this.getAttribute('data-index');
+            const remark = this.value;
+            const isRetake = remark === 'Retake' || remark === 'Re-retake';
+            
+            const carryOnContainer = document.getElementById(`carryOnContainer_${courseId}_${index}`);
+            const carryOnPlaceholder = document.getElementById(`carryOnPlaceholder_${courseId}_${index}`);
+            
+            if (carryOnContainer && carryOnPlaceholder) {
+                if (isRetake) {
+                    carryOnContainer.style.display = 'block';
+                    carryOnPlaceholder.style.display = 'none';
+                } else {
+                    carryOnContainer.style.display = 'none';
+                    carryOnPlaceholder.style.display = 'inline';
+                    const carryOnCheckbox = document.getElementById(`carryOn_${courseId}_${index}`);
+                    if (carryOnCheckbox) {
+                        carryOnCheckbox.checked = false;
+                    }
+                }
+            }
+        });
+    }
+    
+    // Update row numbers
+    updateRowNumbers();
+    updateTotalCredits();
+    
+    // Close the modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('addCourseModal'));
+    if (modal) {
+        modal.hide();
+    }
+}
+
+function updateRowNumbers() {
+    const rows = document.querySelectorAll('#editTableBody tr');
+    rows.forEach((row, index) => {
+        const slCell = row.cells[0];
+        if (slCell) {
+            slCell.textContent = index + 1;
+        }
+    });
+}
+
 document.getElementById('saveEditBtn').addEventListener('click', function() {
     if (!currentEditData) return;
     
@@ -321,25 +691,39 @@ document.getElementById('saveEditBtn').addEventListener('click', function() {
     const courses = [];
     
     rows.forEach(row => {
-        const courseId = row.getAttribute('data-course-id');
-        const natureSelect = row.querySelector('select[data-field="nature"]');
-        const remarkSelect = row.querySelector('select[data-field="remark"]');
+        const courseId = row.getAttribute('data-course-id'); // StudentCourseRegistration ID (for existing) or Course ID (for new)
+        const courseTableId = row.getAttribute('data-course-table-id') || courseId; // Course table ID
+        const remarkSelect = row.querySelector('.remark-select');
+        const remark = remarkSelect ? remarkSelect.value : 'Regular';
+        const isRetake = remark === 'Retake' || remark === 'Re-retake';
+        
+        // Get carry on checkbox value
+        let carryOn = false;
+        if (isRetake && remarkSelect) {
+            const carryOnId = `carryOn_${courseId}_${remarkSelect.getAttribute('data-index')}`;
+            const carryOnCheckbox = document.getElementById(carryOnId);
+            if (carryOnCheckbox) {
+                carryOn = carryOnCheckbox.checked;
+            }
+        }
         
         courses.push({
             id: courseId,
-            course_id: courseId,
+            course_id: courseTableId, // Use Course table ID for backend
             course_code: row.cells[1].textContent.trim(),
             course_name: row.cells[2].textContent.trim(),
             credit: parseFloat(row.cells[3].textContent) || 0,
             course_type: row.cells[4].textContent.trim(),
-            nature: natureSelect ? natureSelect.value : 'Core',
-            remark: remarkSelect ? remarkSelect.value : 'Regular'
+            nature: row.cells[5].textContent.trim() || 'Core',
+            remark: remark,
+            carry_on: carryOn
         });
     });
     
     const btn = this;
+    const isPending = btn.getAttribute('data-is-pending') === 'true';
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    btn.innerHTML = isPending ? '<i class="fas fa-spinner fa-spin me-2"></i>Finalizing...' : '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
     
     fetch('/course-management/coordinator/registration/update', {
         method: 'POST',
@@ -349,13 +733,15 @@ document.getElementById('saveEditBtn').addEventListener('click', function() {
             session: currentEditData.session,
             year: currentEditData.year,
             term: currentEditData.term,
-            courses: courses
+            courses: courses,
+            finalize: isPending  // Pass finalize flag for pending registrations
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert('Registration updated successfully.');
+            const message = isPending ? 'Registration finalized successfully!' : 'Registration updated successfully.';
+            alert(message);
             location.reload();
         } else {
             alert(data.message || 'Failed to update registration.');
@@ -367,7 +753,39 @@ document.getElementById('saveEditBtn').addEventListener('click', function() {
     })
     .finally(() => {
         btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
+        const isPending = btn.getAttribute('data-is-pending') === 'true';
+        btn.innerHTML = isPending ? '<i class="fas fa-check me-2"></i>Finalize' : '<i class="fas fa-save me-2"></i>Save Changes';
+    });
+});
+
+// Add event listeners for Review & Finalize and Edit buttons
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle Review & Finalize buttons (pending registrations)
+    document.querySelectorAll('.review-finalize-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const studentId = parseInt(this.getAttribute('data-student-id'));
+            const session = this.getAttribute('data-session');
+            const year = this.getAttribute('data-year');
+            const term = this.getAttribute('data-term');
+            const isPending = this.getAttribute('data-is-pending') === 'true';
+            
+            console.log('Review & Finalize button clicked:', { studentId, session, year, term, isPending });
+            viewRegistration(studentId, session, year, term, isPending);
+        });
+    });
+    
+    // Handle Edit buttons (finalized registrations)
+    document.querySelectorAll('.edit-registration-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const studentId = parseInt(this.getAttribute('data-student-id'));
+            const session = this.getAttribute('data-session');
+            const year = this.getAttribute('data-year');
+            const term = this.getAttribute('data-term');
+            const isPending = this.getAttribute('data-is-pending') === 'true';
+            
+            console.log('Edit button clicked:', { studentId, session, year, term, isPending });
+            viewRegistration(studentId, session, year, term, isPending);
+        });
     });
 });
 </script>

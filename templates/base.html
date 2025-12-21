@@ -51,8 +51,8 @@
                                     <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('academic_calendar.batch_events_index') }}"><i class="fas fa-calendar-alt me-2"></i>Assessment Schedules</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration Review</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum Management</a></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
                                     {% if not head_active %}
                                     <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
                                     {% endif %}
@@ -112,11 +112,11 @@
                                 <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
                                 {% endif %}
-                                    <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
                                     <li><a class="dropdown-item" href="{{ url_for('academic_calendar.batch_events_index') }}"><i class="fas fa-calendar-alt me-2"></i>Assessment Schedules</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
                                 <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration Review</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
                                 {% if not head_active %}
                                 <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
                                 {% endif %}
