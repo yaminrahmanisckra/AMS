@@ -210,6 +210,26 @@ EXECUTE alterIfNotExists;
 DEALLOCATE PREPARE alterIfNotExists;
 
 -- ============================================
+-- 5. EXAM_SCRUTINIZER_INVITE TABLE - Add is_complete column
+-- ============================================
+SET @tablename = 'exam_scrutinizer_invite';
+SET @columnname = 'is_complete';
+SET @preparedStatement = (SELECT IF(
+  (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE
+      (TABLE_SCHEMA = @dbname)
+      AND (TABLE_NAME = @tablename)
+      AND (COLUMN_NAME = @columnname)
+  ) > 0,
+  'SELECT 1',
+  CONCAT('ALTER TABLE ', @tablename, ' ADD COLUMN ', @columnname, ' BOOLEAN NOT NULL DEFAULT FALSE')
+));
+PREPARE alterIfNotExists FROM @preparedStatement;
+EXECUTE alterIfNotExists;
+DEALLOCATE PREPARE alterIfNotExists;
+
+-- ============================================
 -- SUCCESS MESSAGE
 -- ============================================
 SELECT 'Migration completed successfully! All missing columns have been added without affecting existing data.' AS Status;

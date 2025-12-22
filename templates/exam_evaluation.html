@@ -35,6 +35,7 @@
                                     <tr>
                                         <th>Course</th>
                                         <th>Code</th>
+                                        <th>Part</th>
                                         <th>Year / Term</th>
                                         <th>Level</th>
                                         {% if not hide_scrutinizer_info %}
@@ -48,6 +49,13 @@
                                     <tr>
                                         <td data-label="Course">{{ entry.course_name }}</td>
                                         <td data-label="Code">{{ entry.course_code }}</td>
+                                        <td data-label="Part">
+                                            {% if entry.section %}
+                                                <span class="badge bg-info text-white">Part: {{ entry.section }}</span>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
                                         <td data-label="Year / Term">{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
                                         <td class="text-uppercase" data-label="Level">{{ entry.program_level }}</td>
                                         {% if not hide_scrutinizer_info %}
@@ -63,7 +71,7 @@
                                         <td data-label="Created">{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
                                     </tr>
                                     <tr class="table-light">
-                                        <td colspan="{{ 6 if not hide_scrutinizer_info else 5 }}">
+                                        <td colspan="{{ 7 if not hide_scrutinizer_info else 6 }}">
                                             <div class="d-flex flex-wrap gap-2">
                                                 <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
                                                 {% if entry.submitted_to_committee %}
@@ -120,6 +128,7 @@
                                     <tr>
                                         <th>Course</th>
                                         <th>Code</th>
+                                        <th>Part</th>
                                         <th>Archived On</th>
                                         <th></th>
                                     </tr>
@@ -129,6 +138,13 @@
                                     <tr class="text-muted">
                                         <td>{{ entry.course_name }}</td>
                                         <td>{{ entry.course_code }}</td>
+                                        <td>
+                                            {% if entry.section %}
+                                                <span class="badge bg-info text-white">Part: {{ entry.section }}</span>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
                                         <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
                                         <td class="text-end">
                                             <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Open</a>
@@ -165,21 +181,49 @@
                                     <th>Year / Term</th>
                                     <th>Batch</th>
                                     <th>Owner</th>
+                                    <th>Completion</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for entry in scrutiny_entries %}
+                                {% set invite = scrutiny_invites_map.get(entry.id) %}
                                 <tr>
-                                    <td data-label="Course">{{ entry.course_name }}</td>
+                                    <td data-label="Course">
+                                        {{ entry.course_name }}
+                                        {% if entry.section %}
+                                        <div class="text-info small mt-1"><strong>Part: {{ entry.section }}</strong></div>
+                                        {% endif %}
+                                    </td>
                                     <td data-label="Code">{{ entry.course_code }}</td>
                                     <td data-label="Year / Term">{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
                                     <td data-label="Batch">{{ entry.batch or '-' }}</td>
                                     <td data-label="Owner">{{ entry.owner_teacher.name if entry.owner_teacher else 'N/A' }}</td>
+                                    <td data-label="Completion">
+                                        {% if invite %}
+                                            {% if invite.is_complete %}
+                                                <span class="badge bg-success">Complete</span>
+                                            {% else %}
+                                                <span class="badge bg-warning text-dark">Incomplete</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
                                     <td data-label="Action">
-                                        <a href="{{ url_for('exam_marks_entry', entry_id=entry.id, role='scrutinizer') }}" class="btn btn-outline-primary btn-sm w-100 w-md-auto">
-                                            <i class="fas fa-pen me-1"></i>Scrutinize Marks
-                                        </a>
+                                        <div class="d-flex flex-wrap gap-2">
+                                            <a href="{{ url_for('exam_marks_entry', entry_id=entry.id, role='scrutinizer') }}" class="btn btn-outline-primary btn-sm">
+                                                <i class="fas fa-pen me-1"></i>Scrutinize Marks
+                                            </a>
+                                            {% if invite %}
+                                            <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=invite.id, action='toggle_complete') }}" method="POST" class="m-0">
+                                                <button type="submit" class="btn btn-outline-{{ 'success' if not invite.is_complete else 'warning' }} btn-sm">
+                                                    <i class="fas fa-{{ 'check-circle' if not invite.is_complete else 'times-circle' }} me-1"></i>
+                                                    {{ 'Mark Complete' if not invite.is_complete else 'Mark Incomplete' }}
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -264,7 +308,7 @@
                         <label for="course_code" class="form-label">
                             <i class="fas fa-hashtag me-2"></i>Course Code
                         </label>
-                        <input type="text" class="form-control" id="course_code" name="course_code" placeholder="Auto-filled from Course Name" readonly>
+                        <input type="text" class="form-control" id="course_code" name="course_code" placeholder="Auto-filled from Course Name">
                     </div>
                     
                     <!-- Discipline -->
@@ -532,11 +576,52 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (courseCodeInput) courseCodeInput.value = selectedOption.dataset.courseCode;
                 if (courseIdInput) courseIdInput.value = selectedOption.dataset.courseId || '';
                 if (courseNameHidden) courseNameHidden.value = selectedOption.textContent || '';
+                
+                // Auto-select postgraduate if course code starts with "Law" followed by "5"
+                checkAndSetProgramLevel(selectedOption.dataset.courseCode);
             } else {
                 if (courseCodeInput) courseCodeInput.value = '';
                 if (courseIdInput) courseIdInput.value = '';
                 if (courseNameHidden) courseNameHidden.value = '';
             }
+        });
+    }
+    
+    // Function to check course code pattern and auto-select program level
+    function checkAndSetProgramLevel(courseCode) {
+        if (!courseCode) return;
+        
+        const levelPG = document.getElementById('levelPG');
+        const levelUG = document.getElementById('levelUG');
+        if (!levelPG || !levelUG) return;
+        
+        // Pattern: শেষ চার ডিজিটের প্রথমটা "5" দিয়ে শুরু হলে postgraduate
+        // Examples: "0421 28 Law 5101" → শেষ 4 ডিজিট: "5101" → Postgraduate
+        //           "0421 28 Law 1101" → শেষ 4 ডিজিট: "1101" → Undergraduate
+        const code = courseCode.trim();
+        
+        // Extract last 4 digits from the course code
+        // Remove all non-digit characters and get last 4 digits
+        const digitsOnly = code.replace(/\D/g, ''); // Remove all non-digits
+        
+        if (digitsOnly.length >= 4) {
+            const lastFourDigits = digitsOnly.slice(-4); // Get last 4 digits
+            const firstDigit = lastFourDigits.charAt(0);
+            
+            if (firstDigit === '5') {
+                levelPG.checked = true;
+                console.log(`Auto-selected Postgraduate for course code: ${courseCode} (last 4 digits: ${lastFourDigits}, first digit: ${firstDigit})`);
+                return;
+            }
+        }
+        
+        // If pattern doesn't match, keep default (UG) or don't change
+    }
+    
+    // Also listen to manual course code input changes (if field becomes editable)
+    if (courseCodeInput) {
+        courseCodeInput.addEventListener('input', function() {
+            checkAndSetProgramLevel(this.value);
         });
     }
 

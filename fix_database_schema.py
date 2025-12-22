@@ -74,6 +74,23 @@ def fix_database(db_path):
     except Exception as e:
         print(f"  Note: course_outline table might not exist: {e}")
     
+    # Fix exam_scrutinizer_invite table
+    print("\nChecking exam_scrutinizer_invite table...")
+    try:
+        cursor.execute('PRAGMA table_info(exam_scrutinizer_invite)')
+        existing_cols = [row[1] for row in cursor.fetchall()]
+        
+        if 'is_complete' not in existing_cols:
+            try:
+                cursor.execute('ALTER TABLE exam_scrutinizer_invite ADD COLUMN is_complete INTEGER NOT NULL DEFAULT 0')
+                print(f"  ✓ Added is_complete")
+            except Exception as e:
+                print(f"  ✗ Error adding is_complete: {e}")
+        else:
+            print(f"  - is_complete already exists")
+    except Exception as e:
+        print(f"  Note: exam_scrutinizer_invite table might not exist: {e}")
+    
     conn.commit()
     conn.close()
     print(f"\n✓ Database {db_path} fixed!\n")

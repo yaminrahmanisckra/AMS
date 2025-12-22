@@ -2,36 +2,123 @@
 
 {% block title %}Routine Dashboard{% endblock %}
 
-{% block content %}
-<div class="text-center mb-5">
-    <h1 class="display-5 text-primary">Routine Management Dashboard</h1>
-    <p class="lead text-muted">Manage all aspects of the academic routine from here.</p>
-</div>
+{% block extra_css %}
+<style>
+:root {
+    --primary-color: #0dcaf0;
+}
 
-<div class="row">
-    <div class="col-md-6 mb-4">
-        <div class="card h-100 shadow-sm">
-            <div class="card-body text-center">
-                <div class="card-icon mb-3">
-                    <i class="fas fa-door-open fa-3x text-warning"></i>
+.module-wrapper {
+    background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
+    min-height: 100vh;
+    padding: 2rem 0 3rem;
+    position: relative;
+}
+
+.module-wrapper > .container {
+    position: relative;
+    z-index: 1;
+}
+
+.module-header {
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+    border-left: 4px solid #0dcaf0;
+    text-align: center;
+}
+
+.module-header h1,
+.module-header h2,
+.module-header h3,
+.module-header h4 {
+    font-size: 1.375rem;
+    font-weight: 600;
+    color: #212529;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    margin-bottom: 0;
+}
+
+.module-header .btn {
+    font-weight: 500;
+    font-size: 0.9375rem;
+}
+
+.module-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.module-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+}
+
+@media (max-width: 576px) {
+    .module-wrapper {
+        padding: 1rem 0 1.5rem;
+    }
+    
+    .module-header {
+        padding: 1rem;
+        border-radius: 14px;
+    }
+    
+    .module-card {
+        border-radius: 14px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="module-wrapper">
+<div class="container">
+    <div class="module-header">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h1 class="display-5 mb-2 text-dark">Routine Management Dashboard</h1>
+                <p class="lead text-muted mb-0">Manage all aspects of the academic routine from here.</p>
+            </div>
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="module-card h-100">
+                <div class="card-body text-center p-4">
+                    <div class="mb-3" style="width: 64px; height: 64px; margin: 0 auto; background-color: #ffc107; border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                        <i class="fas fa-door-open fa-2x text-white"></i>
+                    </div>
+                    <h5 class="card-title">Manage Rooms</h5>
+                    <p class="card-text">Add, view, and manage classrooms and labs.</p>
+                    <a href="{{ url_for('routine_management.manage_rooms') }}" class="btn btn-warning text-dark">Go to Rooms</a>
                 </div>
-                <h5 class="card-title">Manage Rooms</h5>
-                <p class="card-text">Add, view, and manage classrooms and labs.</p>
-                <a href="{{ url_for('routine_management.manage_rooms') }}" class="btn btn-warning text-dark">Go to Rooms</a>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="module-card h-100">
+                <div class="card-body text-center p-4">
+                    <div class="mb-3" style="width: 64px; height: 64px; margin: 0 auto; background-color: #0d6efd; border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                        <i class="fas fa-calendar-check fa-2x text-white"></i>
+                    </div>
+                    <h5 class="card-title">Generate Routine</h5>
+                    <p class="card-text">Create and publish the final class routine. Course and teacher information will be loaded from curriculum.</p>
+                    <a href="{{ url_for('routine_management.generate_routine') }}" class="btn btn-primary">Generate Routine</a>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-md-6 mb-4">
-        <div class="card h-100 shadow-sm">
-            <div class="card-body text-center">
-                <div class="card-icon mb-3">
-                    <i class="fas fa-calendar-check fa-3x text-primary"></i>
-                </div>
-                <h5 class="card-title">Generate Routine</h5>
-                <p class="card-text">Create and publish the final class routine. Course and teacher information will be loaded from curriculum.</p>
-                <a href="{{ url_for('routine_management.generate_routine') }}" class="btn btn-primary">Generate Routine</a>
-            </div>
-        </div>
-    </div>
+</div>
 </div>
 {% endblock %} 

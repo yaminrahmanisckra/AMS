@@ -1,15 +1,96 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<style>
+:root {
+    --primary-color: #0d6efd;
+}
+
+.module-wrapper {
+    background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
+    min-height: 100vh;
+    padding: 2rem 0 3rem;
+    position: relative;
+}
+
+.module-wrapper > .container {
+    position: relative;
+    z-index: 1;
+}
+
+.module-header {
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+    border-left: 4px solid #667eea;
+}
+
+.module-header h4 {
+    font-size: 1.375rem;
+    font-weight: 600;
+    color: #212529;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    margin-bottom: 0;
+}
+
+.module-header .btn {
+    font-weight: 500;
+    font-size: 0.9375rem;
+}
+
+.module-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.module-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+}
+
+@media (max-width: 576px) {
+    .module-wrapper {
+        padding: 1rem 0 1.5rem;
+    }
+    
+    .module-header {
+        padding: 1rem;
+        border-radius: 14px;
+    }
+    
+    .module-card {
+        border-radius: 14px;
+    }
+}
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    {% if teacher %}
-        <div class="mb-3">
-            <h4 class="mb-0">
-                <i class="fas fa-chalkboard-teacher me-2 text-primary"></i>
-                Teacher: {{ teacher_display_name }}
-            </h4>
+<div class="module-wrapper">
+<div class="container">
+    <div class="module-header">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                {% if teacher %}
+                <h4 class="mb-0">
+                    <i class="fas fa-chalkboard-teacher me-2 text-primary"></i>
+                    Teacher: {{ teacher_display_name }}
+                </h4>
+                {% endif %}
+            </div>
+            <div class="d-flex flex-column gap-2" style="margin-top: -12px;">
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                </a>
+            </div>
         </div>
-    {% endif %}
     
     {% if pending_split_invites %}
     <div class="alert alert-warning mb-3">
@@ -39,8 +120,8 @@
     </div>
     {% endif %}
     
-    <div class="card shadow">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+    <div class="module-card">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center" style="border-radius: 18px 18px 0 0;">
             <h5 class="card-title mb-0">
                 <i class="fas fa-list me-2"></i>Active Courses
             </h5>
@@ -633,4 +714,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+</div>
+</div>
 {% endblock %}

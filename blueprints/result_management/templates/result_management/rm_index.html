@@ -2,21 +2,98 @@
 
 {% block title %}Result Management - Sessions{% endblock %}
 
-{% block content %}
+{% block extra_css %}
 <style>
-    .session-card {
-        background-color: #eaf6ff;
-        border-color: #cdeaff;
+:root {
+    --primary-color: #198754;
+}
+
+.module-wrapper {
+    background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
+    min-height: 100vh;
+    padding: 2rem 0 3rem;
+    position: relative;
+}
+
+.module-wrapper > .container {
+    position: relative;
+    z-index: 1;
+}
+
+.module-header {
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+    border-left: 4px solid #20c997;
+}
+
+.module-header h1,
+.module-header h2,
+.module-header h3,
+.module-header h4 {
+    font-size: 1.375rem;
+    font-weight: 600;
+    color: #212529;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+    margin-bottom: 0;
+}
+
+.module-header .btn {
+    font-weight: 500;
+    font-size: 0.9375rem;
+}
+
+.session-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+    transition: all 0.3s ease;
+}
+
+.session-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+}
+
+@media (max-width: 576px) {
+    .module-wrapper {
+        padding: 1rem 0 1.5rem;
     }
+    
+    .module-header {
+        padding: 1rem;
+        border-radius: 14px;
+    }
+    
+    .session-card {
+        border-radius: 14px;
+    }
+}
 </style>
-<div class="container my-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="display-5">Sessions</h1>
-        <div>
-            <a href="{{ url_for('result_management.archived_sessions') }}" class="btn btn-outline-secondary me-2">View Archived</a>
-            {% if can_manage_sessions %}
-            <a href="{{ url_for('result_management.add_session') }}" class="btn btn-primary">Add New Session</a>
-            {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="module-wrapper">
+<div class="container">
+    <div class="module-header">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div>
+                <h1 class="display-5 mb-0 text-dark">Sessions</h1>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                </a>
+                <a href="{{ url_for('result_management.archived_sessions') }}" class="btn btn-outline-secondary">View Archived</a>
+                {% if can_manage_sessions %}
+                <a href="{{ url_for('result_management.add_session') }}" class="btn btn-primary">Add New Session</a>
+                {% endif %}
+            </div>
         </div>
     </div>
 
@@ -70,5 +147,6 @@
         <p class="lead text-muted">No active sessions found. Please add a new session to begin.</p>
     </div>
     {% endif %}
+</div>
 </div>
 {% endblock %}

@@ -158,6 +158,7 @@ class ExamScrutinizerInvite(db.Model):
     scrutinizer_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='invited')  # invited | accepted | declined | cancelled
     remarks = db.Column(db.Text, nullable=True)
+    is_complete = db.Column(db.Boolean, default=False, nullable=False)  # Complete/Incomplete status
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     responded_at = db.Column(db.DateTime, nullable=True)
     exam_entry = db.relationship('ExamPaperEvaluation', backref=db.backref('scrutinizer_invites', lazy='dynamic'))

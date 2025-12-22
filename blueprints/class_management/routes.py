@@ -3054,36 +3054,55 @@ def download_pdf_report(session_id):
             attendance_stats = per_student_attendance.get(student.student_id, {'marks': 0})
             attendance_marks = attendance_stats.get('marks', 0)
 
-            assessment_marks_display = 0
             if session.course_type == 'sessional':
-                total = (student.sessional_report or 0) + (student.sessional_viva or 0)
-                assessment_marks_display = int(round(total))  # Round for result generation
-            elif session.course_type == 'theory':
-                if session.category == 'pg':
-                    assessment_marks_display = combined_pg_total.get(student.student_id) or 0  # Already rounded
-                else:
-                    # UG: Keep fraction in assessment page, but round for result generation
-                    ug_total = combined_best3.get(student.student_id) or 0
-                    assessment_marks_display = int(round(ug_total)) if ug_total else 0  # Round for result generation
+                # For sessional courses, keep report and viva separate
+                sessional_report = int(round(student.sessional_report or 0))
+                sessional_viva = int(round(student.sessional_viva or 0))
+                student_data_for_pdf.append({
+                    'id': student.student_id,
+                    'attendance': attendance_marks,
+                    'sessional_report': sessional_report,
+                    'sessional_viva': sessional_viva
+                })
+            else:
+                # For theory courses, use combined assessment
+                assessment_marks_display = 0
+                if session.course_type == 'theory':
+                    if session.category == 'pg':
+                        assessment_marks_display = combined_pg_total.get(student.student_id) or 0  # Already rounded
+                    else:
+                        # UG: Keep fraction in assessment page, but round for result generation
+                        ug_total = combined_best3.get(student.student_id) or 0
+                        assessment_marks_display = int(round(ug_total)) if ug_total else 0  # Round for result generation
 
-            student_data_for_pdf.append({
-                'id': student.student_id,
-                'attendance': attendance_marks,
-                'assessment': assessment_marks_display
-            })
+                student_data_for_pdf.append({
+                    'id': student.student_id,
+                    'attendance': attendance_marks,
+                    'assessment': assessment_marks_display
+                })
 
-        # --- Table Creation (same as before) ---
-        assessment_header_text = "Continuous Assessment (30)"
-        if session.course_type == 'theory' and session.category == 'pg':
-            assessment_header_text = "Continuous Assessment (40)"
-        elif session.course_type == 'sessional':
-             assessment_header_text = "Sessional Assessment (90)"
-
-        table_data = [['ID', 'Attendance (10)', assessment_header_text]]
-        for s_data in student_data_for_pdf:
-            table_data.append([s_data['id'], s_data['attendance'], s_data['assessment']])
+        # --- Table Creation ---
+        if session.course_type == 'sessional':
+            # For sessional courses: separate columns for Report and Viva
+            table_data = [['ID', 'Attendance (10)', 'Sessional Report (60)', 'Sessional Viva (30)']]
+            for s_data in student_data_for_pdf:
+                table_data.append([
+                    s_data['id'], 
+                    s_data['attendance'], 
+                    s_data['sessional_report'],
+                    s_data['sessional_viva']
+                ])
+            table = Table(table_data, colWidths=[1.5*inch, 1.5*inch, 2*inch, 2*inch], repeatRows=0)
+        else:
+            # For theory courses: single assessment column
+            assessment_header_text = "Continuous Assessment (30)"
+            if session.course_type == 'theory' and session.category == 'pg':
+                assessment_header_text = "Continuous Assessment (40)"
             
-        table = Table(table_data, colWidths=[2*inch, 2*inch, 2.5*inch], repeatRows=0)
+            table_data = [['ID', 'Attendance (10)', assessment_header_text]]
+            for s_data in student_data_for_pdf:
+                table_data.append([s_data['id'], s_data['attendance'], s_data['assessment']])
+            table = Table(table_data, colWidths=[2*inch, 2*inch, 2.5*inch], repeatRows=0)
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F4F4F')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),

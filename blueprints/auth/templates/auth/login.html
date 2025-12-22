@@ -33,8 +33,39 @@
         
         .login-container {
             width: 100%;
-            max-width: 380px;
+            max-width: 320px;
             animation: fadeInUp 0.6s ease-out;
+        }
+        
+        .university-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+            animation: fadeInUp 0.6s ease-out 0.2s both;
+        }
+        
+        .university-logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 0.75rem;
+            display: block;
+            animation: iconFloat 3s ease-in-out infinite;
+        }
+        
+        .university-title {
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            line-height: 1.4;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            margin: 0;
+        }
+        
+        .university-subtitle {
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+            margin-top: 0.25rem;
         }
         
         @keyframes fadeInUp {
@@ -53,7 +84,7 @@
             backdrop-filter: blur(10px);
             border-radius: 16px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1);
-            padding: 1.5rem 2rem;
+            padding: 1.25rem 1.5rem;
             width: 100%;
             position: relative;
             overflow: hidden;
@@ -71,18 +102,18 @@
         
         .login-header {
             text-align: center;
-            margin-bottom: 1.25rem;
+            margin-bottom: 1rem;
         }
         
         .login-header .icon-wrapper {
-            width: 50px;
-            height: 50px;
+            width: 42px;
+            height: 42px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin: 0 auto 0.75rem;
+            margin: 0 auto 0.6rem;
             box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
             animation: iconFloat 3s ease-in-out infinite;
         }
@@ -93,50 +124,50 @@
         }
         
         .login-header .icon-wrapper i {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             color: white;
         }
         
         .login-header h2 {
             color: #2d3748;
             font-weight: 700;
-            font-size: 1.5rem;
-            margin-bottom: 0.25rem;
+            font-size: 1.25rem;
+            margin-bottom: 0.2rem;
             letter-spacing: -0.5px;
         }
         
         .login-header p {
             color: #718096;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             margin: 0;
         }
         
         .form-group {
-            margin-bottom: 1rem;
+            margin-bottom: 0.875rem;
             position: relative;
         }
         
         .form-label {
             color: #2d3748;
             font-weight: 600;
-            font-size: 0.85rem;
-            margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+            margin-bottom: 0.4rem;
             display: flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 0.35rem;
         }
         
         .form-label i {
             color: #667eea;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
         }
         
         .form-control,
         .form-select {
             border-radius: 10px;
             border: 2px solid #e2e8f0;
-            padding: 10px 14px;
-            font-size: 0.9rem;
+            padding: 8px 12px;
+            font-size: 0.85rem;
             transition: all 0.3s ease;
             background-color: #f7fafc;
             color: #2d3748;
@@ -159,18 +190,18 @@
         }
         
         .form-text {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: #718096;
-            margin-top: 0.4rem;
+            margin-top: 0.35rem;
         }
         
         .btn-login {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border: none;
             border-radius: 10px;
-            padding: 11px;
+            padding: 9px;
             font-weight: 600;
-            font-size: 0.95rem;
+            font-size: 0.875rem;
             width: 100%;
             color: white;
             transition: all 0.3s ease;
@@ -240,8 +271,8 @@
         
         .links-section {
             text-align: center;
-            margin-top: 1rem;
-            padding-top: 1rem;
+            margin-top: 0.875rem;
+            padding-top: 0.875rem;
             border-top: 1px solid #e2e8f0;
         }
         
@@ -249,7 +280,7 @@
             color: #667eea;
             text-decoration: none;
             font-weight: 500;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             transition: all 0.3s ease;
             display: inline-block;
         }
@@ -280,22 +311,35 @@
                 padding: 10px;
             }
             
+            .university-logo {
+                width: 70px;
+                height: 70px;
+            }
+            
+            .university-title {
+                font-size: 0.9rem;
+            }
+            
+            .university-subtitle {
+                font-size: 0.8rem;
+            }
+            
             .login-card {
-                padding: 1.25rem 1.5rem;
+                padding: 1.1rem 1.25rem;
                 border-radius: 14px;
             }
             
             .login-header h2 {
-                font-size: 1.35rem;
+                font-size: 1.15rem;
             }
             
             .login-header .icon-wrapper {
-                width: 45px;
-                height: 45px;
+                width: 38px;
+                height: 38px;
             }
             
             .login-header .icon-wrapper i {
-                font-size: 1.3rem;
+                font-size: 1.1rem;
             }
         }
         
@@ -313,6 +357,12 @@
 </head>
 <body>
     <div class="login-container">
+        <div class="university-header">
+            <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="Khulna University Logo" class="university-logo">
+            <h1 class="university-title">Academic Management System</h1>
+            <p class="university-subtitle">Khulna University</p>
+        </div>
+        
         <div class="login-card">
             <div class="login-header">
                 <div class="icon-wrapper">

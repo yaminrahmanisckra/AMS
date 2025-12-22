@@ -540,7 +540,10 @@
                 </div>
                 {% if not is_student %}
                 <div class="col-md-6 text-end">
-                    <div class="d-flex gap-2 justify-content-end flex-wrap">
+                    <div class="d-flex gap-2 justify-content-end flex-wrap align-items-center">
+                        <a href="{{ url_for('routine_management.index') }}" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                        </a>
                         <input type="text" id="routine-title" class="form-control form-control-sm" style="width: 200px;" placeholder="Routine Title" value="Class Routine">
                         <input type="date" id="effective-date" class="form-control form-control-sm" style="width: 180px;">
                         {% if can_edit %}

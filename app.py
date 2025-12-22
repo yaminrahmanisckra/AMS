@@ -714,6 +714,7 @@ def create_app():
         entries = base_query.filter_by(archived=False).order_by(ExamPaperEvaluation.created_at.desc()).all()
         archived_entries = base_query.filter_by(archived=True).order_by(ExamPaperEvaluation.created_at.desc()).all()
         scrutiny_entries = []
+        scrutiny_invites_map = {}
         if current_teacher:
             owned_ids = {entry.id for entry in entries}
             scrutiny_entries = ExamPaperEvaluation.query.filter(
@@ -722,6 +723,16 @@ def create_app():
                 ExamPaperEvaluation.submitted_to_committee.is_(True)
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
             scrutiny_entries = [entry for entry in scrutiny_entries if entry.id not in owned_ids]
+            
+            # Get invite information for each scrutiny entry to check completion status
+            if scrutiny_entries:
+                entry_ids = [entry.id for entry in scrutiny_entries]
+                invites = ExamScrutinizerInvite.query.filter(
+                    ExamScrutinizerInvite.exam_entry_id.in_(entry_ids),
+                    ExamScrutinizerInvite.scrutinizer_teacher_id == current_teacher.id,
+                    ExamScrutinizerInvite.status == 'accepted'
+                ).all()
+                scrutiny_invites_map = {inv.exam_entry_id: inv for inv in invites}
         
         # Determine if current user is evaluator (owner) - if yes, hide scrutinizer info
         # Evaluators (owners) should not see scrutinizer info, but scrutinizers and admins should
@@ -798,6 +809,7 @@ def create_app():
                                curricula=curricula,
                                curriculum_configs_json=curriculum_configs_json,
                                scrutiny_entries=scrutiny_entries,
+                               scrutiny_invites_map=scrutiny_invites_map,
                                hide_scrutinizer_info=hide_scrutinizer_info)
 
     @app.route('/exam-evaluation/<int:entry_id>/submit-to-committee', methods=['POST'])
@@ -1300,7 +1312,24 @@ def create_app():
 
             if action == 'pdf':
                 pdf_buffer = _generate_marks_pdf(entry, data)
-                filename = f"{entry.course_code or 'exam'}_marksheet.pdf"
+                # Format: Course Code_Course Name_Part_Marksheet.pdf
+                import re
+                def sanitize_filename(text):
+                    """Remove or replace special characters for safe filename"""
+                    if not text:
+                        return ''
+                    # Replace spaces with underscores
+                    text = text.replace(' ', '_')
+                    # Remove or replace special characters that might cause issues
+                    text = re.sub(r'[<>:"/\\|?*]', '', text)
+                    # Remove multiple consecutive underscores
+                    text = re.sub(r'_+', '_', text)
+                    return text.strip('_')
+                
+                course_code = sanitize_filename(entry.course_code or 'exam')
+                course_name = sanitize_filename(entry.course_name or '')
+                part = sanitize_filename(entry.section if entry.section else 'Full')
+                filename = f"{course_code}_{course_name}_Part_{part}_Marksheet.pdf"
                 pdf_data = pdf_buffer.getvalue()
                 return Response(
                     pdf_data,
@@ -1507,6 +1536,21 @@ def create_app():
         teacher = _current_teacher()
         if not teacher or teacher.id != invite.scrutinizer_teacher_id:
             flash('You are not authorized to respond to this invitation.', 'danger')
+            return redirect(url_for('class_management.my_invitations'))
+
+        # Handle complete/incomplete toggle
+        if action == 'toggle_complete':
+            if invite.status != 'accepted':
+                flash('Only accepted invitations can be marked as complete/incomplete.', 'warning')
+                return redirect(url_for('class_management.my_invitations'))
+            try:
+                invite.is_complete = not invite.is_complete
+                db.session.commit()
+                status_text = 'Complete' if invite.is_complete else 'Incomplete'
+                flash(f'Status updated to {status_text}.', 'success')
+            except Exception as exc:
+                db.session.rollback()
+                flash(f'Failed to update status: {exc}', 'danger')
             return redirect(url_for('class_management.my_invitations'))
 
         if action == 'cancel' and invite.status == 'cancelled':
@@ -9059,21 +9103,47 @@ def create_app():
     @login_required
     def profile():
         if request.method == 'POST':
-            full_name = request.form.get('full_name')
-            email = request.form.get('email')
+            full_name = request.form.get('full_name', '').strip()
+            email = request.form.get('email', '').strip()
             current_password = request.form.get('current_password')
             new_password = request.form.get('new_password')
             confirm_password = request.form.get('confirm_password')
 
-            # Update name and email
-            if full_name:
+            # Store old values before updating (for finding related records)
+            old_full_name = current_user.full_name
+            old_email = current_user.email
+            name_changed = False
+            email_changed = False
+
+            # Validate and update name
+            if full_name and full_name != old_full_name:
+                # Check if another user already has this full_name (if needed)
+                existing_user = User.query.filter(User.id != current_user.id, User.full_name == full_name).first()
+                if existing_user:
+                    flash('This name is already in use by another user.', 'danger')
+                    db.session.rollback()
+                    teacher_record = None
+                    user_roles = parse_roles(current_user.role)
+                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    return render_template('profile.html', teacher_record=teacher_record)
                 current_user.full_name = full_name
-            if email and email != current_user.email:
+                name_changed = True
+
+            # Validate and update email
+            if email and email != old_email:
                 # Check if email already exists
-                if User.query.filter_by(email=email).first():
-                    flash('Email already in use.', 'danger')
-                    return render_template('profile.html')
+                existing_user = User.query.filter(User.id != current_user.id, User.email == email).first()
+                if existing_user:
+                    flash('Email already in use by another user.', 'danger')
+                    db.session.rollback()
+                    teacher_record = None
+                    user_roles = parse_roles(current_user.role)
+                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    return render_template('profile.html', teacher_record=teacher_record)
                 current_user.email = email
+                email_changed = True
 
             # Handle photo upload
             if 'photo' in request.files:
@@ -9084,7 +9154,12 @@ def create_app():
                     file_ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
                     if file_ext not in app.config['ALLOWED_EXTENSIONS']:
                         flash('Invalid file type. Allowed: PNG, JPG, JPEG, GIF, WEBP', 'danger')
-                        return render_template('profile.html')
+                        db.session.rollback()
+                        teacher_record = None
+                        user_roles = parse_roles(current_user.role)
+                        if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+                            teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                        return render_template('profile.html', teacher_record=teacher_record)
                     
                     # Delete old photo if exists
                     if current_user.photo:
@@ -9106,34 +9181,56 @@ def create_app():
 
             # Update password if provided
             if new_password or confirm_password:
-                if not current_user.check_password(current_password):
+                if not current_password or not current_user.check_password(current_password):
                     flash('Current password is incorrect.', 'danger')
-                    return redirect(url_for('profile'))
+                    db.session.rollback()
+                    teacher_record = None
+                    user_roles = parse_roles(current_user.role)
+                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    return render_template('profile.html', teacher_record=teacher_record)
                 if new_password != confirm_password:
                     flash('New passwords do not match.', 'danger')
-                    return redirect(url_for('profile'))
+                    db.session.rollback()
+                    teacher_record = None
+                    user_roles = parse_roles(current_user.role)
+                    if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+                        teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                    return render_template('profile.html', teacher_record=teacher_record)
                 if new_password:
                     current_user.set_password(new_password)
 
             # Update teacher information if user is a teacher
+            # IMPORTANT: Find teacher by OLD name first, then update to new name
             user_roles = parse_roles(current_user.role)
             if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
-                teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+                # Use old_full_name to find existing teacher record
+                teacher = Teacher.query.filter_by(name=old_full_name).first()
+                
+                if not teacher:
+                    # If no teacher found by old name, try new name (in case name wasn't changed)
+                    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+                
                 if not teacher:
                     # Create teacher record if it doesn't exist
-                    short_name = (current_user.username or current_user.full_name.split()[0].lower())[:10]
+                    short_name_base = (current_user.username or current_user.full_name.split()[0].lower() if current_user.full_name else 'teacher')
+                    short_name_base = ''.join(ch for ch in short_name_base.lower() if ch.isalnum())[:10] or 'teacher'
+                    short_name = short_name_base
                     counter = 1
-                    base_short = short_name
                     while Teacher.query.filter_by(short_name=short_name).first():
-                        short_name = f"{base_short[:10-len(str(counter))]}{counter}"
+                        suffix = str(counter)
+                        short_name = f"{short_name_base[:10-len(suffix)]}{suffix}"
                         counter += 1
                     teacher = Teacher(name=current_user.full_name, short_name=short_name)
                     db.session.add(teacher)
                     db.session.flush()
                 
-                # Update teacher name if it changed
-                if teacher.name != current_user.full_name:
+                # Update teacher name if it changed (adapts to name change)
+                if name_changed and teacher.name != current_user.full_name:
                     teacher.name = current_user.full_name
+                    # Note: All existing relationships (class_sessions, assignments, etc.) 
+                    # that reference this teacher by ID will automatically adapt
+                    # since they use teacher_id foreign key, not name matching
                 
                 # Update call_sign and bank_account_no
                 call_sign = request.form.get('call_sign', '').strip()
@@ -9141,8 +9238,19 @@ def create_app():
                 teacher.call_sign = call_sign if call_sign else None
                 teacher.bank_account_no = bank_account_no if bank_account_no else None
 
-            db.session.commit()
-            flash('Profile updated successfully!', 'success')
+            # Commit all changes
+            try:
+                db.session.commit()
+                flash('Profile updated successfully!', 'success')
+                if name_changed:
+                    flash(f'Name updated from "{old_full_name}" to "{current_user.full_name}". All related data has been adapted.', 'info')
+                if email_changed:
+                    flash(f'Email updated from "{old_email}" to "{current_user.email}".', 'info')
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.error(f'Error updating profile: {str(e)}')
+                flash('An error occurred while updating your profile. Please try again.', 'danger')
+            
             return redirect(url_for('profile'))
         
         # Get teacher record for display

@@ -127,6 +127,7 @@
                 <th>Course</th>
                 <th>Invited By</th>
                 <th>Status</th>
+                <th>Completion</th>
                 <th>Remarks</th>
                 <th>Invited On</th>
                 <th>Action</th>
@@ -141,6 +142,9 @@
                   <td>
                     <strong>{{ entry.course_name if entry else 'N/A' }}</strong>
                     <div class="text-muted small">{{ entry.course_code if entry else '' }}</div>
+                    {% if entry and entry.section %}
+                    <div class="text-info small mt-1"><strong>Part: {{ entry.section }}</strong></div>
+                    {% endif %}
                   </td>
                   <td>{{ inviter.name if inviter else 'N/A' }}</td>
                   <td>
@@ -151,6 +155,17 @@
                       'cancelled': 'bg-secondary'
                     }.get(inv.status, 'bg-secondary') %}
                     <span class="badge {{ badge_class }} text-uppercase">{{ inv.status }}</span>
+                  </td>
+                  <td>
+                    {% if inv.status == 'accepted' %}
+                      {% if inv.is_complete %}
+                        <span class="badge bg-success">Complete</span>
+                      {% else %}
+                        <span class="badge bg-warning text-dark">Incomplete</span>
+                      {% endif %}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
                   </td>
                   <td class="small">{{ inv.remarks or '—' }}</td>
                   <td class="small">{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
@@ -169,6 +184,12 @@
                       <a class="btn btn-outline-primary btn-sm" href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}">
                         <i class="fas fa-clipboard-list me-1"></i>Open Marks Sheet
                       </a>
+                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='toggle_complete') }}" method="POST" class="m-0">
+                        <button type="submit" class="btn btn-outline-{{ 'success' if not inv.is_complete else 'warning' }} btn-sm">
+                          <i class="fas fa-{{ 'check-circle' if not inv.is_complete else 'times-circle' }} me-1"></i>
+                          {{ 'Mark Complete' if not inv.is_complete else 'Mark Incomplete' }}
+                        </button>
+                      </form>
                       <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='cancel') }}" method="POST" class="m-0">
                         <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="fas fa-ban me-1"></i>Cancel</button>
                       </form>

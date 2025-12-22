@@ -18,7 +18,7 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Course Code</label>
-                    <input type="text" name="course_code" class="form-control" value="{{ entry.course_code }}" required>
+                    <input type="text" name="course_code" id="course_code" class="form-control" value="{{ entry.course_code }}" required>
                 </div>
                 <div class="row g-3">
                     <div class="col-md-6">
@@ -71,14 +71,52 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
-                <div class="d-flex justify-content-end gap-2">
-                    <a href="{{ url_for('exam_evaluation') }}" class="btn btn-outline-secondary">Cancel</a>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-save me-2"></i>Update Entry</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
+<script>
+// Auto-select postgraduate if last 4 digits' first digit is "5"
+function checkAndSetProgramLevel(courseCode) {
+    if (!courseCode) return;
+    
+    const levelPG = document.getElementById('levelPG');
+    const levelUG = document.getElementById('levelUG');
+    if (!levelPG || !levelUG) return;
+    
+    // Pattern: শেষ চার ডিজিটের প্রথমটা "5" দিয়ে শুরু হলে postgraduate
+    // Examples: "0421 28 Law 5101" → শেষ 4 ডিজিট: "5101" → Postgraduate
+    //           "0421 28 Law 1101" → শেষ 4 ডিজিট: "1101" → Undergraduate
+    const code = courseCode.trim();
+    
+    // Extract last 4 digits from the course code
+    // Remove all non-digit characters and get last 4 digits
+    const digitsOnly = code.replace(/\D/g, ''); // Remove all non-digits
+    
+    if (digitsOnly.length >= 4) {
+        const lastFourDigits = digitsOnly.slice(-4); // Get last 4 digits
+        const firstDigit = lastFourDigits.charAt(0);
+        
+        if (firstDigit === '5') {
+            levelPG.checked = true;
+            console.log(`Auto-selected Postgraduate for course code: ${courseCode} (last 4 digits: ${lastFourDigits}, first digit: ${firstDigit})`);
+            return;
+        }
+    }
+    
+    // If pattern doesn't match, keep default (UG) or don't change
+}
+
+// Apply on page load if course code matches pattern
+document.addEventListener('DOMContentLoaded', function() {
+    const courseCodeInput = document.getElementById('course_code');
+    if (courseCodeInput && courseCodeInput.value) {
+        checkAndSetProgramLevel(courseCodeInput.value);
+    }
+    
+    // Also listen to manual course code input changes
+    if (courseCodeInput) {
+        courseCodeInput.addEventListener('input', function() {
+            checkAndSetProgramLevel(this.value);
+        });
+    }
+});
+</script>
 {% endblock %}

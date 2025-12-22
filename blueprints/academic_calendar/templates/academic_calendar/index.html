@@ -346,9 +346,12 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="fas fa-calendar-alt me-2"></i>Academic Calendar</h2>
-        <div class="d-flex gap-2 align-items-center">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+        <h2 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Academic Calendar</h2>
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+            </a>
             <div class="btn-group" role="group">
                 <a href="{{ url_for('academic_calendar.index', view='month', year=year, month=month) }}" 
                    class="btn {% if view_type == 'month' %}btn-primary{% else %}btn-outline-primary{% endif %}">

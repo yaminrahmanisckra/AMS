@@ -116,6 +116,44 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    // Auto-select Category and Type based on Course Code
+    const courseCodeInput = addCourseForm ? addCourseForm.querySelector('input[name="course_code"]') : null;
+    const categorySelect = addCourseForm ? addCourseForm.querySelector('select[name="category"]') : null;
+    const courseTypeSelect = addCourseForm ? addCourseForm.querySelector('select[name="course_type"]') : null;
+    
+    if (courseCodeInput) {
+        courseCodeInput.addEventListener('input', function() {
+            const courseCode = this.value.trim();
+            
+            // Auto-select Category: Postgraduate if first digit of last 4 digits is "5"
+            if (categorySelect) {
+                const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
+                if (digitsOnly.length >= 4) {
+                    const lastFourDigits = digitsOnly.slice(-4); // Get last 4 digits
+                    const firstDigit = lastFourDigits.charAt(0);
+                    if (firstDigit === '5') {
+                        categorySelect.value = 'pg'; // Postgraduate
+                        console.log(`Auto-selected Postgraduate for course code: ${courseCode} (last 4 digits: ${lastFourDigits}, first digit: ${firstDigit})`);
+                    }
+                }
+            }
+            
+            // Auto-select Type: Sessional if last digit of last 4 digits is even
+            if (courseTypeSelect) {
+                const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
+                if (digitsOnly.length >= 4) {
+                    const lastFourDigits = digitsOnly.slice(-4); // Get last 4 digits
+                    const lastDigit = lastFourDigits.charAt(3); // Last digit of last 4 digits
+                    const lastDigitNum = parseInt(lastDigit, 10);
+                    if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 0) {
+                        courseTypeSelect.value = 'Sessional';
+                        console.log(`Auto-selected Sessional for course code: ${courseCode} (last 4 digits: ${lastFourDigits}, last digit: ${lastDigit})`);
+                    }
+                }
+            }
+        });
+    }
 });
 </script>
 {% endblock %} 
