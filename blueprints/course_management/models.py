@@ -66,7 +66,7 @@ class Course(db.Model):
     year = db.Column(db.String(50), nullable=True)  # Year (text field)
     term = db.Column(db.String(50), nullable=True)  # Term (text field)
     rationale = db.Column(db.Text, nullable=True)  # Course rationale
-    clo = db.Column(db.Text, nullable=True)  # Course Learning Outcomes (JSON: list of {text, teaching_strategy, assessment_strategy})
+    clo = db.Column(db.Text, nullable=True)  # Course Learning Outcomes (JSON: list of {text, teaching_strategy, assessment_strategy, plo})
     content_section_a = db.Column(db.Text, nullable=True)  # Course content Section A
     content_section_b = db.Column(db.Text, nullable=True)  # Course content Section B
     
@@ -137,7 +137,7 @@ class Course(db.Model):
             except (json.JSONDecodeError, TypeError):
                 # Legacy format: plain text, convert to list
                 if self.clo.strip():
-                    return [{'text': self.clo, 'teaching_strategy': '', 'assessment_strategy': ''}]
+                    return [{'text': self.clo, 'teaching_strategy': '', 'assessment_strategy': '', 'plo': ''}]
         return []
     
     def set_clos_list(self, clos_list):

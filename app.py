@@ -216,6 +216,9 @@ def create_app():
     app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
     app.config['DEFAULT_STUDENT_PASSWORD'] = os.getenv('DEFAULT_STUDENT_PASSWORD', 'Student@123')
     
+    # OpenAI API configuration
+    app.config['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
+    
     # File upload configuration
     upload_folder = os.path.join(basedir, 'static', 'uploads', 'user_photos')
     os.makedirs(upload_folder, exist_ok=True)
@@ -340,9 +343,57 @@ def create_app():
             status='active'
         ).count() > 0
 
+    def _is_tabulator():
+        """Check if current user has an active tabulator assignment"""
+        if not current_user.is_authenticated:
+            return False
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            return False
+        return DutyAssignment.query.filter_by(
+            duty_type='tabulator',
+            assigned_teacher_id=teacher.id,
+            status='active'
+        ).count() > 0
+
+    def get_visible_dashboard_items():
+        """Returns a dict of which dashboard items should be visible for the current user"""
+        if not current_user.is_authenticated:
+            return {}
+        
+        is_officer = 'officer' in parse_roles(current_user.role)
+        is_teaching_assistant = 'teaching_assistant' in parse_roles(current_user.role)
+        is_teacher = 'teacher' in parse_roles(current_user.role) and not is_teaching_assistant and not is_officer
+        is_head = 'head' in parse_roles(current_user.role) or 'dean' in parse_roles(current_user.role)
+        head_active = (current_user.active_role == 'head') if hasattr(current_user, 'active_role') else False
+        
+        # Check for course registration review
+        show_course_registration_review = False
+        teacher = _current_teacher()
+        if teacher:
+            show_course_registration_review = DutyAssignment.query.filter_by(
+                duty_type='course_coordinator',
+                assigned_teacher_id=teacher.id,
+                status='active'
+            ).count() > 0
+        
+        return {
+            'show_class_management': not is_teaching_assistant and not is_officer and not head_active,
+            'show_result_management': (is_head or _is_tabulator()) and not is_teaching_assistant and not is_officer,
+            'show_routine_management': (is_teaching_assistant or (not is_officer)) and not head_active,
+            'show_exam_evaluation': not is_teaching_assistant and not is_officer and not head_active,
+            'show_students_management': (is_teaching_assistant or not is_teacher) and not is_officer,
+            'show_curriculum_management': (is_teaching_assistant or not is_teacher) and not is_officer,
+            'show_remuneration': not is_teaching_assistant and not head_active,
+            'show_academic_calendar': True,  # Always visible
+            'show_course_registration': show_course_registration_review and not is_teaching_assistant,
+            'show_exam_committee_management': (_is_exam_committee_chief() or _is_exam_committee_member()) and not is_teaching_assistant,
+        }
+
     @app.context_processor
     def inject_role_helpers():
         from datetime import date, timedelta
+        visible_items = get_visible_dashboard_items() if current_user.is_authenticated else {}
         return {
             'ROLE_LABELS': ROLE_LABELS,
             'ROLE_CHOICES': NON_ADMIN_ROLE_CHOICES,
@@ -353,9 +404,11 @@ def create_app():
             'is_admin': is_admin,
             'is_exam_committee_chief': _is_exam_committee_chief,
             'is_exam_committee_member': _is_exam_committee_member,
+            'is_tabulator': _is_tabulator,
             'date': date,
             'timedelta': timedelta,
             'datetime': datetime,
+            **visible_items,  # Add visible dashboard items to context
         }
 
     @app.route('/')
@@ -2911,7 +2964,7 @@ def create_app():
         students = Student.query.order_by(Student.student_id.asc()).all()
         
         # Show only relevant duty assignments (exclude tabulator/scrutinizer)
-        visible_duty_types = ['course_coordinator', 'exam_committee_chief', 'teaching_assistant']
+        visible_duty_types = ['course_coordinator', 'exam_committee_chief', 'routine_maker', 'teaching_assistant']
         assignments = DutyAssignment.query.filter(
             DutyAssignment.status == 'active',
             DutyAssignment.duty_type.in_(visible_duty_types)
@@ -3146,10 +3199,10 @@ def create_app():
         if isinstance(exam_entry_ids, str):
             exam_entry_ids = [exam_entry_ids]
 
-        if duty_type not in {'course_coordinator', 'exam_committee_chief', 'tabulator', 'teaching_assistant'}:
+        if duty_type not in {'course_coordinator', 'exam_committee_chief', 'tabulator', 'teaching_assistant', 'routine_maker'}:
             return jsonify({'success': False, 'message': 'Unsupported duty type'}), 400
         
-        if duty_type in {'course_coordinator', 'exam_committee_chief', 'tabulator'} and not teacher_id:
+        if duty_type in {'course_coordinator', 'exam_committee_chief', 'tabulator', 'routine_maker'} and not teacher_id:
             return jsonify({'success': False, 'message': 'Please select a teacher'}), 400
         
         if duty_type == 'course_coordinator':
@@ -3207,6 +3260,10 @@ def create_app():
                     'academic_session': academic_session or None,
                     'year': year or None,
                     'term': term or None
+                })
+            elif duty_type == 'routine_maker':
+                filter_kwargs.update({
+                    'assigned_teacher_id': teacher_id
                 })
             
             existing = DutyAssignment.query.filter_by(**filter_kwargs).first()
@@ -3864,7 +3921,8 @@ def create_app():
                 ExamPaperEvaluation.submitted_to_committee.is_(True),
                 ExamPaperEvaluation.academic_session == current_session,
                 ExamPaperEvaluation.year == current_year,
-                ExamPaperEvaluation.term == current_term
+                ExamPaperEvaluation.term == current_term,
+                ExamPaperEvaluation.assigned_scrutinizer_id.is_(None)  # Only show entries without assigned scrutinizer
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
             for entry in submitted_entries:
                 owner_name = entry.owner_teacher.name if entry.owner_teacher else 'N/A'
@@ -3874,7 +3932,8 @@ def create_app():
                     'course_code': entry.course_code,
                     'course_name': entry.course_name,
                     'section': section_label,
-                    'owner': owner_name
+                    'owner': owner_name,
+                    'owner_teacher_id': entry.owner_teacher_id  # Include owner ID for filtering
                 })
         
         # Get saved committee members for current session/year/term
@@ -4089,6 +4148,8 @@ def create_app():
                         return jsonify({'success': False, 'message': f'{exam_entry.course_code} has not been submitted yet.'}), 400
                     if exam_entry.assigned_scrutinizer_id:
                         return jsonify({'success': False, 'message': f'{exam_entry.course_code} already has a Scrutinizer.'}), 400
+                    if exam_entry.owner_teacher_id and exam_entry.owner_teacher_id == teacher_id:
+                        return jsonify({'success': False, 'message': f'{exam_entry.course_code} - আপনি নিজে যে সাবজেক্টের এক্সাম পেপার ইভালুয়েট করেছেন, সেই সাবজেক্টের স্ক্রুটিনাইজার হতে পারবেন না।'}), 400
 
                     assignment = DutyAssignment(
                         course_code=exam_entry.course_code,
@@ -9237,6 +9298,11 @@ def create_app():
                 bank_account_no = request.form.get('bank_account_no', '').strip()
                 teacher.call_sign = call_sign if call_sign else None
                 teacher.bank_account_no = bank_account_no if bank_account_no else None
+
+            # Update theme preference
+            theme = request.form.get('theme', 'default').strip()
+            if theme:
+                current_user.theme = theme
 
             # Commit all changes
             try:

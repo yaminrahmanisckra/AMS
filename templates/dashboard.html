@@ -123,6 +123,7 @@
     font-size: 1.05rem;
     color: white;
     animation: iconFloat 3s ease-in-out infinite;
+    filter: brightness(1.1);
 }
 
 @keyframes iconFloat {
@@ -173,45 +174,49 @@
     font-weight: 400;
 }
 
-/* Professional card color variations - More vibrant */
+/* Professional card color variations - Light and bright colors */
 .card-blue {
-    --card-color: #667eea;
+    --card-color: #3b82f6; /* Bright Blue */
 }
 
 .card-green {
-    --card-color: #20c997;
+    --card-color: #10b981; /* Bright Green */
 }
 
 .card-cyan {
-    --card-color: #0dcaf0;
+    --card-color: #06b6d4; /* Bright Cyan */
 }
 
 .card-yellow {
-    --card-color: #ffc107;
+    --card-color: #fbbf24; /* Bright Yellow/Amber */
 }
 
 .card-red {
-    --card-color: #dc3545;
+    --card-color: #ef4444; /* Bright Red */
 }
 
 .card-purple {
-    --card-color: #764ba2;
-}
-
-.card-teal {
-    --card-color: #20c997;
+    --card-color: #a855f7; /* Bright Purple */
 }
 
 .card-orange {
-    --card-color: #fd7e14;
+    --card-color: #f97316; /* Bright Orange */
+}
+
+.card-teal {
+    --card-color: #14b8a6; /* Bright Teal */
 }
 
 .card-indigo {
-    --card-color: #667eea;
+    --card-color: #6366f1; /* Bright Indigo */
 }
 
 .card-pink {
-    --card-color: #f093fb;
+    --card-color: #ec4899; /* Bright Pink */
+}
+
+.card-emerald {
+    --card-color: #34d399; /* Bright Emerald */
 }
 
 /* Mobile responsive - Compact design */
@@ -351,6 +356,8 @@ html {
 
     {% set is_officer = 'officer' in parse_roles(current_user.role) %}
     {% set is_teaching_assistant = 'teaching_assistant' in parse_roles(current_user.role) %}
+    {% set is_teacher = 'teacher' in parse_roles(current_user.role) and not is_teaching_assistant and not is_officer %}
+    {% set is_head = 'head' in parse_roles(current_user.role) or 'dean' in parse_roles(current_user.role) %}
     
     {% set cards = [
         {
@@ -365,9 +372,9 @@ html {
             'title': 'Result Management',
             'desc': 'Handle student results, subjects, marks, and generate reports.',
             'icon': 'fas fa-poll',
-            'color_class': 'card-green',
+            'color_class': 'card-orange',
             'url': url_for('result_management.index'),
-            'show': not is_teaching_assistant and not is_officer
+            'show': (is_head or is_tabulator()) and not is_teaching_assistant and not is_officer
         },
         {
             'title': 'Routine Management',
@@ -391,7 +398,7 @@ html {
             'icon': 'fas fa-users',
             'color_class': 'card-red',
             'url': url_for('student_management.index'),
-            'show': is_teaching_assistant or True
+            'show': (is_teaching_assistant or not is_teacher) and not is_officer
         },
         {
             'title': 'Curriculum Management',
@@ -399,13 +406,13 @@ html {
             'icon': 'fas fa-book',
             'color_class': 'card-purple',
             'url': url_for('course_management.index'),
-            'show': is_teaching_assistant or True
+            'show': (is_teaching_assistant or not is_teacher) and not is_officer
         },
         {
             'title': 'Remuneration',
             'desc': 'Manage remuneration and payment information.',
             'icon': 'fas fa-money-bill-wave',
-            'color_class': 'card-teal',
+            'color_class': 'card-green',
             'url': url_for('remuneration_portal'),
             'show': not is_teaching_assistant
         },

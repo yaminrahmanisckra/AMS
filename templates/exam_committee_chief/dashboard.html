@@ -277,7 +277,7 @@
                                     {% if available_entries %}
                                     <select class="form-select" id="exam_entries" name="exam_entries" multiple size="6">
                                         {% for entry in available_entries %}
-                                        <option value="{{ entry.id }}">
+                                        <option value="{{ entry.id }}" data-owner-teacher-id="{{ entry.owner_teacher_id or '' }}">
                                             {{ entry.course_code }} - {{ entry.course_name }} [Section {{ entry.section }}] (Teacher: {{ entry.owner }})
                                         </option>
                                         {% endfor %}
@@ -518,6 +518,50 @@ function updateDutyFieldVisibility() {
 
 dutyTypeSelect.addEventListener('change', updateDutyFieldVisibility);
 updateDutyFieldVisibility();
+
+// Filter exam entries to hide entries where owner matches selected teacher
+function filterExamEntries() {
+    if (!entrySelect) return;
+    
+    const selectedTeacherId = teacherSelect.value;
+    const options = entrySelect.options;
+    
+    for (let i = 0; i < options.length; i++) {
+        const option = options[i];
+        const ownerTeacherId = option.getAttribute('data-owner-teacher-id');
+        
+        // Hide option if owner teacher matches selected teacher
+        if (selectedTeacherId && ownerTeacherId && ownerTeacherId === selectedTeacherId) {
+            option.style.display = 'none';
+            // Deselect if it was selected
+            option.selected = false;
+        } else {
+            option.style.display = '';
+        }
+    }
+}
+
+// Filter entries when teacher is selected
+teacherSelect.addEventListener('change', function() {
+    if (dutyTypeSelect.value === 'scrutinizer') {
+        filterExamEntries();
+    }
+});
+
+// Also filter when duty type changes to scrutinizer
+dutyTypeSelect.addEventListener('change', function() {
+    if (dutyTypeSelect.value === 'scrutinizer') {
+        filterExamEntries();
+    } else {
+        // Show all options when not scrutinizer
+        if (entrySelect) {
+            const options = entrySelect.options;
+            for (let i = 0; i < options.length; i++) {
+                options[i].style.display = '';
+            }
+        }
+    }
+});
 
 document.getElementById('assignDutyForm').addEventListener('submit', function(e) {
     e.preventDefault();

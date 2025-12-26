@@ -41,6 +41,8 @@
                                 <option value="exam" {% if event.event_type == 'exam' %}selected{% endif %}>Exam</option>
                                 <option value="meeting" {% if event.event_type == 'meeting' %}selected{% endif %}>Meeting</option>
                                 <option value="deadline" {% if event.event_type == 'deadline' %}selected{% endif %}>Deadline</option>
+                                <option value="semester_start" {% if event.event_type == 'semester_start' %}selected{% endif %}>Semester Start Date</option>
+                                <option value="semester_end" {% if event.event_type == 'semester_end' %}selected{% endif %}>Semester End Date</option>
                             </select>
                         </div>
                         

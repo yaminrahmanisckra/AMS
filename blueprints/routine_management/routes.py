@@ -24,8 +24,13 @@ routine_management_bp = Blueprint('routine_management', __name__,
 
 # Main dashboard for routine management
 @routine_management_bp.route('/')
+@login_required
 def index():
-    return render_template('routine_management/index.html')
+    can_edit = can_edit_routine()
+    # If user doesn't have Routine Maker assignment, redirect to view routine
+    if not can_edit:
+        return redirect(url_for('routine_management.view_routine'))
+    return render_template('routine_management/index.html', can_edit=can_edit)
 
 # Teacher Management
 @routine_management_bp.route('/teachers', methods=['GET', 'POST'])
@@ -267,27 +272,23 @@ def delete_assignment(id):
     return redirect(url_for('routine_management.assign_course'))
 
 def can_edit_routine():
-    """Check if current user can edit routine - Only Teachers and Teaching Assistants can edit. Students can only view and download."""
+    """Check if current user can edit routine - Only Routine Maker assignment holders can edit. Others can only view and download."""
     if not current_user.is_authenticated:
         return False
     
-    roles = set(parse_roles(current_user.role))
-    if getattr(current_user, 'active_role', None):
-        roles = set(parse_roles(current_user.active_role))
+    # Check if user has Routine Maker assignment
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if teacher:
+        from blueprints.course_management.models import DutyAssignment
+        routine_maker = DutyAssignment.query.filter_by(
+            assigned_teacher_id=teacher.id,
+            duty_type='routine_maker',
+            status='active'
+        ).first()
+        if routine_maker:
+            return True
     
-    # Students cannot edit (only view and download)
-    if 'student' in roles:
-        return False
-    
-    # Only Teachers can edit
-    if 'teacher' in roles:
-        return True
-    
-    # Teaching Assistants can edit
-    if 'teaching_assistant' in roles:
-        return True
-    
-    # All other roles (head, dean, admin, officer, etc.) cannot edit
+    # No Routine Maker assignment - user can only view, not edit
     return False
 
 @routine_management_bp.route('/api/check-edit-permission')

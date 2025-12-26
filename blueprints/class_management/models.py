@@ -101,6 +101,24 @@ class CourseReview(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class CourseFileUpload(db.Model):
+    """Model for teacher-uploaded files that students can download"""
+    __tablename__ = 'course_file_upload'
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey('class_session.id'), nullable=False)
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
+    file_name = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)  # Path to uploaded file
+    file_size = db.Column(db.Integer, nullable=True)  # File size in bytes
+    file_type = db.Column(db.String(50), nullable=True)  # MIME type or extension
+    description = db.Column(db.Text, nullable=True)  # Optional description
+    student_access_enabled = db.Column(db.Boolean, default=True, nullable=False)  # Allow students to download
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    session = db.relationship('Session', backref=db.backref('uploaded_files', lazy='dynamic'))
+    teacher = db.relationship('Teacher', backref=db.backref('uploaded_files', lazy='dynamic'))
+
 # Evaluation invitation for external/internal teacher to assess a course session
 class EvaluationInvite(db.Model):
     __tablename__ = 'evaluation_invite'
@@ -201,6 +219,11 @@ class CourseOutline(db.Model):
     contact_hours = db.Column(db.String(50), nullable=True)
     cie_marks = db.Column(db.String(50), nullable=True)  # Continuous Internal Evaluation
     smee_marks = db.Column(db.String(50), nullable=True)  # Semester Mid/End Examination
+    credit_value = db.Column(db.String(20), nullable=True)  # Credit value (e.g., 4.0)
+    course_type = db.Column(db.String(50), nullable=True)  # Core Course / Elective Course
+    level_term_section = db.Column(db.String(100), nullable=True)  # Level/Term and Section
+    clo_data = db.Column(db.Text, nullable=True)  # JSON array: [{number, description, plos}]
+    plo_mapping = db.Column(db.Text, nullable=True)  # JSON: {CLO 1: {PLO 1: 3, PLO 2: 2}, ...}
     
     # Lesson Plan / Weekly Schedule (JSON array)
     lesson_plan = db.Column(db.Text, nullable=True)  # JSON: [{week, date, topic, outcome, activities, teaching_assessment, clo_alignment}]
@@ -227,6 +250,9 @@ class CourseOutline(db.Model):
     # Other sections
     make_up_procedures = db.Column(db.Text, nullable=True)
     other_issues = db.Column(db.Text, nullable=True)  # JSON: {class_discussion, expectations, communication, academic_honesty}
+    
+    # Student access control
+    student_access_enabled = db.Column(db.Boolean, default=False, nullable=False)  # Allow students to download course outline PDF
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

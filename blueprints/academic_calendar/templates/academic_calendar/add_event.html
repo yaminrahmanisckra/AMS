@@ -27,7 +27,7 @@
                             <input type="date" class="form-control" id="event_date" name="event_date" required>
                         </div>
                         
-                        <div class="mb-3">
+                        <div class="mb-3" id="end_date_field">
                             <label for="end_date" class="form-label">End Date (Optional)</label>
                             <input type="date" class="form-control" id="end_date" name="end_date">
                             <small class="form-text text-muted">Leave empty for single day events. If provided, event will span from start date to end date.</small>
@@ -35,13 +35,72 @@
                         
                         <div class="mb-3">
                             <label for="event_type" class="form-label">Event Type</label>
-                            <select class="form-select" id="event_type" name="event_type">
+                            <select class="form-select" id="event_type" name="event_type" onchange="toggleSemesterFields()">
                                 <option value="event">Event</option>
                                 <option value="holiday">Holiday</option>
                                 <option value="exam">Exam</option>
                                 <option value="meeting">Meeting</option>
                                 <option value="deadline">Deadline</option>
+                                <option value="semester_start">Semester Start Date</option>
+                                <option value="semester_end">Semester End Date</option>
                             </select>
+                        </div>
+                        
+                        <!-- Semester-specific fields (shown only for semester_start and semester_end) -->
+                        <div id="semester_fields" style="display: none;">
+                            <div class="alert alert-info mb-3">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <strong>Select Academic Sessions first:</strong> After selecting Academic Session(s), available Years and Terms will be filtered automatically. Select one or multiple options. Events will be created for each combination.
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="selected_academic_sessions" class="form-label">Academic Session(s) <small class="text-muted">(Optional)</small></label>
+                                    <select class="form-select" id="selected_academic_sessions" name="selected_academic_sessions" multiple size="5">
+                                        {% if academic_sessions_list|default([]) %}
+                                            {% for session in academic_sessions_list %}
+                                            <option value="{{ session }}">{{ session }}</option>
+                                            {% endfor %}
+                                        {% else %}
+                                            <option disabled>No academic sessions found</option>
+                                        {% endif %}
+                                    </select>
+                                    <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple</small>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="selected_years" class="form-label">Year(s) <small class="text-muted">(Optional)</small></label>
+                                    <select class="form-select" id="selected_years" name="selected_years" multiple size="5">
+                                        {% if years_list|default([]) %}
+                                            {% for year in years_list %}
+                                            <option value="{{ year }}">{{ year }}</option>
+                                            {% endfor %}
+                                        {% else %}
+                                            <option disabled>No years found</option>
+                                        {% endif %}
+                                    </select>
+                                    <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple</small>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="selected_terms" class="form-label">Term(s) <small class="text-muted">(Optional)</small></label>
+                                    <select class="form-select" id="selected_terms" name="selected_terms" multiple size="5">
+                                        {% if terms_list|default([]) %}
+                                            {% for term in terms_list %}
+                                            <option value="{{ term }}">{{ term }}</option>
+                                            {% endfor %}
+                                        {% else %}
+                                            <option disabled>No terms found</option>
+                                        {% endif %}
+                                    </select>
+                                    <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple</small>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-warning mb-3">
+                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                <strong>Note:</strong> If no selections are made, a single event will be created. If selections are made, events will be created for each combination of selected Year, Term, and Academic Session.
+                            </div>
                         </div>
                         
                         <div class="d-flex gap-2">
@@ -58,6 +117,163 @@
         </div>
     </div>
 </div>
+
+<script>
+function toggleSemesterFields() {
+    const eventType = document.getElementById('event_type').value;
+    const semesterFields = document.getElementById('semester_fields');
+    const endDateField = document.getElementById('end_date_field');
+    
+    if (eventType === 'semester_start' || eventType === 'semester_end') {
+        semesterFields.style.display = 'block';
+        endDateField.style.display = 'none';
+        updateTitle();
+    } else {
+        semesterFields.style.display = 'none';
+        endDateField.style.display = 'block';
+        // Reset title if not semester event
+        const titleInput = document.getElementById('title');
+        if (titleInput && !titleInput.value.startsWith('Semester')) {
+            titleInput.value = '';
+        }
+    }
+}
+
+function updateTitle() {
+    const eventType = document.getElementById('event_type').value;
+    const titleInput = document.getElementById('title');
+    
+    if (eventType !== 'semester_start' && eventType !== 'semester_end') {
+        return;
+    }
+    
+    const yearsSelect = document.getElementById('selected_years');
+    const termsSelect = document.getElementById('selected_terms');
+    
+    const selectedYears = Array.from(yearsSelect.selectedOptions).map(opt => opt.value);
+    const selectedTerms = Array.from(termsSelect.selectedOptions).map(opt => opt.value);
+    
+    // Build title
+    let title = '';
+    if (eventType === 'semester_start') {
+        title = 'Semester Start';
+    } else if (eventType === 'semester_end') {
+        title = 'Semester End';
+    }
+    
+    if (selectedYears.length > 0 || selectedTerms.length > 0) {
+        const parts = [];
+        if (selectedYears.length > 0) {
+            parts.push(selectedYears.join(', '));
+        }
+        if (selectedTerms.length > 0) {
+            parts.push(selectedTerms.join(', '));
+        }
+        if (parts.length > 0) {
+            title += ' for [' + parts.join(', ') + ']';
+        }
+    }
+    
+    // Only update if title field is empty or contains default semester text
+    if (titleInput) {
+        const currentValue = titleInput.value.trim();
+        if (!currentValue || currentValue.startsWith('Semester Start') || currentValue.startsWith('Semester End')) {
+            titleInput.value = title;
+        }
+    }
+}
+
+function updateYearsAndTerms() {
+    const academicSessionsSelect = document.getElementById('selected_academic_sessions');
+    const selectedSessions = Array.from(academicSessionsSelect.selectedOptions).map(opt => opt.value);
+    
+    const yearsSelect = document.getElementById('selected_years');
+    const termsSelect = document.getElementById('selected_terms');
+    
+    // Show loading state
+    yearsSelect.innerHTML = '<option>Loading...</option>';
+    termsSelect.innerHTML = '<option>Loading...</option>';
+    
+    // Make AJAX call to get years and terms for selected sessions
+    fetch('{{ url_for("academic_calendar.api_sessions_years_terms") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            sessions: selectedSessions
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update Years dropdown
+            yearsSelect.innerHTML = '';
+            if (data.years && data.years.length > 0) {
+                data.years.forEach(year => {
+                    const option = document.createElement('option');
+                    option.value = year;
+                    option.textContent = year;
+                    yearsSelect.appendChild(option);
+                });
+            } else {
+                const option = document.createElement('option');
+                option.disabled = true;
+                option.textContent = 'No years found';
+                yearsSelect.appendChild(option);
+            }
+            
+            // Update Terms dropdown
+            termsSelect.innerHTML = '';
+            if (data.terms && data.terms.length > 0) {
+                data.terms.forEach(term => {
+                    const option = document.createElement('option');
+                    option.value = term;
+                    option.textContent = term;
+                    termsSelect.appendChild(option);
+                });
+            } else {
+                const option = document.createElement('option');
+                option.disabled = true;
+                option.textContent = 'No terms found';
+                termsSelect.appendChild(option);
+            }
+            
+            // Update title after years/terms are loaded
+            updateTitle();
+        } else {
+            yearsSelect.innerHTML = '<option disabled>Error loading years</option>';
+            termsSelect.innerHTML = '<option disabled>Error loading terms</option>';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        yearsSelect.innerHTML = '<option disabled>Error loading years</option>';
+        termsSelect.innerHTML = '<option disabled>Error loading terms</option>';
+    });
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    toggleSemesterFields();
+    
+    // Add event listener to Academic Session(s) dropdown
+    const academicSessionsSelect = document.getElementById('selected_academic_sessions');
+    if (academicSessionsSelect) {
+        academicSessionsSelect.addEventListener('change', updateYearsAndTerms);
+    }
+    
+    // Add event listeners to Years and Terms dropdowns to update title
+    const yearsSelect = document.getElementById('selected_years');
+    const termsSelect = document.getElementById('selected_terms');
+    if (yearsSelect) {
+        yearsSelect.addEventListener('change', updateTitle);
+    }
+    if (termsSelect) {
+        termsSelect.addEventListener('change', updateTitle);
+    }
+});
+</script>
 {% endblock %}
 
 

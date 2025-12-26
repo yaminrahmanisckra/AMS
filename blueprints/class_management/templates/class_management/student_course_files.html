@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Course Files{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-folder-open me-2"></i>Course Files</h2>
+        <a href="/student/dashboard" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+        </a>
+    </div>
+
+    {% if course_files %}
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-file-pdf me-2"></i>Available Course Files</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Course Code</th>
+                            <th>Course Name</th>
+                            <th>File Name</th>
+                            <th>Teacher</th>
+                            <th>Academic Session</th>
+                            <th>Year</th>
+                            <th>Term</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for file in course_files %}
+                        <tr>
+                            <td><strong>{{ file.course_code or '—' }}</strong></td>
+                            <td>{{ file.course_name or '—' }}</td>
+                            <td>
+                                {% if file.type == 'course_outline' %}
+                                    <span class="badge bg-danger">Course Outline</span>
+                                {% else %}
+                                    <i class="fas fa-file me-1"></i>{{ file.file_name }}
+                                    {% if file.description %}
+                                        <br><small class="text-muted">{{ file.description }}</small>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            <td>{{ file.teacher_name }}</td>
+                            <td>{{ file.academic_session or '—' }}</td>
+                            <td>{{ file.year or '—' }}</td>
+                            <td>{{ file.term or '—' }}</td>
+                            <td>
+                                {% if file.type == 'course_outline' %}
+                                    <a href="{{ url_for('class_management.student_download_course_outline_pdf', session_id=file.session_id) }}" 
+                                       class="btn btn-danger btn-sm">
+                                        <i class="fas fa-download me-1"></i>Download PDF
+                                    </a>
+                                {% else %}
+                                    <a href="{{ url_for('class_management.student_download_uploaded_file', file_id=file.file_id) }}" 
+                                       class="btn btn-primary btn-sm">
+                                        <i class="fas fa-download me-1"></i>Download
+                                    </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>
+        <strong>No course files available.</strong> Course outlines and files will appear here once your teachers enable student access.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

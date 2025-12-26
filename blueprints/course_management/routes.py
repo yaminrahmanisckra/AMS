@@ -645,8 +645,41 @@ def course_info(course_id):
         course.year = form.year.data if form.year.data else None
         course.term = form.term.data if form.term.data else None
         course.rationale = form.rationale.data if form.rationale.data else None
-        course.content_section_a = form.content_section_a.data if form.content_section_a.data else None
-        course.content_section_b = form.content_section_b.data if form.content_section_b.data else None
+        
+        # Handle Course Contents - check if JSON format or text format
+        content_a = request.form.get('content_section_a', '')
+        if content_a:
+            try:
+                # Try to parse as JSON
+                content_a_data = json.loads(content_a)
+                if isinstance(content_a_data, list):
+                    # Store as JSON
+                    course.content_section_a = json.dumps(content_a_data)
+                else:
+                    # Store as text
+                    course.content_section_a = content_a
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON, store as text
+                course.content_section_a = content_a if content_a else None
+        else:
+            course.content_section_a = None
+        
+        content_b = request.form.get('content_section_b', '')
+        if content_b:
+            try:
+                # Try to parse as JSON
+                content_b_data = json.loads(content_b)
+                if isinstance(content_b_data, list):
+                    # Store as JSON
+                    course.content_section_b = json.dumps(content_b_data)
+                else:
+                    # Store as text
+                    course.content_section_b = content_b
+            except (json.JSONDecodeError, TypeError):
+                # Not JSON, store as text
+                course.content_section_b = content_b if content_b else None
+        else:
+            course.content_section_b = None
         
         # Handle CLOs from JSON
         clos_json = request.form.get('clos_json', '')

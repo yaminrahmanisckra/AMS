@@ -1,30 +1,212 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <div>
-            <h4 class="mb-0">
+<style>
+    /* Mobile-friendly and scalable styles */
+    @media (max-width: 768px) {
+        .container {
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+        
+        .card-header h5 {
+            font-size: 0.95rem;
+        }
+        
+        .btn-group {
+            flex-direction: column;
+            width: 100%;
+        }
+        
+        .btn-group .btn,
+        .btn-group .form-check {
+            width: 100%;
+            margin-bottom: 0.5rem;
+            margin-left: 0 !important;
+        }
+        
+        .table-responsive {
+            font-size: 0.85rem;
+        }
+        
+        .table th,
+        .table td {
+            padding: 0.5rem 0.25rem;
+            white-space: nowrap;
+        }
+        
+        .input-group {
+            flex-wrap: wrap;
+        }
+        
+        .input-group-text {
+            font-size: 0.85rem;
+            padding: 0.375rem 0.5rem;
+        }
+        
+        .form-control,
+        .form-select {
+            font-size: 0.9rem;
+        }
+        
+        .btn-sm {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.875rem;
+        }
+        
+        .card-body {
+            padding: 1rem;
+        }
+        
+        .mb-3, .mb-4 {
+            margin-bottom: 1rem !important;
+        }
+        
+        .gap-2 {
+            gap: 0.5rem !important;
+        }
+        
+        /* Stack form columns on mobile */
+        .row > [class*="col-md-"] {
+            margin-bottom: 1rem;
+        }
+        
+        /* Better touch targets */
+        .btn, .form-check-input, input[type="checkbox"] {
+            min-height: 44px;
+            min-width: 44px;
+        }
+        
+        .form-check-input {
+            min-height: 1.5rem;
+            min-width: 1.5rem;
+        }
+        
+        /* Responsive text */
+        h4 {
+            font-size: 1.25rem;
+        }
+        
+        .form-label {
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Better spacing for mobile */
+        .d-flex.justify-content-between {
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .d-flex.justify-content-end {
+            flex-direction: column;
+        }
+        
+        .d-flex.justify-content-end .btn {
+            width: 100%;
+        }
+    }
+    
+    @media (max-width: 576px) {
+        .table {
+            font-size: 0.75rem;
+        }
+        
+        .table th,
+        .table td {
+            padding: 0.375rem 0.15rem;
+        }
+        
+        .card-header {
+            padding: 0.75rem;
+        }
+        
+        .card-body {
+            padding: 0.75rem;
+        }
+        
+        .btn {
+            font-size: 0.8rem;
+            padding: 0.5rem 0.75rem;
+        }
+    }
+    
+    /* Scalable container */
+    @media (min-width: 1400px) {
+        .container {
+            max-width: 1320px;
+        }
+    }
+    
+    /* Better table responsiveness */
+    .table-responsive {
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Improved form controls */
+    .form-control:focus,
+    .form-select:focus {
+        border-color: #86b7fe;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    }
+    
+    /* Better card header touch area */
+    .card-header[data-bs-toggle="collapse"] {
+        user-select: none;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+    }
+    
+    /* Responsive badge */
+    .badge {
+        font-size: 0.75em;
+        white-space: nowrap;
+    }
+    
+    @media (max-width: 768px) {
+        .badge {
+            display: block;
+            margin-top: 0.25rem;
+            margin-left: 0 !important;
+        }
+    }
+</style>
+
+<div class="container-fluid container-lg mt-3 mt-md-4">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-3 gap-2">
+        <div class="flex-grow-1">
+            <h4 class="mb-1 mb-md-0">
                 <i class="fas fa-edit me-2 text-primary"></i>Edit Course Outline
             </h4>
-            <p class="text-muted mb-0">
+            <p class="text-muted mb-0 small">
                 {{ session.course_name or 'Course' }}
                 {% if session.course_code %}
                     <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
                 {% endif %}
             </p>
         </div>
-        <div class="btn-group">
-            <a href="{{ url_for('class_management.course_file', session_id=session.id) }}" class="btn btn-outline-secondary btn-sm">
-                <i class="fas fa-arrow-left me-1"></i>Back
-            </a>
-            <a href="{{ url_for('class_management.download_course_outline_docx', session_id=session.id) }}" class="btn btn-success btn-sm">
-                <i class="fas fa-file-word me-1"></i>Download DOCX
-            </a>
-            <a href="{{ url_for('class_management.download_course_outline_pdf', session_id=session.id) }}" class="btn btn-danger btn-sm">
-                <i class="fas fa-file-pdf me-1"></i>Download PDF
-            </a>
+        <div class="d-flex flex-column flex-md-row gap-2 w-100 w-md-auto">
+            <div class="btn-group btn-group-sm flex-md-row">
+                <a href="{{ url_for('class_management.course_file', session_id=session.id) }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-1"></i><span class="d-none d-sm-inline">Back</span>
+                </a>
+                <a href="{{ url_for('class_management.download_course_outline_pdf', session_id=session.id) }}" class="btn btn-danger">
+                    <i class="fas fa-file-pdf me-1"></i><span class="d-none d-sm-inline">Download PDF</span>
+                </a>
+            </div>
+            <div class="form-check form-switch d-flex align-items-center justify-content-center justify-content-md-start">
+                <input class="form-check-input" type="checkbox" id="studentAccessToggle" name="student_access_enabled" {% if course_outline and course_outline.student_access_enabled %}checked{% endif %}>
+                <label class="form-check-label ms-2" for="studentAccessToggle" style="font-size: 0.875rem;">
+                    <i class="fas fa-users me-1"></i><span class="d-none d-sm-inline">Allow Students to Download</span><span class="d-sm-none">Student Access</span>
+                </label>
+            </div>
         </div>
+    </div>
+
+    <!-- Auto-save Status Indicator -->
+    <div id="autoSaveStatus" class="alert alert-info alert-dismissible fade show mb-3" role="alert" style="display: none; position: fixed; top: 80px; right: 20px; z-index: 1050; min-width: 250px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        <span id="autoSaveMessage">
+            <i class="fas fa-spinner fa-spin me-2"></i>Saving...
+        </span>
     </div>
 
     <form id="courseOutlineForm">
@@ -32,116 +214,477 @@
         
         <!-- Part A: Introduction -->
         <div class="card shadow mb-3">
-            <div class="card-header bg-primary text-white">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#partA" aria-expanded="false" aria-controls="partA">
                 <h5 class="mb-0">PART A: INTRODUCTION</h5>
+                <i class="fas fa-chevron-up"></i>
             </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label"><strong>Course Objectives</strong> (one per line)</label>
-                    <textarea class="form-control" name="course_objectives" rows="5" placeholder="1. First objective&#10;2. Second objective&#10;3. Third objective">{{ outline_data.course_objectives|join('&#10;') if outline_data.course_objectives else '' }}</textarea>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label"><strong>Course Summary</strong></label>
-                    <textarea class="form-control" name="course_summary" rows="4">{{ course_outline.course_summary or '' }}</textarea>
-                </div>
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label"><strong>Prerequisites</strong></label>
+            <div class="collapse" id="partA">
+                <div class="card-body">
+                <!-- Basic Course Information -->
+                {% if course_data %}
+                <!-- Debug: Course data found - Code: {{ course_data.course_code }}, Name: {{ course_data.course_name }}, Core/Optional: {{ course_data.core_optional }}, Type: {{ course_data.course_type }}, Category: {{ course_data.category }} -->
+                {% else %}
+                <!-- Debug: Course data NOT found for session - Code: {{ session.course_code }}, Name: {{ session.course_name }} -->
+                {% endif %}
+                <div class="row mb-4 g-2">
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>1. Course No:</strong></label>
+                        <input type="text" class="form-control" name="course_no" value="{{ session.course_code or '' }}" readonly>
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>2. Course Title:</strong></label>
+                        <input type="text" class="form-control" name="course_title" value="{{ session.course_name or '' }}" readonly>
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>3. Course Type:</strong></label>
+                        {% if course_data %}
+                            {% set core_opt = (course_data.core_optional|string if course_data.core_optional else 'Core')|trim %}
+                            {% set type_val = (course_data.course_type|string if course_data.course_type else 'Theory')|trim %}
+                            {% set course_type_value = core_opt + ' ' + type_val %}
+                        {% elif course_outline.course_type and course_outline.course_type|string|trim %}
+                            {% set course_type_value = course_outline.course_type %}
+                        {% else %}
+                            {% set course_type_value = 'Core Theory' %}
+                        {% endif %}
+                        <input type="text" class="form-control" name="course_type" id="course_type_input" value="{{ course_type_value }}" placeholder="Core Theory / Optional Sessional">
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>4. Level/Term and Section:</strong></label>
+                        {% if course_data %}
+                            {% set year_val = course_data.display_year if course_data.display_year else (course_data.derived_year if course_data.derived_year else course_data.year) %}
+                            {% set term_val = course_data.display_term if course_data.display_term else (course_data.derived_term if course_data.derived_term else course_data.term) %}
+                            {% if year_val and term_val %}
+                                {% set level_term_value = year_val + ' Year ' + term_val + ' Term' %}
+                            {% elif course_outline.level_term_section %}
+                                {% set level_term_value = course_outline.level_term_section %}
+                            {% elif session.year and session.term %}
+                                {% set year_str = session.year|string %}
+                                {% set term_str = session.term|string %}
+                                {% if year_str == '1' or year_str.lower() == 'first' %}First
+                                {% elif year_str == '2' or year_str.lower() == 'second' %}Second
+                                {% elif year_str == '3' or year_str.lower() == 'third' %}Third
+                                {% elif year_str == '4' or year_str.lower() == 'fourth' %}Fourth
+                                {% else %}{{ session.year }}{% endif %} Year 
+                                {% if term_str == '1' or term_str.lower() == 'first' %}First
+                                {% elif term_str == '2' or term_str.lower() == 'second' %}Second
+                                {% else %}{{ session.term }}{% endif %} Term
+                            {% else %}
+                                {% set level_term_value = (session.year or '') + ' Year ' + (session.term or '') + ' Term' %}
+                            {% endif %}
+                        {% elif course_outline.level_term_section %}
+                            {% set level_term_value = course_outline.level_term_section %}
+                        {% elif session.year and session.term %}
+                            {% set year_str = session.year|string %}
+                            {% set term_str = session.term|string %}
+                            {% if year_str == '1' or year_str.lower() == 'first' %}First
+                            {% elif year_str == '2' or year_str.lower() == 'second' %}Second
+                            {% elif year_str == '3' or year_str.lower() == 'third' %}Third
+                            {% elif year_str == '4' or year_str.lower() == 'fourth' %}Fourth
+                            {% else %}{{ session.year }}{% endif %} Year 
+                            {% if term_str == '1' or term_str.lower() == 'first' %}First
+                            {% elif term_str == '2' or term_str.lower() == 'second' %}Second
+                            {% else %}{{ session.term }}{% endif %} Term
+                        {% else %}
+                            {% set level_term_value = (session.year or '') + ' Year ' + (session.term or '') + ' Term' %}
+                        {% endif %}
+                        <input type="text" class="form-control" name="level_term_section" id="level_term_section_input" value="{{ level_term_value }}" placeholder="e.g., First Year First Term">
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>5. Academic Session:</strong></label>
+                        <input type="text" class="form-control" name="academic_session" value="{{ session.academic_session or '' }}" placeholder="e.g., 2024-2025">
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>6. Course Instructor:</strong></label>
+                        {% if course_teachers and course_teachers|length > 1 %}
+                            {% set instructor_names = [] %}
+                            {% for t in course_teachers %}
+                                {% set teacher_info = t.name %}
+                                {% if t.designation %}{% set teacher_info = teacher_info + ', ' + t.designation %}{% endif %}
+                                {% if t.department %}{% set teacher_info = teacher_info + ', ' + t.department %}{% endif %}
+                                {% set _ = instructor_names.append(teacher_info) %}
+                            {% endfor %}
+                            <input type="text" class="form-control" name="course_instructor" value="{{ instructor_names|join('; ') }}" readonly>
+                        {% else %}
+                            <input type="text" class="form-control" name="course_instructor" value="{{ current_user.full_name or '' }}, {{ current_user.designation or 'Assistant Professor' }}, {{ current_user.department or 'Law Discipline' }}" readonly>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>7. Pre-requisite (If any):</strong></label>
                         <input type="text" class="form-control" name="prerequisites" value="{{ course_outline.prerequisites or 'None' }}">
                     </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label"><strong>Contact Hours</strong></label>
-                        <input type="text" class="form-control" name="contact_hours" value="{{ course_outline.contact_hours or '' }}">
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>8. Credit Value:</strong></label>
+                        <input type="text" class="form-control" name="credit_value" value="{% if course_data and course_data.credit %}{{ course_data.credit }}{% elif course_outline.credit_value %}{{ course_outline.credit_value }}{% else %}4.0{% endif %}" placeholder="e.g., 4.0">
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>9. Contact Hours:</strong></label>
+                        <input type="text" class="form-control" name="contact_hours" value="{% if course_data and course_data.credit %}{{ (course_data.credit * 14)|int }}{% elif course_outline.contact_hours %}{{ course_outline.contact_hours }}{% else %}56{% endif %}" placeholder="e.g., 56">
+                    </div>
+                    <div class="col-12 col-md-6 mb-3">
+                        <label class="form-label"><strong>10. Total Marks:</strong></label>
+                        <div class="input-group flex-wrap">
+                            <span class="input-group-text flex-shrink-0">CIE Marks =</span>
+                            <input type="text" class="form-control flex-grow-1" name="cie_marks" id="cie_marks_input" value="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% elif course_outline.cie_marks %}{{ course_outline.cie_marks }}{% else %}40{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% else %}40{% endif %}">
+                            <span class="input-group-text flex-shrink-0">SMEE Marks =</span>
+                            <input type="text" class="form-control flex-grow-1" name="smee_marks" id="smee_marks_input" value="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% elif course_outline.smee_marks %}{{ course_outline.smee_marks }}{% else %}60{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% else %}60{% endif %}">
+                        </div>
                     </div>
                 </div>
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label"><strong>CIE Marks</strong></label>
-                        <input type="text" class="form-control" name="cie_marks" value="{{ course_outline.cie_marks or '40' }}">
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label"><strong>SMEE Marks</strong></label>
-                        <input type="text" class="form-control" name="smee_marks" value="{{ course_outline.smee_marks or '60' }}">
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Part B: Course Content Summary (Optional) -->
-        <div class="card shadow mb-3">
-            <div class="card-header bg-secondary text-white">
-                <h5 class="mb-0">PART B: COURSE CONTENT SUMMARY (Optional)</h5>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label"><strong>Course Content Summary</strong> (Section A and B breakdown with hours and CLOs)</label>
-                    <textarea class="form-control" name="course_content_summary" rows="6" placeholder="Section A:&#10;1. Topic 1 - 6 hours, CLOs 1, 2&#10;2. Topic 2 - 6 hours, CLOs 2, 3&#10;&#10;Section B:&#10;1. Topic 1 - 6.5 hours, CLO 2"></textarea>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label"><strong>CLO-PLO Mapping</strong> (Optional - JSON format or description)</label>
-                    <textarea class="form-control" name="clo_plo_mapping" rows="4" placeholder="CLO 1 maps to PLO 1, PLO 2, PLO 13, PLO 17"></textarea>
-                </div>
-            </div>
-        </div>
+                <hr class="my-4">
 
-        <!-- Lesson Plan -->
-        <div class="card shadow mb-3">
-            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Class Schedule / Lesson Plan / Weekly Plan</h5>
-                <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI()" title="AI-powered weekly plan generation">
-                    <i class="fas fa-robot me-1"></i>Generate with AI
+                <!-- Course Summary -->
+                <div class="mb-3">
+                    <label class="form-label"><strong>11. Course Summary</strong></label>
+                    {% if course_data and course_data.rationale and (not course_outline.course_summary or not course_outline.course_summary.strip()) %}
+                    <div class="alert alert-info alert-dismissible fade show mb-2" role="alert">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Rationale Available:</strong> Course Summary will be auto-filled from Curriculum Rationale.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    {% endif %}
+                    <textarea class="form-control" name="course_summary" id="course_summary" rows="4" placeholder="The course intends to provide students with...">{% if course_data and course_data.rationale and (not course_outline.course_summary or not course_outline.course_summary.strip()) %}{{ course_data.rationale }}{% elif course_outline.course_summary %}{{ course_outline.course_summary }}{% endif %}</textarea>
+                </div>
+
+                <hr class="my-4">
+
+                <!-- Course Learning Outcomes (CLO) -->
+                <div class="mb-3">
+                    <label class="form-label"><strong>12. Course Learning Outcomes (CLO)</strong></label>
+                    <p class="text-muted small">Upon successful completion of the course, the students will be able to:</p>
+                    {% if course_data and course_data.get_clos_list() %}
+                    <div class="alert alert-info alert-dismissible fade show" role="alert">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>CLO Import Available:</strong> CLOs from Course Information can be imported. 
+                        <button type="button" class="btn btn-sm btn-primary ms-2" onclick="importCLOsFromCourse()">
+                            <i class="fas fa-download me-1"></i>Import CLOs from Course
+                        </button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    {% endif %}
+                </div>
+                <div id="cloContainer" class="mb-3">
+                    <!-- CLO entries will be added here -->
+                </div>
+                <button type="button" class="btn btn-outline-primary btn-sm mb-3 w-100 w-md-auto" onclick="addCLORow()">
+                    <i class="fas fa-plus me-1"></i>Add CLO
                 </button>
+
+                <hr class="my-4">
+                </div>
             </div>
-            <div class="card-body">
+        </div>
+
+        <!-- Part B: Content of the Course -->
+        <div class="card shadow mb-3">
+            <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#partB" aria-expanded="false" aria-controls="partB">
+                <h5 class="mb-0">PART B: CONTENT OF THE COURSE</h5>
+                <i class="fas fa-chevron-up"></i>
+            </div>
+            <div class="collapse" id="partB">
+                <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label"><strong>13. Summary of the Course Content</strong></label>
+                    <p class="text-muted small">Enter course contents with hours and CLOs for Section A and Section B. <strong>Select topics</strong> that will be taught in this course. Only selected topics will appear in PDF and be used for generating the class schedule.</p>
+                    
+                    {% if course_data and (course_data.content_section_a or course_data.content_section_b) %}
+                    <div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Content Import Available:</strong> Course Contents from Curriculum can be imported. 
+                        <button type="button" class="btn btn-sm btn-primary ms-2" onclick="importCourseContentsFromCurriculum()">
+                            <i class="fas fa-download me-1"></i>Import from Curriculum
+                        </button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Section A -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold mb-2">
+                            <i class="fas fa-list me-1"></i>Section A
+                            {% if session.split_group_id and session.course_scope == 'part_b' %}
+                                <span class="badge bg-warning text-dark ms-2">Read-only (Part B Teacher)</span>
+                            {% endif %}
+                        </label>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm table-hover" id="courseContentTableA">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 5%;">#</th>
+                                        <th style="width: 5%;">Select</th>
+                                        <th style="width: 50%;">Content</th>
+                                        <th style="width: 10%;">Hrs</th>
+                                        <th style="width: 20%;">CLO</th>
+                                        <th style="width: 5%;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="courseContentTableBodyA">
+                                    <!-- Rows will be added dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="addCourseContentRow('A')">
+                            <i class="fas fa-plus me-1"></i>Add Row
+                        </button>
+                    </div>
+                    
+                    <!-- Section B -->
+                    <div class="mb-0">
+                        <label class="form-label fw-bold mb-2">
+                            <i class="fas fa-list me-1"></i>Section B
+                            {% if session.split_group_id and session.course_scope == 'part_a' %}
+                                <span class="badge bg-warning text-dark ms-2">Read-only (Part A Teacher)</span>
+                            {% endif %}
+                        </label>
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm table-hover" id="courseContentTableB">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 5%;">#</th>
+                                        <th style="width: 5%;">Select</th>
+                                        <th style="width: 50%;">Content</th>
+                                        <th style="width: 10%;">Hrs</th>
+                                        <th style="width: 20%;">CLO</th>
+                                        <th style="width: 5%;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="courseContentTableBodyB">
+                                    <!-- Rows will be added dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2 w-100 w-md-auto" onclick="addCourseContentRow('B')">
+                            <i class="fas fa-plus me-1"></i>Add Row
+                        </button>
+                    </div>
+                    
+                    <input type="hidden" id="course_content_summary_json" name="course_content_summary" value="">
+                </div>
+
+                <!-- 14. Class Schedule / Lesson Plan / Weekly Plan -->
+                <div class="card shadow mb-3">
+                    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">14. Class Schedule / Lesson Plan / Weekly Plan</h5>
+                        <div>
+                    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
+                        <!-- Split Course: Show both buttons, but disable the one for the other part -->
+                        {% if session.course_scope == 'part_a' %}
+                            <button type="button" class="btn btn-light btn-sm me-2" onclick="generateWeeklyPlanWithAI('A')" title="Generate weekly plan for Part A">
+                                <i class="fas fa-magic me-1"></i>Generate Plan (Part A)
+                            </button>
+                            <button type="button" class="btn btn-light btn-sm disabled" disabled title="Part B - Not available for your part">
+                                <i class="fas fa-magic me-1"></i>Generate Plan (Part B)
+                            </button>
+                        {% elif session.course_scope == 'part_b' %}
+                            <button type="button" class="btn btn-light btn-sm me-2 disabled" disabled title="Part A - Not available for your part">
+                                <i class="fas fa-magic me-1"></i>Generate Plan (Part A)
+                            </button>
+                            <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI('B')" title="Generate weekly plan for Part B">
+                                <i class="fas fa-magic me-1"></i>Generate Plan (Part B)
+                            </button>
+                        {% endif %}
+                    {% else %}
+                        <!-- Full Course: Single button -->
+                        <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI()" title="Generate weekly plan automatically">
+                            <i class="fas fa-magic me-1"></i>Generate Plan
+                        </button>
+                    {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-body">
                 <div class="alert alert-info mb-3">
                     <i class="fas fa-lightbulb me-2"></i>
-                    <strong>AI Assistant:</strong> Click "Generate with AI" to automatically organize your weekly plan based on course content, learning outcomes, and best practices.
+                    <strong>Auto Generation:</strong> Click "Generate Plan" to automatically create your weekly plan based on course content, credit value, and academic calendar.
                 </div>
                 <div id="lessonPlanContainer">
                     <!-- Lesson plan entries will be added here via JavaScript -->
                 </div>
-                <button type="button" class="btn btn-outline-success btn-sm" onclick="addLessonPlanRow()">
+                <button type="button" class="btn btn-outline-success btn-sm" id="addWeekButton" onclick="addLessonPlanRow()">
                     <i class="fas fa-plus me-1"></i>Add Week
                 </button>
+                        <small class="text-muted d-block mt-2">
+                            <i class="fas fa-info-circle me-1"></i>সর্বোচ্চ ১৪ সপ্তাহের ক্লাস প্ল্যান করা যাবে (Maximum 14 weeks allowed)
+                        </small>
+                    </div>
+                </div>
+
+                <!-- 15. Assessment Techniques of each topic of the course -->
+                <div class="card shadow mb-3">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">15. Assessment Techniques of each topic of the course:</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="assessmentTechniquesContainer">
+                            <!-- Assessment techniques will be added here -->
+                        </div>
+                        <button type="button" class="btn btn-outline-warning btn-sm mb-3" onclick="addAssessmentTechnique()">
+                            <i class="fas fa-plus me-1"></i>Add Assessment Technique
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 16. CIE - Continuous Internal Evaluation (Mark) -->
+                <div class="card shadow mb-3">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">16. CIE- Continuous Internal Evaluation (Mark):</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm" id="cieTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Blooms Category Marks</th>
+                                        <th>Test</th>
+                                        <th>Group Debate</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cieTableBody">
+                                    <!-- Rows will be added dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="addCIERow()">
+                            <i class="fas fa-plus me-1"></i>Add Row
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 17. SMEE - Semester End Examination (Marks) -->
+                <div class="card shadow mb-3">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0">17. SMEE- Semester End Examination (Marks):</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-bordered table-sm" id="smeeTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Bloom's Category</th>
+                                        <th>Test Marks</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="smeeTableBody">
+                                    <!-- Rows will be added dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="addSMEERow()">
+                            <i class="fas fa-plus me-1"></i>Add Row
+                        </button>
+                    </div>
+                </div>
+                </div>
             </div>
         </div>
 
-        <!-- Part C: Assessment and Evaluation -->
+        <!-- Part C: Assessment -->
         <div class="card shadow mb-3">
-            <div class="card-header bg-warning text-dark">
+            <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#partC" aria-expanded="false" aria-controls="partC">
                 <h5 class="mb-0">PART C: ASSESSMENT AND EVALUATION</h5>
+                <i class="fas fa-chevron-up"></i>
             </div>
-            <div class="card-body">
+            <div class="collapse" id="partC">
+                <div class="card-body">
                 <div class="mb-3">
-                    <label class="form-label"><strong>Assessment Strategy Description</strong></label>
-                    <textarea class="form-control" name="assessment_strategy_desc" rows="2" placeholder="e.g., Bloom's Taxonomy and Rubric based, Quiz, Mid Term, Assignment, Project, Report, Class Test, Presentation, Semester Final"></textarea>
+                    <label class="form-label"><strong>17. Assessment Strategy</strong> (Bloom's Taxonomy and Rubric based, Quiz, Mid Term, Assignment, Project, Report, Class Test, Presentation, Semester Final)</label>
                 </div>
                 
+                <!-- Marks Distribution for Theory Courses -->
                 <h6 class="mt-4 mb-3">Marks Distribution for Theory Courses</h6>
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <label class="form-label">Attendance (%)</label>
-                        <input type="text" class="form-control" name="attendance_percent" value="10" placeholder="10">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Continuous Assessment (%)</label>
-                        <input type="text" class="form-control" name="ca_percent" value="30" placeholder="30">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Final Exam (%)</label>
-                        <input type="text" class="form-control" name="final_exam_percent" value="60" placeholder="60">
-                    </div>
+                <div class="table-responsive mb-4">
+                    <table class="table table-bordered table-sm" id="marksDistributionTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Component</th>
+                                <th style="width: 15%;">%</th>
+                                <th>Comments</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Attendance</td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="attendance_percent" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('attendance_percent') %}{{ outline_data.assessment_strategy.attendance_percent }}{% else %}10{% endif %}" placeholder="10">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="attendance_comment" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('attendance_comment') %}{{ outline_data.assessment_strategy.attendance_comment }}{% else %}Minimum mark is 4 for 60% attendance{% endif %}" placeholder="Minimum mark is 4 for 60% attendance">
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Continuous Assessment</td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="ca_percent" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_percent') %}{{ outline_data.assessment_strategy.ca_percent }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}40{% else %}30{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}40{% else %}30{% endif %}">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="ca_comment" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_comment') %}{{ outline_data.assessment_strategy.ca_comment }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best 3 of 4 Assessments{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best 3 of 4 Assessments{% endif %}">
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Final Exam</td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="final_exam_percent" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('final_exam_percent') %}{{ outline_data.assessment_strategy.final_exam_percent }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% else %}60{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% else %}60{% endif %}">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="final_exam_comment" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('final_exam_comment') %}{{ outline_data.assessment_strategy.final_exam_comment }}{% else %}Section A and B combined{% endif %}" placeholder="Section A and B combined">
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
                 
-                <h6 class="mt-4 mb-3">Assessment Techniques</h6>
-                <div id="assessmentTechniquesContainer">
-                    <!-- Assessment techniques will be added here -->
+                <!-- Attendance Marks Distribution -->
+                <h6 class="mt-4 mb-3">Attendance Marks Distribution</h6>
+                <div class="table-responsive mb-4">
+                    <table class="table table-bordered table-sm" id="attendanceMarksTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Attendance</th>
+                                <th style="width: 20%;">Marks</th>
+                                <th style="width: 10%;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceMarksTableBody">
+                            <!-- Rows will be added dynamically -->
+                        </tbody>
+                    </table>
                 </div>
-                <button type="button" class="btn btn-outline-warning btn-sm mb-3" onclick="addAssessmentTechnique()">
-                    <i class="fas fa-plus me-1"></i>Add Assessment Technique
+                <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addAttendanceMarksRow()">
+                    <i class="fas fa-plus me-1"></i>Add Row
                 </button>
                 
-                <h6 class="mt-4 mb-3">Rubrics</h6>
+                <!-- Continuous Assessment (30% or 40%) -->
+                <h6 class="mt-4 mb-3">Continuous Assessment ({% if course_data and course_data.category and course_data.category.lower() == 'pg' %}40%{% else %}30%{% endif %})</h6>
+                <div class="table-responsive mb-4">
+                    <table class="table table-bordered table-sm" id="caTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Total no. of CA</th>
+                                <th>CAs to be considered for grading</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Section A</label>
+                                            <input type="number" class="form-control form-control-sm" name="ca_section_a_total" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_section_a_total') %}{{ outline_data.assessment_strategy.ca_section_a_total }}{% else %}2{% endif %}" placeholder="2" min="0">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Section B</label>
+                                            <input type="number" class="form-control form-control-sm" name="ca_section_b_total" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_section_b_total') %}{{ outline_data.assessment_strategy.ca_section_b_total }}{% else %}2{% endif %}" placeholder="2" min="0">
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="ca_considered" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_considered') %}{{ outline_data.assessment_strategy.ca_considered }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best Three Assessments{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best Three Assessments{% endif %}">
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <h6 class="mt-4 mb-3"><strong>18. Assessment Rubrics for Class Tests and Group Debate</strong></h6>
                 <div id="rubricsContainer">
                     <!-- Rubrics will be added here -->
                 </div>
@@ -149,95 +692,394 @@
                     <i class="fas fa-plus me-1"></i>Add Rubric
                 </button>
                 
-                <h6 class="mt-4 mb-3">Grading Policy</h6>
-                <div id="gradingPolicyContainer">
-                    <!-- Grading policy will be added here -->
+                <h6 class="mt-4 mb-3"><strong>19. Evaluation Policy (Grading System):</strong></h6>
+                <div class="mb-3">
+                    <p><strong>Evaluation:</strong> Grades will be calculated as per the university grading structure</p>
                 </div>
-                <button type="button" class="btn btn-outline-warning btn-sm" onclick="addGradingPolicy()">
-                    <i class="fas fa-plus me-1"></i>Add Grade Range
+                <div class="table-responsive mb-3">
+                    <table class="table table-bordered table-sm" id="gradingPolicyTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Marks (%)</th>
+                                <th class="text-center">Grading Scale</th>
+                                <th>Marks (%)</th>
+                                <th class="text-center">Grading Scale</th>
+                            </tr>
+                        </thead>
+                        <tbody id="gradingPolicyTableBody">
+                            <!-- Rows will be added dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+                <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addGradingPolicyRow()">
+                    <i class="fas fa-plus me-1"></i>Add Row
                 </button>
+                
+                <h6 class="mt-4 mb-3"><strong>20. Other Issues</strong></h6>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Class Discussion/Participation</strong></label>
+                    <textarea class="form-control" name="class_discussion" rows="3" placeholder="Participation in class discussions is strongly encouraged...">{% if outline_data.other_issues and outline_data.other_issues.get('class_discussion') %}{{ outline_data.other_issues.class_discussion }}{% endif %}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>General Expectations</strong></label>
+                    <textarea class="form-control" name="general_expectations" rows="3" placeholder="Students are expected to attend class regularly...">{% if outline_data.other_issues and outline_data.other_issues.get('general_expectations') %}{{ outline_data.other_issues.general_expectations }}{% endif %}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Communication with Course Teachers</strong></label>
+                    <textarea class="form-control" name="communication" rows="3" placeholder="Readings and materials will be made available...">{% if outline_data.other_issues and outline_data.other_issues.get('communication') %}{{ outline_data.other_issues.communication }}{% endif %}</textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label"><strong>Academic Honesty</strong></label>
+                    <textarea class="form-control" name="academic_honesty" rows="3" placeholder="Honesty, trust, and personal responsibility...">{% if outline_data.other_issues and outline_data.other_issues.get('academic_honesty') %}{{ outline_data.other_issues.academic_honesty }}{% endif %}</textarea>
+                </div>
+                </div>
             </div>
         </div>
 
         <!-- Part D: Learning Resources -->
         <div class="card shadow mb-3">
-            <div class="card-header bg-info text-white">
+            <div class="card-header bg-info text-white d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#partD" aria-expanded="false" aria-controls="partD">
                 <h5 class="mb-0">PART D: LEARNING RESOURCES</h5>
+                <i class="fas fa-chevron-up"></i>
             </div>
-            <div class="card-body">
+            <div class="collapse" id="partD">
+                <div class="card-body">
                 <div class="mb-3">
-                    <label class="form-label"><strong>Textbooks</strong> (one per line: Author, Title, Publisher, Year)</label>
+                    <label class="form-label"><strong>23. Textbooks</strong> (one per line: Author, Title, Publisher, Year)</label>
                     <textarea class="form-control" name="textbooks" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.textbooks|join('&#10;') if outline_data.textbooks else '' }}</textarea>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label"><strong>Reference Books</strong> (one per line)</label>
-                    <textarea class="form-control" name="reference_books" rows="5">{{ outline_data.reference_books|join('&#10;') if outline_data.reference_books else '' }}</textarea>
+                    <label class="form-label"><strong>24. Reference Books</strong> (one per line)</label>
+                    <textarea class="form-control" name="reference_books" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.reference_books|join('&#10;') if outline_data.reference_books else '' }}</textarea>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label"><strong>Other Resources</strong> (Online Resources or others - one per line)</label>
+                    <label class="form-label"><strong>25. Other Resources</strong> (Online Resources or others - one per line)</label>
                     <textarea class="form-control" name="other_resources" rows="3" placeholder="Articles, online resources, etc.">{{ outline_data.other_resources|join('&#10;') if outline_data.other_resources else '' }}</textarea>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label"><strong>Course File Components</strong> (one per line)</label>
-                    <textarea class="form-control" name="course_file_components" rows="5" placeholder="Course Outline/Course Plan&#10;Lesson Plan&#10;Question Papers&#10;Answer Script (Best, Average, Poor)&#10;Rubrics&#10;Attendance&#10;Course evaluation by course teacher&#10;Student course evaluation form&#10;Peer review: Classroom Teaching Observation Report&#10;Evaluation of attainment of CLOs&#10;Improvement plan for better attainment of CLOs"></textarea>
+                    <label class="form-label"><strong>26. Course File</strong> (one per line)</label>
+                    <textarea class="form-control" name="course_file_components" rows="5" placeholder="Course Outline/Course Plan&#10;Lesson Plan&#10;Question Papers&#10;Answer Script (Best, Average, Poor)&#10;Rubrics&#10;Attendance&#10;Course evaluation by course teacher&#10;Student course evaluation form&#10;Peer review: Classroom Teaching Observation Report&#10;Evaluation of attainment of CLOs&#10;Improvement plan for better attainment of CLOs">{{ outline_data.course_file_components|join('&#10;') if outline_data.course_file_components else '' }}</textarea>
+                </div>
                 </div>
             </div>
         </div>
 
-        <!-- Other Issues -->
-        <div class="card shadow mb-3">
-            <div class="card-header bg-dark text-white">
-                <h5 class="mb-0">Other Issues</h5>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <label class="form-label"><strong>Make-up Procedures</strong></label>
-                    <textarea class="form-control" name="make_up_procedures" rows="2" placeholder="Please see the policy for make-up class in the undergraduate ordinance.">{{ course_outline.make_up_procedures or '' }}</textarea>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label"><strong>Class Discussion/Participation</strong></label>
-                    <textarea class="form-control" name="class_discussion" rows="3" placeholder="Participation in class discussions is strongly encouraged..."></textarea>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label"><strong>General Expectations</strong></label>
-                    <textarea class="form-control" name="general_expectations" rows="3" placeholder="Students are expected to attend class regularly..."></textarea>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label"><strong>Communication with Course Teachers</strong></label>
-                    <textarea class="form-control" name="communication" rows="2" placeholder="Readings and materials will be made available..."></textarea>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label"><strong>Academic Honesty</strong></label>
-                    <textarea class="form-control" name="academic_honesty" rows="3" placeholder="Honesty, trust, and personal responsibility..."></textarea>
-                </div>
-            </div>
-        </div>
 
-        <div class="d-flex justify-content-end gap-2 mb-4">
-            <button type="button" class="btn btn-secondary" onclick="window.location.href='{{ url_for('class_management.course_file', session_id=session.id) }}'">Cancel</button>
-            <button type="submit" class="btn btn-primary">
-                <i class="fas fa-save me-1"></i>Save Course Outline
-            </button>
+        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2 mb-4">
+            <div class="text-muted small">
+                <i class="fas fa-info-circle me-1"></i>
+                <span id="lastSaveInfo">Changes are saved automatically as you type</span>
+            </div>
+            <div class="d-flex flex-column flex-sm-row gap-2">
+                <button type="button" class="btn btn-secondary w-100 w-sm-auto" onclick="window.location.href='{{ url_for('class_management.course_file', session_id=session.id) }}'">
+                    <i class="fas fa-times me-1"></i>Cancel
+                </button>
+                <button type="button" class="btn btn-primary w-100 w-sm-auto" onclick="saveCourseOutline(false)">
+                    <i class="fas fa-save me-1"></i>Save Course Outline
+                </button>
+            </div>
         </div>
     </form>
 </div>
 
 <script>
+let cloData = [];
+let ploMapping = {};
+
+// Store course CLOs for import
+{% if course_data and course_data.get_clos_list() %}
+const courseCLOs = {{ course_data.get_clos_list()|tojson }};
+{% else %}
+const courseCLOs = [];
+{% endif %}
+
+// Store course contents from curriculum for import
+{% if course_contents_a %}
+const curriculumContentsA = {{ course_contents_a|tojson }};
+{% else %}
+const curriculumContentsA = [];
+{% endif %}
+{% if course_contents_b %}
+const curriculumContentsB = {{ course_contents_b|tojson }};
+{% else %}
+const curriculumContentsB = [];
+{% endif %}
+
+function importCLOsFromCourse() {
+    if (!courseCLOs || courseCLOs.length === 0) {
+        alert('No CLOs available in Course Information to import.');
+        return;
+    }
+    
+    if (confirm(`Import ${courseCLOs.length} CLO(s) from Course Information? This will add them to the existing CLOs.`)) {
+        courseCLOs.forEach((courseClo) => {
+            const cloNumber = cloData.length + 1;
+            // Parse PLO from curriculum (can be string or array)
+            let plosArray = [];
+            if (courseClo.plo !== undefined && courseClo.plo !== null && courseClo.plo !== '') {
+                if (typeof courseClo.plo === 'string' && courseClo.plo.trim()) {
+                    plosArray = courseClo.plo.split(',').map(p => p.trim()).filter(p => p);
+                } else if (Array.isArray(courseClo.plo) && courseClo.plo.length > 0) {
+                    plosArray = courseClo.plo.map(p => String(p).trim()).filter(p => p);
+                }
+            }
+            const plosValue = plosArray.length > 0 ? plosArray.join(', ') : '';
+            
+            const cloEntry = {
+                id: `clo_${cloNumber}`,
+                number: cloNumber,
+                description: courseClo.text || courseClo.description || '',
+                plos: plosArray
+            };
+            cloData.push(cloEntry);
+            
+            const container = document.getElementById('cloContainer');
+            const row = document.createElement('div');
+            row.className = 'border rounded p-3 mb-3';
+            row.id = cloEntry.id;
+            const escapedDescription = (cloEntry.description || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const escapedPlosValue = plosValue.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            row.innerHTML = `
+                <div class="row g-2">
+                    <div class="col-12 col-md-1 mb-2 mb-md-0">
+                        <label class="form-label small"><strong>CLO ${cloNumber}</strong></label>
+                    </div>
+                    <div class="col-12 col-md-9 mb-2 mb-md-0">
+                        <label class="form-label small">Description</label>
+                        <input type="text" class="form-control form-control-sm" name="clo_description[]" value="${escapedDescription}" placeholder="e.g., identify major discrepancies amongst different schools of jurisprudence" onchange="updateCLOData(${cloNumber - 1}, this.value)">
+                    </div>
+                    <div class="col-12 col-md-2 mb-2 mb-md-0">
+                        <label class="form-label small">Actions</label>
+                        <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="removeCLORow(${cloNumber - 1})">
+                            <i class="fas fa-trash"></i> Remove
+                        </button>
+                    </div>
+                </div>
+                <div class="row g-2 mt-2">
+                    <div class="col-12">
+                        <label class="form-label small">Mapping with PLOs (comma-separated, e.g., PLO 1, PLO 2, PLO 13, PLO 17)</label>
+                        <input type="text" class="form-control form-control-sm" name="clo_plos[]" value="${escapedPlosValue}" placeholder="PLO 1, PLO 2" onchange="updateCLOPLOs(${cloNumber - 1}, this.value)">
+                    </div>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+        alert(`Successfully imported ${courseCLOs.length} CLO(s) from Course Information!`);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    // Auto-fill Course Type from course_data if available
+    {% if course_data %}
+    const courseTypeField = document.getElementById('course_type_input');
+    if (courseTypeField) {
+        {% set core_opt_val = course_data.core_optional if course_data.core_optional else 'Core' %}
+        {% set type_val_val = course_data.course_type if course_data.course_type else 'Theory' %}
+        const coreOpt = {{ core_opt_val|tojson }};
+        const typeVal = {{ type_val_val|tojson }};
+        const expectedCourseType = coreOpt + ' ' + typeVal;
+        // Update if current value doesn't match expected format
+        if (courseTypeField.value !== expectedCourseType) {
+            courseTypeField.value = expectedCourseType;
+        }
+    }
+    
+    // Auto-fill CIE/SMEE Marks based on course category
+    {% set is_pg = course_data.category and course_data.category.lower() == 'pg' %}
+    {% if is_pg %}
+    const cieMarksField = document.getElementById('cie_marks_input');
+    const smeeMarksField = document.getElementById('smee_marks_input');
+    if (cieMarksField && cieMarksField.value !== '50') {
+        cieMarksField.value = '50';
+    }
+    if (smeeMarksField && smeeMarksField.value !== '50') {
+        smeeMarksField.value = '50';
+    }
+    {% endif %}
+    
+    // Auto-fill Level/Term and Section from course_data
+    const levelTermField = document.getElementById('level_term_section_input');
+    if (levelTermField) {
+        {% set year_val = course_data.display_year if course_data.display_year else (course_data.derived_year if course_data.derived_year else course_data.year) %}
+        {% set term_val = course_data.display_term if course_data.display_term else (course_data.derived_term if course_data.derived_term else course_data.term) %}
+        {% if year_val and term_val %}
+        const expectedLevelTerm = {{ (year_val + ' Year ' + term_val + ' Term')|tojson }};
+        if (levelTermField.value !== expectedLevelTerm) {
+            levelTermField.value = expectedLevelTerm;
+        }
+        {% endif %}
+    }
+    {% endif %}
+    
+    // Auto-fill Course Summary from Curriculum Rationale if empty or placeholder text
+    const courseSummaryField = document.getElementById('course_summary');
+    {% if course_data and course_data.rationale %}
+    const curriculumRationale = {{ course_data.rationale|tojson }};
+    if (courseSummaryField && curriculumRationale && curriculumRationale.trim()) {
+        const currentValue = courseSummaryField.value || '';
+        // Check if field is empty or contains placeholder/test text
+        const placeholderTexts = ['asdasdsadsad', 'test', 'placeholder', 'none', 'n/a'];
+        const isPlaceholder = placeholderTexts.some(text => currentValue.toLowerCase().includes(text.toLowerCase()));
+        if (!currentValue.trim() || isPlaceholder || currentValue.trim().length < 10) {
+            courseSummaryField.value = curriculumRationale;
+        }
+    }
+    {% endif %}
+    
+    // Initialize CLO data - use saved data or auto-import from course
+    let existingClos = [];
+    {% if outline_data.clo_data and outline_data.clo_data|length > 0 %}
+    existingClos = {{ outline_data.clo_data|tojson }};
+    {% elif course_data and course_data.get_clos_list() %}
+    // Auto-import CLOs from curriculum
+    const courseClosList = {{ course_data.get_clos_list()|tojson }};
+    if (courseClosList && Array.isArray(courseClosList) && courseClosList.length > 0) {
+        existingClos = courseClosList.map((clo, idx) => {
+            // Parse PLO from curriculum
+            let plosArray = [];
+            if (clo.plo !== undefined && clo.plo !== null && clo.plo !== '') {
+                if (typeof clo.plo === 'string' && clo.plo.trim()) {
+                    plosArray = clo.plo.split(',').map(p => p.trim()).filter(p => p);
+                } else if (Array.isArray(clo.plo) && clo.plo.length > 0) {
+                    plosArray = clo.plo.map(p => String(p).trim()).filter(p => p);
+                }
+            }
+            return {
+                number: idx + 1,
+                description: clo.text || clo.description || '',
+                plos: plosArray
+            };
+        });
+    }
+    {% endif %}
+    
+    // Render CLOs
+    if (existingClos && existingClos.length > 0) {
+        cloData = existingClos.map((clo, idx) => ({
+            id: `clo_${idx + 1}`,
+            number: idx + 1,
+            description: clo.description || '',
+            plos: clo.plos || []
+        }));
+        cloData.forEach(clo => {
+            const container = document.getElementById('cloContainer');
+            const row = document.createElement('div');
+            row.className = 'border rounded p-3 mb-3';
+            row.id = clo.id;
+            const escapedDescription = (clo.description || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const plosValue = (clo.plos && Array.isArray(clo.plos) ? clo.plos.join(', ') : (clo.plos || '')).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            row.innerHTML = `
+                <div class="row g-2">
+                    <div class="col-12 col-md-1 mb-2 mb-md-0">
+                        <label class="form-label small"><strong>CLO ${clo.number}</strong></label>
+                    </div>
+                    <div class="col-12 col-md-9 mb-2 mb-md-0">
+                        <label class="form-label small">Description</label>
+                        <input type="text" class="form-control form-control-sm" name="clo_description[]" value="${escapedDescription}" placeholder="e.g., identify major discrepancies amongst different schools of jurisprudence" onchange="updateCLOData(${clo.number - 1}, this.value)">
+                    </div>
+                    <div class="col-12 col-md-2 mb-2 mb-md-0">
+                        <label class="form-label small">Actions</label>
+                        <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="removeCLORow(${clo.number - 1})">
+                            <i class="fas fa-trash"></i> Remove
+                        </button>
+                    </div>
+                </div>
+                <div class="row g-2 mt-2">
+                    <div class="col-12">
+                        <label class="form-label small">Mapping with PLOs (comma-separated, e.g., PLO 1, PLO 2, PLO 13, PLO 17)</label>
+                        <input type="text" class="form-control form-control-sm" name="clo_plos[]" value="${plosValue}" placeholder="PLO 1, PLO 2" onchange="updateCLOPLOs(${clo.number - 1}, this.value)">
+                    </div>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+    } else {
+        addCLORow();
+    }
+    
+    // Initialize PLO mapping
+    {% if outline_data.plo_mapping %}
+    const existingPloMapping = {{ outline_data.plo_mapping|tojson }};
+    {% else %}
+    const existingPloMapping = {};
+    {% endif %}
+    if (existingPloMapping && Object.keys(existingPloMapping).length > 0) {
+        ploMapping = existingPloMapping;
+    }
+    
+    // Initialize Course Contents
+    initializeCourseContentsSummary();
+    
     // Initialize lesson plan from existing data
     const lessonPlan = {{ outline_data.lesson_plan|tojson }};
     if (lessonPlan && lessonPlan.length > 0) {
-        lessonPlan.forEach(lesson => addLessonPlanRow(lesson));
+        // Limit to maximum 14 weeks
+        const limitedPlan = lessonPlan.slice(0, 14);
+        limitedPlan.forEach(lesson => addLessonPlanRow(lesson));
     } else {
         addLessonPlanRow(); // Add one empty row
     }
     
-    // Initialize assessment techniques
-    const assessmentTechniques = {{ outline_data.assessment_techniques|tojson }};
-    if (assessmentTechniques && assessmentTechniques.length > 0) {
-        assessmentTechniques.forEach(tech => addAssessmentTechnique(tech));
+    // Update add week button state after initialization
+    updateAddWeekButton();
+    
+    // Initialize assessment techniques (only if CLOs are defined)
+    if (cloData && cloData.length > 0) {
+        const assessmentTechniques = {{ outline_data.assessment_techniques|tojson }};
+        if (assessmentTechniques && assessmentTechniques.length > 0) {
+            assessmentTechniques.forEach(tech => addAssessmentTechnique(tech));
+        } else {
+            addAssessmentTechnique(); // Add one empty row
+        }
     } else {
-        addAssessmentTechnique(); // Add one empty row
+        // Show message if no CLOs defined
+        const container = document.getElementById('assessmentTechniquesContainer');
+        if (container) {
+            container.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Please define CLOs first in section "10. Course Learning Outcomes (CLOs)" before adding assessment techniques.</div>';
+        }
+    }
+    
+    // Initialize CIE breakdown
+    const cieBreakdown = {{ outline_data.cie_breakdown|tojson if outline_data.cie_breakdown else '[]' }};
+    if (cieBreakdown && cieBreakdown.length > 0) {
+        cieBreakdown.forEach(cie => addCIERow(cie));
+    } else {
+        // Add default Bloom's taxonomy categories
+        const defaultCategories = ['Remember', 'Understand', 'Apply', 'Analyse', 'Evaluate', 'Create'];
+        defaultCategories.forEach(category => {
+            addCIERow({ category: category, test: '', group_debate: '' });
+        });
+    }
+    
+    // Initialize SMEE breakdown
+    const smeeBreakdown = {{ outline_data.smee_breakdown|tojson if outline_data.smee_breakdown else '[]' }};
+    if (smeeBreakdown && smeeBreakdown.length > 0) {
+        smeeBreakdown.forEach(smee => addSMEERow(smee));
+    } else {
+        // Add default Bloom's taxonomy categories
+        const defaultCategories = ['Remember', 'Understand', 'Apply', 'Analyse', 'Evaluate', 'Create'];
+        defaultCategories.forEach(category => {
+            addSMEERow({ category: category, test_marks: '' });
+        });
+    }
+    
+    // Initialize Attendance Marks Distribution
+    const attendanceMarks = {{ outline_data.assessment_strategy.attendance_marks|tojson if outline_data.assessment_strategy and outline_data.assessment_strategy.get('attendance_marks') else '[]' }};
+    if (attendanceMarks && attendanceMarks.length > 0) {
+        attendanceMarks.forEach(am => addAttendanceMarksRow(am));
+    } else {
+        // Add default attendance marks distribution
+        const defaultAttendanceMarks = [
+            { range: 'Above 90%', marks: '10' },
+            { range: '85% to less than 90%', marks: '9' },
+            { range: '80% to less than 85%', marks: '8' },
+            { range: '75% to less than 80%', marks: '7' },
+            { range: '70% to less than 75%', marks: '6' },
+            { range: '65% to less than 70%', marks: '5' },
+            { range: '60% to less than 65%', marks: '4' },
+            { range: 'less than 60%', marks: '0' }
+        ];
+        defaultAttendanceMarks.forEach(am => addAttendanceMarksRow(am));
     }
     
     // Initialize rubrics
@@ -251,15 +1093,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize grading policy
     const gradingPolicy = {{ outline_data.grading_policy|tojson }};
     if (gradingPolicy && gradingPolicy.length > 0) {
-        gradingPolicy.forEach(grade => addGradingPolicy(grade));
+        // Add grading policy in pairs (2 columns)
+        for (let i = 0; i < gradingPolicy.length; i += 2) {
+            addGradingPolicyRow({
+                range: gradingPolicy[i].range || gradingPolicy[i].marks_range || '',
+                grade: gradingPolicy[i].grade || '',
+                range2: gradingPolicy[i + 1] ? (gradingPolicy[i + 1].range || gradingPolicy[i + 1].marks_range || '') : '',
+                grade2: gradingPolicy[i + 1] ? (gradingPolicy[i + 1].grade || '') : ''
+            });
+        }
     } else {
-        // Add default grading policy
-        addGradingPolicy({range: '80 and over', grade: 'A+'});
-        addGradingPolicy({range: '75-79', grade: 'A'});
-        addGradingPolicy({range: '70-74', grade: 'A-'});
-        addGradingPolicy({range: '65-69', grade: 'B+'});
-        addGradingPolicy({range: '60-64', grade: 'B'});
-        addGradingPolicy({range: '55-59', grade: 'B-'});
+        // Add default grading policy in pairs
+        addGradingPolicyRow({range: '80 and over', grade: 'A+', range2: '55-59', grade2: 'B-'});
+        addGradingPolicyRow({range: '75-79', grade: 'A', range2: '50-54', grade2: 'C+'});
+        addGradingPolicyRow({range: '70-74', grade: 'A-', range2: '45-49', grade2: 'C'});
+        addGradingPolicyRow({range: '65-69', grade: 'B+', range2: '40-44', grade2: 'D'});
+        addGradingPolicyRow({range: '60-64', grade: 'B', range2: '0-39', grade2: 'F'});
         addGradingPolicy({range: '50-54', grade: 'C+'});
         addGradingPolicy({range: '45-49', grade: 'C'});
         addGradingPolicy({range: '40-44', grade: 'D'});
@@ -275,6 +1124,38 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function addLessonPlanRow(data = {}) {
     const container = document.getElementById('lessonPlanContainer');
+    
+    // Check if already 14 unique weeks (not total entries)
+    const existingRows = container.querySelectorAll('.border.rounded.p-3.mb-3');
+    const uniqueWeeks = new Set();
+    existingRows.forEach(row => {
+        const weekInput = row.querySelector('input[name^="lesson_plan_week"], input[name^="lesson_week"]');
+        if (weekInput) {
+            const weekValue = weekInput.value || '';
+            const weekMatch = weekValue.match(/\d+/);
+            if (weekMatch) {
+                uniqueWeeks.add(parseInt(weekMatch[0]));
+            }
+        }
+    });
+    
+    // Check if the new row's week would exceed 14
+    if (data.week) {
+        const weekMatch = data.week.match(/\d+/);
+        if (weekMatch) {
+            const weekNum = parseInt(weekMatch[0]);
+            if (weekNum > 14) {
+                alert('সর্বোচ্চ ১৪ সপ্তাহের ক্লাস প্ল্যান করা যাবে। আরও সপ্তাহ যোগ করতে পারবেন না।\n\nMaximum 14 weeks of class plan allowed. Cannot add more weeks.');
+                return;
+            }
+        }
+    }
+    
+    if (uniqueWeeks.size >= 14) {
+        alert('সর্বোচ্চ ১৪ সপ্তাহের ক্লাস প্ল্যান করা যাবে। আরও সপ্তাহ যোগ করতে পারবেন না।\n\nMaximum 14 weeks of class plan allowed. Cannot add more weeks.');
+        return;
+    }
+    
     const row = document.createElement('div');
     row.className = 'border rounded p-3 mb-3';
     row.innerHTML = `
@@ -297,7 +1178,7 @@ function addLessonPlanRow(data = {}) {
             </div>
             <div class="col-md-3">
                 <label class="form-label small">Actions</label>
-                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
+                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="removeLessonPlanRow(this)">
                     <i class="fas fa-trash"></i> Remove
                 </button>
             </div>
@@ -314,49 +1195,113 @@ function addLessonPlanRow(data = {}) {
         </div>
     `;
     container.appendChild(row);
+    updateAddWeekButton();
 }
 
-function generateWeeklyPlanWithAI() {
-    const courseName = '{{ session.course_name or "" }}';
-    const courseCode = '{{ session.course_code or "" }}';
-    const courseSummary = document.querySelector('textarea[name="course_summary"]')?.value || '';
-    const courseObjectives = document.querySelector('textarea[name="course_objectives"]')?.value || '';
-    const contactHours = document.querySelector('input[name="contact_hours"]')?.value || '56';
+function removeLessonPlanRow(button) {
+    if (confirm('Are you sure you want to remove this week?')) {
+        button.closest('.border').remove();
+        updateAddWeekButton();
+    }
+}
+
+function updateAddWeekButton() {
+    const container = document.getElementById('lessonPlanContainer');
+    const addWeekButton = document.getElementById('addWeekButton');
+    if (!container || !addWeekButton) return;
     
-    if (!courseName && !courseSummary) {
-        alert('Please provide course name or summary first for AI to generate a plan.');
+    const existingRows = container.querySelectorAll('.border.rounded.p-3.mb-3');
+    
+    // Count unique weeks, not total entries
+    const uniqueWeeks = new Set();
+    existingRows.forEach(row => {
+        const weekInput = row.querySelector('input[name^="lesson_plan_week"]');
+        if (weekInput) {
+            const weekValue = weekInput.value || '';
+            const weekMatch = weekValue.match(/\d+/);
+            if (weekMatch) {
+                uniqueWeeks.add(parseInt(weekMatch[0]));
+            }
+        }
+    });
+    
+    if (uniqueWeeks.size >= 14) {
+        addWeekButton.disabled = true;
+        addWeekButton.classList.add('disabled');
+        addWeekButton.title = 'সর্বোচ্চ ১৪ সপ্তাহের সীমা পূরণ হয়েছে (Maximum 14 weeks limit reached)';
+    } else {
+        addWeekButton.disabled = false;
+        addWeekButton.classList.remove('disabled');
+        addWeekButton.title = '';
+    }
+}
+
+function generateWeeklyPlanWithAI(part = null) {
+    // Get Course Content (section 14) data
+    const courseContentSummary = document.getElementById('course_content_summary_json')?.value || '';
+    
+    // Get Credit Value
+    const creditValue = document.querySelector('input[name="credit_value"]')?.value || '';
+    
+    if (!courseContentSummary || courseContentSummary.trim() === '') {
+        alert('Please fill in "13. Summary of the Course Content" first before generating the weekly plan.');
         return;
     }
     
-    if (!confirm('This will generate a weekly plan using AI. Existing plan entries will be cleared. Continue?')) {
+    if (!creditValue || creditValue.trim() === '') {
+        alert('Please fill in "8. Credit Value" first before generating the weekly plan.');
+        return;
+    }
+    
+    const credit = parseFloat(creditValue);
+    if (isNaN(credit) || credit <= 0) {
+        alert('Please enter a valid credit value (e.g., 4.0).');
+        return;
+    }
+    
+    const partText = part ? ` for Part ${part}` : '';
+    if (!confirm(`This will generate a weekly plan${partText} based on:\n- Credit Value: ${credit} (${credit} classes per week)\n- Course Content (section 13${part ? ` - Section ${part}` : ''})\n- Academic Calendar (Semester Start/End dates and holidays)\n\nExisting plan entries will be cleared. Continue?`)) {
         return;
     }
     
     // Show loading
     const container = document.getElementById('lessonPlanContainer');
-    container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Generating weekly plan with AI...</p></div>';
+    container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Generating weekly plan based on Credit Value, Course Content, and Academic Calendar...</p></div>';
     
     fetch('{{ url_for("class_management.generate_weekly_plan_ai", session_id=session.id) }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
-            course_name: courseName,
-            course_code: courseCode,
-            course_summary: courseSummary,
-            course_objectives: courseObjectives.split('\n').filter(l => l.trim()),
-            contact_hours: contactHours
+            course_content_summary: courseContentSummary,
+            credit_value: creditValue,
+            part: part  // 'A' or 'B' for split courses, null for full courses
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success && data.lesson_plan) {
             container.innerHTML = '';
+            // Add all entries - they represent 14 weeks with multiple classes per week
+            // Don't limit by entry count, limit by weeks (which backend already does)
             data.lesson_plan.forEach(lesson => addLessonPlanRow(lesson));
-            alert('Weekly plan generated successfully! Please review and adjust as needed.');
+            
+            // Count unique weeks
+            const uniqueWeeks = new Set();
+            data.lesson_plan.forEach(lesson => {
+                const weekMatch = lesson.week?.match(/\d+/);
+                if (weekMatch) {
+                    uniqueWeeks.add(parseInt(weekMatch[0]));
+                }
+            });
+            
+            let message = 'Weekly plan generated successfully!\n\n' + (data.message || '');
+            message += `\n\nGenerated ${data.lesson_plan.length} class entries across ${uniqueWeeks.size} weeks (maximum 14 weeks).`;
+            message += '\n\nPlease review and adjust as needed.';
+            alert(message);
         } else {
             container.innerHTML = '';
             addLessonPlanRow();
-            alert('AI generation failed: ' + (data.message || 'Unknown error') + '. You can create the plan manually.');
+            alert('Plan generation failed: ' + (data.message || 'Unknown error') + '\n\nPlease ensure:\n1. Semester Start Date is set in Academic Calendar\n2. Semester End Date is set in Academic Calendar\n3. Course Content (section 14) is filled\n4. Credit Value is filled');
         }
     })
     .catch(error => {
@@ -369,27 +1314,54 @@ function generateWeeklyPlanWithAI() {
 
 function addAssessmentTechnique(data = {}) {
     const container = document.getElementById('assessmentTechniquesContainer');
+    if (!container) return;
+    
+    // Get all CLOs from cloData array
+    const clos = cloData || [];
+    const cloCount = clos.length;
+    
+    // If no CLOs defined, show a message
+    if (cloCount === 0) {
+        alert('Please define CLOs first in section "10. Course Learning Outcomes (CLOs)" before adding assessment techniques.');
+        return;
+    }
+    
     const row = document.createElement('div');
     row.className = 'border rounded p-3 mb-3';
+    
+    // Calculate column widths dynamically
+    // Strategy: 3 cols, each CLO: 1 col (max 6 CLOs), Total Marks: 2 cols, Actions: 1 col
+    // If more than 6 CLOs, make CLO columns smaller
+    const strategyCols = 3;
+    const totalMarksCols = 2;
+    const actionsCols = 1;
+    const cloCols = cloCount <= 6 ? 1 : Math.floor((12 - strategyCols - totalMarksCols - actionsCols) / cloCount);
+    
+    // Build CLO input columns
+    let cloInputs = '';
+    clos.forEach((clo, index) => {
+        const cloNum = clo.number || (index + 1);
+        const cloValue = data[`clo${cloNum}`] || data[`clo${index + 1}`] || '';
+        cloInputs += `
+            <div class="col-md-${cloCols}">
+                <label class="form-label small">CLO ${cloNum}</label>
+                <input type="number" class="form-control form-control-sm" name="clo${cloNum}[]" value="${cloValue}" placeholder="0" min="0">
+            </div>
+        `;
+    });
+    
     row.innerHTML = `
         <div class="row g-2">
-            <div class="col-md-4">
+            <div class="col-md-${strategyCols}">
                 <label class="form-label small">Assessment Strategy</label>
                 <input type="text" class="form-control form-control-sm" name="assessment_strategy[]" value="${data.strategy || ''}" placeholder="Class Test 1, Group Debate, etc.">
             </div>
-            <div class="col-md-2">
-                <label class="form-label small">CLO 1</label>
-                <input type="number" class="form-control form-control-sm" name="clo1[]" value="${data.clo1 || ''}" placeholder="10">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small">CLO 2</label>
-                <input type="number" class="form-control form-control-sm" name="clo2[]" value="${data.clo2 || ''}" placeholder="10">
-            </div>
-            <div class="col-md-2">
+            ${cloInputs}
+            <div class="col-md-${totalMarksCols}">
                 <label class="form-label small">Total Marks</label>
-                <input type="number" class="form-control form-control-sm" name="total_marks[]" value="${data.total_marks || ''}" placeholder="10">
+                <input type="number" class="form-control form-control-sm" name="total_marks[]" value="${data.total_marks || ''}" placeholder="0" min="0">
             </div>
-            <div class="col-md-2">
+            <div class="col-md-${actionsCols}">
                 <label class="form-label small">Actions</label>
                 <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
                     <i class="fas fa-trash"></i>
@@ -441,34 +1413,616 @@ function addRubric(data = {}) {
     container.appendChild(row);
 }
 
+function addGradingPolicyRow(data = {}) {
+    const tbody = document.getElementById('gradingPolicyTableBody');
+    if (!tbody) return;
+    
+    // Check if we need to add a new row or fill an existing empty row
+    const rows = tbody.querySelectorAll('tr');
+    let row;
+    
+    // If last row has both cells filled, create a new row
+    if (rows.length === 0 || (rows.length > 0 && rows[rows.length - 1].querySelectorAll('td').length === 4 && 
+        rows[rows.length - 1].querySelectorAll('td')[0].querySelector('input')?.value && 
+        rows[rows.length - 1].querySelectorAll('td')[2].querySelector('input')?.value)) {
+        row = document.createElement('tr');
+        tbody.appendChild(row);
+    } else {
+        // Use the last row if it has empty cells
+        row = rows[rows.length - 1];
+    }
+    
+    // Check if row already has 4 cells (2 pairs)
+    const cells = row.querySelectorAll('td');
+    if (cells.length === 4) {
+        // Row is full, create a new row
+        row = document.createElement('tr');
+        tbody.appendChild(row);
+    }
+    
+    // Add cells if needed
+    if (cells.length === 0) {
+        // First pair
+        row.innerHTML = `
+            <td>
+                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range || ''}" placeholder="80 and over">
+            </td>
+            <td>
+                <input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade || ''}" placeholder="A+">
+            </td>
+            <td>
+                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range2 || ''}" placeholder="55-59">
+            </td>
+            <td>
+                <input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade2 || ''}" placeholder="B-">
+            </td>
+        `;
+    } else if (cells.length === 2) {
+        // Add second pair
+        const range2 = document.createElement('td');
+        range2.innerHTML = `<input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range2 || ''}" placeholder="55-59">`;
+        const grade2 = document.createElement('td');
+        grade2.innerHTML = `<input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade2 || ''}" placeholder="B-">`;
+        row.appendChild(range2);
+        row.appendChild(grade2);
+    }
+}
+
+// Keep old function for backward compatibility
 function addGradingPolicy(data = {}) {
-    const container = document.getElementById('gradingPolicyContainer');
+    addGradingPolicyRow(data);
+}
+
+function addCIERow(data = {}) {
+    const tbody = document.getElementById('cieTableBody');
+    if (!tbody) return;
+    
+    const bloomCategories = ['Remember', 'Understand', 'Apply', 'Analyse', 'Evaluate', 'Create'];
+    const selectedCategory = data.category || '';
+    
+    let options = '';
+    bloomCategories.forEach(cat => {
+        const selected = cat === selectedCategory ? 'selected' : '';
+        options += `<option value="${cat}" ${selected}>${cat}</option>`;
+    });
+    
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td>
+            <select class="form-control form-control-sm" name="cie_category[]">
+                <option value="">Select Category</option>
+                ${options}
+            </select>
+        </td>
+        <td>
+            <input type="number" class="form-control form-control-sm" name="cie_test[]" value="${data.test || ''}" placeholder="0" min="0">
+        </td>
+        <td>
+            <input type="number" class="form-control form-control-sm" name="cie_group_debate[]" value="${data.group_debate || ''}" placeholder="0" min="0">
+        </td>
+    `;
+    tbody.appendChild(row);
+}
+
+function addSMEERow(data = {}) {
+    const tbody = document.getElementById('smeeTableBody');
+    if (!tbody) return;
+    
+    const bloomCategories = ['Remember', 'Understand', 'Apply', 'Analyse', 'Evaluate', 'Create'];
+    const selectedCategory = data.category || '';
+    
+    let options = '';
+    bloomCategories.forEach(cat => {
+        const selected = cat === selectedCategory ? 'selected' : '';
+        options += `<option value="${cat}" ${selected}>${cat}</option>`;
+    });
+    
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td>
+            <select class="form-control form-control-sm" name="smee_category[]">
+                <option value="">Select Category</option>
+                ${options}
+            </select>
+        </td>
+        <td>
+            <input type="number" class="form-control form-control-sm" name="smee_test_marks[]" value="${data.test_marks || ''}" placeholder="0" min="0">
+        </td>
+    `;
+    tbody.appendChild(row);
+}
+
+function addAttendanceMarksRow(data = {}) {
+    const tbody = document.getElementById('attendanceMarksTableBody');
+    if (!tbody) return;
+    
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td>
+            <input type="text" class="form-control form-control-sm" name="attendance_range[]" value="${data.range || ''}" placeholder="e.g., Above 90%, 85% to less than 90%">
+        </td>
+        <td>
+            <input type="number" class="form-control form-control-sm" name="attendance_marks[]" value="${data.marks || ''}" placeholder="0" min="0">
+        </td>
+        <td>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()">
+                <i class="fas fa-trash"></i>
+            </button>
+        </td>
+    `;
+    tbody.appendChild(row);
+}
+
+function addCLORow(data = {}) {
+    const container = document.getElementById('cloContainer');
+    const cloNumber = cloData.length + 1;
+    const cloId = `clo_${cloNumber}`;
+    
+    const cloEntry = {
+        id: cloId,
+        number: cloNumber,
+        description: data.description || '',
+        plos: data.plos || []
+    };
+    cloData.push(cloEntry);
+    
     const row = document.createElement('div');
-    row.className = 'border rounded p-2 mb-2';
+    row.className = 'border rounded p-3 mb-3';
+    row.id = cloId;
     row.innerHTML = `
         <div class="row g-2">
-            <div class="col-md-4">
-                <label class="form-label small">Marks Range</label>
-                <input type="text" class="form-control form-control-sm" name="grade_range[]" value="${data.range || ''}" placeholder="80 and over">
+            <div class="col-md-1">
+                <label class="form-label small"><strong>CLO ${cloNumber}</strong></label>
             </div>
-            <div class="col-md-4">
-                <label class="form-label small">Grade</label>
-                <input type="text" class="form-control form-control-sm" name="grade[]" value="${data.grade || ''}" placeholder="A+">
+            <div class="col-md-9">
+                <label class="form-label small">Description</label>
+                <input type="text" class="form-control form-control-sm" name="clo_description[]" value="${data.description || ''}" placeholder="e.g., identify major discrepancies amongst different schools of jurisprudence" onchange="updateCLOData(${cloNumber - 1}, this.value)">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-2">
                 <label class="form-label small">Actions</label>
-                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
+                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="removeCLORow(${cloNumber - 1})">
                     <i class="fas fa-trash"></i> Remove
                 </button>
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-md-12">
+                <label class="form-label small">Mapping with PLOs (comma-separated, e.g., PLO 1, PLO 2, PLO 13, PLO 17)</label>
+                <input type="text" class="form-control form-control-sm" name="clo_plos[]" value="${data.plos ? data.plos.join(', ') : ''}" placeholder="PLO 1, PLO 2" onchange="updateCLOPLOs(${cloNumber - 1}, this.value)">
             </div>
         </div>
     `;
     container.appendChild(row);
 }
 
-function saveCourseOutline() {
+function updateCLOData(index, description) {
+    if (cloData[index]) {
+        cloData[index].description = description;
+    }
+}
+
+function updateCLOPLOs(index, plosString) {
+    if (cloData[index]) {
+        cloData[index].plos = plosString.split(',').map(p => p.trim()).filter(p => p);
+    }
+}
+
+function removeCLORow(index) {
+    if (confirm('Are you sure you want to remove this CLO?')) {
+        cloData.splice(index, 1);
+        // Re-render all CLO rows
+        const container = document.getElementById('cloContainer');
+        container.innerHTML = '';
+        cloData.forEach((clo, idx) => {
+            clo.number = idx + 1;
+            addCLORow(clo);
+        });
+    }
+}
+
+function initializeCourseContentsSummary() {
+    let hasExistingData = false;
+    
+    // Parse existing course content summary
+    {% if course_outline.course_content_summary %}
+    try {
+        const existingContent = {{ course_outline.course_content_summary|tojson }};
+        if (existingContent && typeof existingContent === 'object' && existingContent !== null) {
+            if (existingContent.sectionA && Array.isArray(existingContent.sectionA) && existingContent.sectionA.length > 0) {
+                existingContent.sectionA.forEach((item, idx) => {
+                    if (item && (item.content || item.hrs || item.clo)) {
+                        const selected = item.selected !== undefined ? item.selected : true;
+                        addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', idx, selected);
+                        hasExistingData = true;
+                    }
+                });
+            }
+            if (existingContent.sectionB && Array.isArray(existingContent.sectionB) && existingContent.sectionB.length > 0) {
+                existingContent.sectionB.forEach((item, idx) => {
+                    if (item && (item.content || item.hrs || item.clo)) {
+                        const selected = item.selected !== undefined ? item.selected : true;
+                        addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', idx, selected);
+                        hasExistingData = true;
+                    }
+                });
+            }
+        } else if (typeof existingContent === 'string' && existingContent.trim()) {
+            const lines = existingContent.split('\n').filter(l => l.trim());
+            let currentSection = null;
+            lines.forEach(line => {
+                if (line.toLowerCase().includes('section a')) {
+                    currentSection = 'A';
+                } else if (line.toLowerCase().includes('section b')) {
+                    currentSection = 'B';
+                } else if (currentSection && /^\d+\./.test(line.trim())) {
+                    const match = line.match(/^\d+\.\s*(.+?)(?:\s*-\s*(\d+(?:\.\d+)?)\s*hours?)?(?:,\s*CLOs?\s*(.+))?$/i);
+                    if (match) {
+                        addCourseContentRow(currentSection, match[1].trim(), match[2] || '', match[3] || '');
+                        hasExistingData = true;
+                    }
+                }
+            });
+        }
+    } catch(e) {
+        hasExistingData = false;
+    }
+    {% endif %}
+    
+    // Auto-import from curriculum if no existing data
+    if (!hasExistingData) {
+        // Import Section A from curriculum (selected=true by default)
+        if (curriculumContentsA && Array.isArray(curriculumContentsA) && curriculumContentsA.length > 0) {
+            curriculumContentsA.forEach((item, idx) => {
+                addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', idx, true);
+            });
+        } else {
+            addCourseContentRow('A');
+        }
+        
+        // Import Section B from curriculum (selected=true by default)
+        if (curriculumContentsB && Array.isArray(curriculumContentsB) && curriculumContentsB.length > 0) {
+            curriculumContentsB.forEach((item, idx) => {
+                addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', idx, true);
+            });
+        } else {
+            addCourseContentRow('B');
+        }
+    } else {
+        const tbodyA = document.getElementById('courseContentTableBodyA');
+        const tbodyB = document.getElementById('courseContentTableBodyB');
+        if (!tbodyA || tbodyA.children.length === 0) {
+            addCourseContentRow('A');
+        }
+        if (!tbodyB || tbodyB.children.length === 0) {
+            addCourseContentRow('B');
+        }
+    }
+    
+    updateCourseContentSummary();
+    
+    // Disable checkboxes for split courses on existing rows
+    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
+        {% if session.course_scope == 'part_a' %}
+            // Part A teacher: disable all Section B checkboxes
+            const tbodyB = document.getElementById('courseContentTableBodyB');
+            if (tbodyB) {
+                Array.from(tbodyB.children).forEach(row => {
+                    const checkbox = row.querySelector('.topic-select-checkbox');
+                    if (checkbox) {
+                        checkbox.disabled = true;
+                        checkbox.title = 'Not available for Part A teacher';
+                    }
+                });
+            }
+        {% elif session.course_scope == 'part_b' %}
+            // Part B teacher: disable all Section A checkboxes
+            const tbodyA = document.getElementById('courseContentTableBodyA');
+            if (tbodyA) {
+                Array.from(tbodyA.children).forEach(row => {
+                    const checkbox = row.querySelector('.topic-select-checkbox');
+                    if (checkbox) {
+                        checkbox.disabled = true;
+                        checkbox.title = 'Not available for Part B teacher';
+                    }
+                });
+            }
+        {% endif %}
+    {% endif %}
+}
+
+// Course Contents Management Functions
+let courseContentsData = {
+    sectionA: [],
+    sectionB: []
+};
+
+function importCourseContentsFromCurriculum() {
+    if ((!curriculumContentsA || curriculumContentsA.length === 0) && (!curriculumContentsB || curriculumContentsB.length === 0)) {
+        alert('No course contents available in Curriculum to import.');
+        return;
+    }
+    
+    if (confirm('Import Course Contents from Curriculum? This will add them to the existing contents. All imported topics will be selected by default.')) {
+        // Import Section A (selected=true by default)
+        if (curriculumContentsA && curriculumContentsA.length > 0) {
+            curriculumContentsA.forEach((item) => {
+                addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', null, true);
+            });
+        }
+        
+        // Import Section B (selected=true by default)
+        if (curriculumContentsB && curriculumContentsB.length > 0) {
+            curriculumContentsB.forEach((item) => {
+                addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', null, true);
+            });
+        }
+        
+        updateCourseContentSummary();
+        alert('Course Contents imported successfully from Curriculum! All topics are selected by default. Uncheck topics you don\'t want to teach.');
+    }
+}
+
+function addCourseContentRow(section, content = '', hrs = '', clo = '', index = null, selected = true) {
+    const tbody = document.getElementById(`courseContentTableBody${section}`);
+    if (!tbody) return;
+    
+    // Check if checkbox should be disabled for split courses
+    // Part A teacher cannot check Section B, Part B teacher cannot check Section A
+    let checkboxDisabled = false;
+    let checkboxTitle = 'Select this topic to include in course';
+    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
+        {% if session.course_scope == 'part_a' %}
+            // Part A teacher: disable Section B checkboxes
+            if (section === 'B') {
+                checkboxDisabled = true;
+                checkboxTitle = 'Not available for Part A teacher';
+            }
+        {% elif session.course_scope == 'part_b' %}
+            // Part B teacher: disable Section A checkboxes
+            if (section === 'A') {
+                checkboxDisabled = true;
+                checkboxTitle = 'Not available for Part B teacher';
+            }
+        {% endif %}
+    {% endif %}
+    
+    const rowIndex = index !== null ? index : tbody.children.length;
+    const row = document.createElement('tr');
+    const escapedContent = (content || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const checked = selected ? 'checked' : '';
+    const disabled = checkboxDisabled ? 'disabled' : '';
+    row.innerHTML = `
+        <td>${rowIndex + 1}</td>
+        <td class="text-center">
+            <input type="checkbox" class="form-check-input topic-select-checkbox" ${checked} ${disabled} onchange="updateCourseContentSummary()" title="${checkboxTitle}">
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_content[]" value="${escapedContent}" placeholder="Enter content/topic description" onchange="updateCourseContentSummary()">
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_hrs[]" value="${hrs}" placeholder="Hrs" style="width: 70px;" onchange="updateCourseContentSummary()">
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_clo[]" value="${clo}" placeholder="e.g., 1, 2" style="width: 100px;" onchange="updateCourseContentSummary()">
+        </td>
+        <td>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCourseContentRow(this, '${section}')" title="Remove row">
+                <i class="fas fa-trash"></i>
+            </button>
+        </td>
+    `;
+    tbody.appendChild(row);
+    
+    // Disable checkboxes for split courses
+    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
+        {% if session.course_scope == 'part_a' %}
+            // Part A teacher: disable Section B checkboxes
+            if (section === 'B') {
+                const checkbox = row.querySelector('.topic-select-checkbox');
+                if (checkbox) {
+                    checkbox.disabled = true;
+                    checkbox.title = 'Not available for Part A teacher';
+                }
+            }
+        {% elif session.course_scope == 'part_b' %}
+            // Part B teacher: disable Section A checkboxes
+            if (section === 'A') {
+                const checkbox = row.querySelector('.topic-select-checkbox');
+                if (checkbox) {
+                    checkbox.disabled = true;
+                    checkbox.title = 'Not available for Part B teacher';
+                }
+            }
+        {% endif %}
+    {% endif %}
+    
+    updateCourseContentSummary();
+}
+
+function removeCourseContentRow(button, section) {
+    if (confirm('Are you sure you want to remove this row?')) {
+        button.closest('tr').remove();
+        // Renumber rows
+        const tbody = document.getElementById(`courseContentTableBody${section}`);
+        if (tbody) {
+            Array.from(tbody.children).forEach((row, idx) => {
+                row.cells[0].textContent = idx + 1;
+            });
+        }
+        updateCourseContentSummary();
+    }
+}
+
+function updateCourseContentSummary() {
+    const sectionA = [];
+    const sectionB = [];
+    
+    // Collect Section A data
+    const tbodyA = document.getElementById('courseContentTableBodyA');
+    if (tbodyA) {
+        Array.from(tbodyA.children).forEach(row => {
+            const checkbox = row.querySelector('.topic-select-checkbox');
+            const selected = checkbox ? checkbox.checked : true;
+            const content = row.querySelector('input[name^="course_content_a_content"]')?.value || '';
+            const hrs = row.querySelector('input[name^="course_content_a_hrs"]')?.value || '';
+            const clo = row.querySelector('input[name^="course_content_a_clo"]')?.value || '';
+            
+            if (content.trim() || hrs.trim() || clo.trim()) {
+                sectionA.push({
+                    content: content.trim(),
+                    hrs: hrs.trim(),
+                    clo: clo.trim(),
+                    selected: selected
+                });
+            }
+        });
+    }
+    
+    // Collect Section B data
+    const tbodyB = document.getElementById('courseContentTableBodyB');
+    if (tbodyB) {
+        Array.from(tbodyB.children).forEach(row => {
+            const checkbox = row.querySelector('.topic-select-checkbox');
+            const selected = checkbox ? checkbox.checked : true;
+            const content = row.querySelector('input[name^="course_content_b_content"]')?.value || '';
+            const hrs = row.querySelector('input[name^="course_content_b_hrs"]')?.value || '';
+            const clo = row.querySelector('input[name^="course_content_b_clo"]')?.value || '';
+            
+            if (content.trim() || hrs.trim() || clo.trim()) {
+                sectionB.push({
+                    content: content.trim(),
+                    hrs: hrs.trim(),
+                    clo: clo.trim(),
+                    selected: selected
+                });
+            }
+        });
+    }
+    
+    courseContentsData = { sectionA, sectionB };
+    
+    // Update hidden field with JSON format
+    const hiddenField = document.getElementById('course_content_summary_json');
+    if (hiddenField) {
+        hiddenField.value = JSON.stringify(courseContentsData);
+    }
+}
+
+
+// Auto-save functionality
+let autoSaveTimeout = null;
+let isSaving = false;
+let lastSaveTime = null;
+
+function updateAutoSaveStatus(success, message) {
+    const statusDiv = document.getElementById('autoSaveStatus');
+    const messageSpan = document.getElementById('autoSaveMessage');
+    
+    if (!statusDiv || !messageSpan) return;
+    
+    statusDiv.style.display = 'block';
+    
+    if (success) {
+        statusDiv.className = 'alert alert-success alert-dismissible fade show mb-3';
+        messageSpan.innerHTML = '<i class="fas fa-check-circle me-2"></i>Saved!';
+        lastSaveTime = new Date();
+        
+        // Update last save info
+        const lastSaveInfo = document.getElementById('lastSaveInfo');
+        if (lastSaveInfo) {
+            const timeStr = lastSaveTime.toLocaleTimeString();
+            lastSaveInfo.textContent = `Last saved at ${timeStr}`;
+        }
+        
+        // Hide after 3 seconds
+        setTimeout(() => {
+            if (statusDiv) {
+                statusDiv.style.display = 'none';
+            }
+        }, 3000);
+    } else {
+        statusDiv.className = 'alert alert-danger alert-dismissible fade show mb-3';
+        messageSpan.innerHTML = '<i class="fas fa-exclamation-circle me-2"></i>Save failed: ' + (message || 'Unknown error');
+        
+        // Hide after 5 seconds for errors
+        setTimeout(() => {
+            if (statusDiv) {
+                statusDiv.style.display = 'none';
+            }
+        }, 5000);
+    }
+}
+
+function showSavingStatus() {
+    if (isSaving) return;
+    
+    const statusDiv = document.getElementById('autoSaveStatus');
+    const messageSpan = document.getElementById('autoSaveMessage');
+    
+    if (!statusDiv || !messageSpan) return;
+    
+    statusDiv.className = 'alert alert-info alert-dismissible fade show mb-3';
+    statusDiv.style.display = 'block';
+    messageSpan.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    isSaving = true;
+}
+
+function autoSave() {
+    // Clear existing timeout
+    if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+    }
+    
+    // Show saving status
+    showSavingStatus();
+    
+    // Set new timeout - save after 2 seconds of inactivity
+    autoSaveTimeout = setTimeout(() => {
+        if (!isSaving) {
+            isSaving = true;
+            saveCourseOutline(true); // true = auto-save mode
+        }
+    }, 2000);
+}
+
+function saveCourseOutline(isAutoSave = false) {
+    // If already saving, skip
+    if (isSaving && !isAutoSave) {
+        return;
+    }
+    
     const form = document.getElementById('courseOutlineForm');
     const formData = new FormData(form);
+    
+    // Get student_access_enabled checkbox value (it's outside the form)
+    const studentAccessToggle = document.getElementById('studentAccessToggle');
+    const studentAccessEnabled = studentAccessToggle ? studentAccessToggle.checked : false;
+    
+    // Collect CLO data
+    const cloDescriptions = formData.getAll('clo_description[]');
+    const cloPlos = formData.getAll('clo_plos[]');
+    const cloDataArray = [];
+    cloDescriptions.forEach((desc, idx) => {
+        if (desc.trim()) {
+            cloDataArray.push({
+                number: idx + 1,
+                description: desc.trim(),
+                plos: cloPlos[idx] ? cloPlos[idx].split(',').map(p => p.trim()).filter(p => p) : []
+            });
+        }
+    });
+    
+    // Collect PLO mapping data
+    const ploMappingData = {};
+    cloDataArray.forEach(clo => {
+        ploMappingData[`CLO ${clo.number}`] = {};
+        clo.plos.forEach(plo => {
+            const mappingValue = formData.get(`plo_mapping_${clo.number}_${plo}`);
+            if (mappingValue) {
+                ploMappingData[`CLO ${clo.number}`][plo] = parseInt(mappingValue);
+            }
+        });
+    });
     
     // Convert form data to JSON structure
     const data = {
@@ -478,18 +2032,30 @@ function saveCourseOutline() {
         contact_hours: formData.get('contact_hours') || '',
         cie_marks: formData.get('cie_marks') || '',
         smee_marks: formData.get('smee_marks') || '',
-        course_content_summary: formData.get('course_content_summary') || '',
-        clo_plo_mapping: formData.get('clo_plo_mapping') || '',
+        credit_value: formData.get('credit_value') || '',
+        course_type: formData.get('course_type') || '',
+        level_term_section: formData.get('level_term_section') || '',
+        course_content_summary: document.getElementById('course_content_summary_json')?.value || '',
+        clo_data: cloDataArray,
+        plo_mapping: ploMappingData,
         lesson_plan: [],
         assessment_strategy: {
             attendance_percent: formData.get('attendance_percent') || '10',
+            attendance_comment: formData.get('attendance_comment') || 'Minimum mark is 4 for 60% attendance',
             ca_percent: formData.get('ca_percent') || '30',
+            ca_comment: formData.get('ca_comment') || 'Best 3 of 4 Assessments',
             final_exam_percent: formData.get('final_exam_percent') || '60',
-            description: formData.get('assessment_strategy_desc') || ''
+            final_exam_comment: formData.get('final_exam_comment') || 'Section A and B combined',
+            ca_section_a_total: formData.get('ca_section_a_total') || '2',
+            ca_section_b_total: formData.get('ca_section_b_total') || '2',
+            ca_considered: formData.get('ca_considered') || 'Best Three Assessments',
+            attendance_marks: []
         },
         assessment_techniques: [],
         rubrics: [],
         grading_policy: [],
+        cie_breakdown: [],
+        smee_breakdown: [],
         textbooks: formData.getAll('textbooks')[0]?.split('\n').filter(l => l.trim()) || [],
         reference_books: formData.getAll('reference_books')[0]?.split('\n').filter(l => l.trim()) || [],
         other_resources: formData.getAll('other_resources')[0]?.split('\n').filter(l => l.trim()) || [],
@@ -500,7 +2066,8 @@ function saveCourseOutline() {
             general_expectations: formData.get('general_expectations') || '',
             communication: formData.get('communication') || '',
             academic_honesty: formData.get('academic_honesty') || ''
-        }
+        },
+        student_access_enabled: studentAccessEnabled
     };
     
     // Collect lesson plan data
@@ -526,16 +2093,70 @@ function saveCourseOutline() {
     
     // Collect assessment techniques
     const strategies = formData.getAll('assessment_strategy[]');
-    const clo1s = formData.getAll('clo1[]');
-    const clo2s = formData.getAll('clo2[]');
     const totalMarks = formData.getAll('total_marks[]');
+    
+    // Get all CLO numbers from cloData
+    const cloNumbers = cloData.map(clo => clo.number || (cloData.indexOf(clo) + 1));
+    
+    // Collect marks for each CLO dynamically
+    const cloMarksData = {};
+    cloNumbers.forEach(cloNum => {
+        cloMarksData[cloNum] = formData.getAll(`clo${cloNum}[]`);
+    });
+    
     for (let i = 0; i < strategies.length; i++) {
         if (strategies[i]) {
-            data.assessment_techniques.push({
+            const technique = {
                 strategy: strategies[i] || '',
-                clo1: clo1s[i] || '',
-                clo2: clo2s[i] || '',
                 total_marks: totalMarks[i] || ''
+            };
+            
+            // Add marks for each CLO
+            cloNumbers.forEach(cloNum => {
+                technique[`clo${cloNum}`] = cloMarksData[cloNum][i] || '';
+            });
+            
+            data.assessment_techniques.push(technique);
+        }
+    }
+    
+    // Collect CIE breakdown
+    const cieCategories = formData.getAll('cie_category[]');
+    const cieTests = formData.getAll('cie_test[]');
+    const cieGroupDebates = formData.getAll('cie_group_debate[]');
+    data.cie_breakdown = [];
+    for (let i = 0; i < cieCategories.length; i++) {
+        if (cieCategories[i] || cieTests[i] || cieGroupDebates[i]) {
+            data.cie_breakdown.push({
+                category: cieCategories[i] || '',
+                test: cieTests[i] || '',
+                group_debate: cieGroupDebates[i] || ''
+            });
+        }
+    }
+    
+    // Collect SMEE breakdown
+    const smeeCategories = formData.getAll('smee_category[]');
+    const smeeTestMarks = formData.getAll('smee_test_marks[]');
+    data.smee_breakdown = [];
+    for (let i = 0; i < smeeCategories.length; i++) {
+        if (smeeCategories[i] || smeeTestMarks[i]) {
+            data.smee_breakdown.push({
+                category: smeeCategories[i] || '',
+                test_marks: smeeTestMarks[i] || ''
+            });
+        }
+    }
+    
+    // Collect Attendance Marks Distribution
+    const attendanceRanges = formData.getAll('attendance_range[]');
+    const attendanceMarks = formData.getAll('attendance_marks[]');
+    data.assessment_strategy.attendance_marks = [];
+    for (let i = 0; i < attendanceRanges.length; i++) {
+        if (attendanceRanges[i] || attendanceMarks[i]) {
+            data.assessment_strategy.attendance_marks.push({
+                range: attendanceRanges[i] || '',
+                marks: attendanceMarks[i] || ''
             });
         }
     }
@@ -572,6 +2193,9 @@ function saveCourseOutline() {
         }
     }
     
+    // Debug: Log student_access_enabled value
+    console.log('Saving student_access_enabled:', data.student_access_enabled);
+    
     fetch('{{ url_for("class_management.save_course_outline", session_id=session.id) }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -579,18 +2203,109 @@ function saveCourseOutline() {
     })
     .then(response => response.json())
     .then(result => {
-        if (result.success) {
-            alert('Course outline saved successfully!');
-            window.location.href = '{{ url_for("class_management.course_file", session_id=session.id) }}';
-        } else {
-            alert('Error saving: ' + (result.message || 'Unknown error'));
+        isSaving = false;
+        // Update auto-save status
+        updateAutoSaveStatus(result.success, result.message || 'Course outline saved successfully!');
+        
+        if (!isAutoSave) {
+            // Only show alert and reload for manual saves
+            if (result.success) {
+                const successMsg = document.createElement('div');
+                successMsg.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+                successMsg.style.zIndex = '9999';
+                successMsg.innerHTML = '<i class="fas fa-check-circle me-2"></i>Course outline saved successfully!<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+                document.body.appendChild(successMsg);
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                alert('Error saving: ' + (result.message || 'Unknown error'));
+            }
         }
     })
     .catch(error => {
+        isSaving = false;
         console.error('Error:', error);
-        alert('Error saving course outline');
+        updateAutoSaveStatus(false, 'Network error occurred');
+        if (!isAutoSave) {
+            alert('Error saving course outline');
+        }
     });
 }
+
+// Handle collapse/expand for Part sections and set up auto-save
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listeners to all collapse elements
+    const collapseElements = ['partA', 'partB', 'partC', 'partD'];
+    
+    collapseElements.forEach(function(partId) {
+        const collapseElement = document.getElementById(partId);
+        if (collapseElement) {
+            collapseElement.addEventListener('show.bs.collapse', function() {
+                const header = collapseElement.previousElementSibling;
+                const icon = header.querySelector('i.fa-chevron-down, i.fa-chevron-up');
+                if (icon) {
+                    icon.classList.remove('fa-chevron-up');
+                    icon.classList.add('fa-chevron-down');
+                }
+            });
+            
+            collapseElement.addEventListener('hide.bs.collapse', function() {
+                const header = collapseElement.previousElementSibling;
+                const icon = header.querySelector('i.fa-chevron-down, i.fa-chevron-up');
+                if (icon) {
+                    icon.classList.remove('fa-chevron-down');
+                    icon.classList.add('fa-chevron-up');
+                }
+            });
+        }
+    });
+    
+    // Set up auto-save on all form inputs
+    const form = document.getElementById('courseOutlineForm');
+    if (form) {
+        // Listen to all input, textarea, and select changes
+        const inputs = form.querySelectorAll('input, textarea, select');
+        inputs.forEach(input => {
+            // Skip file inputs and submit buttons
+            if (input.type === 'file' || input.type === 'submit' || input.type === 'button') {
+                return;
+            }
+            
+            // Add event listeners
+            input.addEventListener('input', autoSave);
+            input.addEventListener('change', autoSave);
+        });
+        
+        // Also listen to checkbox changes (student access toggle is outside form)
+        const studentAccessToggle = document.getElementById('studentAccessToggle');
+        if (studentAccessToggle) {
+            studentAccessToggle.addEventListener('change', autoSave);
+        }
+        
+        // Listen to dynamic content changes (for dynamically added rows)
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1) { // Element node
+                        const inputs = node.querySelectorAll ? node.querySelectorAll('input, textarea, select') : [];
+                        inputs.forEach(input => {
+                            if (input.type !== 'file' && input.type !== 'submit' && input.type !== 'button') {
+                                input.addEventListener('input', autoSave);
+                                input.addEventListener('change', autoSave);
+                            }
+                        });
+                    }
+                });
+            });
+        });
+        
+        observer.observe(form, {
+            childList: true,
+            subtree: true
+        });
+    }
+});
 </script>
 {% endblock %}
 

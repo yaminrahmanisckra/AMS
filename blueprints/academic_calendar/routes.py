@@ -317,6 +317,24 @@ def add_event():
         flash('You do not have permission to edit the calendar.', 'danger')
         return redirect(url_for('academic_calendar.index'))
     
+    # Get unique years, terms, and academic sessions from Session table for dropdowns
+    try:
+        unique_years = db.session.query(Session.year).distinct().order_by(Session.year.desc()).all()
+        years_list = [y[0] for y in unique_years if y[0]]
+        
+        unique_terms = db.session.query(Session.term).distinct().order_by(Session.term).all()
+        terms_list = [t[0] for t in unique_terms if t[0]]
+        
+        unique_sessions = db.session.query(Session.academic_session).distinct().filter(
+            Session.academic_session.isnot(None)
+        ).order_by(Session.academic_session.desc()).all()
+        academic_sessions_list = [s[0] for s in unique_sessions if s[0]]
+    except Exception as e:
+        current_app.logger.warning(f"Error fetching session data: {e}")
+        years_list = []
+        terms_list = []
+        academic_sessions_list = []
+    
     if request.method == 'POST':
         try:
             title = request.form.get('title', '').strip()
@@ -347,20 +365,99 @@ def add_event():
                     flash('Invalid end date format.', 'error')
                     return redirect(url_for('academic_calendar.add_event'))
             
-            event = AcademicCalendarEvent(
-                title=title,
-                description=description or None,
-                event_date=event_date,
-                end_date=end_date,
-                event_type=event_type,
-                created_by_id=current_user.id
-            )
+            # Handle semester start/end with multiple sessions, years, and terms
+            if event_type in ['semester_start', 'semester_end']:
+                selected_years = request.form.getlist('selected_years')
+                selected_terms = request.form.getlist('selected_terms')
+                selected_academic_sessions = request.form.getlist('selected_academic_sessions')
+                
+                # If no selections, create a single event
+                if not selected_years and not selected_terms and not selected_academic_sessions:
+                    event = AcademicCalendarEvent(
+                        title=title,
+                        description=description or None,
+                        event_date=event_date,
+                        end_date=end_date,
+                        event_type=event_type,
+                        created_by_id=current_user.id
+                    )
+                    db.session.add(event)
+                else:
+                    # Create events for each combination
+                    events_created = 0
+                    
+                    # If no specific selections, use all combinations
+                    if not selected_years:
+                        selected_years = years_list
+                    if not selected_terms:
+                        selected_terms = terms_list
+                    if not selected_academic_sessions:
+                        selected_academic_sessions = academic_sessions_list
+                    
+                    # Create events for each year/term/session combination
+                    for year in selected_years:
+                        for term in selected_terms:
+                            for academic_session in selected_academic_sessions:
+                                # Build title with year, term, and session info
+                                event_title = f"{title}"
+                                if year or term or academic_session:
+                                    parts = []
+                                    if year:
+                                        parts.append(f"Year {year}")
+                                    if term:
+                                        parts.append(f"Term {term}")
+                                    if academic_session:
+                                        parts.append(f"Session {academic_session}")
+                                    if parts:
+                                        event_title += f" ({', '.join(parts)})"
+                                
+                                # Build description
+                                event_description = description or ''
+                                if year or term or academic_session:
+                                    desc_parts = []
+                                    if year:
+                                        desc_parts.append(f"Year: {year}")
+                                    if term:
+                                        desc_parts.append(f"Term: {term}")
+                                    if academic_session:
+                                        desc_parts.append(f"Academic Session: {academic_session}")
+                                    if desc_parts:
+                                        if event_description:
+                                            event_description += "\n\n"
+                                        event_description += "\n".join(desc_parts)
+                                
+                                event = AcademicCalendarEvent(
+                                    title=event_title,
+                                    description=event_description or None,
+                                    event_date=event_date,
+                                    end_date=end_date,
+                                    event_type=event_type,
+                                    created_by_id=current_user.id
+                                )
+                                db.session.add(event)
+                                events_created += 1
+                    
+                    if events_created > 0:
+                        flash(f'{events_created} event(s) created successfully for selected combinations.', 'success')
+                    else:
+                        flash('No events created. Please select at least one year, term, or academic session.', 'warning')
+            else:
+                # Regular event (not semester start/end)
+                event = AcademicCalendarEvent(
+                    title=title,
+                    description=description or None,
+                    event_date=event_date,
+                    end_date=end_date,
+                    event_type=event_type,
+                    created_by_id=current_user.id
+                )
+                db.session.add(event)
             
-            db.session.add(event)
             try:
                 db.session.commit()
-                current_app.logger.info(f"Event added successfully: {event.title} on {event.event_date}")
-                flash('Event added successfully.', 'success')
+                current_app.logger.info(f"Event(s) added successfully")
+                if event_type not in ['semester_start', 'semester_end']:
+                    flash('Event added successfully.', 'success')
                 return redirect(url_for('academic_calendar.index'))
             except Exception as commit_error:
                 db.session.rollback()
@@ -385,7 +482,79 @@ def add_event():
                 flash(f'Error adding event: {str(e)[:100]}. Please try again.', 'error')
             return redirect(url_for('academic_calendar.add_event'))
     
-    return render_template('academic_calendar/add_event.html')
+    return render_template('academic_calendar/add_event.html',
+                         years_list=years_list,
+                         terms_list=terms_list,
+                         academic_sessions_list=academic_sessions_list)
+
+@academic_calendar_bp.route('/api/sessions-years-terms', methods=['POST'])
+@login_required
+def api_sessions_years_terms():
+    """API endpoint to get available years and terms for selected academic sessions"""
+    try:
+        data = request.get_json()
+        selected_sessions = data.get('sessions', [])
+        
+        if not selected_sessions:
+            # If no sessions selected, return all years and terms
+            try:
+                unique_years = db.session.query(Session.year).distinct().order_by(Session.year.desc()).all()
+                years_list = [y[0] for y in unique_years if y[0]]
+                
+                unique_terms = db.session.query(Session.term).distinct().order_by(Session.term).all()
+                terms_list = [t[0] for t in unique_terms if t[0]]
+                
+                return jsonify({
+                    'success': True,
+                    'years': years_list,
+                    'terms': terms_list
+                })
+            except Exception as e:
+                current_app.logger.error(f"Error fetching all years/terms: {e}")
+                return jsonify({
+                    'success': True,
+                    'years': [],
+                    'terms': []
+                })
+        
+        # Get years and terms for selected sessions
+        try:
+            sessions_query = Session.query.filter(
+                Session.academic_session.in_(selected_sessions)
+            )
+            
+            unique_years = db.session.query(Session.year).filter(
+                Session.academic_session.in_(selected_sessions)
+            ).distinct().order_by(Session.year.desc()).all()
+            years_list = [y[0] for y in unique_years if y[0]]
+            
+            unique_terms = db.session.query(Session.term).filter(
+                Session.academic_session.in_(selected_sessions)
+            ).distinct().order_by(Session.term).all()
+            terms_list = [t[0] for t in unique_terms if t[0]]
+            
+            return jsonify({
+                'success': True,
+                'years': years_list,
+                'terms': terms_list
+            })
+        except Exception as e:
+            current_app.logger.error(f"Error fetching years/terms for sessions: {e}", exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': f'Error: {str(e)}',
+                'years': [],
+                'terms': []
+            }), 500
+            
+    except Exception as e:
+        current_app.logger.error(f"Error in api_sessions_years_terms: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}',
+            'years': [],
+            'terms': []
+        }), 500
 
 @academic_calendar_bp.route('/edit/<int:event_id>', methods=['GET', 'POST'])
 @login_required

@@ -458,18 +458,18 @@
                                     <div class="collapse show" id="yearTermCollapse{{ loop.index }}">
                                         <div class="card-body p-0">
                                             <div class="table-responsive">
-                                                <table class="table table-hover mb-0">
+                                                <table class="table table-hover mb-0" style="min-width: 100%;">
                                                     <thead class="table-light">
                                                         <tr>
-                                                            <th>Code</th>
-                                                            <th>Name</th>
-                                                            <th>Credit</th>
-                                                            <th>Type</th>
-                                                            <th>Category</th>
-                                                        <th>Core/Optional</th>
-                                                        <th>Offered</th>
-                                                        <th>Assigned</th>
-                                                            <th>Actions</th>
+                                                            <th style="min-width: 80px;">Code</th>
+                                                            <th style="min-width: 150px;">Name</th>
+                                                            <th style="min-width: 60px;">Credit</th>
+                                                            <th style="min-width: 70px;">Type</th>
+                                                            <th style="min-width: 60px;">Category</th>
+                                                        <th style="min-width: 100px;">Core/Optional</th>
+                                                        <th style="min-width: 80px;">Offered</th>
+                                                        <th style="min-width: 200px;">Assigned</th>
+                                                            <th style="min-width: 200px; width: 200px;">Actions</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>
@@ -511,22 +511,24 @@
                                                                 {% if existing_assignments %}
                                                         <div class="d-flex flex-column gap-1">
                                                             {% for assignment in existing_assignments %}
-                                                            <div class="d-flex align-items-center gap-2 bg-light border rounded px-2 py-1">
-                                                                <span class="badge bg-secondary mb-0">
+                                                            <div class="d-flex align-items-center gap-1 bg-light border rounded px-1 py-1" style="font-size: 0.85rem;">
+                                                                <span class="badge bg-secondary mb-0 flex-grow-1 text-truncate" style="max-width: 120px;" title="{{ teacher_map.get(assignment.teacher_id, 'Teacher ID: ' ~ assignment.teacher_id) }}{% if assignment.section %} ({{ assignment.section }}){% endif %}">
                                                                     {{ teacher_map.get(assignment.teacher_id, 'Teacher ID: ' ~ assignment.teacher_id) }}
                                                                     {% if assignment.section %} ({{ assignment.section }}){% endif %}
                                                                 </span>
                                                                 <button type="button"
-                                                                        class="btn btn-sm btn-outline-primary"
+                                                                        class="btn btn-sm btn-outline-primary p-1"
                                                                         onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})"
-                                                                        title="Replace Teacher">
-                                                                    <i class="fas fa-exchange-alt"></i>
+                                                                        title="Replace Teacher"
+                                                                        style="min-width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                                                                    <i class="fas fa-exchange-alt" style="font-size: 0.75rem;"></i>
                                                                 </button>
                                                                 <button type="button"
-                                                                        class="btn btn-sm btn-outline-danger"
+                                                                        class="btn btn-sm btn-outline-danger p-1"
                                                                         onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }}, this)"
-                                                                        title="Unassign">
-                                                                    <i class="fas fa-trash-alt"></i>
+                                                                        title="Unassign"
+                                                                        style="min-width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                                                                    <i class="fas fa-trash-alt" style="font-size: 0.75rem;"></i>
                                                                 </button>
                                                             </div>
                                                             {% endfor %}
@@ -536,26 +538,28 @@
                                                                 {% endif %}
                                                             </td>
                                                             <td>
-                                                                <button type="button" class="btn btn-success btn-sm me-1" data-bs-toggle="modal" data-bs-target="#assignTeacherModal{{ course.id }}">
-                                                                    <i class="fas fa-user-plus me-1"></i>Assign Teacher
-                                                                </button>
-                                                                {% set existing_assignments = course_assignments.get(course.id, []) %}
-                                                                {% if existing_assignments %}
-                                                                    <span class="badge bg-info" title="Has {{ existing_assignments|length }} assignment(s)">
-                                                                        <i class="fas fa-check-circle me-1"></i>{{ existing_assignments|length }}
-                                                                    </span>
-                                                                {% endif %}
-                                                                <button type="button" class="btn btn-warning btn-sm me-1" data-bs-toggle="modal" data-bs-target="#editCourseModal{{ course.id }}">
-                                                                    <i class="fas fa-edit me-1"></i>Edit
-                                                                </button>
-                                                                <button type="button" class="btn btn-info btn-sm me-1" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}">
-                                                                    <i class="fas fa-info-circle me-1"></i>Info
-                                                                </button>
-                                                                <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
-                                                                    <button type="submit" class="btn btn-danger btn-sm">
-                                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                                <div class="d-flex gap-1 align-items-center flex-wrap" style="min-width: 200px;">
+                                                                    <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#assignTeacherModal{{ course.id }}" title="Assign Teacher" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                                        <i class="fas fa-user-plus"></i>
                                                                     </button>
-                                                                </form>
+                                                                    {% set existing_assignments = course_assignments.get(course.id, []) %}
+                                                                    {% if existing_assignments %}
+                                                                        <span class="badge bg-info d-flex align-items-center" title="Has {{ existing_assignments|length }} assignment(s)" style="font-size: 0.65rem; padding: 0.2rem 0.3rem; height: 28px;">
+                                                                            <i class="fas fa-check-circle"></i>{{ existing_assignments|length }}
+                                                                        </span>
+                                                                    {% endif %}
+                                                                    <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editCourseModal{{ course.id }}" title="Edit Course" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                                        <i class="fas fa-edit"></i>
+                                                                    </button>
+                                                                    <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}" title="Course Info" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                                        <i class="fas fa-info-circle"></i>
+                                                                    </button>
+                                                                    <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
+                                                                        <button type="submit" class="btn btn-danger btn-sm" title="Delete Course" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                                            <i class="fas fa-trash"></i>
+                                                                        </button>
+                                                                    </form>
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                         {% endfor %}
@@ -568,18 +572,18 @@
                                 {% endfor %}
                             {% else %}
                                 <div class="table-responsive">
-                                    <table class="table table-striped table-hover">
+                                    <table class="table table-striped table-hover" style="min-width: 100%;">
                                         <thead class="table-light">
                                             <tr>
-                                                <th>Code</th>
-                                                <th>Name</th>
-                                                <th>Credit</th>
-                                                <th>Type</th>
-                                                <th>Category</th>
-                                                <th>Core/Optional</th>
-                                                <th>Offered</th>
-                                                <th>Assigned</th>
-                                                <th>Actions</th>
+                                                <th style="min-width: 80px;">Code</th>
+                                                <th style="min-width: 150px;">Name</th>
+                                                <th style="min-width: 60px;">Credit</th>
+                                                <th style="min-width: 70px;">Type</th>
+                                                <th style="min-width: 60px;">Category</th>
+                                                <th style="min-width: 100px;">Core/Optional</th>
+                                                <th style="min-width: 80px;">Offered</th>
+                                                <th style="min-width: 200px;">Assigned</th>
+                                                <th style="min-width: 120px; width: 120px;">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -621,22 +625,24 @@
                                                     {% if existing_assignments %}
                                                         <div class="d-flex flex-column gap-1">
                                                             {% for assignment in existing_assignments %}
-                                                            <div class="d-flex align-items-center gap-2 bg-light border rounded px-2 py-1">
-                                                                <span class="badge bg-secondary mb-0">
+                                                            <div class="d-flex align-items-center gap-1 bg-light border rounded px-1 py-1" style="font-size: 0.85rem;">
+                                                                <span class="badge bg-secondary mb-0 flex-grow-1 text-truncate" style="max-width: 120px;" title="{{ teacher_map.get(assignment.teacher_id, 'Teacher ID: ' ~ assignment.teacher_id) }}{% if assignment.section %} ({{ assignment.section }}){% endif %}">
                                                                     {{ teacher_map.get(assignment.teacher_id, 'Teacher ID: ' ~ assignment.teacher_id) }}
                                                                     {% if assignment.section %} ({{ assignment.section }}){% endif %}
                                                                 </span>
                                                                 <button type="button"
-                                                                        class="btn btn-sm btn-outline-primary"
+                                                                        class="btn btn-sm btn-outline-primary p-1"
                                                                         onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})"
-                                                                        title="Replace Teacher">
-                                                                    <i class="fas fa-exchange-alt"></i>
+                                                                        title="Replace Teacher"
+                                                                        style="min-width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                                                                    <i class="fas fa-exchange-alt" style="font-size: 0.75rem;"></i>
                                                                 </button>
                                                                 <button type="button"
-                                                                        class="btn btn-sm btn-outline-danger"
+                                                                        class="btn btn-sm btn-outline-danger p-1"
                                                                         onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }}, this)"
-                                                                        title="Unassign">
-                                                                    <i class="fas fa-trash-alt"></i>
+                                                                        title="Unassign"
+                                                                        style="min-width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                                                                    <i class="fas fa-trash-alt" style="font-size: 0.75rem;"></i>
                                                                 </button>
                                                             </div>
                                                             {% endfor %}
@@ -646,17 +652,28 @@
                                                     {% endif %}
                                                 </td>
                                                 <td>
-                                                    <button type="button" class="btn btn-warning btn-sm me-1" data-bs-toggle="modal" data-bs-target="#editCourseModal{{ course.id }}">
-                                                        <i class="fas fa-edit me-1"></i>Edit
-                                                    </button>
-                                                    <button type="button" class="btn btn-info btn-sm me-1" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}">
-                                                        <i class="fas fa-info-circle me-1"></i>Info
-                                                    </button>
-                                                    <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
-                                                        <button type="submit" class="btn btn-danger btn-sm">
-                                                            <i class="fas fa-trash me-1"></i>Delete
+                                                    <div class="d-flex gap-1 align-items-center flex-wrap" style="min-width: 200px;">
+                                                        <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#assignTeacherModal{{ course.id }}" title="Assign Teacher" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                            <i class="fas fa-user-plus"></i>
                                                         </button>
-                                                    </form>
+                                                        {% set existing_assignments = course_assignments.get(course.id, []) %}
+                                                        {% if existing_assignments %}
+                                                            <span class="badge bg-info d-flex align-items-center" title="Has {{ existing_assignments|length }} assignment(s)" style="font-size: 0.65rem; padding: 0.2rem 0.3rem; height: 28px;">
+                                                                <i class="fas fa-check-circle"></i>{{ existing_assignments|length }}
+                                                            </span>
+                                                        {% endif %}
+                                                        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editCourseModal{{ course.id }}" title="Edit Course" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                            <i class="fas fa-edit"></i>
+                                                        </button>
+                                                        <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}" title="Course Info" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                            <i class="fas fa-info-circle"></i>
+                                                        </button>
+                                                        <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
+                                                            <button type="submit" class="btn btn-danger btn-sm" title="Delete Course" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </form>
+                                                    </div>
                                                 </td>
                                             </tr>
                                             {% endfor %}
@@ -1063,7 +1080,7 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
-                    <form method="POST" action="{{ url_for('course_management.course_info', course_id=course.id) }}" id="courseInfoForm{{ course.id }}">
+                    <form method="POST" action="{{ url_for('course_management.course_info', course_id=course.id) }}" id="courseInfoForm{{ course.id }}" onsubmit="updateAllContentJson({{ course.id }})">
                         {% if course_info_forms and course_info_forms[course.id] %}
                             {{ course_info_forms[course.id].hidden_tag() }}
                         {% endif %}
@@ -1123,17 +1140,58 @@
                                 <h6 class="mb-0"><i class="fas fa-book-open me-2"></i>Course Contents</h6>
                             </div>
                             <div class="card-body">
-                                <div class="mb-3">
-                                    <label for="content_section_a{{ course.id }}" class="form-label fw-bold">
-                                        Section A
+                                <!-- Section A -->
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold mb-2">
+                                        <i class="fas fa-list me-1"></i>Section A
                                     </label>
-                                    <textarea class="form-control" id="content_section_a{{ course.id }}" name="content_section_a" rows="6" placeholder="Enter Section A content...">{{ course.content_section_a or '' }}</textarea>
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered table-sm" id="contentTableA{{ course.id }}">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th style="width: 5%;">#</th>
+                                                    <th style="width: 65%;">Content</th>
+                                                    <th style="width: 10%;">Hrs</th>
+                                                    <th style="width: 15%;">CLO</th>
+                                                    <th style="width: 5%;">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="contentTableBodyA{{ course.id }}">
+                                                <!-- Rows will be added dynamically -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-success mt-2" onclick="addContentRow('A', {{ course.id }})">
+                                        <i class="fas fa-plus me-1"></i>Add Row
+                                    </button>
+                                    <input type="hidden" id="content_section_a_json{{ course.id }}" name="content_section_a" value="">
                                 </div>
+                                
+                                <!-- Section B -->
                                 <div class="mb-0">
-                                    <label for="content_section_b{{ course.id }}" class="form-label fw-bold">
-                                        Section B
+                                    <label class="form-label fw-bold mb-2">
+                                        <i class="fas fa-list me-1"></i>Section B
                                     </label>
-                                    <textarea class="form-control" id="content_section_b{{ course.id }}" name="content_section_b" rows="6" placeholder="Enter Section B content...">{{ course.content_section_b or '' }}</textarea>
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered table-sm" id="contentTableB{{ course.id }}">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th style="width: 5%;">#</th>
+                                                    <th style="width: 65%;">Content</th>
+                                                    <th style="width: 10%;">Hrs</th>
+                                                    <th style="width: 15%;">CLO</th>
+                                                    <th style="width: 5%;">Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="contentTableBodyB{{ course.id }}">
+                                                <!-- Rows will be added dynamically -->
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-success mt-2" onclick="addContentRow('B', {{ course.id }})">
+                                        <i class="fas fa-plus me-1"></i>Add Row
+                                    </button>
+                                    <input type="hidden" id="content_section_b_json{{ course.id }}" name="content_section_b" value="">
                                 </div>
                             </div>
                         </div>
@@ -1607,7 +1665,11 @@ function getYearTermFromCourseCode(courseCode) {
             courseInfoModal{{ course.id }}.addEventListener('shown.bs.modal', function () {
                 initializeCLOs({{ course.id }}, {{ course.get_clos_list()|tojson }});
                 fillYearTerm{{ course.id }}();
+                initializeCourseContents({{ course.id }});
             });
+            
+            // Initialize contents on page load
+            initializeCourseContents({{ course.id }});
         }
         
         // Auto-select Category and Type for Edit Course modal
@@ -1677,9 +1739,9 @@ function initializeCLOs(courseId, existingClos) {
     clos.forEach((clo, index) => {
         // Handle both old format (string) and new format (object)
         if (typeof clo === 'string') {
-            addCLOItem(courseId, clo, '', '', index);
+            addCLOItem(courseId, clo, '', '', '', index);
         } else {
-            addCLOItem(courseId, clo.text || '', clo.teaching_strategy || '', clo.assessment_strategy || '', index);
+            addCLOItem(courseId, clo.text || '', clo.teaching_strategy || '', clo.assessment_strategy || '', clo.plo || '', index);
         }
     });
     
@@ -1693,12 +1755,12 @@ function addCLO(courseId) {
     const container = document.getElementById('closContainer' + courseId);
     const index = container.children.length;
     
-    addCLOItem(courseId, input.value.trim(), '', '', index);
+    addCLOItem(courseId, input.value.trim(), '', '', '', index);
     input.value = '';
     updateCLOsJson(courseId);
 }
 
-function addCLOItem(courseId, text, teachingStrategy, assessmentStrategy, index) {
+function addCLOItem(courseId, text, teachingStrategy, assessmentStrategy, plo, index) {
     const container = document.getElementById('closContainer' + courseId);
     if (!container) return;
     
@@ -1714,13 +1776,17 @@ function addCLOItem(courseId, text, teachingStrategy, assessmentStrategy, index)
                 </label>
                 <input type="text" class="form-control clo-text mb-2" value="${escapeHtml(text)}" placeholder="Enter CLO text...">
                 <div class="row">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label small fw-bold">Teaching-Learning Strategy:</label>
                         <input type="text" class="form-control form-control-sm clo-teaching" value="${escapeHtml(teachingStrategy)}" placeholder="e.g., Lecturing, Group Discussion">
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label small fw-bold">Assessment Strategy:</label>
                         <input type="text" class="form-control form-control-sm clo-assessment" value="${escapeHtml(assessmentStrategy)}" placeholder="e.g., Quiz, Assignment, Final exam">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-bold">PLO Mapping:</label>
+                        <input type="text" class="form-control form-control-sm clo-plo" value="${escapeHtml(plo)}" placeholder="e.g., PLO 1, PLO 2, PLO 13">
                     </div>
                 </div>
             </div>
@@ -1736,8 +1802,9 @@ function addCLOItem(courseId, text, teachingStrategy, assessmentStrategy, index)
     const textInput = cloDiv.querySelector('.clo-text');
     const teachingInput = cloDiv.querySelector('.clo-teaching');
     const assessmentInput = cloDiv.querySelector('.clo-assessment');
+    const ploInput = cloDiv.querySelector('.clo-plo');
     
-    [textInput, teachingInput, assessmentInput].forEach(input => {
+    [textInput, teachingInput, assessmentInput, ploInput].forEach(input => {
         input.addEventListener('input', () => updateCLOsJson(courseId));
     });
 }
@@ -1776,7 +1843,8 @@ function updateCLOsJson(courseId) {
             clos.push({
                 text: text,
                 teaching_strategy: item.querySelector('.clo-teaching').value.trim(),
-                assessment_strategy: item.querySelector('.clo-assessment').value.trim()
+                assessment_strategy: item.querySelector('.clo-assessment').value.trim(),
+                plo: item.querySelector('.clo-plo').value.trim()
             });
         }
     });
@@ -1788,6 +1856,191 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Course Contents Management Functions
+function initializeCourseContents(courseId) {
+    {% for course in courses %}
+    if (courseId === {{ course.id }}) {
+        // Section A
+        let sectionA = null;
+        {% if course.content_section_a %}
+        try {
+            const contentA = {{ course.content_section_a|tojson }};
+            if (Array.isArray(contentA)) {
+                sectionA = contentA;
+            } else if (typeof contentA === 'string') {
+                // Try to parse as JSON string
+                try {
+                    sectionA = JSON.parse(contentA);
+                } catch(e) {
+                    // Not JSON, treat as text
+                    sectionA = null;
+                }
+            }
+        } catch(e) {
+            sectionA = null;
+        }
+        {% endif %}
+        
+        const tbodyA = document.getElementById('contentTableBodyA{{ course.id }}');
+        if (tbodyA) {
+            tbodyA.innerHTML = '';
+            if (sectionA && Array.isArray(sectionA) && sectionA.length > 0) {
+                sectionA.forEach((item, idx) => {
+                    addContentRow('A', {{ course.id }}, item.content || '', item.hrs || '', item.clo || '', idx);
+                });
+            } else {
+                // Try to parse as old text format
+                {% if course.content_section_a %}
+                const oldTextA = {{ course.content_section_a|tojson }};
+                if (oldTextA && typeof oldTextA === 'string' && oldTextA.trim()) {
+                    // Parse old format (one line per topic)
+                    const lines = oldTextA.split('\n').filter(l => l.trim());
+                    if (lines.length > 0) {
+                        lines.forEach((line, idx) => {
+                            addContentRow('A', {{ course.id }}, line.trim(), '', '', idx);
+                        });
+                    } else {
+                        addContentRow('A', {{ course.id }});
+                    }
+                } else {
+                    addContentRow('A', {{ course.id }});
+                }
+                {% else %}
+                addContentRow('A', {{ course.id }});
+                {% endif %}
+            }
+        }
+        
+        // Section B
+        let sectionB = null;
+        {% if course.content_section_b %}
+        try {
+            const contentB = {{ course.content_section_b|tojson }};
+            if (Array.isArray(contentB)) {
+                sectionB = contentB;
+            } else if (typeof contentB === 'string') {
+                // Try to parse as JSON string
+                try {
+                    sectionB = JSON.parse(contentB);
+                } catch(e) {
+                    // Not JSON, treat as text
+                    sectionB = null;
+                }
+            }
+        } catch(e) {
+            sectionB = null;
+        }
+        {% endif %}
+        
+        const tbodyB = document.getElementById('contentTableBodyB{{ course.id }}');
+        if (tbodyB) {
+            tbodyB.innerHTML = '';
+            if (sectionB && Array.isArray(sectionB) && sectionB.length > 0) {
+                sectionB.forEach((item, idx) => {
+                    addContentRow('B', {{ course.id }}, item.content || '', item.hrs || '', item.clo || '', idx);
+                });
+            } else {
+                // Try to parse as old text format
+                {% if course.content_section_b %}
+                const oldTextB = {{ course.content_section_b|tojson }};
+                if (oldTextB && typeof oldTextB === 'string' && oldTextB.trim()) {
+                    // Parse old format (one line per topic)
+                    const lines = oldTextB.split('\n').filter(l => l.trim());
+                    if (lines.length > 0) {
+                        lines.forEach((line, idx) => {
+                            addContentRow('B', {{ course.id }}, line.trim(), '', '', idx);
+                        });
+                    } else {
+                        addContentRow('B', {{ course.id }});
+                    }
+                } else {
+                    addContentRow('B', {{ course.id }});
+                }
+                {% else %}
+                addContentRow('B', {{ course.id }});
+                {% endif %}
+            }
+        }
+        
+        // Update hidden fields
+        updateContentJson('A', {{ course.id }});
+        updateContentJson('B', {{ course.id }});
+    }
+    {% endfor %}
+}
+
+function addContentRow(section, courseId, content = '', hrs = '', clo = '', index = null) {
+    const tbody = document.getElementById(`contentTableBody${section}${courseId}`);
+    if (!tbody) return;
+    
+    const rowIndex = index !== null ? index : tbody.children.length;
+    const row = document.createElement('tr');
+    const escapedContent = (content || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    row.innerHTML = `
+        <td>${rowIndex + 1}</td>
+        <td>
+            <input type="text" class="form-control form-control-sm" name="content_${section.toLowerCase()}_content[]" value="${escapedContent}" placeholder="Enter content/topic description" onchange="updateContentJson('${section}', ${courseId})">
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm" name="content_${section.toLowerCase()}_hrs[]" value="${hrs}" placeholder="Hrs" style="width: 70px;" onchange="updateContentJson('${section}', ${courseId})">
+        </td>
+        <td>
+            <input type="text" class="form-control form-control-sm" name="content_${section.toLowerCase()}_clo[]" value="${clo}" placeholder="e.g., 1, 2" style="width: 90px;" onchange="updateContentJson('${section}', ${courseId})">
+        </td>
+        <td>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeContentRow(this, '${section}', ${courseId})" title="Remove row">
+                <i class="fas fa-trash"></i>
+            </button>
+        </td>
+    `;
+    tbody.appendChild(row);
+    updateContentJson(section, courseId);
+}
+
+function removeContentRow(button, section, courseId) {
+    if (confirm('Are you sure you want to remove this row?')) {
+        button.closest('tr').remove();
+        // Renumber rows
+        const tbody = document.getElementById(`contentTableBody${section}${courseId}`);
+        if (tbody) {
+            Array.from(tbody.children).forEach((row, idx) => {
+                row.cells[0].textContent = idx + 1;
+            });
+        }
+        updateContentJson(section, courseId);
+    }
+}
+
+function updateContentJson(section, courseId) {
+    const tbody = document.getElementById(`contentTableBody${section}${courseId}`);
+    if (!tbody) return;
+    
+    const contents = [];
+    Array.from(tbody.children).forEach(row => {
+        const content = row.querySelector(`input[name^="content_${section.toLowerCase()}_content"]`)?.value || '';
+        const hrs = row.querySelector(`input[name^="content_${section.toLowerCase()}_hrs"]`)?.value || '';
+        const clo = row.querySelector(`input[name^="content_${section.toLowerCase()}_clo"]`)?.value || '';
+        
+        if (content.trim() || hrs.trim() || clo.trim()) {
+            contents.push({
+                content: content.trim(),
+                hrs: hrs.trim(),
+                clo: clo.trim()
+            });
+        }
+    });
+    
+    const hiddenField = document.getElementById(`content_section_${section.toLowerCase()}_json${courseId}`);
+    if (hiddenField) {
+        hiddenField.value = JSON.stringify(contents);
+    }
+}
+
+function updateAllContentJson(courseId) {
+    updateContentJson('A', courseId);
+    updateContentJson('B', courseId);
 }
 
 // Handle Enter key in CLO input

@@ -800,6 +800,9 @@
             <h2 class="h4 mb-0">পরীক্ষা পারিতোষিক বিল ফরম</h2>
         </div>
         <div class="d-flex gap-2">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary print-btn">
+                <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
+            </a>
             <button class="btn btn-outline-info print-btn" onclick="saveFormData()" id="saveBtn">
                 <i class="fas fa-save me-2"></i>Save Progress
             </button>
@@ -807,7 +810,7 @@
                 <i class="fas fa-list me-2"></i>View All Forms
             </a>
             <button class="btn btn-danger print-btn" onclick="exportToPdf()">
-                <i class="fas fa-file-pdf me-2"></i>Export to PDF (Legal Size)
+                <i class="fas fa-file-pdf me-2"></i>Download PDF
             </button>
         </div>
     </div>

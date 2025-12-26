@@ -26,6 +26,7 @@
                     <option value="">Select Duty Type</option>
                     <option value="course_coordinator">Course Co-Ordinator</option>
                     <option value="exam_committee_chief">Exam Committee Chief</option>
+                    <option value="routine_maker">Routine Maker</option>
                     <option value="teaching_assistant">Teaching Assistant</option>
                         </select>
                     </div>
@@ -301,6 +302,10 @@ function updateDutyFieldVisibility() {
             setRequired(sessionSelect, true);
             setRequired(yearSelect, true);
             setRequired(termSelect, true);
+            break;
+        case 'routine_maker':
+            toggleField(fieldWrappers.teacher, true);
+            setRequired(teacherSelect, true);
             break;
         default:
             // no duty selected

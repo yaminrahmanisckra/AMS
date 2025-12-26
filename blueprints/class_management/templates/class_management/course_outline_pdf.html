@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Outline</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 0.6in;
+            @bottom-right {
+                content: "Page " counter(page);
+                font-size: 8pt;
+                font-family: 'Times New Roman', Times, serif;
+                color: #555;
+            }
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Times New Roman', Times, serif;
+            font-size: 11pt;
+            line-height: 1.3;
+            color: #1a1a1a;
+        }
+        
+        .cover-page {
+            text-align: center;
+            padding-top: 1.5in;
+            page-break-after: always;
+        }
+        
+        .cover-outline-title {
+            font-size: 28pt;
+            font-weight: bold;
+            color: #1a237e;
+            margin-bottom: 0.4in;
+            text-transform: uppercase;
+            letter-spacing: 2pt;
+        }
+        
+        .cover-code {
+            font-size: 14pt;
+            font-weight: bold;
+            color: #1a237e;
+            margin-bottom: 0.3in;
+        }
+        
+        .cover-title {
+            font-size: 22pt;
+            color: #283593;
+            margin-bottom: 0.5in;
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 1.5pt;
+        }
+        
+        .cover-instructor {
+            font-size: 12pt;
+            margin-bottom: 0.2in;
+        }
+        
+        .section-title {
+            font-size: 13pt;
+            font-weight: bold;
+            color: #1a237e;
+            margin-top: 0.2in;
+            margin-bottom: 0.15in;
+            page-break-before: always;
+            border-bottom: 2px solid #1a237e;
+            padding-bottom: 0.05in;
+        }
+        
+        .section-title:first-of-type {
+            page-break-before: auto;
+        }
+        
+        .subsection-title {
+            font-size: 11.5pt;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-top: 0.15in;
+            margin-bottom: 0.08in;
+        }
+        
+        .subsection-subtitle {
+            font-size: 11pt;
+            font-weight: bold;
+            margin-top: 0.12in;
+            margin-bottom: 0.08in;
+            color: #34495e;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0.15in;
+            font-size: 10pt;
+            page-break-inside: auto;
+        }
+        
+        /* Repeat table header on each page when table breaks */
+        thead {
+            display: table-header-group;
+        }
+        
+        tbody {
+            display: table-row-group;
+        }
+        
+        /* Prevent individual rows from breaking */
+        table tr {
+            page-break-inside: avoid;
+            page-break-after: auto;
+        }
+        
+        /* Ensure header row doesn't break */
+        thead tr {
+            page-break-inside: avoid;
+            page-break-after: avoid;
+        }
+        
+        table.part-a-table {
+            margin-bottom: 0.2in;
+        }
+        
+        table.part-a-table td:first-child {
+            background-color: #f8f9fa;
+            color: #1a237e;
+            font-weight: bold;
+            width: 2.3in;
+            padding: 6pt;
+            border: 1px solid #dee2e6;
+            vertical-align: top;
+            font-size: 10.5pt;
+        }
+        
+        table.part-a-table td:last-child {
+            width: 4.7in;
+            padding: 6pt;
+            border: 1px solid #dee2e6;
+            vertical-align: top;
+            font-size: 11pt;
+        }
+        
+        table.data-table {
+            margin-bottom: 0.15in;
+        }
+        
+        table.data-table th {
+            background-color: #2c3e50;
+            color: #ffffff;
+            font-weight: bold;
+            padding: 7pt 5pt;
+            border: 1px solid #1a1a1a;
+            text-align: left;
+            font-size: 10.5pt;
+        }
+        
+        table.data-table td {
+            padding: 5pt;
+            border: 1px solid #dee2e6;
+            background-color: #ffffff;
+            vertical-align: top;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+            font-size: 10.5pt;
+        }
+        
+        table.data-table td.center {
+            text-align: center;
+        }
+        
+        table.lesson-plan-table {
+            font-size: 9pt;
+        }
+        
+        table.lesson-plan-table th {
+            font-size: 10pt;
+            padding: 5pt 3pt;
+        }
+        
+        table.lesson-plan-table td {
+            font-size: 9pt;
+            padding: 4pt 3pt;
+        }
+        
+        .content-section {
+            margin-bottom: 0.15in;
+        }
+        
+        .content-section h3 {
+            font-size: 11pt;
+            font-weight: bold;
+            margin-bottom: 0.08in;
+            color: #34495e;
+        }
+        
+        p {
+            margin-bottom: 0.08in;
+            text-align: justify;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 11pt;
+        }
+        
+        ul, ol {
+            margin-left: 0.25in;
+            margin-bottom: 0.08in;
+        }
+        
+        li {
+            margin-bottom: 0.04in;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            font-size: 11pt;
+        }
+        
+        .not-specified {
+            font-style: italic;
+            color: #6c757d;
+            font-size: 10.5pt;
+        }
+        
+        .page-break {
+            page-break-before: always;
+        }
+        
+        .no-break {
+            page-break-inside: avoid;
+        }
+        
+        /* Additional text wrapping for table cells (overrides page-break-inside above) */
+        table td, table th {
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            hyphens: auto;
+        }
+        
+        /* Specific column widths for lesson plan */
+        table.lesson-plan-table td:nth-child(1) { width: 0.7in; }
+        table.lesson-plan-table td:nth-child(2) { width: 1.2in; }
+        table.lesson-plan-table td:nth-child(3) { width: 1.6in; }
+        table.lesson-plan-table td:nth-child(4) { width: 1.4in; }
+        table.lesson-plan-table td:nth-child(5) { width: 1.2in; }
+        table.lesson-plan-table td:nth-child(6) { width: 1.2in; }
+        table.lesson-plan-table td:nth-child(7) { width: 0.7in; }
+        
+        /* Specific column widths for CLO table */
+        table.clo-table td:nth-child(1) { width: 0.8in; }
+        table.clo-table td:nth-child(2) { width: 4.5in; }
+        table.clo-table td:nth-child(3) { width: 1.7in; }
+        
+        /* Specific column widths for content table */
+        table.content-table td:nth-child(1) { width: 0.5in; }
+        table.content-table td:nth-child(2) { width: 4.0in; }
+        table.content-table td:nth-child(3) { width: 0.8in; }
+        table.content-table td:nth-child(4) { width: 0.7in; }
+    </style>
+</head>
+<body>
+    <!-- Cover Page -->
+    <div class="cover-page">
+        <div class="cover-outline-title">COURSE OUTLINE</div>
+        
+        {% if session.course_code %}
+        <div class="cover-code">{{ session.course_code }}</div>
+        {% endif %}
+        
+        {% if session.course_name %}
+        <div class="cover-title">{{ session.course_name }}</div>
+        {% endif %}
+        
+        {% if session.academic_session %}
+        <div class="cover-instructor" style="margin-top: 0.3in;">Academic Session: {{ session.academic_session }}</div>
+        {% endif %}
+        
+        {% if course_teachers %}
+        {% for teacher in course_teachers %}
+        <div class="cover-instructor">
+            {{ teacher.name }}<br>
+            {% if teacher.designation %}{{ teacher.designation }}<br>{% endif %}
+            {% if teacher.department %}{{ teacher.department }}{% endif %}
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+    
+    <!-- PART A: INTRODUCTION -->
+    <div class="section-title">PART A: INTRODUCTION</div>
+    
+    <!-- Course Details Table (1-10) -->
+    <table class="part-a-table">
+        <tr>
+            <td>1. Course No:</td>
+            <td>{{ session.course_code if session.course_code else '—' }}</td>
+        </tr>
+        <tr>
+            <td>2. Course Title:</td>
+            <td>{{ session.course_name if session.course_name else '—' }}</td>
+        </tr>
+        <tr>
+            <td>3. Course Type:</td>
+            <td>{{ course_outline.course_type if course_outline.course_type else '—' }}</td>
+        </tr>
+        <tr>
+            <td>4. Level/Term and Section:</td>
+            <td>{{ course_outline.level_term_section if course_outline.level_term_section else '—' }}</td>
+        </tr>
+        <tr>
+            <td>5. Academic Session:</td>
+            <td>{{ session.academic_session if session.academic_session else '—' }}</td>
+        </tr>
+        <tr>
+            <td>6. Course Instructor:</td>
+            <td>
+                {% if course_teachers_pdf %}
+                    {% for t in course_teachers_pdf %}
+                        {{ t.name }}{% if t.designation %}, {{ t.designation }}{% endif %}{% if t.department %}, {{ t.department }}{% endif %}{% if not loop.last %}; {% endif %}
+                    {% endfor %}
+                {% else %}
+                    —
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <td>7. Pre-requisite (If any):</td>
+            <td>{{ course_outline.prerequisites if course_outline.prerequisites else 'None' }}</td>
+        </tr>
+        <tr>
+            <td>8. Credit Value:</td>
+            <td>{{ course_outline.credit_value if course_outline.credit_value else '—' }}</td>
+        </tr>
+        <tr>
+            <td>9. Contact Hours:</td>
+            <td>{{ course_outline.contact_hours if course_outline.contact_hours else '—' }}</td>
+        </tr>
+        <tr>
+            <td>10. Total Marks:</td>
+            <td>
+                {% if course_outline.cie_marks or course_outline.smee_marks %}
+                    {% if course_outline.cie_marks %}Continuous Internal Evaluation (CIE) Marks = {{ course_outline.cie_marks }}{% endif %}
+                    {% if course_outline.cie_marks and course_outline.smee_marks %}<br>{% endif %}
+                    {% if course_outline.smee_marks %}Semester Mid/End Examination (SMEE) Marks = {{ course_outline.smee_marks }}{% endif %}
+                {% else %}
+                    —
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+    
+    <!-- 11. Course Summary -->
+    <div class="subsection-title">11. Course Summary</div>
+    {% if course_outline.course_summary %}
+    <p>{{ course_outline.course_summary }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <!-- 12. Course Learning Outcomes (CLO) -->
+    <div class="subsection-title">12. Course Learning Outcomes (CLO)</div>
+    <table class="data-table clo-table">
+        <thead>
+            <tr>
+                <th>Number</th>
+                <th>CLO</th>
+                <th>Mapping with PLOs</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if clo_data and clo_data|length > 0 %}
+                {% for clo in clo_data %}
+                <tr>
+                    <td>CLO {{ clo.get('number', '') }}</td>
+                    <td>{{ clo.get('description', '') }}</td>
+                    <td>{{ ', '.join(clo.get('plos', [])) if clo.get('plos') else '—' }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="3" class="not-specified">No CLOs specified</td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    
+    <!-- PART B: CONTENT OF THE COURSE -->
+    <div class="section-title page-break">PART B: CONTENT OF THE COURSE</div>
+    
+    <!-- 13. Summary of the Course Content -->
+    <div class="subsection-title">13. Summary of the Course Content</div>
+    
+    {% if course_content_summary %}
+        {% set section_a = course_content_summary.get('sectionA', []) %}
+        {% set section_b = course_content_summary.get('sectionB', []) %}
+        {% set selected_section_a = section_a | selectattr('selected', 'equalto', True) | list if section_a else [] %}
+        {% set selected_section_b = section_b | selectattr('selected', 'equalto', True) | list if section_b else [] %}
+        
+        <!-- Section A -->
+        <div class="content-section">
+            <h3 class="subsection-subtitle">Section A</h3>
+            <table class="data-table content-table">
+                <thead>
+                    <tr>
+                        <th>Course Contents</th>
+                        <th></th>
+                        <th class="center">Hrs</th>
+                        <th class="center">CLOs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if selected_section_a and selected_section_a|length > 0 %}
+                        {% for item in selected_section_a %}
+                        <tr>
+                            <td>{{ loop.index }}.</td>
+                            <td>{{ item.get('content', '') }}</td>
+                            <td class="center">{{ item.get('hrs', '') }}</td>
+                            <td class="center">{{ item.get('clo', '') }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="4"></td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Section B -->
+        <div class="content-section">
+            <h3 class="subsection-subtitle">Section B</h3>
+            <table class="data-table content-table">
+                <thead>
+                    <tr>
+                        <th>Course Contents</th>
+                        <th></th>
+                        <th class="center">Hrs</th>
+                        <th class="center">CLOs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if selected_section_b and selected_section_b|length > 0 %}
+                        {% for item in selected_section_b %}
+                        <tr>
+                            <td>{{ loop.index }}.</td>
+                            <td>{{ item.get('content', '') }}</td>
+                            <td class="center">{{ item.get('hrs', '') }}</td>
+                            <td class="center">{{ item.get('clo', '') }}</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="4"></td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <!-- Empty tables -->
+        <div class="content-section">
+            <h3 class="subsection-subtitle">Section A</h3>
+            <table class="data-table content-table">
+                <thead>
+                    <tr>
+                        <th>Course Contents</th>
+                        <th></th>
+                        <th class="center">Hrs</th>
+                        <th class="center">CLOs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="4"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="content-section">
+            <h3 class="subsection-subtitle">Section B</h3>
+            <table class="data-table content-table">
+                <thead>
+                    <tr>
+                        <th>Course Contents</th>
+                        <th></th>
+                        <th class="center">Hrs</th>
+                        <th class="center">CLOs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="4"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+    
+    <!-- 14. Class Schedule / Lesson Plan / Weekly Plan -->
+    <div class="subsection-title page-break">14. Class Schedule / Lesson Plan / Weekly Plan</div>
+    <table class="data-table lesson-plan-table">
+        <thead>
+            <tr>
+                <th>Week</th>
+                <th>Date</th>
+                <th>Topic</th>
+                <th>Specific Outcome</th>
+                <th>Suggested Activities</th>
+                <th>Teaching and Assessment</th>
+                <th>Alignment with CLO</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if lesson_plan and lesson_plan|length > 0 %}
+                {% for lesson in lesson_plan %}
+                <tr>
+                    <td>{{ lesson.get('week', '') }}</td>
+                    <td>{{ lesson.get('date', '') }}</td>
+                    <td>{{ lesson.get('topic', '') }}</td>
+                    <td>{{ lesson.get('outcome', '') }}</td>
+                    <td>{{ lesson.get('activities', '') }}</td>
+                    <td>{{ lesson.get('teaching_assessment', '') }}</td>
+                    <td>{{ lesson.get('clo_alignment', '') }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="7"></td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    
+    <!-- 15. Assessment Techniques of each topic of the course -->
+    <div class="subsection-title">15. Assessment Techniques of each topic of the course:</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Strategy</th>
+                {% if clo_data and clo_data|length > 0 %}
+                    {% for clo in clo_data %}
+                    <th class="center">CLO {{ clo.get('number', loop.index) }}</th>
+                    {% endfor %}
+                {% endif %}
+                <th class="center">Total Marks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if assessment_techniques and assessment_techniques|length > 0 %}
+                {% for tech in assessment_techniques %}
+                <tr>
+                    <td>{{ tech.get('strategy', '') }}</td>
+                    {% if clo_data and clo_data|length > 0 %}
+                        {% for clo in clo_data %}
+                        <td class="center">{{ tech.get('clo' + clo.get('number', loop.index)|string, '') }}</td>
+                        {% endfor %}
+                    {% endif %}
+                    <td class="center">{{ tech.get('total_marks', '') }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="{% if clo_data and clo_data|length > 0 %}{{ clo_data|length + 2 }}{% else %}3{% endif %}"></td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    
+    <!-- 16. CIE- Continuous Internal Evaluation (Mark) -->
+    <div class="subsection-title">16. CIE- Continuous Internal Evaluation (Mark):</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Test</th>
+                <th>Group Debate</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if cie_breakdown and cie_breakdown|length > 0 %}
+                {% for cie in cie_breakdown %}
+                <tr>
+                    <td>{{ cie.get('category', '') }}</td>
+                    <td>{{ cie.get('test', '') }}</td>
+                    <td>{{ cie.get('group_debate', '') }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="3"></td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    
+    <!-- 17. SMEE- Semester End Examination (Marks) -->
+    <div class="subsection-title">17. SMEE- Semester End Examination (Marks):</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Category</th>
+                <th>Test Marks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if smee_breakdown and smee_breakdown|length > 0 %}
+                {% for smee in smee_breakdown %}
+                <tr>
+                    <td>{{ smee.get('category', '') }}</td>
+                    <td>{{ smee.get('test_marks', '') }}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="2"></td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    
+    <!-- PART C: ASSESSMENT AND EVALUATION -->
+    <div class="section-title page-break">PART C: ASSESSMENT AND EVALUATION</div>
+    
+    <!-- 17. Assessment Strategy -->
+    <div class="subsection-title">17. Assessment Strategy</div>
+    {% if assessment_strategy and assessment_strategy.get('description') %}
+    <p>{{ assessment_strategy.get('description') }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <!-- 17. Assessment Strategy - Marks Distribution for Theory Courses -->
+    {% if assessment_strategy %}
+    <table class="data-table" style="margin-bottom: 0.2in;">
+        <thead>
+            <tr>
+                <th>Component</th>
+                <th class="center">%</th>
+                <th>Comments</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Continuous Assessment</td>
+                <td class="center">{{ assessment_strategy.get('ca_percent', '') }}</td>
+                <td>{{ assessment_strategy.get('ca_comment', '') }}</td>
+            </tr>
+            <tr>
+                <td>Final Exam</td>
+                <td class="center">{{ assessment_strategy.get('final_exam_percent', '') }}</td>
+                <td>{{ assessment_strategy.get('final_exam_comment', '') }}</td>
+            </tr>
+            <tr>
+                <td>Attendance</td>
+                <td class="center">{{ assessment_strategy.get('attendance_percent', '') }}</td>
+                <td>{{ assessment_strategy.get('attendance_comment', '') }}</td>
+            </tr>
+        </tbody>
+    </table>
+    
+    <!-- Attendance Marks Distribution -->
+    {% if assessment_strategy.get('attendance_marks') %}
+    <div class="subsection-subtitle">Attendance Marks Distribution</div>
+    <table class="data-table" style="margin-bottom: 0.2in;">
+        <thead>
+            <tr>
+                <th>Attendance</th>
+                <th class="center">Marks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for att in assessment_strategy.get('attendance_marks', []) %}
+            <tr>
+                <td>{{ att.get('range', '') }}</td>
+                <td class="center">{{ att.get('marks', '') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+    
+    <!-- Continuous Assessment -->
+    <div class="subsection-subtitle">Continuous Assessment ({{ assessment_strategy.get('ca_percent', '30') }}%)</div>
+    <table class="data-table" style="margin-bottom: 0.2in;">
+        <thead>
+            <tr>
+                <th>Total no. of CA (Section A & B)</th>
+                <th>CAs to be considered for grading</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>
+                    {% set ca_section_a = assessment_strategy.get('ca_section_a_total', '')|int if assessment_strategy.get('ca_section_a_total', '') else 0 %}
+                    {% set ca_section_b = assessment_strategy.get('ca_section_b_total', '')|int if assessment_strategy.get('ca_section_b_total', '') else 0 %}
+                    {% set total_ca = ca_section_a + ca_section_b %}
+                    {% if total_ca > 0 %}{{ total_ca }}{% else %}{{ assessment_strategy.get('total_ca', '') }}{% endif %}
+                </td>
+                <td>{{ assessment_strategy.get('ca_considered', '') }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+    
+    <!-- 18. Assessment Rubrics for Class Tests and Group Debate -->
+    <div class="subsection-title">18. Assessment Rubrics for Class Tests and Group Debate</div>
+    {% if rubrics and rubrics|length > 0 %}
+        {% for rubric in rubrics %}
+            {% if rubric.get('type') %}
+            <p><strong>{{ rubric.get('type') }}</strong></p>
+            {% endif %}
+            {% if rubric.get('criteria') %}
+            <ul>
+                {% for criterion in rubric.get('criteria') %}
+                <li>{{ criterion }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        {% endfor %}
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <!-- 19. Evaluation Policy (Grading System) -->
+    <div class="subsection-title">19. Evaluation Policy (Grading System)</div>
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Marks (%)</th>
+                <th class="center">Grading Scale</th>
+                <th>Marks (%)</th>
+                <th class="center">Grading Scale</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% if grading_policy and grading_policy|length > 0 %}
+                {% for i in range(0, grading_policy|length, 2) %}
+                <tr>
+                    <td>{{ grading_policy[i].get('range', grading_policy[i].get('marks_range', '')) }}</td>
+                    <td class="center">{{ grading_policy[i].get('grade', '') }}</td>
+                    <td>{% if i + 1 < grading_policy|length %}{{ grading_policy[i + 1].get('range', grading_policy[i + 1].get('marks_range', '')) }}{% endif %}</td>
+                    <td class="center">{% if i + 1 < grading_policy|length %}{{ grading_policy[i + 1].get('grade', '') }}{% endif %}</td>
+                </tr>
+                {% endfor %}
+            {% else %}
+                <tr>
+                    <td colspan="4"></td>
+                </tr>
+            {% endif %}
+        </tbody>
+    </table>
+    
+    <!-- 20. Other Issues -->
+    <div class="subsection-title">20. Other Issues</div>
+    
+    <p><strong>Class Discussion/Participation:</strong></p>
+    {% if other_issues and other_issues.get('class_discussion') %}
+    <p>{{ other_issues.get('class_discussion') }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <p><strong>General Expectations:</strong></p>
+    {% if other_issues and other_issues.get('general_expectations') %}
+    <p>{{ other_issues.get('general_expectations') }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <p><strong>Communication with course teachers:</strong></p>
+    {% if other_issues and other_issues.get('communication') %}
+    <p>{{ other_issues.get('communication') }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <p><strong>Academic Honesty:</strong></p>
+    {% if other_issues and other_issues.get('academic_honesty') %}
+    <p>{{ other_issues.get('academic_honesty') }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <!-- PART D: LEARNING RESOURCES -->
+    <div class="section-title page-break">PART D: LEARNING RESOURCES</div>
+    
+    <!-- 20. Textbooks -->
+    <div class="subsection-title">20. Textbooks</div>
+    {% if textbooks and textbooks|length > 0 %}
+        {% for book in textbooks %}
+        <p>{{ loop.index }}. {% if book is string %}{{ book }}{% else %}{{ book.get('title', '') if book.get('title') else book }}{% endif %}</p>
+        {% endfor %}
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <!-- 21. Reference Books -->
+    <div class="subsection-title">21. Reference Books</div>
+    {% if reference_books and reference_books|length > 0 %}
+        {% for book in reference_books %}
+        <p>{{ loop.index }}. {% if book is string %}{{ book }}{% else %}{{ book.get('title', '') if book.get('title') else book }}{% endif %}</p>
+        {% endfor %}
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <!-- 22. Other Resources -->
+    <div class="subsection-title">22. Other Resources (Online Resources or others)</div>
+    {% if other_resources and other_resources|length > 0 %}
+        {% for resource in other_resources %}
+        <p>{{ loop.index }}. {% if resource is string %}{{ resource }}{% else %}{{ resource.get('title', '') if resource.get('title') else resource }}{% endif %}</p>
+        {% endfor %}
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    
+    <!-- 23. Course File -->
+    <div class="subsection-title">23. Course File</div>
+    {% if course_file_components and course_file_components|length > 0 %}
+        {% for component in course_file_components %}
+        <p>{% if component is string %}{{ component }}{% else %}{{ component.get('title', '') if component.get('title') else component }}{% endif %}</p>
+        {% endfor %}
+    {% else %}
+        {% set default_components = [
+            'Course Outline/Course Plan',
+            'Lesson Plan',
+            'Question Papers (Quiz, Assignment, Case Study, Mid-Term, Final Term, Project Report, etc)',
+            'Answer Script (Best, Average, Poor)',
+            'Rubrics (if any for assignment, project report, etc)',
+            'Attendance',
+            'Course evaluation by course teacher considering feedback from the students',
+            'Student course evaluation form',
+            'Peer review: Classroom Teaching Observation Report (To be filled by the peer observer in class)',
+            'Evaluation of attainment of CLOs',
+            'Improvement plan for better attainment of CLOs'
+        ] %}
+        {% for component in default_components %}
+        <p>{{ component }}</p>
+        {% endfor %}
+    {% endif %}
+</body>
+</html>
+

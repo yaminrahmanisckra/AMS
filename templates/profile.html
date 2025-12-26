@@ -50,6 +50,23 @@
                         {% endif %}
                         
                         <hr>
+                        <h5>Color Theme</h5>
+                        <div class="mb-3">
+                            <label for="theme" class="form-label">Choose Your Theme</label>
+                            <select class="form-select" id="theme" name="theme">
+                                <option value="default" {% if not current_user.theme or current_user.theme == 'default' %}selected{% endif %}>Default (Purple Gradient)</option>
+                                <option value="blue" {% if current_user.theme == 'blue' %}selected{% endif %}>Blue</option>
+                                <option value="green" {% if current_user.theme == 'green' %}selected{% endif %}>Green</option>
+                                <option value="red" {% if current_user.theme == 'red' %}selected{% endif %}>Red</option>
+                                <option value="orange" {% if current_user.theme == 'orange' %}selected{% endif %}>Orange</option>
+                                <option value="teal" {% if current_user.theme == 'teal' %}selected{% endif %}>Teal</option>
+                                <option value="pink" {% if current_user.theme == 'pink' %}selected{% endif %}>Pink</option>
+                                <option value="indigo" {% if current_user.theme == 'indigo' %}selected{% endif %}>Indigo</option>
+                            </select>
+                            <small class="text-muted">Select your preferred color theme for the application</small>
+                        </div>
+                        
+                        <hr>
                         <h5>Change Password</h5>
                         <div class="mb-3">
                             <label for="current_password" class="form-label">Current Password</label>

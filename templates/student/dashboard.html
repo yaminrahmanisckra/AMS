@@ -9,6 +9,19 @@
 
     <div class="row justify-content-center g-3">
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
+            <a href="{{ url_for('class_management.student_course_files') }}" class="text-decoration-none">
+                <div class="card shadow-sm text-center course-card h-100">
+                    <div class="card-body py-3 px-2">
+                        <div class="icon-circle mb-2" style="background-color: rgba(156,39,176,0.12);">
+                            <i class="fas fa-folder-open fa-lg" style="color: #9c27b0;"></i>
+                        </div>
+                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Course Files</h5>
+                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">Download course outlines and files uploaded by teachers.</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
             <a href="{{ url_for('routine_management.view_routine') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
                     <div class="card-body py-3 px-2">
@@ -22,14 +35,14 @@
             </a>
         </div>
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="{{ url_for('course_management.student_course_registration') }}" class="text-decoration-none">
+            <a href="{{ url_for('academic_calendar.index') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
                     <div class="card-body py-3 px-2">
-                        <div class="icon-circle mb-2">
-                            <i class="fas fa-clipboard-check fa-lg text-primary"></i>
+                        <div class="icon-circle mb-2" style="background-color: rgba(99,102,241,0.12);">
+                            <i class="fas fa-calendar fa-lg" style="color: #6366f1;"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Course Registration</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">Select session, year, term and download your registration form.</p>
+                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Academic Calendar</h5>
+                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">View holidays, events, and important academic dates.</p>
                     </div>
                 </div>
             </a>
@@ -48,14 +61,14 @@
             </a>
         </div>
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="{{ url_for('academic_calendar.index') }}" class="text-decoration-none">
+            <a href="{{ url_for('course_management.student_course_registration') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
                     <div class="card-body py-3 px-2">
-                        <div class="icon-circle mb-2" style="background-color: rgba(99,102,241,0.12);">
-                            <i class="fas fa-calendar fa-lg" style="color: #6366f1;"></i>
+                        <div class="icon-circle mb-2">
+                            <i class="fas fa-clipboard-check fa-lg text-primary"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Academic Calendar</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">View holidays, events, and important academic dates.</p>
+                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Course Registration</h5>
+                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">Select session, year, term and download your registration form.</p>
                     </div>
                 </div>
             </a>

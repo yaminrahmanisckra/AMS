@@ -14,9 +14,48 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     {% block extra_css %}{% endblock %}
+    <style>
+        :root {
+            {% if current_user.is_authenticated and current_user.theme %}
+                {% if current_user.theme == 'blue' %}
+                    --theme-gradient: linear-gradient(135deg, #3b82f6 0%, #1e40af 50%, #1e3a8a 100%);
+                {% elif current_user.theme == 'green' %}
+                    --theme-gradient: linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%);
+                {% elif current_user.theme == 'red' %}
+                    --theme-gradient: linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%);
+                {% elif current_user.theme == 'orange' %}
+                    --theme-gradient: linear-gradient(135deg, #f97316 0%, #ea580c 50%, #c2410c 100%);
+                {% elif current_user.theme == 'teal' %}
+                    --theme-gradient: linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #0f766e 100%);
+                {% elif current_user.theme == 'pink' %}
+                    --theme-gradient: linear-gradient(135deg, #ec4899 0%, #db2777 50%, #be185d 100%);
+                {% elif current_user.theme == 'indigo' %}
+                    --theme-gradient: linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%);
+                {% else %}
+                    --theme-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+                {% endif %}
+            {% else %}
+                --theme-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            {% endif %}
+        }
+        .navbar {
+            background: var(--theme-gradient) !important;
+        }
+        .card-header.bg-primary {
+            background: var(--theme-gradient) !important;
+        }
+        .btn-primary {
+            background: var(--theme-gradient) !important;
+            border: none;
+        }
+        .btn-primary:hover {
+            background: var(--theme-gradient) !important;
+            opacity: 0.9;
+        }
+    </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);">
+    <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
                 <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="KU Logo" style="height: 50px; width: auto; margin-right: 12px;">
@@ -40,21 +79,36 @@
                                 <ul class="dropdown-menu">
                                     <li><a class="dropdown-item" href="{{ url_for('index') }}"><i class="fas fa-home me-2"></i>Dashboard</a></li>
                                     {% if has_teacher_privileges(current_user) %}
-                                    {% if not head_active %}
+                                    {% if show_class_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('class_management.index') }}"><i class="fas fa-chalkboard-teacher me-2"></i>Class Management</a></li>
                                     {% endif %}
+                                    {% if show_result_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('result_management.index') }}"><i class="fas fa-poll me-2"></i>Result Management</a></li>
-                                    {% if not head_active %}
+                                    {% endif %}
+                                    {% if show_routine_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
+                                    {% endif %}
+                                    {% if show_exam_evaluation %}
                                     <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
                                     {% endif %}
+                                    {% if show_academic_calendar %}
                                     <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('academic_calendar.batch_events_index') }}"><i class="fas fa-calendar-alt me-2"></i>Assessment Schedules</a></li>
+                                    {% endif %}
+                                    {% if show_students_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
+                                    {% endif %}
+                                    {% if show_curriculum_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum Management</a></li>
+                                    {% endif %}
+                                    {% if show_course_registration %}
                                     <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
-                                    {% if not head_active %}
+                                    {% endif %}
+                                    {% if show_remuneration %}
                                     <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
+                                    {% endif %}
+                                    {% if show_exam_committee_management %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('exam_committee_management') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Management</a></li>
                                     {% endif %}
                                     {% if is_exam_committee_chief() %}
                                     <li><hr class="dropdown-divider"></li>
@@ -104,21 +158,36 @@
                                 <li><a class="dropdown-item" href="{{ url_for('student_dashboard') }}"><i class="fas fa-user-graduate me-2"></i>Student Dashboard</a></li>
                                 {% endif %}
                                 {% if has_teacher_privileges(current_user) %}
-                                {% if not head_active %}
+                                {% if show_class_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('class_management.index') }}"><i class="fas fa-chalkboard-teacher me-2"></i>Class Management</a></li>
                                 {% endif %}
+                                {% if show_result_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('result_management.index') }}"><i class="fas fa-poll me-2"></i>Result Management</a></li>
-                                {% if not head_active %}
+                                {% endif %}
+                                {% if show_routine_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
+                                {% endif %}
+                                {% if show_exam_evaluation %}
                                 <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
                                 {% endif %}
+                                {% if show_academic_calendar %}
                                 <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
-                                    <li><a class="dropdown-item" href="{{ url_for('academic_calendar.batch_events_index') }}"><i class="fas fa-calendar-alt me-2"></i>Assessment Schedules</a></li>
+                                {% endif %}
+                                {% if show_students_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
+                                {% endif %}
+                                {% if show_curriculum_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
+                                {% endif %}
+                                {% if show_course_registration %}
                                 <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
-                                {% if not head_active %}
+                                {% endif %}
+                                {% if show_remuneration %}
                                 <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
+                                {% endif %}
+                                {% if show_exam_committee_management %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="{{ url_for('exam_committee_management') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Management</a></li>
                                 {% endif %}
                                 {% if is_exam_committee_chief() %}
                                 <li><hr class="dropdown-divider"></li>

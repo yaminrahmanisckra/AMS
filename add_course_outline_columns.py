@@ -23,6 +23,11 @@ with app.app_context():
             ('cie_breakdown', 'TEXT'),
             ('smee_breakdown', 'TEXT'),
             ('course_file_components', 'TEXT'),
+            ('credit_value', 'VARCHAR(20)'),
+            ('course_type', 'VARCHAR(50)'),
+            ('level_term_section', 'VARCHAR(100)'),
+            ('clo_data', 'TEXT'),
+            ('plo_mapping', 'TEXT'),
         ]
         
         for col_name, col_type in columns_to_add:

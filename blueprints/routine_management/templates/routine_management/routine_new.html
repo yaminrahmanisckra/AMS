@@ -574,7 +574,7 @@
 
         <div class="row">
             <!-- Main Routine Grid -->
-            <div class="{% if is_student %}col-lg-12{% else %}col-lg-9{% endif %}">
+            <div class="{% if can_edit %}col-lg-9{% else %}col-lg-12{% endif %}">
                 <div class="routine-grid">
                     <table class="time-table">
                         <thead>
@@ -628,8 +628,8 @@
                 </div>
             </div>
 
-            <!-- Sidebar - Only show for non-students (teachers/TAs who can edit) -->
-            {% if not is_student %}
+            <!-- Sidebar - Only show for Routine Maker assignment holders -->
+            {% if can_edit %}
             <div class="col-lg-3">
                 <div class="sidebar">
                     <div class="sidebar-header">
