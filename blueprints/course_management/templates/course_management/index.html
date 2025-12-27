@@ -541,24 +541,24 @@
                                                                 <div class="d-flex gap-1 align-items-center flex-wrap" style="min-width: 200px;">
                                                                     <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#assignTeacherModal{{ course.id }}" title="Assign Teacher" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
                                                                         <i class="fas fa-user-plus"></i>
-                                                                    </button>
-                                                                    {% set existing_assignments = course_assignments.get(course.id, []) %}
-                                                                    {% if existing_assignments %}
+                                                                </button>
+                                                                {% set existing_assignments = course_assignments.get(course.id, []) %}
+                                                                {% if existing_assignments %}
                                                                         <span class="badge bg-info d-flex align-items-center" title="Has {{ existing_assignments|length }} assignment(s)" style="font-size: 0.65rem; padding: 0.2rem 0.3rem; height: 28px;">
                                                                             <i class="fas fa-check-circle"></i>{{ existing_assignments|length }}
-                                                                        </span>
-                                                                    {% endif %}
+                                                                    </span>
+                                                                {% endif %}
                                                                     <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#editCourseModal{{ course.id }}" title="Edit Course" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
                                                                         <i class="fas fa-edit"></i>
-                                                                    </button>
+                                                                </button>
                                                                     <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}" title="Course Info" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
                                                                         <i class="fas fa-info-circle"></i>
-                                                                    </button>
-                                                                    <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
+                                                                </button>
+                                                                <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
                                                                         <button type="submit" class="btn btn-danger btn-sm" title="Delete Course" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
                                                                             <i class="fas fa-trash"></i>
-                                                                        </button>
-                                                                    </form>
+                                                                    </button>
+                                                                </form>
                                                                 </div>
                                                             </td>
                                                         </tr>
@@ -655,7 +655,7 @@
                                                     <div class="d-flex gap-1 align-items-center flex-wrap" style="min-width: 200px;">
                                                         <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#assignTeacherModal{{ course.id }}" title="Assign Teacher" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
                                                             <i class="fas fa-user-plus"></i>
-                                                        </button>
+                                                    </button>
                                                         {% set existing_assignments = course_assignments.get(course.id, []) %}
                                                         {% if existing_assignments %}
                                                             <span class="badge bg-info d-flex align-items-center" title="Has {{ existing_assignments|length }} assignment(s)" style="font-size: 0.65rem; padding: 0.2rem 0.3rem; height: 28px;">
@@ -667,12 +667,12 @@
                                                         </button>
                                                         <button type="button" class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#courseInfoModal{{ course.id }}" title="Course Info" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
                                                             <i class="fas fa-info-circle"></i>
-                                                        </button>
-                                                        <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
+                                                    </button>
+                                                    <form action="{{ url_for('course_management.delete_course', course_id=course.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete course {{ course.course_code }}?');" style="display:inline;">
                                                             <button type="submit" class="btn btn-danger btn-sm" title="Delete Course" style="font-size: 0.7rem; padding: 0.2rem 0.35rem; min-width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
                                                                 <i class="fas fa-trash"></i>
-                                                            </button>
-                                                        </form>
+                                                        </button>
+                                                    </form>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -1160,7 +1160,7 @@
                                                 <!-- Rows will be added dynamically -->
                                             </tbody>
                                         </table>
-                                    </div>
+                                </div>
                                     <button type="button" class="btn btn-sm btn-outline-success mt-2" onclick="addContentRow('A', {{ course.id }})">
                                         <i class="fas fa-plus me-1"></i>Add Row
                                     </button>
@@ -1542,16 +1542,22 @@ function getYearTermFromCourseCode(courseCode) {
                 }
             }
             
-            // Auto-select Type: Sessional if last digit of last 4 digits is even
+            // Auto-select Type: Sessional if last digit of course code is even
+            // Course code format: XXX 28 Law XXXX - check the last digit of the entire code
             if (courseTypeSelect) {
                 const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
-                if (digitsOnly.length >= 4) {
-                    const lastFourDigits = digitsOnly.slice(-4); // Get last 4 digits
-                    const lastDigit = lastFourDigits.charAt(3); // Last digit of last 4 digits
+                if (digitsOnly.length > 0) {
+                    const lastDigit = digitsOnly.charAt(digitsOnly.length - 1); // Last digit of entire course code
                     const lastDigitNum = parseInt(lastDigit, 10);
                     if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 0) {
                         courseTypeSelect.value = 'Sessional';
-                        console.log(`Auto-selected Sessional for course code: ${courseCode} (last 4 digits: ${lastFourDigits}, last digit: ${lastDigit})`);
+                        console.log(`Auto-selected Sessional for course code: ${courseCode} (last digit: ${lastDigit})`);
+                    } else if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 1) {
+                        // If odd, set to Theory (only if not already set)
+                        if (courseTypeSelect.value === '' || courseTypeSelect.value === 'Sessional') {
+                            courseTypeSelect.value = 'Theory';
+                            console.log(`Auto-selected Theory for course code: ${courseCode} (last digit: ${lastDigit})`);
+                        }
                     }
                 }
             }
@@ -1694,16 +1700,22 @@ function getYearTermFromCourseCode(courseCode) {
                     }
                 }
                 
-                // Auto-select Type: Sessional if last digit of last 4 digits is even
+                // Auto-select Type: Sessional if last digit of course code is even
+                // Course code format: XXX 28 Law XXXX - check the last digit of the entire code
                 if (editCourseTypeSelect{{ course.id }}) {
                     const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
-                    if (digitsOnly.length >= 4) {
-                        const lastFourDigits = digitsOnly.slice(-4); // Get last 4 digits
-                        const lastDigit = lastFourDigits.charAt(3); // Last digit of last 4 digits
+                    if (digitsOnly.length > 0) {
+                        const lastDigit = digitsOnly.charAt(digitsOnly.length - 1); // Last digit of entire course code
                         const lastDigitNum = parseInt(lastDigit, 10);
                         if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 0) {
                             editCourseTypeSelect{{ course.id }}.value = 'Sessional';
-                            console.log(`Auto-selected Sessional for course code: ${courseCode} (last 4 digits: ${lastFourDigits}, last digit: ${lastDigit})`);
+                            console.log(`Auto-selected Sessional for course code: ${courseCode} (last digit: ${lastDigit})`);
+                        } else if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 1) {
+                            // If odd, set to Theory (only if not already set)
+                            if (editCourseTypeSelect{{ course.id }}.value === '' || editCourseTypeSelect{{ course.id }}.value === 'Sessional') {
+                                editCourseTypeSelect{{ course.id }}.value = 'Theory';
+                                console.log(`Auto-selected Theory for course code: ${courseCode} (last digit: ${lastDigit})`);
+                            }
                         }
                     }
                 }

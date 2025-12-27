@@ -12,7 +12,7 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div></div>
                 <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newExamEntryModal">
-                    <i class="fas fa-plus me-2"></i>New Subject Entry
+                    <i class="fas fa-plus me-2"></i>External Subject Entry
                 </button>
             </div>
         </div>
@@ -73,17 +73,25 @@
                                     <tr class="table-light">
                                         <td colspan="{{ 7 if not hide_scrutinizer_info else 6 }}">
                                             <div class="d-flex flex-wrap gap-2">
-                                                <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
                                                 {% if entry.submitted_to_committee %}
-                                                <button class="btn btn-outline-secondary btn-sm" disabled>Submitted</button>
-                                                <form action="{{ url_for('unsubmit_exam_entry', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Withdraw submission and edit again?');">
-                                                    <button type="submit" class="btn btn-outline-danger btn-sm">Unsubmit</button>
-                                                </form>
+                                                <button class="btn btn-outline-primary btn-sm" disabled title="Cannot edit marks after submission. Please unsubmit first.">Marks Entry</button>
                                                 {% else %}
-                                                <form action="{{ url_for('submit_exam_entry_to_committee', entry_id=entry.id) }}" method="POST" class="m-0">
-                                                    <button type="submit" class="btn btn-outline-info btn-sm">Submit to Committee</button>
-                                                </form>
+                                                <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
                                                 {% endif %}
+                                                {% if entry.id in evaluator_assigned_entry_ids %}
+                                                    {# Entry is from Exam Committee Chief assignment - show submit/unsubmit #}
+                                                    {% if entry.submitted_to_committee %}
+                                                    <button class="btn btn-outline-secondary btn-sm" disabled>Submitted</button>
+                                                    <form action="{{ url_for('unsubmit_exam_entry', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Withdraw submission and edit again?');">
+                                                        <button type="submit" class="btn btn-outline-danger btn-sm">Unsubmit</button>
+                                                    </form>
+                                                    {% else %}
+                                                    <form action="{{ url_for('submit_exam_entry_to_committee', entry_id=entry.id) }}" method="POST" class="m-0">
+                                                        <button type="submit" class="btn btn-outline-info btn-sm" {% if not entry.marks_data %}disabled title="Please enter marks first"{% endif %}>Submit to Committee</button>
+                                                    </form>
+                                                    {% endif %}
+                                                {% endif %}
+                                                {# If entry is NOT from evaluator assignment (evaluator created it themselves), no submit button #}
                                                 <a href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}" class="btn btn-outline-warning btn-sm">Edit</a>
                                                 <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0">
                                                     <button type="submit" class="btn btn-outline-secondary btn-sm" onclick="return confirm('Archive this entry?');">Archive</button>
@@ -147,7 +155,11 @@
                                         </td>
                                         <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
                                         <td class="text-end">
+                                            {% if entry.submitted_to_committee %}
+                                            <button class="btn btn-outline-primary btn-sm" disabled title="Cannot edit marks after submission. Please unsubmit first.">Open</button>
+                                            {% else %}
                                             <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Open</a>
+                                            {% endif %}
                                             <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="d-inline">
                                                 <input type="hidden" name="undo" value="1">
                                                 <button type="submit" class="btn btn-outline-secondary btn-sm">Restore</button>
@@ -212,11 +224,18 @@
                                     </td>
                                     <td data-label="Action">
                                         <div class="d-flex flex-wrap gap-2">
+                                            {% if invite and invite.is_complete %}
+                                            <button class="btn btn-outline-primary btn-sm" disabled title="Cannot scrutinize marks after marking as complete. Please mark as incomplete first.">
+                                                <i class="fas fa-pen me-1"></i>Scrutinize Marks
+                                            </button>
+                                            {% else %}
                                             <a href="{{ url_for('exam_marks_entry', entry_id=entry.id, role='scrutinizer') }}" class="btn btn-outline-primary btn-sm">
                                                 <i class="fas fa-pen me-1"></i>Scrutinize Marks
                                             </a>
+                                            {% endif %}
                                             {% if invite %}
                                             <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=invite.id, action='toggle_complete') }}" method="POST" class="m-0">
+                                                <input type="hidden" name="next" value="{{ url_for('exam_evaluation') }}">
                                                 <button type="submit" class="btn btn-outline-{{ 'success' if not invite.is_complete else 'warning' }} btn-sm">
                                                     <i class="fas fa-{{ 'check-circle' if not invite.is_complete else 'times-circle' }} me-1"></i>
                                                     {{ 'Mark Complete' if not invite.is_complete else 'Mark Incomplete' }}
@@ -243,64 +262,25 @@
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="newExamEntryModalLabel">
-                    <i class="fas fa-plus me-2"></i>New Subject Entry
+                    <i class="fas fa-plus me-2"></i>External Subject Entry
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <form method="POST" id="examEntryForm">
-                    <input type="hidden" id="selected_batch" name="batch">
-                    <input type="hidden" id="curriculum_id_hidden" name="curriculum_id">
+                    <input type="hidden" id="selected_batch" name="batch" value="">
+                    <input type="hidden" id="curriculum_id_hidden" name="curriculum_id" value="">
+                    <input type="hidden" name="academic_session" value="">
+                    <input type="hidden" name="year" value="">
+                    <input type="hidden" name="term" value="">
+                    <input type="hidden" id="course_id" name="course_id" value="">
                     
-                    <!-- Academic Session -->
-                    <div class="mb-3">
-                        <label for="academic_session_select" class="form-label">
-                            <i class="fas fa-calendar-alt me-2"></i>Academic Session <span class="text-danger">*</span>
-                        </label>
-                        <select class="form-select" id="academic_session_select" name="academic_session" required>
-                            <option value="">Select Academic Session</option>
-                            {% for session in academic_sessions %}
-                            <option value="{{ session }}">{{ session }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    <!-- Year Selection -->
-                    <div class="mb-3">
-                        <label for="year" class="form-label">
-                            <i class="fas fa-calendar-year me-2"></i>Year <span class="text-danger">*</span>
-                        </label>
-                        <select class="form-select" id="year" name="year" required disabled>
-                            <option value="">Select Curriculum first</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Term Selection -->
-                    <div class="mb-3">
-                        <label for="term" class="form-label">
-                            <i class="fas fa-calendar me-2"></i>Term <span class="text-danger">*</span>
-                        </label>
-                        <select class="form-select" id="term" name="term" required disabled>
-                            <option value="">Select Year first</option>
-                        </select>
-                    </div>
-
-                    <div class="alert alert-info d-none" id="configSummary">
-                        <i class="fas fa-info-circle me-2"></i>
-                        <strong>Batch:</strong> <span id="configBatchLabel">—</span>
-                        <span class="ms-3"><strong>Academic Session:</strong> <span id="configSessionLabel">—</span></span>
-                    </div>
-                    
-                    <!-- Course Name (Dropdown) -->
+                    <!-- Course Name (Text Input) -->
                     <div class="mb-3">
                         <label for="course_name" class="form-label">
                             <i class="fas fa-book me-2"></i>Course Name <span class="text-danger">*</span>
                         </label>
-                        <select class="form-select" id="course_name_select" name="course_name_select" required disabled>
-                            <option value="">Select Year and Term first</option>
-                        </select>
-                        <input type="hidden" id="course_name" name="course_name">
-                        <input type="hidden" id="course_id" name="course_id">
+                        <input type="text" class="form-control" id="course_name" name="course_name" required placeholder="Enter course name">
                     </div>
                     
                     <!-- Course Code (Auto-populated) -->
@@ -364,228 +344,9 @@
 
 {% block scripts %}
 <script>
-const curriculumConfigs = {{ curriculum_configs_json|default('{}')|safe }};
-const allConfigs = [];
-Object.keys(curriculumConfigs).forEach(currId => {
-    curriculumConfigs[currId].forEach(cfg => {
-        cfg.curriculum_id = cfg.curriculum_id || parseInt(currId, 10);
-        allConfigs.push(cfg);
-    });
-});
-
 document.addEventListener('DOMContentLoaded', function() {
-    const curriculumSelectDisplay = null;
-    const hiddenCurriculumInput = document.getElementById('curriculum_id_hidden');
-    const sessionSelect = document.getElementById('academic_session_select');
-    const yearSelect = document.getElementById('year');
-    const termSelect = document.getElementById('term');
-    const courseNameSelect = document.getElementById('course_name_select');
-    const courseNameHidden = document.getElementById('course_name');
     const courseCodeInput = document.getElementById('course_code');
-    const courseIdInput = document.getElementById('course_id');
-    const batchHiddenInput = document.getElementById('selected_batch');
-    const summaryCard = document.getElementById('configSummary');
-    const summaryBatchLabel = document.getElementById('configBatchLabel');
-    const summarySessionLabel = document.getElementById('configSessionLabel');
-
-    function resetDropdown(select, placeholder) {
-        if (!select) return;
-        select.innerHTML = `<option value="">${placeholder}</option>`;
-        select.disabled = true;
-        select.value = '';
-    }
-
-    function resetCourseFields() {
-        resetDropdown(courseNameSelect, 'Select Year and Term first');
-        if (courseCodeInput) courseCodeInput.value = '';
-        if (courseIdInput) courseIdInput.value = '';
-        if (courseNameHidden) courseNameHidden.value = '';
-    }
-
-    function hideSummary() {
-        if (!summaryCard) return;
-        summaryCard.classList.add('d-none');
-        summaryBatchLabel.textContent = '—';
-        summarySessionLabel.textContent = '—';
-    }
-
-    function showSummary(batchValue, sessionValue) {
-        if (!summaryCard) return;
-        summaryCard.classList.remove('d-none');
-        summaryBatchLabel.textContent = batchValue || '—';
-        summarySessionLabel.textContent = sessionValue || '—';
-    }
-
-    function getConfigsBySession(sessionValue) {
-        return allConfigs.filter(cfg => {
-            const sess = cfg.academic_session || '';
-            return sessionValue ? sess === sessionValue : !sess;
-        });
-    }
-
-    function populateYears(sessionValue) {
-        resetDropdown(yearSelect, 'Select Academic Session first');
-        resetDropdown(termSelect, 'Select Year first');
-        resetCourseFields();
-        hideSummary();
-        batchHiddenInput.value = '';
-        hiddenCurriculumInput.value = '';
-        // No curriculum dropdown needed
-
-        if (!sessionValue) return;
-
-        const configs = getConfigsBySession(sessionValue);
-        const years = [...new Set(configs.map(cfg => cfg.year))];
-        if (!years.length) {
-            yearSelect.innerHTML = '<option value="">No Year configured</option>';
-            yearSelect.disabled = true;
-            return;
-        }
-
-        yearSelect.innerHTML = '<option value="">Select Year</option>';
-        years.forEach(year => {
-            const option = document.createElement('option');
-            option.value = year;
-            option.textContent = year;
-            yearSelect.appendChild(option);
-        });
-        yearSelect.disabled = false;
-    }
-
-    function populateTerms(sessionValue, yearValue) {
-        resetDropdown(termSelect, 'Select Year first');
-        resetCourseFields();
-        hideSummary();
-        batchHiddenInput.value = '';
-        hiddenCurriculumInput.value = '';
-        // No curriculum dropdown needed
-
-        if (!sessionValue || !yearValue) return;
-
-        const configs = getConfigsBySession(sessionValue).filter(cfg => cfg.year === yearValue);
-        const terms = [...new Set(configs.map(cfg => cfg.term))];
-        if (!terms.length) {
-            termSelect.innerHTML = '<option value="">No Term configured</option>';
-            termSelect.disabled = true;
-            return;
-        }
-
-        termSelect.innerHTML = '<option value="">Select Term</option>';
-        terms.forEach(term => {
-            const option = document.createElement('option');
-            option.value = term;
-            option.textContent = term;
-            termSelect.appendChild(option);
-        });
-        termSelect.disabled = false;
-    }
-
-    function selectConfig(sessionValue, yearValue, termValue) {
-        resetCourseFields();
-        hideSummary();
-        batchHiddenInput.value = '';
-        hiddenCurriculumInput.value = '';
-        // No curriculum dropdown needed
-
-        if (!sessionValue || !yearValue || !termValue) {
-            return null;
-        }
-
-        const configs = getConfigsBySession(sessionValue).filter(cfg => cfg.year === yearValue && cfg.term === termValue);
-        if (!configs.length) {
-            return null;
-        }
-        const config = configs[0];
-        hiddenCurriculumInput.value = config.curriculum_id || '';
-        batchHiddenInput.value = config.batch || '';
-
-        // No curriculum dropdown needed
-
-        showSummary(config.batch || '', config.academic_session || sessionValue || '');
-        return config;
-    }
-
-    function loadCourses() {
-        const curriculumId = hiddenCurriculumInput.value;
-        const yearValue = yearSelect.value;
-        const termValue = termSelect.value;
-
-        resetCourseFields();
-
-        if (!curriculumId || !yearValue || !termValue) {
-            return;
-        }
-
-        courseNameSelect.innerHTML = '<option value="">Loading courses...</option>';
-        courseNameSelect.disabled = true;
-
-        fetch(`/class-management/api/courses?curriculum_id=${curriculumId}&year=${encodeURIComponent(yearValue)}&term=${encodeURIComponent(termValue)}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.courses && data.courses.length > 0) {
-                    courseNameSelect.innerHTML = '<option value="">Select Course</option>';
-                    data.courses.forEach(course => {
-                        const courseName = course.course_name || course.name || '';
-                        const courseCode = course.course_code || course.code || '';
-                        if (courseName && courseName.trim() !== '') {
-                            const option = document.createElement('option');
-                            option.value = course.id;
-                            option.textContent = courseName;
-                            option.dataset.courseCode = courseCode;
-                            option.dataset.courseId = course.id;
-                            courseNameSelect.appendChild(option);
-                        }
-                    });
-                } else {
-                    courseNameSelect.innerHTML = '<option value="">No courses found</option>';
-                }
-                courseNameSelect.disabled = false;
-            })
-            .catch(error => {
-                console.error('Error loading courses:', error);
-                courseNameSelect.innerHTML = '<option value="">Error loading courses</option>';
-                courseNameSelect.disabled = false;
-            });
-    }
-
-    if (sessionSelect) {
-        sessionSelect.addEventListener('change', function() {
-            populateYears(this.value);
-        });
-    }
-
-    if (yearSelect) {
-        yearSelect.addEventListener('change', function() {
-            populateTerms(sessionSelect.value, this.value);
-        });
-    }
-
-    if (termSelect) {
-        termSelect.addEventListener('change', function() {
-            const config = selectConfig(sessionSelect.value, yearSelect.value, this.value);
-            if (config) {
-                loadCourses();
-            }
-        });
-    }
-
-    if (courseNameSelect) {
-        courseNameSelect.addEventListener('change', function() {
-            const selectedOption = this.options[this.selectedIndex];
-            if (selectedOption && selectedOption.dataset.courseCode) {
-                if (courseCodeInput) courseCodeInput.value = selectedOption.dataset.courseCode;
-                if (courseIdInput) courseIdInput.value = selectedOption.dataset.courseId || '';
-                if (courseNameHidden) courseNameHidden.value = selectedOption.textContent || '';
-                
-                // Auto-select postgraduate if course code starts with "Law" followed by "5"
-                checkAndSetProgramLevel(selectedOption.dataset.courseCode);
-            } else {
-                if (courseCodeInput) courseCodeInput.value = '';
-                if (courseIdInput) courseIdInput.value = '';
-                if (courseNameHidden) courseNameHidden.value = '';
-            }
-        });
-    }
+    const courseNameInput = document.getElementById('course_name');
     
     // Function to check course code pattern and auto-select program level
     function checkAndSetProgramLevel(courseCode) {
@@ -618,18 +379,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // If pattern doesn't match, keep default (UG) or don't change
     }
     
-    // Also listen to manual course code input changes (if field becomes editable)
+    // Listen to manual course code input changes
     if (courseCodeInput) {
         courseCodeInput.addEventListener('input', function() {
             checkAndSetProgramLevel(this.value);
-        });
-    }
-
-    const examEntryForm = document.getElementById('examEntryForm');
-    if (examEntryForm) {
-        examEntryForm.addEventListener('submit', function() {
-            const disabledRequiredFields = examEntryForm.querySelectorAll('select[required][disabled], input[required][disabled]');
-            disabledRequiredFields.forEach(field => field.removeAttribute('disabled'));
         });
     }
 
@@ -639,12 +392,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('examEntryForm');
             if (form) {
                 form.reset();
-                resetDropdown(sessionSelect, 'Select Curriculum first');
-                resetDropdown(yearSelect, 'Select Academic Session first');
-                resetDropdown(termSelect, 'Select Year first');
-                resetCourseFields();
-                hideSummary();
-                batchHiddenInput.value = '';
             }
         });
     }

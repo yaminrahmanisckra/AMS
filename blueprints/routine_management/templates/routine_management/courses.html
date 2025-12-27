@@ -139,16 +139,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             
-            // Auto-select Type: Sessional if last digit of last 4 digits is even
+            // Auto-select Type: Sessional if last digit of course code is even
+            // Course code format: XXX 28 Law XXXX - check the last digit of the entire code
             if (courseTypeSelect) {
                 const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
-                if (digitsOnly.length >= 4) {
-                    const lastFourDigits = digitsOnly.slice(-4); // Get last 4 digits
-                    const lastDigit = lastFourDigits.charAt(3); // Last digit of last 4 digits
+                if (digitsOnly.length > 0) {
+                    const lastDigit = digitsOnly.charAt(digitsOnly.length - 1); // Last digit of entire course code
                     const lastDigitNum = parseInt(lastDigit, 10);
                     if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 0) {
                         courseTypeSelect.value = 'Sessional';
-                        console.log(`Auto-selected Sessional for course code: ${courseCode} (last 4 digits: ${lastFourDigits}, last digit: ${lastDigit})`);
+                        console.log(`Auto-selected Sessional for course code: ${courseCode} (last digit: ${lastDigit})`);
+                    } else if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 1) {
+                        // If odd, set to Theory (only if not already set)
+                        if (courseTypeSelect.value === '' || courseTypeSelect.value === 'Sessional') {
+                            courseTypeSelect.value = 'Theory';
+                            console.log(`Auto-selected Theory for course code: ${courseCode} (last digit: ${lastDigit})`);
+                        }
                     }
                 }
             }

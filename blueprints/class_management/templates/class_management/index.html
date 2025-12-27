@@ -210,15 +210,15 @@
                                                 <li>
                                                     <a class="dropdown-item" href="{{ url_for('class_management.course_file', session_id=session.id) }}">
                                                         <i class="fas fa-folder me-2"></i>Course File
-                                                    </a>
+                                        </a>
                                                 </li>
                                                 <li><hr class="dropdown-divider"></li>
                                                 <li>
                                                     <form action="{{ url_for('class_management.archive_session', session_id=session.id) }}" method="POST" style="display:inline;">
                                                         <button type="submit" class="dropdown-item" onclick="return confirm('Are you sure you want to archive this course?');" style="border: none; background: none; width: 100%; text-align: left; padding: 0.25rem 1rem;">
                                                             <i class="fas fa-archive me-2"></i>Archive
-                                                        </button>
-                                                    </form>
+                                            </button>
+                                        </form>
                                                 </li>
                                             </ul>
                                         </div>

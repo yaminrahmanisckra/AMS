@@ -7,39 +7,7 @@
         <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary">Back to Sessions</a>
             </div>
 
-    <!-- Batch and Curriculum Selection -->
-    <div class="card mb-4">
-        <div class="card-header bg-primary text-white">
-            <i class="fas fa-graduation-cap me-2"></i>Load Subjects from Curriculum
-        </div>
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <label for="batch_select" class="form-label">Select Batch</label>
-                    <select class="form-select" id="batch_select">
-                        <option value="">-- Select Batch --</option>
-                        {% for batch in batches %}
-                        <option value="{{ batch }}" {% if session.batch == batch %}selected{% endif %}>
-                            Batch {{ batch }}
-                        </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <label for="curriculum_select" class="form-label">Curriculum (Auto-selected)</label>
-                    <select class="form-select" id="curriculum_select" disabled>
-                        <option value="">Select Batch first</option>
-                    </select>
-                </div>
-                <div class="col-12">
-                    <button type="button" class="btn btn-success" id="loadOfferedCoursesBtn" disabled>
-                        <i class="fas fa-download me-2"></i>Load Offered Courses
-                    </button>
-                    <span id="loadStatus" class="ms-3"></span>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Subjects are auto-loaded based on session/year/term -->
 
 
     <h4>Existing Subjects</h4>
@@ -54,6 +22,7 @@
                             </tr>
                         </thead>
                         <tbody>
+                            {% if subjects %}
                             {% for subject in subjects %}
                             <tr>
                                 <td>{{ subject.code }}</td>
@@ -67,132 +36,13 @@
                                 </td>
                             </tr>
                             {% endfor %}
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center">No subjects found for this session. Subjects are auto-loaded from curriculum based on session, year, and term.</td>
+                            </tr>
+                            {% endif %}
                         </tbody>
                     </table>
 </div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const batchSelect = document.getElementById('batch_select');
-    const curriculumSelect = document.getElementById('curriculum_select');
-    const loadBtn = document.getElementById('loadOfferedCoursesBtn');
-    const loadStatus = document.getElementById('loadStatus');
-    const sessionId = {{ session.id }};
-    
-    // Load curriculum when batch is selected
-    if (batchSelect) {
-        batchSelect.addEventListener('change', function() {
-            const batch = this.value;
-            curriculumSelect.innerHTML = '<option value="">Loading...</option>';
-            curriculumSelect.disabled = true;
-            loadBtn.disabled = true;
-            
-            if (!batch) {
-                curriculumSelect.innerHTML = '<option value="">Select Batch first</option>';
-                return;
-            }
-            
-            fetch(`/result-management/api/curricula?batch=${encodeURIComponent(batch)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success && data.curricula.length > 0) {
-                        curriculumSelect.innerHTML = '';
-                        data.curricula.forEach(curriculum => {
-                            const option = document.createElement('option');
-                            option.value = curriculum.id;
-                            option.textContent = curriculum.name;
-                            curriculumSelect.appendChild(option);
-                        });
-                        curriculumSelect.disabled = false;
-                        
-                        // Auto-select if only one curriculum
-                        if (data.curricula.length === 1) {
-                            curriculumSelect.value = data.curricula[0].id;
-                            loadBtn.disabled = false;
-                        } else if (data.curricula.length > 1) {
-                            loadBtn.disabled = false;
-                        }
-                    } else {
-                        curriculumSelect.innerHTML = '<option value="">No curriculum found for this batch</option>';
-                        curriculumSelect.disabled = false;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    curriculumSelect.innerHTML = '<option value="">Error loading curricula</option>';
-                    curriculumSelect.disabled = false;
-                });
-        });
-        
-        // Trigger change if batch is already selected
-        if (batchSelect.value) {
-            batchSelect.dispatchEvent(new Event('change'));
-        }
-    }
-    
-    // Enable load button when curriculum is selected
-    if (curriculumSelect) {
-        curriculumSelect.addEventListener('change', function() {
-            loadBtn.disabled = !this.value || !batchSelect.value;
-        });
-    }
-    
-    // Load offered courses
-    if (loadBtn) {
-        loadBtn.addEventListener('click', function() {
-            const batch = batchSelect.value;
-            const curriculumId = curriculumSelect.value;
-            
-            if (!batch || !curriculumId) {
-                alert('Please select batch and curriculum');
-                return;
-            }
-            
-            loadBtn.disabled = true;
-            loadStatus.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading courses...';
-            loadStatus.className = 'ms-3 text-info';
-            
-            fetch(`/result-management/add_subject/${sessionId}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    batch: batch,
-                    curriculum_id: parseInt(curriculumId)
-                })
-            })
-            .then(response => {
-                if (!response.ok) {
-                    return response.json().then(err => {
-                        throw new Error(err.message || `HTTP error! status: ${response.status}`);
-                    });
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
-                    loadStatus.innerHTML = `<i class="fas fa-check-circle me-2 text-success"></i>${data.message}`;
-                    loadStatus.className = 'ms-3 text-success';
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1500);
-                } else {
-                    loadStatus.innerHTML = `<i class="fas fa-times-circle me-2 text-danger"></i>${data.message || 'Error loading courses'}`;
-                    loadStatus.className = 'ms-3 text-danger';
-                    loadBtn.disabled = false;
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                loadStatus.innerHTML = `<i class="fas fa-times-circle me-2 text-danger"></i>${error.message || 'Error loading courses'}`;
-                loadStatus.className = 'ms-3 text-danger';
-                loadBtn.disabled = false;
-            });
-        });
-    }
-    
-});
-</script>
 {% endblock %}
 

@@ -721,17 +721,18 @@ def create_app():
             if not course_name or not course_code:
                 flash('Course name and course code are required.', 'danger')
             else:
-                # Ensure there is an active exam committee chief assignment for the selected session/year/term
-                chief_exists = DutyAssignment.query.filter_by(
-                    duty_type='exam_committee_chief',
-                    academic_session=academic_session or batch,
-                    year=year,
-                    term=term,
-                    status='active'
-                ).first()
-                if not chief_exists:
-                    flash('No Exam Committee Chief is assigned for this session/year/term. Please assign a chief before submitting marksheets.', 'danger')
-                    return redirect(url_for('exam_evaluation'))
+                # Check for exam committee chief assignment only if session/year/term are provided
+                if academic_session or year or term:
+                    chief_exists = DutyAssignment.query.filter_by(
+                        duty_type='exam_committee_chief',
+                        academic_session=academic_session or batch or '',
+                        year=year or '',
+                        term=term or '',
+                        status='active'
+                    ).first()
+                    if not chief_exists:
+                        flash('No Exam Committee Chief is assigned for this session/year/term. Please assign a chief before submitting marksheets.', 'danger')
+                        return redirect(url_for('exam_evaluation'))
 
                 conflict_message = _has_section_conflict(course_code, section)
                 if conflict_message:
@@ -766,6 +767,18 @@ def create_app():
 
         entries = base_query.filter_by(archived=False).order_by(ExamPaperEvaluation.created_at.desc()).all()
         archived_entries = base_query.filter_by(archived=True).order_by(ExamPaperEvaluation.created_at.desc()).all()
+        
+        # Check which entries are from evaluator assignment (Exam Committee Chief assigned)
+        # vs entries created by evaluator themselves
+        from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+        evaluator_assigned_entry_ids = set()
+        if entries:
+            entry_ids = [e.id for e in entries]
+            assignments = ExamPaperEvaluatorAssignment.query.filter(
+                ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.isnot(None),
+                ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.in_(entry_ids)
+            ).all()
+            evaluator_assigned_entry_ids = {a.exam_paper_evaluation_id for a in assignments if a.exam_paper_evaluation_id}
         scrutiny_entries = []
         scrutiny_invites_map = {}
         if current_teacher:
@@ -863,7 +876,8 @@ def create_app():
                                curriculum_configs_json=curriculum_configs_json,
                                scrutiny_entries=scrutiny_entries,
                                scrutiny_invites_map=scrutiny_invites_map,
-                               hide_scrutinizer_info=hide_scrutinizer_info)
+                               hide_scrutinizer_info=hide_scrutinizer_info,
+                               evaluator_assigned_entry_ids=evaluator_assigned_entry_ids)
 
     @app.route('/exam-evaluation/<int:entry_id>/submit-to-committee', methods=['POST'])
     @login_required
@@ -1349,8 +1363,18 @@ def create_app():
 
         if role not in {'evaluator', 'scrutinizer'}:
             role = 'evaluator'
+        
+        # Prevent evaluator from editing marks if entry is submitted
+        if role == 'evaluator' and entry.submitted_to_committee:
+            flash('Cannot edit marks after submission. Please unsubmit the entry first.', 'warning')
+            return redirect(url_for('exam_evaluation'))
 
         if request.method == 'POST':
+            # Prevent evaluator from saving marks if entry is submitted
+            if role == 'evaluator' and entry.submitted_to_committee:
+                flash('Cannot save marks after submission. Please unsubmit the entry first.', 'warning')
+                return redirect(url_for('exam_evaluation'))
+            
             action = request.form.get('action_type', 'save')
             payload = request.form.get('marks_payload')
             if not payload:
@@ -1422,6 +1446,52 @@ def create_app():
                 initial_data = json.loads(entry.marks_data)
             except json.JSONDecodeError:
                 initial_data = {}
+
+        # Auto-populate discipline and school from teacher's institute if missing
+        # Also normalize existing values (e.g., "Law Discipline, KU" -> "Law")
+        needs_update = False
+        
+        # Normalize discipline: extract first word if it contains multiple words
+        if entry.discipline and ' ' in entry.discipline:
+            discipline_parts = entry.discipline.split()
+            if discipline_parts:
+                entry.discipline = discipline_parts[0]
+                needs_update = True
+        elif not entry.discipline:
+            if entry.owner_teacher and entry.owner_teacher.institute:
+                institute = entry.owner_teacher.institute
+                institute_parts = institute.split()
+                if institute_parts:
+                    entry.discipline = institute_parts[0]
+                else:
+                    entry.discipline = 'Law'
+            else:
+                entry.discipline = 'Law'
+            needs_update = True
+        
+        # Normalize school: extract first word if it contains multiple words or is "Law Discipline, KU"
+        if entry.school:
+            if ' ' in entry.school or entry.school == 'Law Discipline, KU':
+                school_parts = entry.school.split()
+                if school_parts:
+                    entry.school = school_parts[0]
+                else:
+                    entry.school = 'Law'
+                needs_update = True
+        else:
+            if entry.owner_teacher and entry.owner_teacher.institute:
+                institute = entry.owner_teacher.institute
+                institute_parts = institute.split()
+                if institute_parts:
+                    entry.school = institute_parts[0]
+                else:
+                    entry.school = 'Law'
+            else:
+                entry.school = 'Law'
+            needs_update = True
+        
+        if needs_update:
+            db.session.commit()
 
         return render_template('exam_evaluation_marks.html', entry=entry, role=role, initial_marks_data=initial_data)
 
@@ -1595,15 +1665,92 @@ def create_app():
         if action == 'toggle_complete':
             if invite.status != 'accepted':
                 flash('Only accepted invitations can be marked as complete/incomplete.', 'warning')
+                # Redirect to next parameter or default to invitations page
+                next_url = request.form.get('next') or request.args.get('next')
+                if next_url:
+                    return redirect(next_url)
                 return redirect(url_for('class_management.my_invitations'))
             try:
+                was_complete = invite.is_complete
                 invite.is_complete = not invite.is_complete
+                
+                # If marking as incomplete (was True, now False), clear marks from Result Management
+                if not invite.is_complete and was_complete:
+                    # #region agent log
+                    import json as json_module
+                    try:
+                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
+                            f.write(json_module.dumps({'location': 'app.py:toggle_incomplete', 'message': 'Toggle incomplete triggered clear', 'data': {'invite_id': invite_id, 'exam_entry_id': invite.exam_entry_id, 'was_complete': was_complete, 'now_complete': False}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
+                    except: pass
+                    # #endregion
+                    try:
+                        from blueprints.result_management.routes import clear_exam_marks_from_result_management
+                        clear_result = clear_exam_marks_from_result_management(invite.exam_entry_id)
+                        
+                        # #region agent log
+                        try:
+                            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
+                                f.write(json_module.dumps({'location': 'app.py:clear_result', 'message': 'Clear result received', 'data': {'success': clear_result.get('success'), 'marks_cleared': clear_result.get('marks_cleared'), 'message': clear_result.get('message'), 'errors': clear_result.get('errors', [])}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'M'}) + '\n')
+                        except: pass
+                        # #endregion
+                        
+                        if clear_result['success']:
+                            current_app.logger.info(f'Auto-clear successful for exam_entry {invite.exam_entry_id}: {clear_result["message"]}')
+                            flash(f'Status updated to Incomplete. Marks cleared from Result Management. {clear_result["marks_cleared"]} marks cleared.', 'info')
+                        else:
+                            # Log error but don't fail the toggle action
+                            current_app.logger.error(f'Auto-clear failed for exam_entry {invite.exam_entry_id}: {clear_result["message"]}. Errors: {clear_result.get("errors", [])}')
+                            flash(f'Status updated to Incomplete, but marks clear had issues. Please check Result Management manually.', 'warning')
+                    except Exception as clear_exc:
+                        # Log error but don't fail the toggle action
+                        current_app.logger.error(f'Error during auto-clear for exam_entry {invite.exam_entry_id}: {str(clear_exc)}', exc_info=True)
+                        flash(f'Status updated to Incomplete, but marks clear failed. Please check Result Management manually.', 'warning')
+                
+                # If marking as complete (was False, now True), sync marks to Result Management
+                elif invite.is_complete and not was_complete:
+                    # #region agent log
+                    import json as json_module
+                    try:
+                        with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
+                            f.write(json_module.dumps({'location': 'app.py:toggle_complete', 'message': 'Toggle complete triggered sync', 'data': {'invite_id': invite_id, 'exam_entry_id': invite.exam_entry_id, 'was_complete': was_complete, 'now_complete': True}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A'}) + '\n')
+                    except: pass
+                    # #endregion
+                    try:
+                        from blueprints.result_management.routes import sync_exam_marks_to_result_management
+                        sync_result = sync_exam_marks_to_result_management(invite.exam_entry_id)
+                        
+                        # #region agent log
+                        try:
+                            with open('/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log', 'a') as f:
+                                f.write(json_module.dumps({'location': 'app.py:sync_result', 'message': 'Sync result received', 'data': {'success': sync_result.get('success'), 'marks_updated': sync_result.get('marks_updated'), 'message': sync_result.get('message'), 'errors': sync_result.get('errors', [])}, 'timestamp': int(__import__('time').time() * 1000), 'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A'}) + '\n')
+                        except: pass
+                        # #endregion
+                        
+                        if sync_result['success']:
+                            current_app.logger.info(f'Auto-sync successful for exam_entry {invite.exam_entry_id}: {sync_result["message"]}')
+                            # Optionally add a flash message, but keep it brief
+                            if sync_result.get('session_created') or sync_result.get('subject_created'):
+                                flash(f'Status updated to Complete. Marks synced to Result Management. {sync_result["marks_updated"]} marks updated.', 'success')
+                            else:
+                                flash(f'Status updated to Complete. Marks synced: {sync_result["marks_updated"]} marks updated.', 'success')
+                        else:
+                            # Log error but don't fail the toggle action
+                            current_app.logger.error(f'Auto-sync failed for exam_entry {invite.exam_entry_id}: {sync_result["message"]}. Errors: {sync_result.get("errors", [])}')
+                            flash(f'Status updated to Complete, but marks sync had issues. Please check Result Management manually.', 'warning')
+                    except Exception as sync_exc:
+                        # Log error but don't fail the toggle action
+                        current_app.logger.error(f'Error during auto-sync for exam_entry {invite.exam_entry_id}: {str(sync_exc)}', exc_info=True)
+                        flash(f'Status updated to Complete, but marks sync failed. Please check Result Management manually.', 'warning')
+                
                 db.session.commit()
-                status_text = 'Complete' if invite.is_complete else 'Incomplete'
-                flash(f'Status updated to {status_text}.', 'success')
+                # Flash messages are already shown by sync/clear functions above
             except Exception as exc:
                 db.session.rollback()
                 flash(f'Failed to update status: {exc}', 'danger')
+            # Redirect to next parameter or default to invitations page
+            next_url = request.form.get('next') or request.args.get('next')
+            if next_url:
+                return redirect(next_url)
             return redirect(url_for('class_management.my_invitations'))
 
         if action == 'cancel' and invite.status == 'cancelled':
@@ -3879,6 +4026,8 @@ def create_app():
         # Get all teachers for assignment (excluding Head of the Discipline)
         from role_utils import get_teachers_excluding_head
         teachers = get_teachers_excluding_head()
+        # Convert teachers to dictionaries for JSON serialization
+        teachers_dict = [{'id': t.id, 'name': t.name} for t in teachers]
         
         # Get assigned tabulators
         tabulators = DutyAssignment.query.filter_by(
@@ -4052,6 +4201,7 @@ def create_app():
         
         return render_template('exam_committee_chief/dashboard.html',
                              teachers=teachers,
+                             teachers_dict=teachers_dict,  # For JSON serialization in template
                              tabulators=tabulators,
                              scrutinizers=scrutinizers,
                              academic_sessions=academic_sessions,
@@ -4704,6 +4854,541 @@ def create_app():
             db.session.rollback()
             current_app.logger.error(f'Error restoring committee members: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error restoring committee members: {str(e)}'}), 500
+
+    @app.route('/exam-committee-chief/get-subjects-for-evaluator', methods=['GET'])
+    @login_required
+    def get_subjects_for_evaluator():
+        """Get subjects from curriculum for Exam Paper Evaluator assignment"""
+        # Check if current user is assigned as Exam Committee Chief or Member
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+        
+        chief_assignment = DutyAssignment.query.filter_by(
+            duty_type='exam_committee_chief',
+            assigned_teacher_id=teacher.id,
+            status='active'
+        ).first()
+        
+        member_assignment = DutyAssignment.query.filter(
+            DutyAssignment.duty_type == 'exam_committee_member',
+            DutyAssignment.assigned_teacher_id == teacher.id,
+            DutyAssignment.status == 'active'
+        ).first()
+        
+        if not chief_assignment and not member_assignment:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
+        
+        academic_session = request.args.get('academic_session', '').strip()
+        year = request.args.get('year', '').strip()
+        term = request.args.get('term', '').strip()
+        
+        if not all([academic_session, year, term]):
+            return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
+        
+        try:
+            from blueprints.course_management.models import CurriculumYearTerm, Course
+            from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+            
+            # Find curriculum year/term configs matching the criteria
+            configs = CurriculumYearTerm.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            ).all()
+            
+            current_app.logger.info(f'Found {len(configs)} configs for session={academic_session}, year={year}, term={term}')
+            
+            if not configs:
+                return jsonify({
+                    'success': True, 
+                    'subjects': [],
+                    'message': f'No curriculum configuration found for Session: {academic_session}, Year: {year}, Term: {term}. Please configure the curriculum first.'
+                })
+            
+            # Get all curriculum IDs
+            curriculum_ids = [config.curriculum_id for config in configs]
+            
+            # Get all courses for these curricula - only Theory courses
+            all_courses = Course.query.filter(
+                Course.curriculum_id.in_(curriculum_ids),
+                Course.offered == True,
+                Course.course_type == 'Theory'
+            ).order_by(Course.course_code).all()
+            
+            # Normalize year/term for comparison
+            def normalize_label(label):
+                if not label:
+                    return ''
+                label = str(label).strip()
+                for suffix in [' Year', ' Term', 'Year', 'Term']:
+                    if label.lower().endswith(suffix.lower()):
+                        label = label[:-len(suffix)].strip()
+                return label
+            
+            normalized_year = normalize_label(year)
+            normalized_term = normalize_label(term)
+            
+            # Filter courses by year/term
+            matching_courses = []
+            for course in all_courses:
+                course_year = normalize_label(course.display_year or course.year or '')
+                course_term = normalize_label(course.display_term or course.term or '')
+                if course_year == normalized_year and course_term == normalized_term:
+                    matching_courses.append(course)
+            
+            current_app.logger.info(f'Found {len(matching_courses)} matching courses out of {len(all_courses)} total courses')
+            
+            # Get existing assignments to filter out assigned subjects
+            existing_assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            ).all()
+            
+            assigned_map = {}  # {(course_id, part): teacher_id}
+            question_setter_map = {}  # {(course_id, part): question_setter_id}
+            is_same_map = {}  # {(course_id, part): is_same_person}
+            for assignment in existing_assignments:
+                key = (assignment.course_id, assignment.part)
+                assigned_map[key] = assignment.assigned_teacher_id
+                question_setter_map[key] = assignment.question_setter_id
+                is_same_map[key] = assignment.is_same_person
+            
+            # Build response with Part A and Part B
+            assignment_id_map = {}  # {(course_id, part): assignment_id}
+            for assignment in existing_assignments:
+                key = (assignment.course_id, assignment.part)
+                assignment_id_map[key] = assignment.id
+            
+            subjects = []
+            for course in matching_courses:
+                # Check if Part A is assigned
+                part_a_assigned = assigned_map.get((course.id, 'A'))
+                part_b_assigned = assigned_map.get((course.id, 'B'))
+                part_a_assignment_id = assignment_id_map.get((course.id, 'A'))
+                part_b_assignment_id = assignment_id_map.get((course.id, 'B'))
+                
+                subjects.append({
+                    'course_id': course.id,
+                    'course_code': course.course_code,
+                    'course_name': course.course_name,
+                    'part_a': {
+                        'assigned': bool(part_a_assigned),
+                        'assigned_teacher_id': part_a_assigned,
+                        'assignment_id': part_a_assignment_id,
+                        'question_setter_id': question_setter_map.get((course.id, 'A')),
+                        'is_same_person': is_same_map.get((course.id, 'A'), False),
+                        'has_content': bool(course.content_section_a)
+                    },
+                    'part_b': {
+                        'assigned': bool(part_b_assigned),
+                        'assigned_teacher_id': part_b_assigned,
+                        'assignment_id': part_b_assignment_id,
+                        'question_setter_id': question_setter_map.get((course.id, 'B')),
+                        'is_same_person': is_same_map.get((course.id, 'B'), False),
+                        'has_content': bool(course.content_section_b)
+                    }
+                })
+            
+            return jsonify({
+                'success': True,
+                'subjects': subjects
+            })
+        except Exception as exc:
+            current_app.logger.error(f'Failed to get subjects: {exc}', exc_info=True)
+            return jsonify({'success': False, 'message': 'Failed to get subjects'}), 500
+    
+    @app.route('/exam-committee-chief/assign-evaluator', methods=['POST'])
+    @login_required
+    def assign_evaluator():
+        """Assign Exam Paper Evaluator to a subject part"""
+        # Check if current user is assigned as Exam Committee Chief or Member
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+        
+        chief_assignment = DutyAssignment.query.filter_by(
+            duty_type='exam_committee_chief',
+            assigned_teacher_id=teacher.id,
+            status='active'
+        ).first()
+        
+        member_assignment = DutyAssignment.query.filter(
+            DutyAssignment.duty_type == 'exam_committee_member',
+            DutyAssignment.assigned_teacher_id == teacher.id,
+            DutyAssignment.status == 'active'
+        ).first()
+        
+        if not chief_assignment and not member_assignment:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
+        
+        data = request.get_json() or {}
+        course_id = data.get('course_id')
+        part = data.get('part', '').strip().upper()  # 'A' or 'B'
+        assigned_teacher_id = data.get('assigned_teacher_id')
+        question_setter_id = data.get('question_setter_id')
+        is_same_person = data.get('is_same_person', False)
+        academic_session = data.get('academic_session', '').strip()
+        year = data.get('year', '').strip()
+        term = data.get('term', '').strip()
+        
+        # If is_same_person is True, set question_setter_id to assigned_teacher_id
+        if is_same_person:
+            question_setter_id = assigned_teacher_id
+        
+        # Convert course_id and assigned_teacher_id to int
+        try:
+            if course_id:
+                course_id = int(course_id)
+            if assigned_teacher_id:
+                assigned_teacher_id = int(assigned_teacher_id)
+            if question_setter_id:
+                question_setter_id = int(question_setter_id)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'message': 'Invalid course_id or assigned_teacher_id'}), 400
+        
+        if not all([course_id, part, assigned_teacher_id, academic_session, year, term]):
+            return jsonify({'success': False, 'message': 'All fields are required'}), 400
+        
+        if part not in ['A', 'B']:
+            return jsonify({'success': False, 'message': 'Part must be A or B'}), 400
+        
+        try:
+            from blueprints.course_management.models import Course
+            from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+            
+            course = Course.query.get(course_id)
+            if not course:
+                return jsonify({'success': False, 'message': 'Course not found'}), 404
+            
+            # Check if already assigned
+            existing = ExamPaperEvaluatorAssignment.query.filter_by(
+                course_id=course_id,
+                part=part,
+                academic_session=academic_session,
+                year=year,
+                term=term
+            ).first()
+            
+            if existing:
+                return jsonify({'success': False, 'message': 'This subject part is already assigned'}), 400
+            
+            # Create ExamPaperEvaluation entry for the assigned teacher
+            exam_evaluation = ExamPaperEvaluation(
+                course_name=course.course_name,
+                course_code=course.course_code,
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                section=f'Part {part}',
+                program_level=course.category or 'ug',
+                owner_teacher_id=assigned_teacher_id,
+                submitted_to_committee=False
+            )
+            db.session.add(exam_evaluation)
+            db.session.flush()  # Get the ID
+            
+            # Create assignment record
+            assignment = ExamPaperEvaluatorAssignment(
+                course_id=course_id,
+                part=part,
+                assigned_teacher_id=assigned_teacher_id,
+                question_setter_id=question_setter_id,
+                is_same_person=is_same_person,
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                exam_paper_evaluation_id=exam_evaluation.id,
+                assigned_by_id=current_user.id
+            )
+            db.session.add(assignment)
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'Evaluator assigned successfully to {course.course_code} Part {part}',
+                'assignment_id': assignment.id
+            })
+        except Exception as exc:
+            db.session.rollback()
+            error_message = str(exc)
+            current_app.logger.error(f'Failed to assign evaluator: {exc}', exc_info=True)
+            return jsonify({
+                'success': False, 
+                'message': f'Failed to assign evaluator: {error_message}'
+            }), 500
+    
+    @app.route('/exam-committee-chief/get-evaluator-assignments', methods=['GET'])
+    @login_required
+    def get_evaluator_assignments():
+        """Get evaluator assignments for Remuneration Form auto-population"""
+        academic_session = request.args.get('academic_session', '').strip()
+        year = request.args.get('year', '').strip()
+        term = request.args.get('term', '').strip()
+        
+        if not all([academic_session, year, term]):
+            return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+        
+        try:
+            from blueprints.class_management.models import ExamPaperEvaluatorAssignment, ExamPaperEvaluation
+            from blueprints.course_management.models import Course
+            
+            # Get all assignments for this session/year/term
+            assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            ).all()
+            
+            # Build a map: {(course_code, part): {question_setter_name, evaluator_name, script_count}}
+            assignment_map = {}
+            for assignment in assignments:
+                course = Course.query.get(assignment.course_id)
+                if not course:
+                    continue
+                
+                # Get question setter name
+                question_setter_name = None
+                if assignment.question_setter_id:
+                    question_setter = Teacher.query.get(assignment.question_setter_id)
+                    if question_setter:
+                        question_setter_name = question_setter.name
+                
+                # Get evaluator name
+                evaluator_name = None
+                if assignment.assigned_teacher_id:
+                    evaluator = Teacher.query.get(assignment.assigned_teacher_id)
+                    if evaluator:
+                        evaluator_name = evaluator.name
+                
+                # Get script count for this evaluator/course/part
+                # Count ALL submitted scripts for this teacher/course/part combination
+                script_count = 0
+                if assignment.assigned_teacher_id:
+                    course_code = course.course_code.strip()
+                    part = assignment.part.strip().upper()
+                    section_text = f"Part {part}"
+                    
+                    # Find ALL submitted exam evaluations for this teacher/course/part
+                    # Only count entries that are submitted to committee
+                    submitted_entries = ExamPaperEvaluation.query.filter(
+                        ExamPaperEvaluation.owner_teacher_id == assignment.assigned_teacher_id,
+                        ExamPaperEvaluation.course_code == course_code,
+                        ExamPaperEvaluation.section == section_text,
+                        ExamPaperEvaluation.academic_session == academic_session,
+                        ExamPaperEvaluation.year == year,
+                        ExamPaperEvaluation.term == term,
+                        ExamPaperEvaluation.submitted_to_committee == True
+                    ).all()
+                    
+                    # Sum up script counts from ALL submitted entries
+                    for entry in submitted_entries:
+                        if entry.marks_data:
+                            try:
+                                marks_data = json.loads(entry.marks_data) if isinstance(entry.marks_data, str) else entry.marks_data
+                                if isinstance(marks_data, dict):
+                                    # Check if marks_data has a "rows" array (new structure)
+                                    if 'rows' in marks_data and isinstance(marks_data['rows'], list):
+                                        # Count number of student rows
+                                        script_count += len(marks_data['rows'])
+                                    else:
+                                        # Fallback: if marks_data is a direct dict of students (old structure)
+                                        # Count number of student keys (excluding metadata keys)
+                                        student_keys = [k for k in marks_data.keys() if k not in ['questions', 'rows']]
+                                        script_count += len(student_keys)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                
+                # Use course_code as key (normalize it)
+                course_code = course.course_code.strip()
+                part = assignment.part.strip().upper()
+                course_full_text = f"{course_code} - {course.course_name}"
+                
+                # Store by course_code and full course text (JSON stringified for JavaScript compatibility)
+                key_by_code = json.dumps([course_code, part])
+                key_by_full = json.dumps([course_full_text, part])
+                
+                assignment_data = {
+                    'question_setter_name': question_setter_name,
+                    'evaluator_name': evaluator_name,
+                    'script_count': script_count,
+                    'course_code': course_code,
+                    'course_name': course.course_name
+                }
+                
+                assignment_map[key_by_code] = assignment_data
+                assignment_map[key_by_full] = assignment_data
+            
+            return jsonify({
+                'success': True,
+                'assignments': assignment_map
+            })
+        except Exception as exc:
+            current_app.logger.error(f'Failed to get evaluator assignments: {exc}', exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': f'Failed to get evaluator assignments: {str(exc)}'
+            }), 500
+    
+    @app.route('/exam-committee-chief/get-scrutinizers-with-scripts', methods=['GET'])
+    @login_required
+    def get_scrutinizers_with_scripts():
+        """Get scrutinizers with their script counts for the current session/year/term"""
+        academic_session = request.args.get('academic_session', '').strip()
+        year = request.args.get('year', '').strip()
+        term = request.args.get('term', '').strip()
+        
+        if not all([academic_session, year, term]):
+            return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+        
+        try:
+            from blueprints.class_management.models import ExamPaperEvaluation
+            
+            # Get all submitted exam entries for this session/year/term that have assigned scrutinizers
+            submitted_entries = ExamPaperEvaluation.query.filter(
+                ExamPaperEvaluation.academic_session == academic_session,
+                ExamPaperEvaluation.year == year,
+                ExamPaperEvaluation.term == term,
+                ExamPaperEvaluation.submitted_to_committee == True,
+                ExamPaperEvaluation.assigned_scrutinizer_id.isnot(None)
+            ).all()
+            
+            # Build a map: {teacher_id: {'name': teacher_name, 'script_count': total_count}}
+            scrutinizer_map = {}
+            
+            for entry in submitted_entries:
+                if not entry.assigned_scrutinizer_id or not entry.marks_data:
+                    continue
+                
+                # Get scrutinizer
+                scrutinizer = Teacher.query.get(entry.assigned_scrutinizer_id)
+                if not scrutinizer:
+                    continue
+                
+                teacher_id = scrutinizer.id
+                
+                # Count scripts from marks_data
+                try:
+                    marks_data = json.loads(entry.marks_data) if isinstance(entry.marks_data, str) else entry.marks_data
+                    script_count = 0
+                    
+                    if isinstance(marks_data, dict):
+                        # Check if marks_data has a "rows" array (new structure)
+                        if 'rows' in marks_data and isinstance(marks_data['rows'], list):
+                            # Count number of student rows
+                            script_count = len(marks_data['rows'])
+                        else:
+                            # Fallback: if marks_data is a direct dict of students (old structure)
+                            # Count number of student keys (excluding metadata keys)
+                            student_keys = [k for k in marks_data.keys() if k not in ['questions', 'rows']]
+                            script_count = len(student_keys)
+                    
+                    # Add to total for this scrutinizer
+                    if teacher_id in scrutinizer_map:
+                        scrutinizer_map[teacher_id]['script_count'] += script_count
+                    else:
+                        scrutinizer_map[teacher_id] = {
+                            'name': scrutinizer.name,
+                            'designation': scrutinizer.designation or '',
+                            'institute': scrutinizer.institute or 'Law Discipline, KU',
+                            'script_count': script_count
+                        }
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            # Convert to list
+            scrutinizers = list(scrutinizer_map.values())
+            
+            return jsonify({
+                'success': True,
+                'scrutinizers': scrutinizers
+            })
+        except Exception as exc:
+            current_app.logger.error(f'Failed to get scrutinizers with scripts: {exc}', exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': f'Failed to get scrutinizers with scripts: {str(exc)}'
+            }), 500
+    
+    @app.route('/exam-committee-chief/unassign-evaluator', methods=['POST'])
+    @login_required
+    def unassign_evaluator():
+        """Unassign Exam Paper Evaluator from a subject part"""
+        # Check if current user is assigned as Exam Committee Chief or Member
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+        
+        chief_assignment = DutyAssignment.query.filter_by(
+            duty_type='exam_committee_chief',
+            assigned_teacher_id=teacher.id,
+            status='active'
+        ).first()
+        
+        member_assignment = DutyAssignment.query.filter(
+            DutyAssignment.duty_type == 'exam_committee_member',
+            DutyAssignment.assigned_teacher_id == teacher.id,
+            DutyAssignment.status == 'active'
+        ).first()
+        
+        if not chief_assignment and not member_assignment:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
+        
+        data = request.get_json() or {}
+        assignment_id = data.get('assignment_id')
+        course_id = data.get('course_id')
+        part = data.get('part', '').strip().upper()
+        academic_session = data.get('academic_session', '').strip()
+        year = data.get('year', '').strip()
+        term = data.get('term', '').strip()
+        
+        try:
+            from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+            
+            # Find assignment by ID or by course_id/part/session/year/term
+            if assignment_id:
+                assignment = ExamPaperEvaluatorAssignment.query.get(assignment_id)
+            elif course_id and part and academic_session and year and term:
+                assignment = ExamPaperEvaluatorAssignment.query.filter_by(
+                    course_id=course_id,
+                    part=part,
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).first()
+            else:
+                return jsonify({'success': False, 'message': 'Either assignment_id or course_id/part/session/year/term is required'}), 400
+            
+            if not assignment:
+                return jsonify({'success': False, 'message': 'Assignment not found'}), 404
+            
+            # Delete the ExamPaperEvaluation entry and related records
+            if assignment.exam_paper_evaluation_id:
+                exam_eval = ExamPaperEvaluation.query.get(assignment.exam_paper_evaluation_id)
+                if exam_eval:
+                    # Delete related ExamScrutinizerInvite records first
+                    from blueprints.class_management.models import ExamScrutinizerInvite
+                    ExamScrutinizerInvite.query.filter_by(exam_entry_id=exam_eval.id).delete()
+                    # Now delete the exam evaluation entry
+                    db.session.delete(exam_eval)
+            
+            # Delete the assignment
+            db.session.delete(assignment)
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': 'Evaluator unassigned successfully'
+            })
+        except Exception as exc:
+            db.session.rollback()
+            error_message = str(exc)
+            current_app.logger.error(f'Failed to unassign evaluator: {exc}', exc_info=True)
+            return jsonify({
+                'success': False, 
+                'message': f'Failed to unassign evaluator: {error_message}'
+            }), 500
 
     @app.route('/exam-committee-chief/reset-committee-members', methods=['POST'])
     @login_required
@@ -7701,6 +8386,7 @@ def create_app():
     @login_required
     def remuneration_get_tabulators():
         """Get assigned tabulators for Table 9 (Tabulation)"""
+        import json
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
@@ -7713,7 +8399,8 @@ def create_app():
             return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
         
         try:
-            from blueprints.class_management.models import Teacher, DutyAssignment
+            from blueprints.course_management.models import DutyAssignment
+            from blueprints.class_management.models import Teacher
             
             # Get current user's teacher record
             teacher = Teacher.query.filter_by(name=current_user.full_name).first()
@@ -7731,6 +8418,7 @@ def create_app():
                 return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
             
             # Get tabulators assigned by this Exam Committee Chief for the given session/year/term
+            # Simplified query - use filter_by for exact matches
             tabulator_assignments = DutyAssignment.query.filter_by(
                 duty_type='tabulator',
                 assigned_by_id=current_user.id,

@@ -50,7 +50,13 @@
         <input type="hidden" name="dissertation_type" value="{{ selected_subject.dissertation_type }}">
         {% endif %}
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0">Marks for: <strong>{{ selected_subject.name }}</strong></h4>
+            <div>
+                <h4 class="mb-0">Marks for: <strong>{{ selected_subject.name }}</strong></h4>
+                <small id="saveStatus" class="text-muted" style="display: none;">
+                    <i class="fas fa-circle" id="saveStatusIcon"></i>
+                    <span id="saveStatusText"></span>
+                </small>
+            </div>
             <button type="button" class="btn btn-info" id="refreshMarksBtn" data-subject-id="{{ selected_subject.id }}">
                 <i class="fas fa-sync-alt me-2"></i>Refresh Marks from Sources
             </button>
@@ -95,7 +101,7 @@
                     {% for student in students %}
                     {% set mark = marks_data.get(student.id) %}
                     {% set registration = registrations_data.get(student.id) %}
-                    {% set is_retake = (registration and registration.is_retake) or (mark and mark.is_retake) %}
+                    {% set is_retake = (registration and registration.get('is_retake')) or (mark and mark.is_retake) %}
                     <tr data-student-id="{{ student.id }}" data-is-retake="{{ 1 if is_retake else 0 }}">
                         <td class="text-start">{{ student.student_id }}</td>
                         <td class="text-start">{{ student.name }}</td>
@@ -200,9 +206,146 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('tr[data-student-id]').forEach(row => {
         updateRow(row);
         row.querySelectorAll('.marks-input').forEach(input => {
-            input.addEventListener('input', () => updateRow(row));
+            input.addEventListener('input', () => {
+                updateRow(row);
+                // Trigger auto-save
+                triggerAutoSave();
+            });
         });
     });
+    
+    // Auto-save functionality
+    let autoSaveTimeout = null;
+    let isSaving = false;
+    const saveStatus = document.getElementById('saveStatus');
+    const saveStatusIcon = document.getElementById('saveStatusIcon');
+    const saveStatusText = document.getElementById('saveStatusText');
+    const sessionId = {{ session.id }};
+    const subjectId = {{ selected_subject.id if selected_subject else 'null' }};
+    
+    function triggerAutoSave() {
+        // Clear existing timeout
+        if (autoSaveTimeout) {
+            clearTimeout(autoSaveTimeout);
+        }
+        
+        // Show "Saving..." status
+        if (saveStatus) {
+            saveStatus.style.display = 'inline';
+            saveStatusIcon.className = 'fas fa-spinner fa-spin';
+            saveStatusIcon.style.color = '#ffc107';
+            saveStatusText.textContent = 'Saving...';
+        }
+        
+        // Set new timeout (debounce: 2 seconds)
+        autoSaveTimeout = setTimeout(() => {
+            if (isSaving) {
+                // If already saving, retry after a short delay
+                setTimeout(triggerAutoSave, 500);
+                return;
+            }
+            
+            performAutoSave();
+        }, 2000);
+    }
+    
+    function performAutoSave() {
+        if (isSaving || !subjectId) return;
+        
+        isSaving = true;
+        
+        // Collect all marks data
+        const marksData = {};
+        document.querySelectorAll('tr[data-student-id]').forEach(row => {
+            const studentId = row.dataset.studentId;
+            const marks = {};
+            
+            // Get all mark inputs for this student
+            row.querySelectorAll('.marks-input').forEach(input => {
+                const name = input.name;
+                if (name.startsWith('attendance_')) {
+                    marks.attendance = input.value || null;
+                } else if (name.startsWith('continuous_assessment_')) {
+                    marks.continuous_assessment = input.value || null;
+                } else if (name.startsWith('part_a_')) {
+                    marks.part_a = input.value || null;
+                } else if (name.startsWith('part_b_')) {
+                    marks.part_b = input.value || null;
+                } else if (name.startsWith('sessional_report_')) {
+                    marks.sessional_report = input.value || null;
+                } else if (name.startsWith('sessional_viva_')) {
+                    marks.sessional_viva = input.value || null;
+                } else if (name.startsWith('supervisor_assessment_')) {
+                    marks.supervisor_assessment = input.value || null;
+                } else if (name.startsWith('proposal_presentation_')) {
+                    marks.proposal_presentation = input.value || null;
+                } else if (name.startsWith('project_report_')) {
+                    marks.project_report = input.value || null;
+                } else if (name.startsWith('defense_')) {
+                    marks.defense = input.value || null;
+                } else if (name.startsWith('viva_')) {
+                    marks.viva = input.value || null;
+                }
+            });
+            
+            if (Object.keys(marks).length > 0) {
+                marksData[studentId] = marks;
+            }
+        });
+        
+        // Send to server
+        fetch(`/result-management/auto_save_marks/${sessionId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                subject_id: subjectId,
+                marks: marksData
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            isSaving = false;
+            if (data.success) {
+                // Show success status
+                if (saveStatus) {
+                    saveStatusIcon.className = 'fas fa-check-circle';
+                    saveStatusIcon.style.color = '#28a745';
+                    saveStatusText.textContent = 'Saved';
+                    // Hide after 3 seconds
+                    setTimeout(() => {
+                        saveStatus.style.display = 'none';
+                    }, 3000);
+                }
+            } else {
+                // Show error status
+                if (saveStatus) {
+                    saveStatusIcon.className = 'fas fa-exclamation-circle';
+                    saveStatusIcon.style.color = '#dc3545';
+                    saveStatusText.textContent = 'Error saving';
+                    // Hide after 5 seconds
+                    setTimeout(() => {
+                        saveStatus.style.display = 'none';
+                    }, 5000);
+                }
+            }
+        })
+        .catch(error => {
+            isSaving = false;
+            console.error('Auto-save error:', error);
+            // Show error status
+            if (saveStatus) {
+                saveStatusIcon.className = 'fas fa-exclamation-circle';
+                saveStatusIcon.style.color = '#dc3545';
+                saveStatusText.textContent = 'Error saving';
+                // Hide after 5 seconds
+                setTimeout(() => {
+                    saveStatus.style.display = 'none';
+                }, 5000);
+            }
+        });
+    }
 
     // --- DEBUGGING Tab Navigation ---
     console.log('Tab navigation script loaded. Awaiting Tab key press...');

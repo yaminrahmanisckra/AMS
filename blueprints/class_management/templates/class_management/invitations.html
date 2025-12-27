@@ -117,20 +117,38 @@
         <div class="text-center text-muted py-4">No peer review invitations yet.</div>
       {% endif %}
 
-      <h6 class="text-uppercase text-muted mb-3">Exam Paper Scrutinizer Invitations</h6>
+      <h6 class="text-uppercase text-muted mb-2">Exam Paper Scrutinizer Invitations</h6>
       {% if exam_invites %}
         <div class="table-responsive">
-          <table class="table table-hover align-middle">
+          <style>
+            .compact-table th, .compact-table td {
+              padding: 0.4rem 0.5rem;
+              font-size: 0.875rem;
+              vertical-align: middle;
+            }
+            .compact-table .badge {
+              font-size: 0.75rem;
+              padding: 0.25rem 0.5rem;
+            }
+            .compact-table .btn-sm {
+              padding: 0.2rem 0.5rem;
+              font-size: 0.8rem;
+            }
+            .compact-table .btn-sm i {
+              font-size: 0.75rem;
+            }
+          </style>
+          <table class="table table-hover align-middle compact-table">
             <thead class="table-light">
               <tr>
-                <th>#</th>
-                <th>Course</th>
-                <th>Invited By</th>
-                <th>Status</th>
-                <th>Completion</th>
-                <th>Remarks</th>
-                <th>Invited On</th>
-                <th>Action</th>
+                <th style="width: 3%;">#</th>
+                <th style="width: 20%;">Course</th>
+                <th style="width: 12%;">Invited By</th>
+                <th style="width: 10%;">Status</th>
+                <th style="width: 10%;">Completion</th>
+                <th style="width: 12%;">Remarks</th>
+                <th style="width: 10%;">Invited On</th>
+                <th style="width: 23%;">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -140,13 +158,13 @@
                 <tr>
                   <td>{{ loop.index }}</td>
                   <td>
-                    <strong>{{ entry.course_name if entry else 'N/A' }}</strong>
-                    <div class="text-muted small">{{ entry.course_code if entry else '' }}</div>
+                    <strong style="font-size: 0.9rem;">{{ entry.course_name if entry else 'N/A' }}</strong>
+                    <div class="text-muted" style="font-size: 0.75rem; line-height: 1.2;">{{ entry.course_code if entry else '' }}</div>
                     {% if entry and entry.section %}
-                    <div class="text-info small mt-1"><strong>Part: {{ entry.section }}</strong></div>
+                    <div class="text-info" style="font-size: 0.75rem; line-height: 1.2; margin-top: 2px;"><strong>Part: {{ entry.section }}</strong></div>
                     {% endif %}
                   </td>
-                  <td>{{ inviter.name if inviter else 'N/A' }}</td>
+                  <td style="font-size: 0.85rem;">{{ inviter.name if inviter else 'N/A' }}</td>
                   <td>
                     {% set badge_class = {
                       'invited': 'bg-warning text-dark',
@@ -164,36 +182,38 @@
                         <span class="badge bg-warning text-dark">Incomplete</span>
                       {% endif %}
                     {% else %}
-                      <span class="text-muted">—</span>
+                      <span class="text-muted" style="font-size: 0.8rem;">—</span>
                     {% endif %}
                   </td>
-                  <td class="small">{{ inv.remarks or '—' }}</td>
-                  <td class="small">{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
-                  <td class="d-flex flex-wrap gap-2">
-                    {% if inv.status == 'invited' %}
-                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='accept') }}" method="POST" class="m-0">
-                        <button type="submit" class="btn btn-outline-success btn-sm"><i class="fas fa-check me-1"></i>Accept</button>
-                      </form>
-                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='decline') }}" method="POST" class="m-0">
-                        <button type="submit" class="btn btn-outline-danger btn-sm"><i class="fas fa-times me-1"></i>Decline</button>
-                      </form>
-                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='cancel') }}" method="POST" class="m-0">
-                        <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="fas fa-ban me-1"></i>Cancel</button>
-                      </form>
-                    {% elif inv.status == 'accepted' and entry %}
-                      <a class="btn btn-outline-primary btn-sm" href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}">
-                        <i class="fas fa-clipboard-list me-1"></i>Open Marks Sheet
-                      </a>
-                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='toggle_complete') }}" method="POST" class="m-0">
-                        <button type="submit" class="btn btn-outline-{{ 'success' if not inv.is_complete else 'warning' }} btn-sm">
-                          <i class="fas fa-{{ 'check-circle' if not inv.is_complete else 'times-circle' }} me-1"></i>
-                          {{ 'Mark Complete' if not inv.is_complete else 'Mark Incomplete' }}
-                        </button>
-                      </form>
-                      <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='cancel') }}" method="POST" class="m-0">
-                        <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="fas fa-ban me-1"></i>Cancel</button>
-                      </form>
-                    {% endif %}
+                  <td style="font-size: 0.8rem;">{{ inv.remarks or '—' }}</td>
+                  <td style="font-size: 0.8rem;">{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td>
+                    <div class="d-flex flex-wrap gap-1">
+                      {% if inv.status == 'invited' %}
+                        <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='accept') }}" method="POST" class="m-0">
+                          <button type="submit" class="btn btn-outline-success btn-sm"><i class="fas fa-check"></i> Accept</button>
+                        </form>
+                        <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='decline') }}" method="POST" class="m-0">
+                          <button type="submit" class="btn btn-outline-danger btn-sm"><i class="fas fa-times"></i> Decline</button>
+                        </form>
+                        <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='cancel') }}" method="POST" class="m-0">
+                          <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="fas fa-ban"></i> Cancel</button>
+                        </form>
+                      {% elif inv.status == 'accepted' and entry %}
+                        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}">
+                          <i class="fas fa-clipboard-list"></i> Open
+                        </a>
+                        <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='toggle_complete') }}" method="POST" class="m-0">
+                          <button type="submit" class="btn btn-outline-{{ 'success' if not inv.is_complete else 'warning' }} btn-sm">
+                            <i class="fas fa-{{ 'check-circle' if not inv.is_complete else 'times-circle' }}"></i>
+                            {{ 'Complete' if not inv.is_complete else 'Incomplete' }}
+                          </button>
+                        </form>
+                        <form action="{{ url_for('exam_scrutinizer_invitation_action', invite_id=inv.id, action='cancel') }}" method="POST" class="m-0">
+                          <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="fas fa-ban"></i> Cancel</button>
+                        </form>
+                      {% endif %}
+                    </div>
                   </td>
                 </tr>
               {% endfor %}

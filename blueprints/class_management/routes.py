@@ -2187,43 +2187,41 @@ def save_course_outline(session_id):
                 course_outline.plo_mapping = json.dumps(data.get('plo_mapping', {}))
         except AttributeError:
             current_app.logger.warning("Some new course_outline columns don't exist yet. Please run migration.")
-        try:
-            if 'course_content_summary' in data:
-                # Store as JSON format
-                content_summary = data.get('course_content_summary')
-                if content_summary:
-                    try:
-                        # Try to parse as JSON
-                        content_data = json.loads(content_summary)
-                        if isinstance(content_data, dict):
-                            course_outline.course_content_summary = json.dumps(content_data)
-                        else:
-                            # Store as text if not valid JSON
-                            course_outline.course_content_summary = content_summary
-                    except (json.JSONDecodeError, TypeError):
-                        # Not JSON, store as text
+        
+        if 'course_content_summary' in data:
+            # Store as JSON format
+            content_summary = data.get('course_content_summary')
+            if content_summary:
+                try:
+                    # Try to parse as JSON
+                    content_data = json.loads(content_summary)
+                    if isinstance(content_data, dict):
+                        course_outline.course_content_summary = json.dumps(content_data)
+                    else:
+                        # Store as text if not valid JSON
                         course_outline.course_content_summary = content_summary
-                else:
-                    course_outline.course_content_summary = None
-            if 'clo_plo_mapping' in data:
-                course_outline.clo_plo_mapping = data.get('clo_plo_mapping')
-            if 'evaluation_policy' in data:
-                course_outline.evaluation_policy = json.dumps(data.get('evaluation_policy', {})) if isinstance(data.get('evaluation_policy'), dict) else data.get('evaluation_policy')
-            if 'cie_breakdown' in data:
-                cie_breakdown = data.get('cie_breakdown', [])
-                if isinstance(cie_breakdown, (list, dict)):
-                    course_outline.cie_breakdown = json.dumps(cie_breakdown)
-                else:
-                    course_outline.cie_breakdown = cie_breakdown
-            if 'smee_breakdown' in data:
-                smee_breakdown = data.get('smee_breakdown', [])
-                if isinstance(smee_breakdown, (list, dict)):
-                    course_outline.smee_breakdown = json.dumps(smee_breakdown)
-                else:
-                    course_outline.smee_breakdown = smee_breakdown
-        except AttributeError:
-            # Columns don't exist yet - will be added by migration
-            current_app.logger.warning("Some course_outline columns don't exist yet. Please run migration.")
+                except (json.JSONDecodeError, TypeError):
+                    # Not JSON, store as text
+                    course_outline.course_content_summary = content_summary
+            else:
+                course_outline.course_content_summary = None
+        if 'clo_plo_mapping' in data:
+            course_outline.clo_plo_mapping = data.get('clo_plo_mapping')
+        if 'evaluation_policy' in data:
+            course_outline.evaluation_policy = json.dumps(data.get('evaluation_policy', {})) if isinstance(data.get('evaluation_policy'), dict) else data.get('evaluation_policy')
+        if 'cie_breakdown' in data:
+            cie_breakdown = data.get('cie_breakdown', [])
+            if isinstance(cie_breakdown, (list, dict)):
+                course_outline.cie_breakdown = json.dumps(cie_breakdown)
+            else:
+                course_outline.cie_breakdown = cie_breakdown
+        if 'smee_breakdown' in data:
+            smee_breakdown = data.get('smee_breakdown', [])
+            if isinstance(smee_breakdown, (list, dict)):
+                course_outline.smee_breakdown = json.dumps(smee_breakdown)
+            else:
+                course_outline.smee_breakdown = smee_breakdown
+        
         if 'lesson_plan' in data:
             course_outline.lesson_plan = json.dumps(data.get('lesson_plan', [])) if isinstance(data.get('lesson_plan'), list) else data.get('lesson_plan')
         if 'assessment_strategy' in data:
@@ -2245,10 +2243,12 @@ def save_course_outline(session_id):
                 course_outline.course_file_components = json.dumps(data.get('course_file_components', [])) if isinstance(data.get('course_file_components'), list) else data.get('course_file_components')
         except AttributeError:
             current_app.logger.warning("course_file_components column doesn't exist yet.")
+        
         if 'make_up_procedures' in data:
             course_outline.make_up_procedures = data.get('make_up_procedures')
         if 'other_issues' in data:
             course_outline.other_issues = json.dumps(data.get('other_issues', {})) if isinstance(data.get('other_issues'), dict) else data.get('other_issues')
+        
         try:
             # Always process student_access_enabled
             if 'student_access_enabled' in data:
@@ -2276,19 +2276,18 @@ def save_course_outline(session_id):
                 return jsonify({'success': False, 'message': f'Database error: {str(e)}'}), 500
             flash(f'Error saving course outline: {str(e)}', 'error')
             return redirect(url_for('class_management.course_file', session_id=session_id))
-        
-        if request.is_json:
-            return jsonify({'success': True, 'message': 'Course outline saved successfully!'})
-        flash('Course outline saved successfully!', 'success')
-        return redirect(url_for('class_management.course_file', session_id=session_id))
-    
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error saving course outline for session {session_id}: {e}", exc_info=True)
         if request.is_json:
-            return jsonify({'success': False, 'message': f'Error saving course outline: {str(e)}'}), 500
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
         flash(f'Error saving course outline: {str(e)}', 'error')
         return redirect(url_for('class_management.course_file', session_id=session_id))
+    
+    if request.is_json:
+        return jsonify({'success': True, 'message': 'Course outline saved successfully!'})
+    flash('Course outline saved successfully!', 'success')
+    return redirect(url_for('class_management.course_file', session_id=session_id))
 
 @class_management_bp.route('/course_file/<int:session_id>/outline/generate-ai', methods=['POST'])
 @login_required

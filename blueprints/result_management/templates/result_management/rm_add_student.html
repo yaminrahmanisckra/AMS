@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', function() {
         container.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> Loading students...</div>';
         
         const params = new URLSearchParams();
+        params.append('session_id', sessionId); // Always include session_id to filter by session/year/term
         if (search) params.append('search', search);
         
         fetch(`/result-management/api/students?${params.toString()}`)

@@ -4,7 +4,12 @@
 <div class="container my-5">
     <div class="d-flex justify-content-between align-items-center flex-wrap mb-4">
         <div>
-            <h1 class="mb-1">Exam Committee Chief Dashboard</h1>
+            <div class="d-flex align-items-center gap-3 mb-2">
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                </a>
+                <h1 class="mb-0">Exam Committee Chief Dashboard</h1>
+            </div>
             <p class="text-muted mb-0">Manage Tabulators and Scrutinizers</p>
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -243,6 +248,40 @@
                                     </div>
                                 </form>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Assign Exam Paper Evaluator -->
+                    <div class="mb-4">
+                        <h5 class="mb-3"><i class="fas fa-clipboard-check me-2"></i>Assign Exam Paper Evaluator</h5>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Assign teachers to evaluate exam papers for subjects from the curriculum. Each subject has Part A and Part B.
+                        </div>
+                        <div id="evaluatorAssignmentSection">
+                            <div id="subjectsListContainer" style="display: none;">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-hover">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Course Code</th>
+                                                <th>Course Name</th>
+                                                <th>Part A<br><small class="text-muted">Evaluator / Question Setter</small></th>
+                                                <th>Part B<br><small class="text-muted">Evaluator / Question Setter</small></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="subjectsTableBody">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div id="subjectsLoading" class="text-center" style="display: none;">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mt-2">Loading subjects...</p>
+                            </div>
+                            <div id="subjectsError" class="alert alert-danger" style="display: none;"></div>
                         </div>
                     </div>
 
@@ -1477,7 +1516,518 @@ document.addEventListener('DOMContentLoaded', function() {
             attributes: false
         });
     }
+    
+    // Auto-load subjects for evaluator assignment
+    const session = {{ (current_session or "")|tojson }};
+    const year = {{ (current_year or "")|tojson }};
+    const term = {{ (current_term or "")|tojson }};
+    
+    if (session && year && term) {
+        loadSubjectsForEvaluator();
+    }
 });
+
+// Exam Paper Evaluator Assignment Functions
+let isReloading = false;
+let reloadTimeout = null;
+
+function reloadSubjectsTable() {
+    
+    // Clear any pending reload
+    if (reloadTimeout) {
+        clearTimeout(reloadTimeout);
+        reloadTimeout = null;
+    }
+    
+    // Prevent multiple simultaneous reloads
+    if (isReloading) {
+        console.log('Reload already in progress, skipping...');
+        // Debounce: schedule reload after current one completes
+        reloadTimeout = setTimeout(() => {
+            reloadTimeout = null;
+            if (!isReloading) {
+                reloadSubjectsTable();
+            }
+        }, 500);
+        return;
+    }
+    
+    console.log('reloadSubjectsTable called');
+    isReloading = true;
+    
+    const session = {{ (current_session or "")|tojson }};
+    const year = {{ (current_year or "")|tojson }};
+    const term = {{ (current_term or "")|tojson }};
+    
+    if (!session || !year || !term) {
+        console.error('Missing session/year/term');
+        isReloading = false;
+        return;
+    }
+    
+    // Wait a bit for DOM to be ready if elements are not immediately available
+    let loadingDiv = document.getElementById('subjectsLoading');
+    let containerDiv = document.getElementById('subjectsListContainer');
+    let errorDiv = document.getElementById('subjectsError');
+    let tableBody = document.getElementById('subjectsTableBody');
+    
+    // If elements not found, wait a bit and retry once
+    if (!loadingDiv || !containerDiv || !errorDiv || !tableBody) {
+        // Reset flag
+        isReloading = false;
+        console.error('DOM elements not found - table may be rendering');
+        
+        // Retry once after a delay if this was called from an assignment
+        // Only retry if we're not already in a retry loop
+        if (!window._reloadRetryPending) {
+            window._reloadRetryPending = true;
+            setTimeout(() => {
+                window._reloadRetryPending = false;
+                // Check again if elements are available
+                const retryContainer = document.getElementById('subjectsListContainer');
+                const retryTableBody = document.getElementById('subjectsTableBody');
+                if (retryContainer && retryTableBody) {
+                    reloadSubjectsTable();
+                }
+            }, 500);
+        }
+        return;
+    }
+    
+    // Show loading, hide others
+    loadingDiv.style.display = 'block';
+    containerDiv.style.display = 'none';
+    errorDiv.style.display = 'none';
+    tableBody.innerHTML = '';
+    
+    const url = `/exam-committee-chief/get-subjects-for-evaluator?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&_t=${Date.now()}`;
+    
+    // Add timeout to prevent hanging
+    const fetchPromise = fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+        }
+    });
+    
+    const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Fetch timeout after 10 seconds')), 10000);
+    });
+    
+    Promise.race([fetchPromise, timeoutPromise])
+        .then(response => {
+            if (!response || !response.ok) {
+                throw new Error(`HTTP error! status: ${response ? response.status : 'no response'}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            isReloading = false;
+            loadingDiv.style.display = 'none';
+            
+            if (data.success && data.subjects && data.subjects.length > 0) {
+                renderSubjectsTable(data.subjects);
+                containerDiv.style.display = 'block';
+                errorDiv.style.display = 'none';
+                console.log('Table reloaded successfully');
+            } else {
+                containerDiv.style.display = 'none';
+                errorDiv.innerHTML = `<i class="fas fa-info-circle me-2"></i>${data.message || 'No subjects found'}`;
+                errorDiv.className = 'alert alert-warning';
+                errorDiv.style.display = 'block';
+            }
+        })
+        .catch(error => {
+            isReloading = false;
+            loadingDiv.style.display = 'none';
+            containerDiv.style.display = 'none';
+            errorDiv.textContent = 'Error: ' + error.message;
+            errorDiv.className = 'alert alert-danger';
+            errorDiv.style.display = 'block';
+            console.error('Error reloading subjects:', error);
+        });
+}
+
+// Alias for backward compatibility
+function loadSubjectsForEvaluator() {
+    reloadSubjectsTable();
+}
+
+function renderSubjectsTable(subjects) {
+    
+    const tableBody = document.getElementById('subjectsTableBody');
+    if (!tableBody) {
+        console.error('subjectsTableBody element not found');
+        return;
+    }
+    
+    // Clear table first
+    tableBody.innerHTML = '';
+    
+    const teachers = {{ teachers_dict|tojson }};
+    const teacherMap = {};
+    teachers.forEach(t => teacherMap[t.id] = t.name);
+    
+    if (!subjects || subjects.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No subjects found for this session/year/term.</td></tr>';
+        return;
+    }
+    
+    console.log('Rendering table with', subjects.length, 'subjects');
+    
+    // Create teacher options HTML for dropdowns
+    let teacherOptionsHtml = '<option value="">Select Teacher</option>';
+    teachers.forEach(teacher => {
+        teacherOptionsHtml += `<option value="${teacher.id}">${teacher.name}</option>`;
+    });
+    
+    let html = '';
+    subjects.forEach(subject => {
+        // Part A - Evaluator and Question Setter
+        const partAEvaluator = teacherMap[subject.part_a.assigned_teacher_id] || 'N/A';
+        const partAQuestionSetter = subject.part_a.is_same_person 
+            ? `${teacherMap[subject.part_a.assigned_teacher_id] || 'N/A'} <span class="badge bg-info">Same</span>`
+            : (teacherMap[subject.part_a.question_setter_id] || 'Not assigned');
+        
+        const partACell = subject.part_a.assigned && subject.part_a.assignment_id
+            ? `<div>
+                <div class="mb-2">
+                    <strong>Evaluator:</strong> ${partAEvaluator}
+                </div>
+                <div class="mb-2">
+                    <strong>Question Setter:</strong> ${partAQuestionSetter}
+                </div>
+                <button class="btn btn-sm btn-danger" onclick="unassignEvaluator(${subject.part_a.assignment_id}, ${subject.course_id}, 'A', '${subject.course_code.replace(/'/g, "\\'")}')">
+                    <i class="fas fa-times"></i> Unassign
+                </button>
+               </div>`
+            : `<div id="assign-form-${subject.course_id}-A">
+                <div class="mb-2">
+                    <label class="form-label small">Question Setter:</label>
+                    <select class="form-select form-select-sm" style="width: auto; min-width: 200px;" id="question-setter-select-${subject.course_id}-A" onchange="handleQuestionSetterChange(${subject.course_id}, 'A')">
+                        ${teacherOptionsHtml}
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Evaluator:</label>
+                    <div class="d-flex align-items-center gap-2">
+                        <select class="form-select form-select-sm" style="width: auto; min-width: 200px;" id="teacher-select-${subject.course_id}-A">
+                            ${teacherOptionsHtml}
+                        </select>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="same-person-${subject.course_id}-A" onchange="handleSamePersonCheck(${subject.course_id}, 'A')">
+                            <label class="form-check-label small" for="same-person-${subject.course_id}-A">Same</label>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${subject.course_id}, 'A', '${subject.course_code.replace(/'/g, "\\'")}')">
+                    <i class="fas fa-user-plus me-1"></i>Assign
+                </button>
+               </div>`;
+        
+        // Part B - Evaluator and Question Setter
+        const partBEvaluator = teacherMap[subject.part_b.assigned_teacher_id] || 'N/A';
+        const partBQuestionSetter = subject.part_b.is_same_person 
+            ? `${teacherMap[subject.part_b.assigned_teacher_id] || 'N/A'} <span class="badge bg-info">Same</span>`
+            : (teacherMap[subject.part_b.question_setter_id] || 'Not assigned');
+        
+        const partBCell = subject.part_b.assigned && subject.part_b.assignment_id
+            ? `<div>
+                <div class="mb-2">
+                    <strong>Evaluator:</strong> ${partBEvaluator}
+                </div>
+                <div class="mb-2">
+                    <strong>Question Setter:</strong> ${partBQuestionSetter}
+                </div>
+                <button class="btn btn-sm btn-danger" onclick="unassignEvaluator(${subject.part_b.assignment_id}, ${subject.course_id}, 'B', '${subject.course_code.replace(/'/g, "\\'")}')">
+                    <i class="fas fa-times"></i> Unassign
+                </button>
+               </div>`
+            : `<div id="assign-form-${subject.course_id}-B">
+                <div class="mb-2">
+                    <label class="form-label small">Question Setter:</label>
+                    <select class="form-select form-select-sm" style="width: auto; min-width: 200px;" id="question-setter-select-${subject.course_id}-B" onchange="handleQuestionSetterChange(${subject.course_id}, 'B')">
+                        ${teacherOptionsHtml}
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Evaluator:</label>
+                    <div class="d-flex align-items-center gap-2">
+                        <select class="form-select form-select-sm" style="width: auto; min-width: 200px;" id="teacher-select-${subject.course_id}-B">
+                            ${teacherOptionsHtml}
+                        </select>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="same-person-${subject.course_id}-B" onchange="handleSamePersonCheck(${subject.course_id}, 'B')">
+                            <label class="form-check-label small" for="same-person-${subject.course_id}-B">Same</label>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${subject.course_id}, 'B', '${subject.course_code.replace(/'/g, "\\'")}')">
+                    <i class="fas fa-user-plus me-1"></i>Assign
+                </button>
+               </div>`;
+        
+        html += `
+            <tr>
+                <td><strong>${subject.course_code}</strong></td>
+                <td>${subject.course_name}</td>
+                <td>${partACell}</td>
+                <td>${partBCell}</td>
+            </tr>
+        `;
+    });
+    
+    // Update table
+    tableBody.innerHTML = html;
+    
+    console.log('Table rendered successfully with', subjects.length, 'subjects');
+    
+    // Force a reflow to ensure the table is visible
+    void tableBody.offsetHeight;
+    
+    // Ensure container is visible
+    const containerDiv = document.getElementById('subjectsListContainer');
+    if (containerDiv) {
+        containerDiv.style.display = 'block';
+    }
+}
+
+function handleSamePersonCheck(courseId, part) {
+    const sameCheckbox = document.getElementById(`same-person-${courseId}-${part}`);
+    const evaluatorSelect = document.getElementById(`teacher-select-${courseId}-${part}`);
+    const questionSetterSelect = document.getElementById(`question-setter-select-${courseId}-${part}`);
+    
+    if (sameCheckbox && evaluatorSelect && questionSetterSelect) {
+        if (sameCheckbox.checked) {
+            // Set evaluator to same as question setter
+            evaluatorSelect.value = questionSetterSelect.value;
+            evaluatorSelect.disabled = true;
+        } else {
+            // Enable evaluator selection
+            evaluatorSelect.disabled = false;
+        }
+    }
+}
+
+function handleQuestionSetterChange(courseId, part) {
+    const sameCheckbox = document.getElementById(`same-person-${courseId}-${part}`);
+    const evaluatorSelect = document.getElementById(`teacher-select-${courseId}-${part}`);
+    const questionSetterSelect = document.getElementById(`question-setter-select-${courseId}-${part}`);
+    
+    // If "Same" is checked, update evaluator when question setter changes
+    if (sameCheckbox && sameCheckbox.checked && evaluatorSelect && questionSetterSelect) {
+        evaluatorSelect.value = questionSetterSelect.value;
+    }
+}
+
+function assignEvaluatorInline(courseId, part, courseCode) {
+    
+    const questionSetterSelect = document.getElementById(`question-setter-select-${courseId}-${part}`);
+    if (!questionSetterSelect) {
+        alert('Question setter select not found');
+        return;
+    }
+    
+    const questionSetterId = questionSetterSelect.value;
+    if (!questionSetterId) {
+        alert('Please select a question setter');
+        return;
+    }
+    
+    const teacherSelect = document.getElementById(`teacher-select-${courseId}-${part}`);
+    const sameCheckbox = document.getElementById(`same-person-${courseId}-${part}`);
+    
+    let teacherId = null;
+    let isSamePerson = false;
+    
+    if (sameCheckbox && sameCheckbox.checked) {
+        // Same person is both question setter and evaluator
+        teacherId = questionSetterId;
+        isSamePerson = true;
+    } else if (teacherSelect) {
+        teacherId = teacherSelect.value;
+        if (!teacherId) {
+            alert('Please select an evaluator or check "Same"');
+            return;
+        }
+    }
+    
+    const session = {{ (current_session or "")|tojson }};
+    const year = {{ (current_year or "")|tojson }};
+    const term = {{ (current_term or "")|tojson }};
+    
+    const requestData = {
+        course_id: parseInt(courseId),
+        part: part,
+        assigned_teacher_id: parseInt(teacherId),
+        question_setter_id: questionSetterId ? parseInt(questionSetterId) : null,
+        is_same_person: isSamePerson,
+        academic_session: session,
+        year: year,
+        term: term
+    };
+    
+    // Disable button and show loading
+    const assignBtn = event.target;
+    const originalText = assignBtn.innerHTML;
+    assignBtn.disabled = true;
+    assignBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Assigning...';
+    if (teacherSelect) teacherSelect.disabled = true;
+    if (questionSetterSelect) questionSetterSelect.disabled = true;
+    
+    fetch('/exam-committee-chief/assign-evaluator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => {
+                throw new Error(err.message || `HTTP error! status: ${response.status}`);
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            // Direct DOM update: Replace the assign form with assigned state
+            const assignForm = document.getElementById(`assign-form-${courseId}-${part}`);
+            if (assignForm) {
+                const teachers = {{ teachers_dict|tojson }};
+                const teacherMap = {};
+                teachers.forEach(t => teacherMap[t.id] = t.name);
+                const evaluatorName = teacherMap[parseInt(teacherId)] || 'N/A';
+                const questionSetterName = isSamePerson 
+                    ? evaluatorName 
+                    : (teacherMap[parseInt(questionSetterId)] || 'N/A');
+                
+                // Update the cell directly
+                assignForm.outerHTML = `
+                    <div>
+                        <div class="mb-2">
+                            <strong>Evaluator:</strong> ${evaluatorName}
+                        </div>
+                        <div class="mb-2">
+                            <strong>Question Setter:</strong> ${isSamePerson ? questionSetterName + ' <span class="badge bg-info">Same</span>' : questionSetterName}
+                        </div>
+                        <button class="btn btn-sm btn-danger" onclick="unassignEvaluator(${data.assignment_id}, ${courseId}, '${part}', '${courseCode.replace(/'/g, "\\'")}')">
+                            <i class="fas fa-times"></i> Unassign
+                        </button>
+                    </div>
+                `;
+            } else {
+                // Fallback: reload table if direct update fails
+                reloadSubjectsTable();
+            }
+        } else {
+            // Reset button state on error
+            assignBtn.disabled = false;
+            assignBtn.innerHTML = originalText;
+            if (teacherSelect) teacherSelect.disabled = false;
+            if (questionSetterSelect) questionSetterSelect.disabled = false;
+            alert(data.message || 'Failed to assign evaluator');
+        }
+    })
+    .catch(error => {
+        console.error('Assignment error:', error);
+        // Reset button state on error
+        assignBtn.disabled = false;
+        assignBtn.innerHTML = originalText;
+        if (teacherSelect) teacherSelect.disabled = false;
+        if (questionSetterSelect) questionSetterSelect.disabled = false;
+        alert('Error: ' + error.message);
+    });
+}
+
+function unassignEvaluator(assignmentId, courseId, part, courseCode) {
+    if (!confirm(`Are you sure you want to unassign the evaluator for ${courseCode} Part ${part}?`)) {
+        return;
+    }
+    
+    // Find the unassign button - it's the button that was clicked
+    // We need to find it by searching for the button with the matching assignmentId
+    const unassignBtn = document.querySelector(`button[onclick*="unassignEvaluator(${assignmentId}"]`);
+    if (!unassignBtn) {
+        alert('Button not found');
+        return;
+    }
+    const originalText = unassignBtn.innerHTML;
+    unassignBtn.disabled = true;
+    unassignBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Unassigning...';
+    
+    fetch('/exam-committee-chief/unassign-evaluator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignment_id: assignmentId })
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => {
+                throw new Error(err.message || `HTTP error! status: ${response.status}`);
+            });
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.success) {
+            // Direct DOM update: Replace the assigned state with assign form
+            // Find the parent cell (td) that contains the unassign button
+            const cellContainer = unassignBtn.closest('td');
+            if (cellContainer) {
+                const teachers = {{ teachers_dict|tojson }};
+                let teacherOptionsHtml = '<option value="">Select Teacher</option>';
+                teachers.forEach(teacher => {
+                    teacherOptionsHtml += `<option value="${teacher.id}">${teacher.name}</option>`;
+                });
+                
+                // Update the cell directly with Question Setter and Evaluator fields
+                cellContainer.innerHTML = `
+                    <div id="assign-form-${courseId}-${part}">
+                        <div class="mb-2">
+                            <label class="form-label small">Question Setter:</label>
+                            <select class="form-select form-select-sm" style="width: auto; min-width: 200px;" id="question-setter-select-${courseId}-${part}" onchange="handleQuestionSetterChange(${courseId}, '${part}')">
+                                ${teacherOptionsHtml}
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small">Evaluator:</label>
+                            <div class="d-flex align-items-center gap-2">
+                                <select class="form-select form-select-sm" style="width: auto; min-width: 200px;" id="teacher-select-${courseId}-${part}">
+                                    ${teacherOptionsHtml}
+                                </select>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="same-person-${courseId}-${part}" onchange="handleSamePersonCheck(${courseId}, '${part}')">
+                                    <label class="form-check-label small" for="same-person-${courseId}-${part}">Same</label>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-primary" onclick="assignEvaluatorInline(${courseId}, '${part}', '${courseCode.replace(/'/g, "\\'")}')">
+                            <i class="fas fa-user-plus me-1"></i>Assign
+                        </button>
+                    </div>
+                `;
+            } else {
+                // Fallback: reload table if direct update fails
+                reloadSubjectsTable();
+            }
+        } else {
+            // Reset button state on error
+            unassignBtn.disabled = false;
+            unassignBtn.innerHTML = originalText;
+            alert(data.message || 'Failed to unassign evaluator');
+        }
+    })
+    .catch(error => {
+        console.error('Unassignment error:', error);
+        // Reset button state on error
+        unassignBtn.disabled = false;
+        unassignBtn.innerHTML = originalText;
+        alert('Error: ' + error.message);
+    });
+}
 
 // Delete Remuneration Form
 function deleteRemunerationForm(formId, formTitle) {

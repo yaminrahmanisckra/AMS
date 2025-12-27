@@ -188,11 +188,11 @@
             <div class="btn-group btn-group-sm flex-md-row">
                 <a href="{{ url_for('class_management.course_file', session_id=session.id) }}" class="btn btn-outline-secondary">
                     <i class="fas fa-arrow-left me-1"></i><span class="d-none d-sm-inline">Back</span>
-                </a>
+            </a>
                 <a href="{{ url_for('class_management.download_course_outline_pdf', session_id=session.id) }}" class="btn btn-danger">
                     <i class="fas fa-file-pdf me-1"></i><span class="d-none d-sm-inline">Download PDF</span>
-                </a>
-            </div>
+            </a>
+        </div>
             <div class="form-check form-switch d-flex align-items-center justify-content-center justify-content-md-start">
                 <input class="form-check-input" type="checkbox" id="studentAccessToggle" name="student_access_enabled" {% if course_outline and course_outline.student_access_enabled %}checked{% endif %}>
                 <label class="form-check-label ms-2" for="studentAccessToggle" style="font-size: 0.875rem;">
@@ -219,7 +219,7 @@
                 <i class="fas fa-chevron-up"></i>
             </div>
             <div class="collapse" id="partA">
-                <div class="card-body">
+            <div class="card-body">
                 <!-- Basic Course Information -->
                 {% if course_data %}
                 <!-- Debug: Course data found - Code: {{ course_data.course_code }}, Name: {{ course_data.course_name }}, Core/Optional: {{ course_data.core_optional }}, Type: {{ course_data.course_type }}, Category: {{ course_data.category }} -->
@@ -230,11 +230,11 @@
                     <div class="col-12 col-md-6 mb-3">
                         <label class="form-label"><strong>1. Course No:</strong></label>
                         <input type="text" class="form-control" name="course_no" value="{{ session.course_code or '' }}" readonly>
-                    </div>
+                </div>
                     <div class="col-12 col-md-6 mb-3">
                         <label class="form-label"><strong>2. Course Title:</strong></label>
                         <input type="text" class="form-control" name="course_title" value="{{ session.course_name or '' }}" readonly>
-                    </div>
+                </div>
                     <div class="col-12 col-md-6 mb-3">
                         <label class="form-label"><strong>3. Course Type:</strong></label>
                         {% if course_data %}
@@ -319,7 +319,7 @@
                     <div class="col-12 col-md-6 mb-3">
                         <label class="form-label"><strong>9. Contact Hours:</strong></label>
                         <input type="text" class="form-control" name="contact_hours" value="{% if course_data and course_data.credit %}{{ (course_data.credit * 14)|int }}{% elif course_outline.contact_hours %}{{ course_outline.contact_hours }}{% else %}56{% endif %}" placeholder="e.g., 56">
-                    </div>
+                </div>
                     <div class="col-12 col-md-6 mb-3">
                         <label class="form-label"><strong>10. Total Marks:</strong></label>
                         <div class="input-group flex-wrap">
@@ -327,7 +327,7 @@
                             <input type="text" class="form-control flex-grow-1" name="cie_marks" id="cie_marks_input" value="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% elif course_outline.cie_marks %}{{ course_outline.cie_marks }}{% else %}40{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% else %}40{% endif %}">
                             <span class="input-group-text flex-shrink-0">SMEE Marks =</span>
                             <input type="text" class="form-control flex-grow-1" name="smee_marks" id="smee_marks_input" value="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% elif course_outline.smee_marks %}{{ course_outline.smee_marks }}{% else %}60{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}50{% else %}60{% endif %}">
-                        </div>
+                    </div>
                     </div>
                 </div>
 
@@ -341,10 +341,10 @@
                         <i class="fas fa-info-circle me-2"></i>
                         <strong>Rationale Available:</strong> Course Summary will be auto-filled from Curriculum Rationale.
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
+            </div>
                     {% endif %}
                     <textarea class="form-control" name="course_summary" id="course_summary" rows="4" placeholder="The course intends to provide students with...">{% if course_data and course_data.rationale and (not course_outline.course_summary or not course_outline.course_summary.strip()) %}{{ course_data.rationale }}{% elif course_outline.course_summary %}{{ course_outline.course_summary }}{% endif %}</textarea>
-                </div>
+        </div>
 
                 <hr class="my-4">
 
@@ -382,7 +382,7 @@
                 <i class="fas fa-chevron-up"></i>
             </div>
             <div class="collapse" id="partB">
-                <div class="card-body">
+            <div class="card-body">
                 <div class="mb-3">
                     <label class="form-label"><strong>13. Summary of the Course Content</strong></label>
                     <p class="text-muted small">Enter course contents with hours and CLOs for Section A and Section B. <strong>Select topics</strong> that will be taught in this course. Only selected topics will appear in PDF and be used for generating the class schedule.</p>
@@ -395,7 +395,7 @@
                             <i class="fas fa-download me-1"></i>Import from Curriculum
                         </button>
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                    </div>
+                </div>
                     {% endif %}
                     
                     <!-- Section A -->
@@ -422,11 +422,11 @@
                                     <!-- Rows will be added dynamically -->
                                 </tbody>
                             </table>
-                        </div>
+                </div>
                         <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="addCourseContentRow('A')">
                             <i class="fas fa-plus me-1"></i>Add Row
                         </button>
-                    </div>
+            </div>
                     
                     <!-- Section B -->
                     <div class="mb-0">
@@ -456,14 +456,14 @@
                         <button type="button" class="btn btn-outline-primary btn-sm mt-2 w-100 w-md-auto" onclick="addCourseContentRow('B')">
                             <i class="fas fa-plus me-1"></i>Add Row
                         </button>
-                    </div>
-                    
+        </div>
+
                     <input type="hidden" id="course_content_summary_json" name="course_content_summary" value="">
                 </div>
 
                 <!-- 14. Class Schedule / Lesson Plan / Weekly Plan -->
-                <div class="card shadow mb-3">
-                    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+        <div class="card shadow mb-3">
+            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">14. Class Schedule / Lesson Plan / Weekly Plan</h5>
                         <div>
                     {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
@@ -471,7 +471,7 @@
                         {% if session.course_scope == 'part_a' %}
                             <button type="button" class="btn btn-light btn-sm me-2" onclick="generateWeeklyPlanWithAI('A')" title="Generate weekly plan for Part A">
                                 <i class="fas fa-magic me-1"></i>Generate Plan (Part A)
-                            </button>
+                </button>
                             <button type="button" class="btn btn-light btn-sm disabled" disabled title="Part B - Not available for your part">
                                 <i class="fas fa-magic me-1"></i>Generate Plan (Part B)
                             </button>
@@ -490,8 +490,8 @@
                         </button>
                     {% endif %}
                         </div>
-                    </div>
-                    <div class="card-body">
+            </div>
+            <div class="card-body">
                 <div class="alert alert-info mb-3">
                     <i class="fas fa-lightbulb me-2"></i>
                     <strong>Auto Generation:</strong> Click "Generate Plan" to automatically create your weekly plan based on course content, credit value, and academic calendar.
@@ -505,11 +505,11 @@
                         <small class="text-muted d-block mt-2">
                             <i class="fas fa-info-circle me-1"></i>সর্বোচ্চ ১৪ সপ্তাহের ক্লাস প্ল্যান করা যাবে (Maximum 14 weeks allowed)
                         </small>
-                    </div>
-                </div>
+            </div>
+        </div>
 
                 <!-- 15. Assessment Techniques of each topic of the course -->
-                <div class="card shadow mb-3">
+        <div class="card shadow mb-3">
                     <div class="card-header bg-secondary text-white">
                         <h5 class="mb-0">15. Assessment Techniques of each topic of the course:</h5>
                     </div>
@@ -584,7 +584,7 @@
                 <i class="fas fa-chevron-up"></i>
             </div>
             <div class="collapse" id="partC">
-                <div class="card-body">
+            <div class="card-body">
                 <div class="mb-3">
                     <label class="form-label"><strong>17. Assessment Strategy</strong> (Bloom's Taxonomy and Rubric based, Quiz, Mid Term, Assignment, Project, Report, Class Test, Presentation, Semester Final)</label>
                 </div>
@@ -630,7 +630,7 @@
                             </tr>
                         </tbody>
                     </table>
-                </div>
+                    </div>
                 
                 <!-- Attendance Marks Distribution -->
                 <h6 class="mt-4 mb-3">Attendance Marks Distribution</h6>
@@ -647,7 +647,7 @@
                             <!-- Rows will be added dynamically -->
                         </tbody>
                     </table>
-                </div>
+                    </div>
                 <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addAttendanceMarksRow()">
                     <i class="fas fa-plus me-1"></i>Add Row
                 </button>
@@ -669,12 +669,12 @@
                                         <div class="col-md-6">
                                             <label class="form-label small">Section A</label>
                                             <input type="number" class="form-control form-control-sm" name="ca_section_a_total" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_section_a_total') %}{{ outline_data.assessment_strategy.ca_section_a_total }}{% else %}2{% endif %}" placeholder="2" min="0">
-                                        </div>
+                    </div>
                                         <div class="col-md-6">
                                             <label class="form-label small">Section B</label>
                                             <input type="number" class="form-control form-control-sm" name="ca_section_b_total" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_section_b_total') %}{{ outline_data.assessment_strategy.ca_section_b_total }}{% else %}2{% endif %}" placeholder="2" min="0">
-                                        </div>
-                                    </div>
+                </div>
+                </div>
                                 </td>
                                 <td>
                                     <input type="text" class="form-control form-control-sm" name="ca_considered" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_considered') %}{{ outline_data.assessment_strategy.ca_considered }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best Three Assessments{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best Three Assessments{% endif %}">
@@ -710,7 +710,7 @@
                             <!-- Rows will be added dynamically -->
                         </tbody>
                     </table>
-                </div>
+            </div>
                 <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addGradingPolicyRow()">
                     <i class="fas fa-plus me-1"></i>Add Row
                 </button>
@@ -743,7 +743,7 @@
                 <i class="fas fa-chevron-up"></i>
             </div>
             <div class="collapse" id="partD">
-                <div class="card-body">
+            <div class="card-body">
                 <div class="mb-3">
                     <label class="form-label"><strong>23. Textbooks</strong> (one per line: Author, Title, Publisher, Year)</label>
                     <textarea class="form-control" name="textbooks" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.textbooks|join('&#10;') if outline_data.textbooks else '' }}</textarea>
@@ -775,8 +775,8 @@
                     <i class="fas fa-times me-1"></i>Cancel
                 </button>
                 <button type="button" class="btn btn-primary w-100 w-sm-auto" onclick="saveCourseOutline(false)">
-                    <i class="fas fa-save me-1"></i>Save Course Outline
-                </button>
+                <i class="fas fa-save me-1"></i>Save Course Outline
+            </button>
             </div>
         </div>
     </form>
@@ -1025,11 +1025,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize assessment techniques (only if CLOs are defined)
     if (cloData && cloData.length > 0) {
-        const assessmentTechniques = {{ outline_data.assessment_techniques|tojson }};
-        if (assessmentTechniques && assessmentTechniques.length > 0) {
-            assessmentTechniques.forEach(tech => addAssessmentTechnique(tech));
-        } else {
-            addAssessmentTechnique(); // Add one empty row
+    const assessmentTechniques = {{ outline_data.assessment_techniques|tojson }};
+    if (assessmentTechniques && assessmentTechniques.length > 0) {
+        assessmentTechniques.forEach(tech => addAssessmentTechnique(tech));
+    } else {
+        addAssessmentTechnique(); // Add one empty row
         }
     } else {
         // Show message if no CLOs defined
@@ -2209,7 +2209,7 @@ function saveCourseOutline(isAutoSave = false) {
         
         if (!isAutoSave) {
             // Only show alert and reload for manual saves
-            if (result.success) {
+        if (result.success) {
                 const successMsg = document.createElement('div');
                 successMsg.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
                 successMsg.style.zIndex = '9999';
@@ -2218,8 +2218,8 @@ function saveCourseOutline(isAutoSave = false) {
                 setTimeout(() => {
                     window.location.reload();
                 }, 1000);
-            } else {
-                alert('Error saving: ' + (result.message || 'Unknown error'));
+        } else {
+            alert('Error saving: ' + (result.message || 'Unknown error'));
             }
         }
     })
@@ -2228,7 +2228,7 @@ function saveCourseOutline(isAutoSave = false) {
         console.error('Error:', error);
         updateAutoSaveStatus(false, 'Network error occurred');
         if (!isAutoSave) {
-            alert('Error saving course outline');
+        alert('Error saving course outline');
         }
     });
 }

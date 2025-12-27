@@ -1259,6 +1259,13 @@ async function handleSessionYearTermChange() {
     
     await autoLoadCoursesForTables();
     
+    // Auto-load tabulators when session/year/term changes
+    if (session && year && term) {
+        autoLoadTabulators().catch(err => {
+            console.error('❌ Error loading tabulators (non-blocking):', err);
+        });
+    }
+    
     // Also auto-load theory courses for Tables 2, 3, 4
     if (session && year && term) {
         console.log('🔄 Session/Year/Term changed, fetching theory courses...');
@@ -1388,11 +1395,21 @@ async function autoLoadTheoryCoursesForTables(theoryCourses) {
         return;
     }
     
+    // Ensure evaluator assignments are loaded before auto-populating
+    if (!evaluatorAssignmentsCache) {
+        await loadEvaluatorAssignments();
+    }
+    
     // Auto-load Table 4 with course assignments (teacher and section info)
     await autoLoadClassTestTableWithAssignments();
     
     // Auto-load Table 6 and 7 with sessional course assignments (teacher and section info)
     await autoLoadSessionalTablesWithAssignments();
+    
+    // Auto-load Table 8 with assigned scrutinizers (non-blocking)
+    autoLoadScrutinizers().catch(err => {
+        console.error('❌ Error in autoLoadScrutinizers (non-blocking):', err);
+    });
     
     // Auto-load Table 9 with assigned tabulators
     await autoLoadTabulators();
@@ -1451,6 +1468,8 @@ async function autoLoadTheoryCoursesForTables(theoryCourses) {
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                 `;
                 table2Tbody.appendChild(rowA);
+                // Auto-populate Question Setter after row is added
+                setTimeout(() => autoPopulateTeacherFromAssignment(rowA, 'question_preparation'), 100);
                 
                 // Add row for Section B
                 const rowB = document.createElement('tr');
@@ -1484,6 +1503,14 @@ async function autoLoadTheoryCoursesForTables(theoryCourses) {
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                 `;
                 table2Tbody.appendChild(rowB);
+                // Auto-populate Question Setter after row is added (longer delay for Part B to ensure DOM is ready)
+                setTimeout(() => {
+                    const sectionInput = rowB.querySelector('input[name="question_preparation_section[]"]');
+                    if (sectionInput && sectionInput.value !== 'B') {
+                        sectionInput.value = 'B'; // Ensure section is set
+                    }
+                    autoPopulateTeacherFromAssignment(rowB, 'question_preparation');
+                }, 200);
             });
             console.log('✅ Table 2 loaded with', theoryCourses.length * 2, 'rows (A & B for each course)');
         } else {
@@ -1544,6 +1571,8 @@ async function autoLoadTheoryCoursesForTables(theoryCourses) {
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                 `;
                 table3Tbody.appendChild(rowA);
+                // Auto-populate Examiner after row is added
+                setTimeout(() => autoPopulateTeacherFromAssignment(rowA, 'script_examination'), 100);
                 
                 // Add row for Section B
                 const rowB = document.createElement('tr');
@@ -1577,6 +1606,14 @@ async function autoLoadTheoryCoursesForTables(theoryCourses) {
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                 `;
                 table3Tbody.appendChild(rowB);
+                // Auto-populate Examiner after row is added (longer delay for Part B to ensure DOM is ready)
+                setTimeout(() => {
+                    const sectionInput = rowB.querySelector('input[name="script_examination_section[]"]');
+                    if (sectionInput && sectionInput.value !== 'B') {
+                        sectionInput.value = 'B'; // Ensure section is set
+                    }
+                    autoPopulateTeacherFromAssignment(rowB, 'script_examination');
+                }, 200);
                     });
                     console.log('✅ Table 3 loaded with', theoryCourses.length * 2, 'rows (A & B for each course)');
                     updateTableCounts();
@@ -1813,11 +1850,11 @@ async function loadSessionalAssignmentsToTable(tbody, tablePrefix, session, year
     }
 }
 
-// Auto-load Table 9 (Tabulation) with assigned tabulators
-async function autoLoadTabulators() {
+// Auto-load Table 8 (Answer Script Scrutiny) with assigned scrutinizers
+async function autoLoadScrutinizers() {
     // Skip auto-load if in edit mode
     if (isEditMode) {
-        console.log('⏭️ Edit mode active, skipping tabulators auto-load');
+        console.log('⏭️ Edit mode active, skipping scrutinizers auto-load');
         return;
     }
     
@@ -1826,9 +1863,102 @@ async function autoLoadTabulators() {
     const term = document.getElementById('term')?.value;
     
     if (!session || !year || !term) {
+        console.log('⚠️ Session/Year/Term not selected for scrutinizers auto-load');
+        return;
+    }
+    
+    const table8Tbody = document.querySelector('#table_script_scrutiny tbody');
+    if (!table8Tbody) {
+        console.log('❌ Table 8 tbody not found');
+        return;
+    }
+    
+    const existingRows = Array.from(table8Tbody.querySelectorAll('tr'));
+    const rowsWithNames = existingRows.filter(row => {
+        const nameSelect = row.querySelector('select[name="script_scrutiny_name_select[]"], select[name="script_scrutiny_name[]"]');
+        return nameSelect && nameSelect.value && nameSelect.value.trim() !== '';
+    }).length;
+    
+    // Only auto-load if table is empty
+    if (rowsWithNames > 0) {
+        console.log('🔄 Table 8 has existing rows, skipping auto-load');
+        return;
+    }
+    
+    try {
+        console.log('📡 Fetching scrutinizers for Table 8...');
+        const response = await fetch(`/exam-committee-chief/get-scrutinizers-with-scripts?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            console.log('⚠️ Failed to fetch scrutinizers:', data.message || 'Unknown error');
+            return;
+        }
+        
+        if (!data.scrutinizers || data.scrutinizers.length === 0) {
+            console.log('⚠️ No scrutinizers found for this session/year/term');
+            return;
+        }
+        
+        console.log(`✅ Found ${data.scrutinizers.length} scrutinizers`);
+        
+        // Clear existing empty rows
+        table8Tbody.innerHTML = '';
+        
+        // Add rows for each scrutinizer
+        data.scrutinizers.forEach(scrutinizer => {
+            const row = document.createElement('tr');
+            const designationText = scrutinizer.designation 
+                ? `${scrutinizer.designation}, ${scrutinizer.institute}` 
+                : scrutinizer.institute;
+            
+            row.innerHTML = `
+                <td>
+                    <select class="form-select form-select-sm teacher-name-select" name="script_scrutiny_name_select[]" onchange="onNameChange(this, 'script_scrutiny')">
+                        <option value="">Select Name</option>
+                        <option value="__CUSTOM__">Custom...</option>
+                        ${teachersData.map(t => `<option value="${t.name}" ${t.name === scrutinizer.name ? 'selected' : ''}>${t.name}</option>`).join('')}
+                    </select>
+                    <input type="text" class="form-control form-control-sm mt-1 script-scrutiny-custom-name" name="script_scrutiny_name[]" placeholder="Enter custom name" style="display: none;">
+                </td>
+                <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" value="${designationText}" placeholder="Law Discipline, KU"></td>
+                <td><input type="number" class="form-control form-control-sm" name="script_scrutiny_scripts[]" value="${scrutinizer.script_count || 0}" min="0" onfocus="this.select();"></td>
+                <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+            `;
+            table8Tbody.appendChild(row);
+        });
+        
+        console.log(`✅ Table 8 loaded with ${data.scrutinizers.length} scrutinizers`);
+        
+    } catch (error) {
+        console.error('❌ Error loading scrutinizers for Table 8:', error);
+        // Don't throw - let other tables continue loading
+    }
+}
+
+// Auto-load Table 9 (Tabulation) with assigned tabulators
+async function autoLoadTabulators() {
+    // Skip auto-load if in edit mode
+    if (isEditMode) {
+        console.log('⏭️ Edit mode active, skipping tabulators auto-load');
+        return;
+    }
+    
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    
+    if (!session || !year || !term) {
         console.log('⚠️ Session/Year/Term not selected for tabulators auto-load');
         return;
     }
+    
+    console.log(`🔍 Loading tabulators for: Session=${session}, Year=${year}, Term=${term}`);
     
     const table9Tbody = document.querySelector('#table_tabulation tbody');
     if (!table9Tbody) {
@@ -1850,15 +1980,33 @@ async function autoLoadTabulators() {
     
     try {
         console.log('📡 Fetching tabulators for Table 9...');
-        const response = await fetch(`/remuneration/api/tabulators?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
-        const data = await response.json();
+        console.log('🔍 Request params:', { session, year, term });
+        const url = `/remuneration/api/tabulators?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
         
-        if (!data.success || !data.tabulators || data.tabulators.length === 0) {
-            console.log('⚠️ No tabulators found for this session/year/term');
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            console.error('❌ HTTP error:', response.status, response.statusText);
+            const errorData = await response.json().catch(() => ({}));
+            console.error('❌ Error details:', errorData);
             return;
         }
         
-        console.log(`✅ Found ${data.tabulators.length} tabulators`);
+        const data = await response.json();
+        console.log('📥 API Response:', data);
+        
+        if (!data.success) {
+            console.error('❌ Failed to fetch tabulators:', data.message || 'Unknown error');
+            return;
+        }
+        
+        if (!data.tabulators || data.tabulators.length === 0) {
+            console.log('⚠️ No tabulators found for this session/year/term');
+            console.log('💡 Make sure tabulators are assigned in Exam Committee Chief dashboard');
+            return;
+        }
+        
+        console.log(`✅ Found ${data.tabulators.length} tabulators:`, data.tabulators.map(t => t.name));
         table9Tbody.innerHTML = '';
         
         data.tabulators.forEach(tabulator => {
@@ -2236,6 +2384,8 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                 `;
                 table3Tbody.appendChild(rowA);
+                // Auto-populate Examiner after row is added
+                setTimeout(() => autoPopulateTeacherFromAssignment(rowA, 'script_examination'), 100);
                 
                 // Add row for Section B
                 const rowB = document.createElement('tr');
@@ -2269,6 +2419,14 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                 `;
                 table3Tbody.appendChild(rowB);
+                // Auto-populate Examiner after row is added (longer delay for Part B to ensure DOM is ready)
+                setTimeout(() => {
+                    const sectionInput = rowB.querySelector('input[name="script_examination_section[]"]');
+                    if (sectionInput && sectionInput.value !== 'B') {
+                        sectionInput.value = 'B'; // Ensure section is set
+                    }
+                    autoPopulateTeacherFromAssignment(rowB, 'script_examination');
+                }, 200);
             });
             console.log('✅ Table 3 loaded with', theoryCourses.length * 2, 'rows (A & B for each course)');
         } else {
@@ -2359,8 +2517,164 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
 }
 
 // On course change for question preparation
+// Cache for evaluator assignments
+let evaluatorAssignmentsCache = null;
+
+// Load evaluator assignments for current session/year/term
+async function loadEvaluatorAssignments() {
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value || '';
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value || '';
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value || '';
+    
+    if (!session || !year || !term) {
+        console.log('⚠️ Missing session/year/term for evaluator assignments');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/exam-committee-chief/get-evaluator-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        const data = await response.json();
+        
+        if (data.success && data.assignments) {
+            evaluatorAssignmentsCache = data.assignments;
+            console.log('✅ Loaded evaluator assignments:', Object.keys(evaluatorAssignmentsCache).length);
+        } else {
+            console.log('⚠️ Failed to load evaluator assignments:', data.message);
+            evaluatorAssignmentsCache = {};
+        }
+    } catch (error) {
+        console.error('❌ Error loading evaluator assignments:', error);
+        evaluatorAssignmentsCache = {};
+    }
+}
+
+// Auto-populate Question Setter or Examiner based on course and section
+function autoPopulateTeacherFromAssignment(row, tableType) {
+    if (!evaluatorAssignmentsCache) {
+        return; // Cache not loaded yet
+    }
+    
+    const courseSelect = row.querySelector(`select[name="${tableType}_course[]"]`);
+    const sectionInput = row.querySelector(`input[name="${tableType}_section[]"]`);
+    const teacherSelect = row.querySelector(`select[name="${tableType}_teacher_select[]"]`);
+    
+    if (!courseSelect || !sectionInput || !teacherSelect) {
+        return;
+    }
+    
+    const courseValue = courseSelect.value?.trim();
+    const section = sectionInput.value?.trim().toUpperCase();
+    
+    if (!courseValue || !section) {
+        return;
+    }
+    
+    // Try to find assignment by course value and section
+    // The cache uses JSON stringified arrays as keys
+    let assignment = null;
+    
+    console.log(`🔍 Looking for assignment: course="${courseValue}", section="${section}"`);
+    console.log(`📦 Cache keys:`, Object.keys(evaluatorAssignmentsCache));
+    
+    // Try exact match first
+    const exactKey = JSON.stringify([courseValue, section]);
+    assignment = evaluatorAssignmentsCache[exactKey];
+    console.log(`🔑 Exact key match (${exactKey}):`, assignment ? '✅ Found' : '❌ Not found');
+    
+    // If not found, try to extract course code and match
+    if (!assignment) {
+        // Extract course code (before " - " or first part)
+        const courseCodeMatch = courseValue.match(/^([A-Z0-9\s]+)/i);
+        if (courseCodeMatch) {
+            const courseCode = courseCodeMatch[1].trim();
+            const codeKey = JSON.stringify([courseCode, section]);
+            assignment = evaluatorAssignmentsCache[codeKey];
+            console.log(`🔑 Course code key match (${codeKey}):`, assignment ? '✅ Found' : '❌ Not found');
+        }
+    }
+    
+    // Also try matching by iterating through cache keys
+    if (!assignment) {
+        for (const key in evaluatorAssignmentsCache) {
+            try {
+                const [keyCourse, keySection] = JSON.parse(key);
+                if (keySection === section && (keyCourse === courseValue || courseValue.includes(keyCourse) || keyCourse.includes(courseValue.split(' - ')[0]))) {
+                    assignment = evaluatorAssignmentsCache[key];
+                    console.log(`🔑 Iterative match (${key}): ✅ Found`);
+                    break;
+                }
+            } catch (e) {
+                // Skip invalid keys
+            }
+        }
+    }
+    
+    if (!assignment) {
+        console.log(`⚠️ No assignment found for course="${courseValue}", section="${section}"`);
+        return; // No assignment found
+    }
+    
+    console.log(`✅ Found assignment:`, assignment);
+    
+    let teacherName = null;
+    let scriptCount = 0;
+    if (tableType === 'question_preparation') {
+        // Table 2: Use Question Setter
+        teacherName = assignment.question_setter_name;
+    } else if (tableType === 'script_examination') {
+        // Table 3: Use Evaluator
+        teacherName = assignment.evaluator_name;
+        scriptCount = assignment.script_count || 0;
+        console.log(`👤 Evaluator: ${teacherName}, Script Count: ${scriptCount}`);
+    }
+    
+    if (teacherName && teacherSelect) {
+        // Check if teacher name exists in dropdown
+        const option = Array.from(teacherSelect.options).find(opt => opt.value === teacherName);
+        if (option) {
+            teacherSelect.value = teacherName;
+            // Trigger change event to handle custom name field visibility
+            if (typeof onQuestionPreparationTeacherChange === 'function' && tableType === 'question_preparation') {
+                onQuestionPreparationTeacherChange(teacherSelect);
+            } else if (typeof onScriptExaminationTeacherChange === 'function' && tableType === 'script_examination') {
+                onScriptExaminationTeacherChange(teacherSelect);
+            }
+        } else {
+            // Teacher not in dropdown, use custom name field
+            const customNameInput = row.querySelector(`input[name="${tableType}_teacher[]"]`);
+            if (customNameInput) {
+                customNameInput.value = teacherName;
+                customNameInput.style.display = 'block';
+                teacherSelect.value = '__CUSTOM__';
+            }
+        }
+        
+        // Auto-populate script count for Table 3
+        if (tableType === 'script_examination' && scriptCount > 0) {
+            const scriptsInput = row.querySelector(`input[name="${tableType}_scripts[]"]`);
+            if (scriptsInput) {
+                scriptsInput.value = scriptCount;
+                console.log(`✅ Auto-populated script count: ${scriptCount}`);
+            }
+        }
+    }
+}
+
 function onCourseChange(selectElement) {
-    // Can add specific logic here if needed
+    // Auto-populate teacher from evaluator assignments
+    const row = selectElement.closest('tr');
+    if (row) {
+        // Determine table type from the select name
+        const selectName = selectElement.getAttribute('name');
+        if (selectName) {
+            if (selectName.includes('question_preparation')) {
+                autoPopulateTeacherFromAssignment(row, 'question_preparation');
+            } else if (selectName.includes('script_examination')) {
+                autoPopulateTeacherFromAssignment(row, 'script_examination');
+            }
+        }
+    }
+    
     updateTableCounts();
 }
 
@@ -2667,6 +2981,7 @@ function onNameChange(selectElement, tableType) {
     } else if (!teacherName) {
         designationInput.value = 'Law Discipline, KU';
     }
+    
 }
 
 // Generic teacher name change handler for all tables
@@ -4528,6 +4843,9 @@ function exportPDF() {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🔄 DOMContentLoaded - Starting form load process');
     
+    // Load evaluator assignments for auto-population
+    loadEvaluatorAssignments();
+    
     // Initialize year/term dropdowns based on allowed combinations
     updateYearTermDropdowns();
     
@@ -4586,6 +4904,19 @@ document.addEventListener('DOMContentLoaded', function() {
         // No saved data from backend, form is empty
         console.log('📝 No saved data found, starting with empty form');
         isEditMode = false; // New form, enable auto-load
+        
+        // Auto-load tabulators if session/year/term are already set
+        setTimeout(() => {
+            const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+            const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+            const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+            if (session && year && term) {
+                console.log('🔄 Auto-loading tabulators on initial load...');
+                autoLoadTabulators().catch(err => {
+                    console.error('❌ Error loading tabulators on initial load:', err);
+                });
+            }
+        }, 500);
         {% endif %}
     }
     

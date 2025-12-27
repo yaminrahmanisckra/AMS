@@ -184,6 +184,36 @@ class ExamScrutinizerInvite(db.Model):
     scrutinizer = db.relationship('Teacher', foreign_keys=[scrutinizer_teacher_id], backref=db.backref('received_exam_scrutinizer_invites', lazy='dynamic'))
 
 
+class ExamPaperEvaluatorAssignment(db.Model):
+    """Model to track Exam Paper Evaluator assignments by Exam Committee Chief"""
+    __tablename__ = 'exam_paper_evaluator_assignment'
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=False)
+    part = db.Column(db.String(10), nullable=False)  # 'A' or 'B'
+    assigned_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)  # Evaluator
+    question_setter_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=True)  # Question Setter
+    is_same_person = db.Column(db.Boolean, default=False)  # True if question setter and evaluator are same
+    academic_session = db.Column(db.String(50), nullable=False)
+    year = db.Column(db.String(20), nullable=False)
+    term = db.Column(db.String(20), nullable=False)
+    exam_paper_evaluation_id = db.Column(db.Integer, db.ForeignKey('exam_paper_evaluation.id'), nullable=True)  # Created ExamPaperEvaluation entry
+    assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Exam Committee Chief who assigned
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships - Course model is in blueprints.course_management.models, use string reference
+    assigned_teacher = db.relationship('Teacher', foreign_keys=[assigned_teacher_id], backref=db.backref('evaluator_assignments', lazy='dynamic'))
+    question_setter = db.relationship('Teacher', foreign_keys=[question_setter_id], backref=db.backref('question_setter_assignments', lazy='dynamic'))
+    exam_paper_evaluation = db.relationship('ExamPaperEvaluation', foreign_keys=[exam_paper_evaluation_id], backref=db.backref('evaluator_assignment', uselist=False))
+    
+    __table_args__ = (
+        db.UniqueConstraint('course_id', 'part', 'academic_session', 'year', 'term', name='uq_evaluator_assignment'),
+    )
+    
+    def __repr__(self):
+        return f'<ExamPaperEvaluatorAssignment {self.course_id} Part {self.part} -> Teacher {self.assigned_teacher_id}>'
+
+
 class StudentFeedbackLink(db.Model):
     __tablename__ = 'student_feedback_link'
     id = db.Column(db.Integer, primary_key=True)

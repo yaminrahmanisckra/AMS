@@ -115,13 +115,12 @@
             <div class="card shadow-sm h-100 session-card">
                 <div class="card-body d-flex flex-column">
                     <h5 class="card-title">{{ session.name }}</h5>
-                    <h6 class="card-subtitle mb-3 text-muted">Term: {{ session.term }}</h6>
+                    <h6 class="card-subtitle mb-3 text-muted">Year: {{ session.year }}, Term: {{ session.term }}</h6>
                     
                     <div class="btn-group w-100 mb-2" role="group">
                         <a href="{{ url_for('result_management.add_student', session_id=session.id) }}" class="btn btn-outline-primary">Students</a>
                         <a href="{{ url_for('result_management.add_subject', session_id=session.id) }}" class="btn btn-outline-primary">Subjects</a>
                     </div>
-                    <a href="{{ url_for('result_management.course_registration', session_id=session.id) }}" class="btn btn-warning w-100 mb-2">Course Registration</a>
                     <div class="btn-group w-100 mb-3" role="group">
                         <a href="{{ url_for('result_management.add_marks', session_id=session.id) }}" class="btn btn-outline-info">Marks</a>
                         <a href="{{ url_for('result_management.view_results', session_id=session.id) }}" class="btn btn-outline-info">Results</a>
