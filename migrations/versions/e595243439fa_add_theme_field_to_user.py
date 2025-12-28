@@ -22,7 +22,7 @@ def upgrade():
         op.add_column('users', sa.Column('theme', sa.String(length=50), nullable=True, server_default='default'))
     except Exception:
         # Column might already exist
-    pass
+        pass
     # ### end Alembic commands ###
 
 
@@ -32,5 +32,5 @@ def downgrade():
         op.drop_column('users', 'theme')
     except Exception:
         # Column might not exist
-    pass
+        pass
     # ### end Alembic commands ###

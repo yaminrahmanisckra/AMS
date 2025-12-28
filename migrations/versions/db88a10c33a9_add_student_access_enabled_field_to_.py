@@ -25,22 +25,22 @@ def upgrade():
     tables = inspector.get_table_names()
     
     if 'course_file_upload' not in tables:
-    op.create_table('course_file_upload',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('session_id', sa.Integer(), nullable=False),
-    sa.Column('teacher_id', sa.Integer(), nullable=False),
-    sa.Column('file_name', sa.String(length=255), nullable=False),
-    sa.Column('file_path', sa.String(length=500), nullable=False),
-    sa.Column('file_size', sa.Integer(), nullable=True),
-    sa.Column('file_type', sa.String(length=50), nullable=True),
-    sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('student_access_enabled', sa.Boolean(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), nullable=True),
-    sa.ForeignKeyConstraint(['session_id'], ['class_session.id'], ),
-    sa.ForeignKeyConstraint(['teacher_id'], ['teacher.id'], ),
-    sa.PrimaryKeyConstraint('id')
-    )
+        op.create_table('course_file_upload',
+            sa.Column('id', sa.Integer(), nullable=False),
+            sa.Column('session_id', sa.Integer(), nullable=False),
+            sa.Column('teacher_id', sa.Integer(), nullable=False),
+            sa.Column('file_name', sa.String(length=255), nullable=False),
+            sa.Column('file_path', sa.String(length=500), nullable=False),
+            sa.Column('file_size', sa.Integer(), nullable=True),
+            sa.Column('file_type', sa.String(length=50), nullable=True),
+            sa.Column('description', sa.Text(), nullable=True),
+            sa.Column('student_access_enabled', sa.Boolean(), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=True),
+            sa.Column('updated_at', sa.DateTime(), nullable=True),
+            sa.ForeignKeyConstraint(['session_id'], ['class_session.id'], ),
+            sa.ForeignKeyConstraint(['teacher_id'], ['teacher.id'], ),
+            sa.PrimaryKeyConstraint('id')
+        )
     # Check if column exists before adding
     conn = op.get_bind()
     inspector = inspect(conn)

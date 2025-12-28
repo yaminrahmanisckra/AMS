@@ -125,21 +125,38 @@ def restrict_result_module():
 
 def _determine_subject_type(course):
     """Return the subject type label used in Result Management based on course data."""
-    course_type = (course.course_type or '').strip().lower()
+    course_type = (course.course_type or '').strip()
     category = (getattr(course, 'category', '') or '').strip().lower()
 
-    if course_type == 'theory':
+    # Handle new Thesis types
+    if course_type == 'Thesis (UG)':
+        return 'Thesis (UG)'
+    if course_type == 'Thesis I (UG)':
+        return 'Thesis I (UG)'
+    if course_type == 'Thesis II (UG)':
+        return 'Thesis II (UG)'
+    
+    # Handle Dissertation types
+    if course_type == 'Dissertation Proposal (PG)':
+        return 'Dissertation'  # Will set dissertation_type='Type1' when creating subject
+    if course_type == 'Dissertation Defence (PG)':
+        return 'Dissertation'  # Will set dissertation_type='Type2' when creating subject
+    
+    # Handle existing types (case-insensitive for backward compatibility)
+    course_type_lower = course_type.lower()
+    if course_type_lower == 'theory':
         if category == 'ug':
             return 'Theory (UG)'
         if category == 'pg':
             return 'Theory (PG)'
         return 'Theory'
-    if course_type == 'sessional':
+    if course_type_lower == 'sessional':
         return 'Sessional'
-    if course_type == 'viva':
+    if course_type_lower == 'viva':
         return 'Viva'
-    if course_type == 'dissertation':
+    if course_type_lower == 'dissertation':
         return 'Dissertation'
+    
     return course.course_type or 'Theory'
 
 def calculate_grade(total_marks, is_retake=False):
@@ -669,11 +686,19 @@ def add_subject(session_id):
                         
                         subject_type = _determine_subject_type(course)
                         
+                        # Determine dissertation_type if applicable
+                        dissertation_type = None
+                        if course.course_type == 'Dissertation Proposal (PG)':
+                            dissertation_type = 'Type1'
+                        elif course.course_type == 'Dissertation Defence (PG)':
+                            dissertation_type = 'Type2'
+                        
                         subject = RSubject(
                             code=course.course_code,
                             name=course.course_name,
                             credit=course.credit,
                             subject_type=subject_type,
+                            dissertation_type=dissertation_type,
                             session_id=session_id
                         )
                         db.session.add(subject)
@@ -814,11 +839,19 @@ def add_subject(session_id):
                             
                             subject_type = _determine_subject_type(course)
                             
+                            # Determine dissertation_type if applicable
+                            dissertation_type = None
+                            if course.course_type == 'Dissertation Proposal (PG)':
+                                dissertation_type = 'Type1'
+                            elif course.course_type == 'Dissertation Defence (PG)':
+                                dissertation_type = 'Type2'
+                            
                             subject = RSubject(
                                 code=course.course_code,
                                 name=course.course_name,
                                 credit=course.credit,
                                 subject_type=subject_type,
+                                dissertation_type=dissertation_type,
                                 session_id=session_id
                             )
                             subjects_to_add.append(subject)
@@ -1459,11 +1492,22 @@ def sync_exam_marks_to_result_management(exam_entry_id):
             if course:
                 credit = course.credit
             
+            # Determine subject type and dissertation type from course if available
+            subject_type = 'Theory'  # Default
+            dissertation_type = None
+            if course:
+                subject_type = _determine_subject_type(course)
+                if course.course_type == 'Dissertation Proposal (PG)':
+                    dissertation_type = 'Type1'
+                elif course.course_type == 'Dissertation Defence (PG)':
+                    dissertation_type = 'Type2'
+            
             r_subject = RSubject(
                 code=exam_entry.course_code,
                 name=exam_entry.course_name,
                 credit=credit,
-                subject_type='Theory',  # Default
+                subject_type=subject_type,
+                dissertation_type=dissertation_type,
                 session_id=r_session.id
             )
             db.session.add(r_subject)
@@ -2314,19 +2358,56 @@ def add_marks(session_id):
                 existing_mark.sessional_viva = float(sessional_viva) if sessional_viva else None
 
                 total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.sessional_report, existing_mark.sessional_viva]))
+            
+            elif subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+                # Contact (10), Thesis Evaluation (60), Presentation (30)
+                attendance = request.form.get(f'attendance_{student.id}')  # Contact uses attendance field
+                thesis_evaluation = request.form.get(f'thesis_evaluation_{student.id}')
+                presentation = request.form.get(f'presentation_{student.id}')
+                
+                existing_mark.attendance = float(attendance) if attendance else None
+                existing_mark.thesis_evaluation = float(thesis_evaluation) if thesis_evaluation else None
+                existing_mark.presentation = float(presentation) if presentation else None
+                
+                total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.thesis_evaluation, existing_mark.presentation]))
 
             elif subject.subject_type == 'Dissertation':
-                supervisor_assessment = request.form.get(f'supervisor_assessment_{student.id}')
-                proposal_presentation = request.form.get(f'proposal_presentation_{student.id}')
-                project_report = request.form.get(f'project_report_{student.id}')
-                defense = request.form.get(f'defense_{student.id}')
-                
-                existing_mark.supervisor_assessment = float(supervisor_assessment) if supervisor_assessment else None
-                existing_mark.proposal_presentation = float(proposal_presentation) if proposal_presentation else None
-                existing_mark.project_report = float(project_report) if project_report else None
-                existing_mark.defense = float(defense) if defense else None
+                if subject.dissertation_type == 'Type1':
+                    # Dissertation Proposal (PG): Supervisor Assessment (30), Proposal Presentation (70)
+                    supervisor_assessment = request.form.get(f'supervisor_assessment_{student.id}')
+                    proposal_presentation = request.form.get(f'proposal_presentation_{student.id}')
+                    
+                    existing_mark.supervisor_assessment = float(supervisor_assessment) if supervisor_assessment else None
+                    existing_mark.proposal_presentation = float(proposal_presentation) if proposal_presentation else None
+                    existing_mark.project_report = None
+                    existing_mark.defense = None
+                    
+                    total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.proposal_presentation]))
+                elif subject.dissertation_type == 'Type2':
+                    # Dissertation Defence (PG): Supervisor Assessment (20), Project Report (50), Defense (30)
+                    supervisor_assessment = request.form.get(f'supervisor_assessment_{student.id}')
+                    project_report = request.form.get(f'project_report_{student.id}')
+                    defense = request.form.get(f'defense_{student.id}')
+                    
+                    existing_mark.supervisor_assessment = float(supervisor_assessment) if supervisor_assessment else None
+                    existing_mark.project_report = float(project_report) if project_report else None
+                    existing_mark.defense = float(defense) if defense else None
+                    existing_mark.proposal_presentation = None
+                    
+                    total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.project_report, existing_mark.defense]))
+                else:
+                    # Fallback for existing Dissertation subjects without type
+                    supervisor_assessment = request.form.get(f'supervisor_assessment_{student.id}')
+                    proposal_presentation = request.form.get(f'proposal_presentation_{student.id}')
+                    project_report = request.form.get(f'project_report_{student.id}')
+                    defense = request.form.get(f'defense_{student.id}')
+                    
+                    existing_mark.supervisor_assessment = float(supervisor_assessment) if supervisor_assessment else None
+                    existing_mark.proposal_presentation = float(proposal_presentation) if proposal_presentation else None
+                    existing_mark.project_report = float(project_report) if project_report else None
+                    existing_mark.defense = float(defense) if defense else None
 
-                total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.proposal_presentation, existing_mark.project_report, existing_mark.defense]))
+                    total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.proposal_presentation, existing_mark.project_report, existing_mark.defense]))
             
             elif subject.subject_type == 'Viva':
                 viva = request.form.get(f'viva_{student.id}')
@@ -2438,12 +2519,32 @@ def auto_save_marks(session_id):
                     existing_mark.sessional_viva = float(student_marks.get('sessional_viva')) if student_marks.get('sessional_viva') else None
                     total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.sessional_report, existing_mark.sessional_viva]))
                 
+                elif subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+                    existing_mark.attendance = float(student_marks.get('attendance')) if student_marks.get('attendance') else None
+                    existing_mark.thesis_evaluation = float(student_marks.get('thesis_evaluation')) if student_marks.get('thesis_evaluation') else None
+                    existing_mark.presentation = float(student_marks.get('presentation')) if student_marks.get('presentation') else None
+                    total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.thesis_evaluation, existing_mark.presentation]))
+                
                 elif subject.subject_type == 'Dissertation':
-                    existing_mark.supervisor_assessment = float(student_marks.get('supervisor_assessment')) if student_marks.get('supervisor_assessment') else None
-                    existing_mark.proposal_presentation = float(student_marks.get('proposal_presentation')) if student_marks.get('proposal_presentation') else None
-                    existing_mark.project_report = float(student_marks.get('project_report')) if student_marks.get('project_report') else None
-                    existing_mark.defense = float(student_marks.get('defense')) if student_marks.get('defense') else None
-                    total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.proposal_presentation, existing_mark.project_report, existing_mark.defense]))
+                    if subject.dissertation_type == 'Type1':
+                        existing_mark.supervisor_assessment = float(student_marks.get('supervisor_assessment')) if student_marks.get('supervisor_assessment') else None
+                        existing_mark.proposal_presentation = float(student_marks.get('proposal_presentation')) if student_marks.get('proposal_presentation') else None
+                        existing_mark.project_report = None
+                        existing_mark.defense = None
+                        total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.proposal_presentation]))
+                    elif subject.dissertation_type == 'Type2':
+                        existing_mark.supervisor_assessment = float(student_marks.get('supervisor_assessment')) if student_marks.get('supervisor_assessment') else None
+                        existing_mark.project_report = float(student_marks.get('project_report')) if student_marks.get('project_report') else None
+                        existing_mark.defense = float(student_marks.get('defense')) if student_marks.get('defense') else None
+                        existing_mark.proposal_presentation = None
+                        total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.project_report, existing_mark.defense]))
+                    else:
+                        # Fallback for existing Dissertation subjects without type
+                        existing_mark.supervisor_assessment = float(student_marks.get('supervisor_assessment')) if student_marks.get('supervisor_assessment') else None
+                        existing_mark.proposal_presentation = float(student_marks.get('proposal_presentation')) if student_marks.get('proposal_presentation') else None
+                        existing_mark.project_report = float(student_marks.get('project_report')) if student_marks.get('project_report') else None
+                        existing_mark.defense = float(student_marks.get('defense')) if student_marks.get('defense') else None
+                        total_marks = sum(filter(None, [existing_mark.supervisor_assessment, existing_mark.proposal_presentation, existing_mark.project_report, existing_mark.defense]))
                 
                 elif subject.subject_type == 'Viva':
                     existing_mark.viva = float(student_marks.get('viva')) if student_marks.get('viva') else None
@@ -2485,12 +2586,24 @@ def view_results(session_id):
 @login_required
 def course_wise_result(session_id):
     session = RSession.query.get_or_404(session_id)
+    if not _can_access_session(session):
+        flash('You do not have access to this session.', 'danger')
+        return redirect(url_for('result_management.index'))
+    
     subjects = RSubject.query.filter_by(session_id=session_id).order_by(RSubject.code).all()
     selected_subject_id = request.args.get('subject_id', type=int)
     results = []
     selected_subject = None
     if selected_subject_id:
         selected_subject = RSubject.query.get(selected_subject_id)
+        if not selected_subject or selected_subject.session_id != session_id:
+            flash('Invalid subject selected.', 'danger')
+            return redirect(url_for('result_management.course_wise_result', session_id=session_id))
+        
+        # Check if marks exist for this subject
+        marks_count = RMark.query.filter_by(subject_id=selected_subject_id).count()
+        registrations_count = RCourseRegistration.query.filter_by(subject_id=selected_subject_id).count()
+        
         # Define columns to select
         base_columns = [
             RStudent.student_id, RStudent.name, RMark.total_marks,
@@ -2502,6 +2615,8 @@ def course_wise_result(session_id):
                 extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
             elif selected_subject.subject_type == 'Sessional':
                 extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
+            elif selected_subject.subject_type in ['Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)']:
+                extra_columns = [RMark.attendance, RMark.thesis_evaluation, RMark.presentation]
             elif selected_subject.subject_type == 'Dissertation':
                 if selected_subject.dissertation_type == 'Type1':
                     extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
@@ -2510,11 +2625,28 @@ def course_wise_result(session_id):
             elif selected_subject.subject_type == 'Viva':
                 extra_columns = [RMark.viva]
         all_columns = base_columns + extra_columns
-        results = db.session.query(*all_columns)\
-            .join(RMark, RStudent.id == RMark.student_id)\
-            .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == selected_subject_id))\
-            .filter(RMark.subject_id == selected_subject_id)\
-            .order_by(RStudent.student_id).all()
+        
+        try:
+            # If registrations exist, use them. Otherwise, query marks directly (for backward compatibility)
+            if registrations_count > 0:
+                # Use outerjoin to include students who are registered even if they don't have marks yet
+                results = db.session.query(*all_columns)\
+                    .select_from(RStudent)\
+                    .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == selected_subject_id))\
+                    .outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
+                    .filter(RStudent.session_id == session_id)\
+                    .order_by(RStudent.student_id).all()
+            else:
+                # No registrations found - query marks directly (marks exist but registrations don't)
+                results = db.session.query(*all_columns)\
+                    .select_from(RStudent)\
+                    .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
+                    .filter(RStudent.session_id == session_id)\
+                    .order_by(RStudent.student_id).all()
+        except Exception as e:
+            current_app.logger.error(f'Error fetching course-wise results: {e}', exc_info=True)
+            flash('Error loading results. Please try again.', 'danger')
+            results = []
     return render_template('rm_course_wise_result.html',
                            session=session,
                            subjects=subjects,
@@ -2538,21 +2670,54 @@ def student_wise_result(session_id):
 
     if selected_student_id:
         selected_student = RStudent.query.get(selected_student_id)
-        # Fetch results for the selected student (ONLY registered courses)
-        results = db.session.query(
-            RSubject.code.label('subject_code'),
-            RSubject.name.label('subject_name'),
-            RSubject.credit.label('registered_credits'),
-            RMark.grade_letter,
-            RMark.grade_point,
-            RMark.is_retake,
-            RSubject.subject_type
-        ).select_from(RMark)\
-         .join(RStudent, RStudent.id == RMark.student_id)\
-         .join(RSubject, RSubject.id == RMark.subject_id)\
-         .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))\
-         .filter(RStudent.id == selected_student_id)\
-         .order_by(RSubject.code).all()
+        if not selected_student or selected_student.session_id != session_id:
+            flash('Invalid student selected.', 'danger')
+            return redirect(url_for('result_management.student_wise_result', session_id=session_id))
+        
+        # Check if marks exist for this student
+        marks_count = RMark.query.filter_by(student_id=selected_student_id).count()
+        registrations_count = RCourseRegistration.query.filter_by(student_id=selected_student_id).count()
+        
+        try:
+            # If registrations exist, use them. Otherwise, query marks directly (for backward compatibility)
+            if registrations_count > 0:
+                # Fetch results for the selected student (ONLY registered courses)
+                # Use outerjoin to show registered courses even if marks haven't been entered yet
+                results = db.session.query(
+                    RSubject.code.label('subject_code'),
+                    RSubject.name.label('subject_name'),
+                    RSubject.credit.label('registered_credits'),
+                    RMark.grade_letter,
+                    RMark.grade_point,
+                    RMark.is_retake,
+                    RSubject.subject_type
+                ).select_from(RStudent)\
+                 .join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)\
+                 .join(RSubject, RSubject.id == RCourseRegistration.subject_id)\
+                 .outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id))\
+                 .filter(RStudent.id == selected_student_id)\
+                 .filter(RSubject.session_id == session_id)\
+                 .order_by(RSubject.code).all()
+            else:
+                # No registrations found - query marks directly (marks exist but registrations don't)
+                results = db.session.query(
+                    RSubject.code.label('subject_code'),
+                    RSubject.name.label('subject_name'),
+                    RSubject.credit.label('registered_credits'),
+                    RMark.grade_letter,
+                    RMark.grade_point,
+                    RMark.is_retake,
+                    RSubject.subject_type
+                ).select_from(RStudent)\
+                 .join(RMark, RMark.student_id == RStudent.id)\
+                 .join(RSubject, RSubject.id == RMark.subject_id)\
+                 .filter(RStudent.id == selected_student_id)\
+                 .filter(RSubject.session_id == session_id)\
+                 .order_by(RSubject.code).all()
+        except Exception as e:
+            current_app.logger.error(f'Error fetching student-wise results: {e}', exc_info=True)
+            flash('Error loading results. Please try again.', 'danger')
+            results = []
 
         total_registered_credits = 0
         total_earned_credits = 0
@@ -2833,8 +2998,9 @@ class CourseTabulationPDF(PDFGenerator):
             marks_data = list(res)[6:]
             for mark in marks_data:
                 row_data.append(Paragraph(f"{mark:.1f}" if mark is not None else '', styles['TableCellCompact']))
+            total_marks_rounded = round(res.total_marks) if res.total_marks is not None else None
             row_data.extend([
-                Paragraph(f"{res.total_marks:.2f}" if res.total_marks is not None else '', styles['TableCellCompact']),
+                Paragraph(f"{total_marks_rounded}" if total_marks_rounded is not None else '', styles['TableCellCompact']),
                 Paragraph(f"{res.grade_point:.2f}" if res.grade_point is not None else '', styles['TableCellCompact']),
                 Paragraph(res.grade_letter or '', styles['TableCellCompact']),
                 Paragraph('Retake' if res.is_retake else '', styles['TableCellCompact'])
@@ -3111,11 +3277,22 @@ def download_course_result(session_id, subject_id):
             extra_columns = [RMark.viva]
         all_columns = base_columns + extra_columns
         
-        results = db.session.query(*all_columns)\
-            .join(RMark, RStudent.id == RMark.student_id)\
-            .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject_id))\
-            .filter(RMark.subject_id == subject_id)\
-            .order_by(RStudent.student_id).all()
+        # Check if registrations exist
+        registrations_count = RCourseRegistration.query.filter_by(subject_id=subject_id).count()
+        
+        if registrations_count > 0:
+            results = db.session.query(*all_columns)\
+                .join(RMark, RStudent.id == RMark.student_id)\
+                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject_id))\
+                .filter(RMark.subject_id == subject_id)\
+                .order_by(RStudent.student_id).all()
+        else:
+            # No registrations found - query marks directly
+            results = db.session.query(*all_columns)\
+                .select_from(RStudent)\
+                .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == subject_id))\
+                .filter(RStudent.session_id == session_id)\
+                .order_by(RStudent.student_id).all()
         
         buffer = BytesIO()
         pdf = CourseTabulationPDF(buffer, subject, session)
@@ -3170,26 +3347,48 @@ def download_student_result(session_id, student_id):
         student = RStudent.query.get_or_404(student_id)
         session = RSession.query.get_or_404(session_id)
 
-        # Only include subjects where the student is registered
-        results_query = db.session.query(
-            RSubject.code.label('subject_code'),
-            RSubject.name.label('subject_name'),
-            RSubject.credit.label('registered_credits'),
-            RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type,
-            RMark.total_marks,
-            RMark.grade_point, RMark.grade_letter,
-            RMark.is_retake,
-            RMark.total_marks,
-            RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b,
-            RMark.sessional_report, RMark.sessional_viva,
-            RMark.viva,
-            RMark.supervisor_assessment, RMark.proposal_presentation, RMark.project_report, RMark.defense
-        ).select_from(RMark)
-        results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
-        results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
-        results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
-        results_query = results_query.filter(RStudent.id == student_id)
-        results_query = results_query.order_by(RSubject.code)
+        # Check if registrations exist for this student
+        registrations_count = RCourseRegistration.query.filter_by(student_id=student_id).count()
+        
+        # If registrations exist, use them. Otherwise, query marks directly (for backward compatibility)
+        if registrations_count > 0:
+            # Use outerjoin to show registered courses even if marks haven't been entered yet
+            results_query = db.session.query(
+                RSubject.code.label('subject_code'),
+                RSubject.name.label('subject_name'),
+                RSubject.credit.label('registered_credits'),
+                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type,
+                RMark.total_marks,
+                RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b,
+                RMark.sessional_report, RMark.sessional_viva,
+                RMark.viva,
+                RMark.supervisor_assessment, RMark.proposal_presentation, RMark.project_report, RMark.defense
+            ).select_from(RStudent)
+            results_query = results_query.join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)
+            results_query = results_query.join(RSubject, RSubject.id == RCourseRegistration.subject_id)
+            results_query = results_query.outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id))
+            results_query = results_query.filter(RStudent.id == student_id)
+            results_query = results_query.filter(RSubject.session_id == session_id)
+            results_query = results_query.order_by(RSubject.code)
+        else:
+            # No registrations found - query marks directly (marks exist but registrations don't)
+            results_query = db.session.query(
+                RSubject.code.label('subject_code'),
+                RSubject.name.label('subject_name'),
+                RSubject.credit.label('registered_credits'),
+                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type,
+                RMark.total_marks,
+                RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b,
+                RMark.sessional_report, RMark.sessional_viva,
+                RMark.viva,
+                RMark.supervisor_assessment, RMark.proposal_presentation, RMark.project_report, RMark.defense
+            ).select_from(RStudent)
+            results_query = results_query.join(RMark, RMark.student_id == RStudent.id)
+            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
+            results_query = results_query.filter(RStudent.id == student_id)
+            results_query = results_query.filter(RSubject.session_id == session_id)
+            results_query = results_query.order_by(RSubject.code)
+        
         results = results_query.all()
 
         total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0

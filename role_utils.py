@@ -27,7 +27,7 @@ STAFF_ROLES = TEACHING_ROLES | {'officer'}
 
 
 def get_teachers_excluding_head():
-    """Get all teachers excluding Head of the Discipline and Teaching Assistants.
+    """Get all teachers excluding Head of the Discipline, Teaching Assistants, and Admin users.
     This function should be used in all places where teacher lists are displayed.
     """
     try:
@@ -62,8 +62,18 @@ def get_teachers_excluding_head():
         ).all()
         ta_names = {user.full_name for user in ta_users}
         
-        # Filter out Head of the Discipline and Teaching Assistants from teachers list
-        excluded_names = head_names | ta_names
+        # Get Admin users
+        admin_users = User.query.filter(
+            or_(
+                User.role.like('%admin%'),
+                User.role == 'admin',
+                User.role == ADMIN_ROLE
+            )
+        ).all()
+        admin_names = {user.full_name for user in admin_users}
+        
+        # Filter out Head of the Discipline, Teaching Assistants, and Admin users from teachers list
+        excluded_names = head_names | ta_names | admin_names
         teachers = [teacher for teacher in all_teachers if teacher.name not in excluded_names]
         return teachers
     except ImportError:

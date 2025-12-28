@@ -70,6 +70,10 @@ class RMark(db.Model):
     project_report = db.Column(db.Float, nullable=True)
     defense = db.Column(db.Float, nullable=True)
     
+    # Thesis marks
+    thesis_evaluation = db.Column(db.Float, nullable=True)
+    presentation = db.Column(db.Float, nullable=True)
+    
     # Viva marks
     viva = db.Column(db.Float, nullable=True)
     

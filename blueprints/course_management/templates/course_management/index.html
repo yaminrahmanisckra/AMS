@@ -1514,13 +1514,83 @@ function getYearTermFromCourseCode(courseCode) {
         });
     }
     
+    // Helper function to auto-select Type based on course name
+    function autoSelectTypeFromCourseName(courseName, courseTypeSelect) {
+        if (!courseName || !courseTypeSelect) return false;
+        
+        const nameUpper = courseName.toUpperCase();
+        
+        // Check for Thesis/Dissertation keywords first (case-insensitive)
+        if (nameUpper.includes('THESIS II')) {
+            courseTypeSelect.value = 'Thesis II (UG)';
+            console.log(`Auto-selected Thesis II (UG) for course name: ${courseName}`);
+            return true;
+        } else if (nameUpper.includes('THESIS I')) {
+            courseTypeSelect.value = 'Thesis I (UG)';
+            console.log(`Auto-selected Thesis I (UG) for course name: ${courseName}`);
+            return true;
+        } else if (nameUpper.includes('THESIS')) {
+            courseTypeSelect.value = 'Thesis (UG)';
+            console.log(`Auto-selected Thesis (UG) for course name: ${courseName}`);
+            return true;
+        } else if (nameUpper.includes('DISSERTATION PART II-M')) {
+            courseTypeSelect.value = 'Dissertation Defence (PG)';
+            console.log(`Auto-selected Dissertation Defence (PG) for course name: ${courseName}`);
+            return true;
+        } else if (nameUpper.includes('DISSERTATION PART I-M')) {
+            courseTypeSelect.value = 'Dissertation Proposal (PG)';
+            console.log(`Auto-selected Dissertation Proposal (PG) for course name: ${courseName}`);
+            return true;
+        }
+        
+        return false; // No match found
+    }
+    
+    // Helper function to auto-select Type based on course code (fallback)
+    function autoSelectTypeFromCourseCode(courseCode, courseTypeSelect) {
+        if (!courseCode || !courseTypeSelect) return;
+        
+        const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
+        if (digitsOnly.length > 0) {
+            const lastDigit = digitsOnly.charAt(digitsOnly.length - 1); // Last digit of entire course code
+            const lastDigitNum = parseInt(lastDigit, 10);
+            if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 0) {
+                courseTypeSelect.value = 'Sessional';
+                console.log(`Auto-selected Sessional for course code: ${courseCode} (last digit: ${lastDigit})`);
+            } else if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 1) {
+                // If odd, set to Theory (only if not already set)
+                if (courseTypeSelect.value === '' || courseTypeSelect.value === 'Sessional') {
+                    courseTypeSelect.value = 'Theory';
+                    console.log(`Auto-selected Theory for course code: ${courseCode} (last digit: ${lastDigit})`);
+                }
+            }
+        }
+    }
+    
     // Auto-fill Year and Term from Course Code
     // Find fields by name attribute (more reliable than ID for Flask-WTF)
     const courseCodeInput = addCourseForm ? addCourseForm.querySelector('input[name="course_code"]') : null;
+    const courseNameInput = addCourseForm ? addCourseForm.querySelector('input[name="course_name"]') : null;
     const yearInput = addCourseForm ? addCourseForm.querySelector('input[name="year"]') : null;
     const termInput = addCourseForm ? addCourseForm.querySelector('input[name="term"]') : null;
     const categorySelect = addCourseForm ? addCourseForm.querySelector('select[name="category"]') : null;
     const courseTypeSelect = addCourseForm ? addCourseForm.querySelector('select[name="course_type"]') : null;
+    
+    // Function to trigger type auto-selection
+    function triggerTypeAutoSelection() {
+        const courseName = courseNameInput ? courseNameInput.value.trim() : '';
+        const courseCode = courseCodeInput ? courseCodeInput.value.trim() : '';
+        
+        if (courseTypeSelect) {
+            // First check course name for Thesis/Dissertation keywords
+            const nameMatched = autoSelectTypeFromCourseName(courseName, courseTypeSelect);
+            
+            // If no match from course name, fall back to course code logic
+            if (!nameMatched) {
+                autoSelectTypeFromCourseCode(courseCode, courseTypeSelect);
+            }
+        }
+    }
     
     if (courseCodeInput && yearInput && termInput) {
         courseCodeInput.addEventListener('input', function() {
@@ -1542,25 +1612,15 @@ function getYearTermFromCourseCode(courseCode) {
                 }
             }
             
-            // Auto-select Type: Sessional if last digit of course code is even
-            // Course code format: XXX 28 Law XXXX - check the last digit of the entire code
-            if (courseTypeSelect) {
-                const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
-                if (digitsOnly.length > 0) {
-                    const lastDigit = digitsOnly.charAt(digitsOnly.length - 1); // Last digit of entire course code
-                    const lastDigitNum = parseInt(lastDigit, 10);
-                    if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 0) {
-                        courseTypeSelect.value = 'Sessional';
-                        console.log(`Auto-selected Sessional for course code: ${courseCode} (last digit: ${lastDigit})`);
-                    } else if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 1) {
-                        // If odd, set to Theory (only if not already set)
-                        if (courseTypeSelect.value === '' || courseTypeSelect.value === 'Sessional') {
-                            courseTypeSelect.value = 'Theory';
-                            console.log(`Auto-selected Theory for course code: ${courseCode} (last digit: ${lastDigit})`);
-                        }
-                    }
-                }
-            }
+            // Trigger type auto-selection (will check course name first, then course code)
+            triggerTypeAutoSelection();
+        });
+    }
+    
+    // Add event listener for course name input
+    if (courseNameInput && courseTypeSelect) {
+        courseNameInput.addEventListener('input', function() {
+            triggerTypeAutoSelection();
         });
     }
     
@@ -1680,8 +1740,25 @@ function getYearTermFromCourseCode(courseCode) {
         
         // Auto-select Category and Type for Edit Course modal
         const editCourseCodeInput{{ course.id }} = document.getElementById('course_code_{{ course.id }}');
+        const editCourseNameInput{{ course.id }} = document.getElementById('course_name_{{ course.id }}');
         const editCategorySelect{{ course.id }} = document.getElementById('category_{{ course.id }}');
         const editCourseTypeSelect{{ course.id }} = document.getElementById('course_type_{{ course.id }}');
+        
+        // Function to trigger type auto-selection for edit form
+        function triggerEditTypeAutoSelection{{ course.id }}() {
+            const courseName = editCourseNameInput{{ course.id }} ? editCourseNameInput{{ course.id }}.value.trim() : '';
+            const courseCode = editCourseCodeInput{{ course.id }} ? editCourseCodeInput{{ course.id }}.value.trim() : '';
+            
+            if (editCourseTypeSelect{{ course.id }}) {
+                // First check course name for Thesis/Dissertation keywords
+                const nameMatched = autoSelectTypeFromCourseName(courseName, editCourseTypeSelect{{ course.id }});
+                
+                // If no match from course name, fall back to course code logic
+                if (!nameMatched) {
+                    autoSelectTypeFromCourseCode(courseCode, editCourseTypeSelect{{ course.id }});
+                }
+            }
+        }
         
         if (editCourseCodeInput{{ course.id }}) {
             editCourseCodeInput{{ course.id }}.addEventListener('input', function() {
@@ -1700,25 +1777,15 @@ function getYearTermFromCourseCode(courseCode) {
                     }
                 }
                 
-                // Auto-select Type: Sessional if last digit of course code is even
-                // Course code format: XXX 28 Law XXXX - check the last digit of the entire code
-                if (editCourseTypeSelect{{ course.id }}) {
-                    const digitsOnly = courseCode.replace(/\D/g, ''); // Remove all non-digits
-                    if (digitsOnly.length > 0) {
-                        const lastDigit = digitsOnly.charAt(digitsOnly.length - 1); // Last digit of entire course code
-                        const lastDigitNum = parseInt(lastDigit, 10);
-                        if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 0) {
-                            editCourseTypeSelect{{ course.id }}.value = 'Sessional';
-                            console.log(`Auto-selected Sessional for course code: ${courseCode} (last digit: ${lastDigit})`);
-                        } else if (!isNaN(lastDigitNum) && lastDigitNum % 2 === 1) {
-                            // If odd, set to Theory (only if not already set)
-                            if (editCourseTypeSelect{{ course.id }}.value === '' || editCourseTypeSelect{{ course.id }}.value === 'Sessional') {
-                                editCourseTypeSelect{{ course.id }}.value = 'Theory';
-                                console.log(`Auto-selected Theory for course code: ${courseCode} (last digit: ${lastDigit})`);
-                            }
-                        }
-                    }
-                }
+                // Trigger type auto-selection (will check course name first, then course code)
+                triggerEditTypeAutoSelection{{ course.id }}();
+            });
+        }
+        
+        // Add event listener for course name input in edit form
+        if (editCourseNameInput{{ course.id }} && editCourseTypeSelect{{ course.id }}) {
+            editCourseNameInput{{ course.id }}.addEventListener('input', function() {
+                triggerEditTypeAutoSelection{{ course.id }}();
             });
         }
         {% endfor %}

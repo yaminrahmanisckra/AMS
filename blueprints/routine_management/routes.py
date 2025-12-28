@@ -42,7 +42,9 @@ def manage_teachers():
         db.session.commit()
         flash('Teacher added successfully!', 'success')
         return redirect(url_for('routine_management.manage_teachers'))
-    teachers = Teacher.query.order_by('name').all()
+    # Get teachers excluding Head, Teaching Assistants, and Admin users
+    from role_utils import get_teachers_excluding_head
+    teachers = get_teachers_excluding_head()
     return render_template('routine_management/teachers.html', form=form, teachers=teachers)
 
 @routine_management_bp.route('/teacher/edit/<int:id>', methods=['POST'])

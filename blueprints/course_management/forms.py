@@ -12,7 +12,16 @@ class CourseForm(FlaskForm):
     course_code = StringField('Course Code', validators=[DataRequired(), Length(min=3, max=20)])
     course_name = StringField('Course Name', validators=[DataRequired(), Length(min=3, max=100)])
     credit = FloatField('Credit', validators=[DataRequired()])
-    course_type = SelectField('Type', choices=[('Theory', 'Theory'), ('Sessional', 'Sessional'), ('Viva', 'Viva')], validators=[DataRequired()])
+    course_type = SelectField('Type', choices=[
+        ('Theory', 'Theory'), 
+        ('Sessional', 'Sessional'), 
+        ('Viva', 'Viva'),
+        ('Thesis (UG)', 'Thesis (UG)'),
+        ('Thesis I (UG)', 'Thesis I (UG)'),
+        ('Thesis II (UG)', 'Thesis II (UG)'),
+        ('Dissertation Proposal (PG)', 'Dissertation Proposal (PG)'),
+        ('Dissertation Defence (PG)', 'Dissertation Defence (PG)')
+    ], validators=[DataRequired()])
     category = SelectField('Category', choices=[('ug', 'Undergraduate'), ('pg', 'Postgraduate')], default='ug', validators=[DataRequired()])
     core_optional = SelectField('Core/Optional', choices=[('Core', 'Core'), ('Optional', 'Optional')], validators=[DataRequired()])
     year = StringField('Year', validators=[Length(max=50)], render_kw={'placeholder': 'Auto-filled from course code', 'readonly': True})

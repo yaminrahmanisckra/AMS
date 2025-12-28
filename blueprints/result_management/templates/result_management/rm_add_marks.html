@@ -82,6 +82,10 @@
                             <th>Attendance (10)</th>
                             <th>Sessional Report (60)</th>
                             <th>Sessional Viva (30)</th>
+                        {% elif selected_subject.subject_type in ['Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'] %}
+                            <th>Contact (10)</th>
+                            <th>Thesis Evaluation (60)</th>
+                            <th>Presentation (30)</th>
                         {% elif selected_subject.subject_type == 'Dissertation' and selected_subject.dissertation_type == 'Type1' %}
                             <th>Supervisor Assessment (30)</th>
                             <th>Proposal Presentation (70)</th>
@@ -115,6 +119,10 @@
                             <td><input type="number" step="0.1" class="form-control marks-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}"></td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="sessional_report_{{ student.id }}" value="{{ mark.sessional_report if mark and mark.sessional_report is not none else '' }}"></td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="sessional_viva_{{ student.id }}" value="{{ mark.sessional_viva if mark and mark.sessional_viva is not none else '' }}"></td>
+                        {% elif selected_subject.subject_type in ['Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'] %}
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="thesis_evaluation_{{ student.id }}" value="{{ mark.thesis_evaluation if mark and mark.thesis_evaluation is not none else '' }}"></td>
+                            <td><input type="number" step="0.1" class="form-control marks-input" name="presentation_{{ student.id }}" value="{{ mark.presentation if mark and mark.presentation is not none else '' }}"></td>
                         {% elif selected_subject.subject_type == 'Dissertation' and selected_subject.dissertation_type == 'Type1' %}
                             <td><input type="number" step="0.1" class="form-control marks-input" name="supervisor_assessment_{{ student.id }}" value="{{ mark.supervisor_assessment if mark and mark.supervisor_assessment is not none else '' }}"></td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="proposal_presentation_{{ student.id }}" value="{{ mark.proposal_presentation if mark and mark.proposal_presentation is not none else '' }}"></td>
