@@ -1028,22 +1028,24 @@ def refresh_marks(session_id):
                         
                         if class_student:
                             # Import attendance marks
-                            try:
-                                from blueprints.class_management.routes import _build_attendance_summary
-                                
-                                attendance_summary = _build_attendance_summary(class_session)
-                                student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                
-                                if student_attendance and 'marks' in student_attendance:
-                                    attendance_marks = student_attendance.get('marks', 0)
-                                    if attendance_marks is not None:
-                                        mark.attendance = float(attendance_marks)
+                            # Only auto-populate if attendance_manual is False or None (not manually entered)
+                            if not mark.attendance_manual:
+                                try:
+                                    from blueprints.class_management.routes import _build_attendance_summary
+                                    
+                                    attendance_summary = _build_attendance_summary(class_session)
+                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                    
+                                    if student_attendance and 'marks' in student_attendance:
+                                        attendance_marks = student_attendance.get('marks', 0)
+                                        if attendance_marks is not None:
+                                            mark.attendance = float(attendance_marks)
+                                        else:
+                                            mark.attendance = None
                                     else:
                                         mark.attendance = None
-                                else:
-                                    mark.attendance = None
-                            except Exception as e:
-                                current_app.logger.error(f"Error importing attendance for student {student.student_id}: {e}", exc_info=True)
+                                except Exception as e:
+                                    current_app.logger.error(f"Error importing attendance for student {student.student_id}: {e}", exc_info=True)
                             
                             # Import marks based on subject type
                             if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
@@ -2118,34 +2120,36 @@ def add_marks(session_id):
                             mark = RMark(student_id=student.id, subject_id=selected_subject.id)
                             
                             # Import attendance calculation functions from Class Management
-                            try:
-                                from blueprints.class_management.routes import _build_attendance_summary
-                                
-                                # Build attendance summary for the session (same as Class Management uses)
-                                attendance_summary = _build_attendance_summary(class_session)
-                                
-                                # Get student's attendance data using student_id (public ID)
-                                # The summary uses student_id (public) as key, not database ID
-                                student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                
-                                if student_attendance and 'marks' in student_attendance:
-                                    # Get marks directly from the summary (already calculated by Class Management)
-                                    attendance_marks = student_attendance.get('marks', 0)
-                                    if attendance_marks is not None:
-                                        mark.attendance = float(attendance_marks)
+                            # Only auto-populate if attendance_manual is False or None (not manually entered)
+                            if not mark.attendance_manual:
+                                try:
+                                    from blueprints.class_management.routes import _build_attendance_summary
+                                    
+                                    # Build attendance summary for the session (same as Class Management uses)
+                                    attendance_summary = _build_attendance_summary(class_session)
+                                    
+                                    # Get student's attendance data using student_id (public ID)
+                                    # The summary uses student_id (public) as key, not database ID
+                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                    
+                                    if student_attendance and 'marks' in student_attendance:
+                                        # Get marks directly from the summary (already calculated by Class Management)
+                                        attendance_marks = student_attendance.get('marks', 0)
+                                        if attendance_marks is not None:
+                                            mark.attendance = float(attendance_marks)
+                                        else:
+                                            mark.attendance = None
                                     else:
+                                        # If no attendance data found, set to None
                                         mark.attendance = None
-                                else:
-                                    # If no attendance data found, set to None
+                                        current_app.logger.debug(f"No attendance data found for student {student.student_id} in session {class_session.id}")
+                                except ImportError as e:
+                                    # If import fails, log warning
+                                    current_app.logger.warning(f"Could not import _build_attendance_summary: {e}")
                                     mark.attendance = None
-                                    current_app.logger.debug(f"No attendance data found for student {student.student_id} in session {class_session.id}")
-                            except ImportError as e:
-                                # If import fails, log warning
-                                current_app.logger.warning(f"Could not import _build_attendance_summary: {e}")
-                                mark.attendance = None
-                            except Exception as e:
-                                current_app.logger.error(f"Error calculating attendance marks from Class Management for student {student.student_id}: {e}", exc_info=True)
-                                mark.attendance = None
+                                except Exception as e:
+                                    current_app.logger.error(f"Error calculating attendance marks from Class Management for student {student.student_id}: {e}", exc_info=True)
+                                    mark.attendance = None
                             
                             # Get continuous assessment (sum of best 3 assessments or assessment_total_40)
                             if class_student.assessment_total_40 is not None:
@@ -2341,7 +2345,11 @@ def add_marks(session_id):
                 part_a = request.form.get(f'part_a_{student.id}')
                 part_b = request.form.get(f'part_b_{student.id}')
                 
-                existing_mark.attendance = float(attendance) if attendance else None
+                if attendance:
+                    existing_mark.attendance = float(attendance)
+                    existing_mark.attendance_manual = True
+                else:
+                    existing_mark.attendance = None
                 existing_mark.continuous_assessment = float(continuous_assessment) if continuous_assessment else None
                 existing_mark.part_a = float(part_a) if part_a else None
                 existing_mark.part_b = float(part_b) if part_b else None
@@ -2353,7 +2361,11 @@ def add_marks(session_id):
                 sessional_report = request.form.get(f'sessional_report_{student.id}')
                 sessional_viva = request.form.get(f'sessional_viva_{student.id}')
 
-                existing_mark.attendance = float(attendance) if attendance else None
+                if attendance:
+                    existing_mark.attendance = float(attendance)
+                    existing_mark.attendance_manual = True
+                else:
+                    existing_mark.attendance = None
                 existing_mark.sessional_report = float(sessional_report) if sessional_report else None
                 existing_mark.sessional_viva = float(sessional_viva) if sessional_viva else None
 
@@ -2365,7 +2377,11 @@ def add_marks(session_id):
                 thesis_evaluation = request.form.get(f'thesis_evaluation_{student.id}')
                 presentation = request.form.get(f'presentation_{student.id}')
                 
-                existing_mark.attendance = float(attendance) if attendance else None
+                if attendance:
+                    existing_mark.attendance = float(attendance)
+                    existing_mark.attendance_manual = True
+                else:
+                    existing_mark.attendance = None
                 existing_mark.thesis_evaluation = float(thesis_evaluation) if thesis_evaluation else None
                 existing_mark.presentation = float(presentation) if presentation else None
                 
@@ -2507,20 +2523,32 @@ def auto_save_marks(session_id):
                 
                 total_marks = 0
                 if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                    existing_mark.attendance = float(student_marks.get('attendance')) if student_marks.get('attendance') else None
+                    if student_marks.get('attendance'):
+                        existing_mark.attendance = float(student_marks.get('attendance'))
+                        existing_mark.attendance_manual = True
+                    else:
+                        existing_mark.attendance = None
                     existing_mark.continuous_assessment = float(student_marks.get('continuous_assessment')) if student_marks.get('continuous_assessment') else None
                     existing_mark.part_a = float(student_marks.get('part_a')) if student_marks.get('part_a') else None
                     existing_mark.part_b = float(student_marks.get('part_b')) if student_marks.get('part_b') else None
                     total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.continuous_assessment, existing_mark.part_a, existing_mark.part_b]))
                 
                 elif subject.subject_type == 'Sessional':
-                    existing_mark.attendance = float(student_marks.get('attendance')) if student_marks.get('attendance') else None
+                    if student_marks.get('attendance'):
+                        existing_mark.attendance = float(student_marks.get('attendance'))
+                        existing_mark.attendance_manual = True
+                    else:
+                        existing_mark.attendance = None
                     existing_mark.sessional_report = float(student_marks.get('sessional_report')) if student_marks.get('sessional_report') else None
                     existing_mark.sessional_viva = float(student_marks.get('sessional_viva')) if student_marks.get('sessional_viva') else None
                     total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.sessional_report, existing_mark.sessional_viva]))
                 
                 elif subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
-                    existing_mark.attendance = float(student_marks.get('attendance')) if student_marks.get('attendance') else None
+                    if student_marks.get('attendance'):
+                        existing_mark.attendance = float(student_marks.get('attendance'))
+                        existing_mark.attendance_manual = True
+                    else:
+                        existing_mark.attendance = None
                     existing_mark.thesis_evaluation = float(student_marks.get('thesis_evaluation')) if student_marks.get('thesis_evaluation') else None
                     existing_mark.presentation = float(student_marks.get('presentation')) if student_marks.get('presentation') else None
                     total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.thesis_evaluation, existing_mark.presentation]))

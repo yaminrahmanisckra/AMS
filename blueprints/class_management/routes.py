@@ -572,13 +572,34 @@ def _build_attendance_summary(session):
         per_session_totals[session_id] += class_count
 
     per_student_result = {}
+    # Group students by student_id to handle split courses (multiple sessions, same student_id)
+    students_by_id = {}
     for student in students:
-        stats = per_student_counts.get(student.student_id, {'present': 0, 'records': 0})
+        if student.student_id not in students_by_id:
+            students_by_id[student.student_id] = []
+        students_by_id[student.student_id].append(student)
+    
+    for student_id, student_list in students_by_id.items():
+        stats = per_student_counts.get(student_id, {'present': 0, 'records': 0})
         percentage = (stats['present'] / total_classes * 100) if total_classes else 0
-        per_student_result[student.student_id] = {
+        
+        # Check all student records for this student_id to find manual marks
+        # (for split courses, manual marks might be on any of the related student records)
+        manual_marks = None
+        for student in student_list:
+            if student.attendance_marks_manual is not None:
+                manual_marks = student.attendance_marks_manual
+                break
+        
+        if manual_marks is not None:
+            marks = manual_marks
+        else:
+            marks = _calculate_attendance_mark_from_percentage(percentage)
+        per_student_result[student_id] = {
             'present': stats['present'],
             'percentage': percentage,
-            'marks': _calculate_attendance_mark_from_percentage(percentage)
+            'marks': marks,
+            'marks_manual': manual_marks is not None
         }
 
     return {
@@ -1466,7 +1487,8 @@ def view_attendance(session_id):
                     'total_classes': agg_total_classes,  # Combined total for marks
                     'present_count': agg_stats['present'],  # Combined present count
                     'percentage': f"{agg_stats['percentage']:.2f}%",  # Combined percentage
-                    'marks': agg_stats['marks']  # Combined marks
+                    'marks': agg_stats['marks'],  # Combined marks
+                    'marks_manual': agg_stats.get('marks_manual', False)  # Whether marks are manually set
                 }
                 student_report_data.append(student_data)
             
@@ -1634,8 +1656,76 @@ def toggle_attendance_record(record_id):
         'present_count': student_stats.get('present', 0),
         'percentage': f"{student_stats.get('percentage', 0):.2f}%",
         'marks': student_stats.get('marks', 0),
+        'marks_manual': student_stats.get('marks_manual', False),
         'student_db_id': record.student_id
     })
+
+@class_management_bp.route('/save_attendance_marks_manual/<int:session_id>', methods=['POST'])
+@login_required
+def save_attendance_marks_manual(session_id):
+    """Save manual attendance marks override for students"""
+    session = Session.query.get_or_404(session_id)
+    teacher = _ensure_current_teacher()
+    if session.teacher_id != teacher.id:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    try:
+        data = request.get_json()
+        student_id = data.get('student_id')  # Public student_id (string)
+        marks_value = data.get('marks')
+        
+        if not student_id:
+            return jsonify({'success': False, 'message': 'Student ID required'}), 400
+        
+        # Find the student in this session
+        student = ClassStudent.query.filter_by(
+            session_id=session_id,
+            student_id=student_id
+        ).first()
+        
+        if not student:
+            return jsonify({'success': False, 'message': 'Student not found'}), 404
+        
+        # For split courses, set manual marks on all related student records with the same student_id
+        # This ensures manual marks are preserved across all sessions
+        related_sessions = _get_related_sessions(session)
+        session_ids = [s.id for s in related_sessions if s]
+        all_students_with_same_id = ClassStudent.query.filter(
+            ClassStudent.student_id == student_id,
+            ClassStudent.session_id.in_(session_ids)
+        ).all()
+        
+        # Set manual marks (None to clear manual override)
+        if marks_value is not None and marks_value != '':
+            try:
+                marks_float = float(marks_value)
+                # Set manual marks on all related student records
+                for s in all_students_with_same_id:
+                    s.attendance_marks_manual = marks_float
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'message': 'Invalid marks value'}), 400
+        else:
+            # Clear manual override from all related student records
+            for s in all_students_with_same_id:
+                s.attendance_marks_manual = None
+        
+        db.session.commit()
+        
+        # Rebuild attendance summary to get updated marks
+        attendance_summary = _build_attendance_summary(session)
+        student_stats = attendance_summary.get('per_student', {}).get(student_id, {'present': 0, 'percentage': 0, 'marks': 0, 'marks_manual': False})
+        
+        return jsonify({
+            'success': True,
+            'marks': student_stats.get('marks', 0),
+            'marks_manual': student_stats.get('marks_manual', False),
+            'present_count': student_stats.get('present', 0),
+            'percentage': f"{student_stats.get('percentage', 0):.2f}%"
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error saving manual attendance marks: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 @class_management_bp.route('/students/<int:session_id>')
 @login_required

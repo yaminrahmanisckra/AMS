@@ -77,6 +77,9 @@ class ClassStudent(db.Model):
     sessional_report = db.Column(db.Float, nullable=True)
     sessional_viva = db.Column(db.Float, nullable=True)
     
+    # Manual attendance marks override (if set, takes precedence over calculated marks)
+    attendance_marks_manual = db.Column(db.Float, nullable=True)
+    
     # Absent status for assessments (JSON: {"assessment1": true, "assessment2": false, "sessional_report": true, "sessional_viva": false})
     assessment_absent = db.Column(db.Text, nullable=True)
     

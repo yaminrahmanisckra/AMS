@@ -126,6 +126,13 @@
                     .attendance-cell.editable.editing {
                         box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.7);
                     }
+                    .manual-badge {
+                        cursor: pointer;
+                        transition: opacity 0.2s ease;
+                    }
+                    .manual-badge:hover {
+                        opacity: 0.8;
+                    }
                 </style>
                 
                 <div class="d-flex justify-content-end edit-toggle">
@@ -193,7 +200,19 @@
                                             <td>{{ data.total_classes }}</td>
                                             <td class="present-count">{{ data.present_count }}</td>
                                             <td class="percentage-cell">{{ data.percentage }}</td>
-                                            <td class="marks-cell">{{ data.marks }}</td>
+                                            <td class="marks-cell" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
+                                                <div class="d-flex align-items-center gap-1 justify-content-center">
+                                                    <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit" 
+                                                           value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
+                                                           data-original-value="{{ data.marks }}">
+                                                    <span class="marks-display">{{ data.marks }}</span>
+                                                    {% if data.marks_manual %}
+                                                        <span class="badge bg-info badge-sm manual-badge">Manual</span>
+                                                    {% else %}
+                                                        <span class="badge bg-info badge-sm manual-badge" style="display: none;">Manual</span>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
                                         </tr>
                                         {% endfor %}
                                     </tbody>
@@ -305,6 +324,13 @@
                     .attendance-cell.editable.editing {
                         box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.7);
                     }
+                    .manual-badge {
+                        cursor: pointer;
+                        transition: opacity 0.2s ease;
+                    }
+                    .manual-badge:hover {
+                        opacity: 0.8;
+                    }
                 </style>
                 
                 <div class="d-flex justify-content-end edit-toggle">
@@ -359,7 +385,19 @@
                                 <td>{{ data.total_classes }}</td>
                                 <td class="present-count">{{ data.present_count }}</td>
                                 <td class="percentage-cell">{{ data.percentage }}</td>
-                                <td class="marks-cell">{{ data.marks }}</td>
+                                <td class="marks-cell" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
+                                    <div class="d-flex align-items-center gap-1 justify-content-center">
+                                        <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit" 
+                                               value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
+                                               data-original-value="{{ data.marks }}">
+                                        <span class="marks-display">{{ data.marks }}</span>
+                                        {% if data.marks_manual %}
+                                            <span class="badge bg-info badge-sm manual-badge">Manual</span>
+                                        {% else %}
+                                            <span class="badge bg-info badge-sm manual-badge" style="display: none;">Manual</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -381,9 +419,27 @@
 const editToggle = document.getElementById('editModeToggle');
 const toggleBaseUrl = "{{ url_for('class_management.toggle_attendance_record', record_id=0) }}".slice(0, -1);
 
+// Restore edit mode state from localStorage
 if (editToggle) {
+    const savedEditMode = localStorage.getItem('attendance_edit_mode_' + {{ session.id }});
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:410',message:'Restoring edit mode from localStorage',data:{savedEditMode:savedEditMode,sessionId:{{ session.id }}},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+    // #endregion
+    if (savedEditMode === 'true') {
+        editToggle.checked = true;
+        toggleEditableState(true);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:414',message:'Edit mode restored to true',data:{checkboxChecked:editToggle.checked},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+        // #endregion
+    }
+    
     editToggle.addEventListener('change', function() {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:418',message:'Edit mode checkbox changed',data:{checked:this.checked},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+        // #endregion
         toggleEditableState(this.checked);
+        // Save edit mode state to localStorage
+        localStorage.setItem('attendance_edit_mode_' + {{ session.id }}, this.checked ? 'true' : 'false');
     });
 }
 
@@ -405,6 +461,9 @@ function onAttendanceCellClick(event) {
     const cell = event.currentTarget;
     const recordId = cell.dataset.recordId;
     if (!recordId) return;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:437',message:'Attendance cell clicked',data:{recordId:recordId,editModeChecked:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+    // #endregion
     cell.classList.add('editing');
     setTimeout(() => cell.classList.remove('editing'), 200);
 
@@ -418,6 +477,9 @@ function onAttendanceCellClick(event) {
     })
     .then(response => response.json())
     .then(data => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:453',message:'Attendance toggle response received',data:{success:data.success,editModeCheckedBefore:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+        // #endregion
         if (!data.success) {
             alert(data.message || 'Failed to update attendance.');
             return;
@@ -430,11 +492,17 @@ function onAttendanceCellClick(event) {
             statusSpan.textContent = 'A';
             statusSpan.className = 'status text-danger fw-bold';
         }
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:465',message:'After updating status span',data:{editModeCheckedAfter:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+        // #endregion
         // For split courses, marks are calculated from combined attendance
         // So we need to reload the page to get updated combined marks
         // For non-split courses, update inline
         {% if is_split_course %}
         // Reload page to get updated combined marks for split courses
+        // Preserve edit mode state before reload
+        const editModeState = editToggle ? editToggle.checked : false;
+        localStorage.setItem('attendance_edit_mode_' + {{ session.id }}, editModeState ? 'true' : 'false');
         window.location.reload();
         {% else %}
         const row = cell.closest('tr');
@@ -444,14 +512,186 @@ function onAttendanceCellClick(event) {
             const marksCell = row.querySelector('.marks-cell');
             if (presentCell) presentCell.textContent = data.present_count;
             if (percentageCell) percentageCell.textContent = data.percentage;
-            if (marksCell) marksCell.textContent = data.marks;
+            if (marksCell) {
+                // Only update marks if not manually set, otherwise preserve manual marks
+                const displaySpan = marksCell.querySelector('.marks-display');
+                const inputField = marksCell.querySelector('.marks-input-edit');
+                const manualBadge = marksCell.querySelector('.manual-badge');
+                
+                // If manual marks exist, don't overwrite
+                if (data.marks_manual && displaySpan) {
+                    // Keep existing manual marks, just update present count and percentage
+                    // Don't update marks display
+                } else if (displaySpan) {
+                    // Update marks display
+                    displaySpan.textContent = data.marks;
+                    if (inputField) {
+                        inputField.value = data.marks;
+                        inputField.dataset.originalValue = data.marks;
+                    }
+                    // Hide manual badge if marks are not manual
+                    if (manualBadge && !data.marks_manual) {
+                        manualBadge.style.display = 'none';
+                    }
+                } else {
+                    // Fallback for old structure
+                    marksCell.textContent = data.marks;
+                }
+            }
         }
         {% endif %}
     })
     .catch(() => alert('Failed to update attendance.'));
 }
 
+// Initialize edit mode state (after localStorage restore)
+// #region agent log
+if (editToggle) {
+    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:515',message:'Initial toggleEditableState call',data:{editToggleExists:!!editToggle,checked:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
+}
+// #endregion
 toggleEditableState(editToggle && editToggle.checked);
+
+// Manual attendance marks editing
+document.addEventListener('DOMContentLoaded', function() {
+    const marksCells = document.querySelectorAll('.marks-cell');
+    const sessionId = {{ session.id }};
+    
+    marksCells.forEach(cell => {
+        const displaySpan = cell.querySelector('.marks-display');
+        const inputField = cell.querySelector('.marks-input-edit');
+        const manualBadge = cell.querySelector('.manual-badge');
+        const studentId = cell.dataset.studentId;
+        
+        if (!displaySpan || !inputField) return;
+        
+        // Make cell clickable to edit
+        displaySpan.style.cursor = 'pointer';
+        displaySpan.title = 'Click to edit marks';
+        
+        displaySpan.addEventListener('click', function() {
+            displaySpan.style.display = 'none';
+            inputField.style.display = 'inline-block';
+            inputField.focus();
+            inputField.select();
+        });
+        
+        // Make manual badge clickable to clear manual marks
+        if (manualBadge) {
+            manualBadge.title = 'Click to clear manual marks and use auto-calculation';
+            manualBadge.style.cursor = 'pointer';
+            
+            manualBadge.addEventListener('click', function(e) {
+                e.stopPropagation(); // Prevent triggering marks cell click
+                
+                if (!confirm('Clear manual marks and use auto-calculated marks?')) {
+                    return;
+                }
+                
+                // Clear manual marks by sending empty value
+                fetch(`/class-management/save_attendance_marks_manual/${sessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        student_id: studentId,
+                        marks: '' // Empty value clears manual marks
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Update marks display with auto-calculated value
+                        displaySpan.textContent = data.marks;
+                        inputField.value = data.marks;
+                        inputField.dataset.originalValue = data.marks;
+                        
+                        // Hide manual badge
+                        manualBadge.style.display = 'none';
+                        
+                        // Update present count and percentage if available
+                        const row = cell.closest('tr');
+                        if (row) {
+                            const presentCell = row.querySelector('.present-count');
+                            const percentageCell = row.querySelector('.percentage-cell');
+                            if (presentCell && data.present_count !== undefined) {
+                                presentCell.textContent = data.present_count;
+                            }
+                            if (percentageCell && data.percentage) {
+                                percentageCell.textContent = data.percentage;
+                            }
+                        }
+                    } else {
+                        alert(data.message || 'Failed to clear manual marks');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error clearing manual marks:', error);
+                    alert('Failed to clear manual marks');
+                });
+            });
+        }
+        
+        // Handle input blur (save on blur)
+        inputField.addEventListener('blur', function() {
+            const newValue = inputField.value;
+            const originalValue = inputField.dataset.originalValue;
+            
+            if (newValue !== originalValue) {
+                // Save the new value
+                fetch(`/class-management/save_attendance_marks_manual/${sessionId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        student_id: studentId,
+                        marks: newValue
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displaySpan.textContent = data.marks;
+                        inputField.dataset.originalValue = data.marks;
+                        inputField.value = data.marks;
+                        
+                        // Show/hide manual badge
+                        if (data.marks_manual) {
+                            if (manualBadge) manualBadge.style.display = 'inline-block';
+                        } else {
+                            if (manualBadge) manualBadge.style.display = 'none';
+                        }
+                    } else {
+                        alert(data.message || 'Failed to save marks');
+                        inputField.value = originalValue;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error saving marks:', error);
+                    alert('Failed to save marks');
+                    inputField.value = originalValue;
+                });
+            }
+            
+            displaySpan.style.display = 'inline';
+            inputField.style.display = 'none';
+        });
+        
+        // Handle Enter key
+        inputField.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                inputField.blur();
+            } else if (e.key === 'Escape') {
+                inputField.value = inputField.dataset.originalValue;
+                inputField.blur();
+            }
+        });
+    });
+});
 
 // Calculate and set left positions for freeze columns dynamically
 // Works for both split and non-split courses

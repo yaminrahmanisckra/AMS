@@ -111,16 +111,43 @@
                         <td class="text-start">{{ student.name }}</td>
                         
                         {% if selected_subject.subject_type in ['Theory', 'Theory (PG)', 'Theory (UG)'] %}
-                            <td><input type="number" step="0.1" class="form-control marks-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-1">
+                                    <input type="number" step="0.1" class="form-control marks-input attendance-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}" data-student-id="{{ student.id }}">
+                                    {% if mark and mark.attendance_manual %}
+                                        <span class="badge bg-info manual-badge" id="manual-badge-{{ student.id }}">Manual</span>
+                                    {% else %}
+                                        <span class="badge bg-info manual-badge" id="manual-badge-{{ student.id }}" style="display: none;">Manual</span>
+                                    {% endif %}
+                                </div>
+                            </td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="continuous_assessment_{{ student.id }}" value="{{ mark.continuous_assessment if mark and mark.continuous_assessment is not none else '' }}"></td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="part_a_{{ student.id }}" value="{{ mark.part_a if mark and mark.part_a is not none else '' }}"></td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="part_b_{{ student.id }}" value="{{ mark.part_b if mark and mark.part_b is not none else '' }}"></td>
                         {% elif selected_subject.subject_type == 'Sessional' %}
-                            <td><input type="number" step="0.1" class="form-control marks-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-1">
+                                    <input type="number" step="0.1" class="form-control marks-input attendance-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}" data-student-id="{{ student.id }}">
+                                    {% if mark and mark.attendance_manual %}
+                                        <span class="badge bg-info manual-badge" id="manual-badge-{{ student.id }}">Manual</span>
+                                    {% else %}
+                                        <span class="badge bg-info manual-badge" id="manual-badge-{{ student.id }}" style="display: none;">Manual</span>
+                                    {% endif %}
+                                </div>
+                            </td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="sessional_report_{{ student.id }}" value="{{ mark.sessional_report if mark and mark.sessional_report is not none else '' }}"></td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="sessional_viva_{{ student.id }}" value="{{ mark.sessional_viva if mark and mark.sessional_viva is not none else '' }}"></td>
                         {% elif selected_subject.subject_type in ['Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'] %}
-                            <td><input type="number" step="0.1" class="form-control marks-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}"></td>
+                            <td>
+                                <div class="d-flex align-items-center gap-1">
+                                    <input type="number" step="0.1" class="form-control marks-input attendance-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}" data-student-id="{{ student.id }}">
+                                    {% if mark and mark.attendance_manual %}
+                                        <span class="badge bg-info manual-badge" id="manual-badge-{{ student.id }}">Manual</span>
+                                    {% else %}
+                                        <span class="badge bg-info manual-badge" id="manual-badge-{{ student.id }}" style="display: none;">Manual</span>
+                                    {% endif %}
+                                </div>
+                            </td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="thesis_evaluation_{{ student.id }}" value="{{ mark.thesis_evaluation if mark and mark.thesis_evaluation is not none else '' }}"></td>
                             <td><input type="number" step="0.1" class="form-control marks-input" name="presentation_{{ student.id }}" value="{{ mark.presentation if mark and mark.presentation is not none else '' }}"></td>
                         {% elif selected_subject.subject_type == 'Dissertation' and selected_subject.dissertation_type == 'Type1' %}
@@ -220,6 +247,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 triggerAutoSave();
             });
         });
+        
+        // Handle attendance input changes to show/hide manual badge
+        const attendanceInput = row.querySelector('.attendance-input');
+        if (attendanceInput) {
+            const studentId = attendanceInput.dataset.studentId;
+            const manualBadge = document.getElementById(`manual-badge-${studentId}`);
+            
+            attendanceInput.addEventListener('input', () => {
+                // Show badge when user enters a value
+                if (attendanceInput.value && attendanceInput.value.trim() !== '') {
+                    if (manualBadge) {
+                        manualBadge.style.display = 'inline-block';
+                    }
+                } else {
+                    // Hide badge when input is cleared
+                    if (manualBadge) {
+                        manualBadge.style.display = 'none';
+                    }
+                }
+            });
+        }
     });
     
     // Auto-save functionality

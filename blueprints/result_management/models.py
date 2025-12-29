@@ -81,6 +81,7 @@ class RMark(db.Model):
     grade_point = db.Column(db.Float, nullable=True)
     grade_letter = db.Column(db.String(2), nullable=True)
     is_retake = db.Column(db.Boolean, default=False)
+    attendance_manual = db.Column(db.Boolean, default=False, nullable=False)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
