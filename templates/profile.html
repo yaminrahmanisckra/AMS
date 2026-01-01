@@ -87,4 +87,34 @@
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Theme gradient mapping - matches base.html gradients
+    const themeGradients = {
+        'default': 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
+        'blue': 'linear-gradient(135deg, #3b82f6 0%, #1e40af 50%, #1e3a8a 100%)',
+        'green': 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
+        'red': 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)',
+        'orange': 'linear-gradient(135deg, #f97316 0%, #ea580c 50%, #c2410c 100%)',
+        'teal': 'linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #0f766e 100%)',
+        'pink': 'linear-gradient(135deg, #ec4899 0%, #db2777 50%, #be185d 100%)',
+        'indigo': 'linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%)'
+    };
+    
+    // Get theme dropdown element
+    const themeSelect = document.getElementById('theme');
+    
+    if (themeSelect) {
+        // Add event listener for theme change
+        themeSelect.addEventListener('change', function() {
+            const selectedTheme = this.value;
+            const gradient = themeGradients[selectedTheme] || themeGradients['default'];
+            
+            // Update CSS variable for live preview
+            document.documentElement.style.setProperty('--theme-gradient', gradient);
+        });
+    }
+});
+</script>
 {% endblock %} 

@@ -536,12 +536,31 @@ def edit_student(student_id):
 @result_management_bp.route('/delete_student/<int:student_id>', methods=['POST'])
 @login_required
 def delete_student(student_id):
-    student = RStudent.query.get_or_404(student_id)
-    session_id = student.session_id
-    db.session.delete(student)
-    db.session.commit()
-    flash('Student deleted successfully!', 'success')
-    return redirect(url_for('result_management.add_student', session_id=session_id))
+    """Delete a student from result session"""
+    try:
+        student = RStudent.query.get_or_404(student_id)
+        session_id = student.session_id
+        student_name = student.name
+        
+        # Cascade delete will handle marks and registrations
+        # due to cascade="all, delete-orphan" in the model relationships
+        db.session.delete(student)
+        db.session.commit()
+        flash(f'Student "{student_name}" deleted successfully!', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting result student {student_id}: {e}', exc_info=True)
+        flash(f'Error deleting student: {str(e)}', 'danger')
+        # Try to get session_id for redirect even if deletion failed
+        try:
+            student = RStudent.query.get(student_id)
+            session_id = student.session_id if student else None
+        except:
+            session_id = None
+    
+    if session_id:
+        return redirect(url_for('result_management.add_student', session_id=session_id))
+    return redirect(url_for('result_management.index'))
 
 @result_management_bp.route('/api/students', methods=['GET'])
 @login_required
@@ -1227,12 +1246,31 @@ def refresh_marks(session_id):
 @result_management_bp.route('/delete_subject/<int:subject_id>', methods=['POST'])
 @login_required
 def delete_subject(subject_id):
-    subject = RSubject.query.get_or_404(subject_id)
-    session_id = subject.session_id
-    db.session.delete(subject)
-    db.session.commit()
-    flash('Subject deleted successfully!', 'success')
-    return redirect(url_for('result_management.add_subject', session_id=session_id))
+    """Delete a subject from result session"""
+    try:
+        subject = RSubject.query.get_or_404(subject_id)
+        session_id = subject.session_id
+        subject_name = subject.name
+        
+        # Cascade delete will handle marks and registrations
+        # due to cascade="all, delete-orphan" in the model relationships
+        db.session.delete(subject)
+        db.session.commit()
+        flash(f'Subject "{subject_name}" deleted successfully!', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting subject {subject_id}: {e}', exc_info=True)
+        flash(f'Error deleting subject: {str(e)}', 'danger')
+        # Try to get session_id for redirect even if deletion failed
+        try:
+            subject = RSubject.query.get(subject_id)
+            session_id = subject.session_id if subject else None
+        except:
+            session_id = None
+    
+    if session_id:
+        return redirect(url_for('result_management.add_subject', session_id=session_id))
+    return redirect(url_for('result_management.index'))
 
 
 def clear_exam_marks_from_result_management(exam_entry_id):
@@ -2913,13 +2951,26 @@ def course_registration(session_id):
 @result_management_bp.route('/delete_session/<int:session_id>', methods=['POST'])
 @login_required
 def delete_session(session_id):
+    """Delete a result session and all related data"""
     if not _can_manage_sessions():
         flash('Only the Head can delete sessions.', 'danger')
         return redirect(url_for('result_management.index'))
-    session = RSession.query.get_or_404(session_id)
-    db.session.delete(session)
-    db.session.commit()
-    flash('Session and all related data deleted successfully.', 'success')
+    
+    try:
+        session = RSession.query.get_or_404(session_id)
+        session_name = session.name
+        
+        # Cascade delete will handle students, subjects, marks, and registrations
+        # due to cascade="all, delete-orphan" in the model relationships
+        db.session.delete(session)
+        db.session.commit()
+        
+        flash(f'Session "{session_name}" and all related data deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting result session {session_id}: {e}', exc_info=True)
+        flash(f'Error deleting session: {str(e)}', 'danger')
+    
     return redirect(url_for('result_management.index'))
 
 

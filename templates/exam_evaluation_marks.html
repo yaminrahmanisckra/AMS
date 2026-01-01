@@ -314,6 +314,9 @@
     const STUDENT_SORT_BTN_CLASS = 'student-sort-btn';
     const entryId = {{ entry.id }};
     
+    // Sort state tracking
+    let isStudentIdSorted = false;
+    
     // Auto-save functionality variables
     let autoSaveTimeout = null;
     const saveStatusEl = document.getElementById('auto-save-status');
@@ -413,6 +416,15 @@
                 if (row) {
                     row.remove();
                     refreshSerialNumbers();
+                    // Reset sort state when a row is removed
+                    if (isStudentIdSorted) {
+                        isStudentIdSorted = false;
+                        // Clear original indices when a row is removed
+                        tbody.querySelectorAll('.marks-row').forEach(row => {
+                            delete row.dataset.originalIndex;
+                        });
+                        updateSortButtonIcon();
+                    }
                 }
             }
         });
@@ -485,6 +497,11 @@
             updateRowTotal(row);
             const isLastRow = row === tbody.querySelector('.marks-row:last-child');
             if (isLastRow) {
+                const validation = validateCodeFields();
+                if (!validation.valid) {
+                    alert('কোড ফাঁকা আছে');
+                    return;
+                }
                 const newRow = addStudentRow({});
                 const codeField = newRow.querySelector('.code-input');
                 if (codeField && !codeField.readOnly) {
@@ -510,29 +527,94 @@
         }
     }
 
-    function sortRowsByStudentId() {
-        if (pageRole !== 'scrutinizer') return;
+    function restoreOriginalRowOrder() {
+        // Sort rows by their original index stored in data attribute
         const rows = Array.from(tbody.querySelectorAll('.marks-row'));
         rows.sort((rowA, rowB) => {
-            const valueA = (rowA.querySelector('.student-id-input')?.value || '').trim();
-            const valueB = (rowB.querySelector('.student-id-input')?.value || '').trim();
-            if (!valueA && !valueB) return 0;
-            if (!valueA) return 1;
-            if (!valueB) return -1;
-
-            const numericA = Number(valueA);
-            const numericB = Number(valueB);
-            const numericComparable = !Number.isNaN(numericA) && !Number.isNaN(numericB);
-            if (numericComparable) {
-                if (numericA === numericB) {
-                    return valueA.localeCompare(valueB);
-                }
-                return numericA - numericB;
-            }
-            return valueA.localeCompare(valueB);
+            const indexA = parseInt(rowA.dataset.originalIndex || '999999', 10);
+            const indexB = parseInt(rowB.dataset.originalIndex || '999999', 10);
+            return indexA - indexB;
         });
+        // Re-append in original order
         rows.forEach(row => tbody.appendChild(row));
+    }
+    
+    function updateSortButtonIcon() {
+        const button = document.querySelector(`.${STUDENT_SORT_BTN_CLASS}`);
+        if (!button) return;
+        const icon = button.querySelector('i');
+        if (icon) {
+            if (isStudentIdSorted) {
+                icon.className = 'fas fa-sort-alpha-down';
+                button.title = 'Sort by Student ID (Click to unsort)';
+            } else {
+                icon.className = 'fas fa-sort';
+                button.title = 'Sort by Student ID';
+            }
+        }
+    }
+    
+    function validateCodeFields() {
+        const rows = tbody.querySelectorAll('.marks-row');
+        // Skip validation if table is empty (allows first row to be added)
+        if (rows.length === 0) {
+            return { valid: true };
+        }
+        
+        for (let row of rows) {
+            const codeInput = row.querySelector('.code-input');
+            if (codeInput && !codeInput.value.trim()) {
+                // Focus on empty field for better UX
+                codeInput.focus();
+                return { valid: false, row: row };
+            }
+        }
+        return { valid: true };
+    }
+    
+    function sortRowsByStudentId() {
+        if (pageRole !== 'scrutinizer') return;
+        
+        const rows = Array.from(tbody.querySelectorAll('.marks-row'));
+        
+        if (!isStudentIdSorted) {
+            // Save original order before sorting (store index on each row)
+            rows.forEach((row, index) => {
+                if (!row.dataset.originalIndex) {
+                    row.dataset.originalIndex = index.toString();
+                }
+            });
+            
+            // Sort rows
+            rows.sort((rowA, rowB) => {
+                const valueA = (rowA.querySelector('.student-id-input')?.value || '').trim();
+                const valueB = (rowB.querySelector('.student-id-input')?.value || '').trim();
+                if (!valueA && !valueB) return 0;
+                if (!valueA) return 1;
+                if (!valueB) return -1;
+
+                const numericA = Number(valueA);
+                const numericB = Number(valueB);
+                const numericComparable = !Number.isNaN(numericA) && !Number.isNaN(numericB);
+                if (numericComparable) {
+                    if (numericA === numericB) {
+                        return valueA.localeCompare(valueB);
+                    }
+                    return numericA - numericB;
+                }
+                return valueA.localeCompare(valueB);
+            });
+            
+            rows.forEach(row => tbody.appendChild(row));
+            isStudentIdSorted = true;
+        } else {
+            // Restore original order
+            restoreOriginalRowOrder();
+            isStudentIdSorted = false;
+        }
+        
         refreshSerialNumbers();
+        updateSortButtonIcon();
     }
 
     function attachStudentSortEvent() {
@@ -668,7 +750,7 @@
                 <div class="d-flex align-items-center justify-content-center gap-2">
                     <span>Student ID</span>
                     <button type="button" class="btn btn-outline-secondary btn-sm ${STUDENT_SORT_BTN_CLASS}" title="Sort by Student ID">
-                        <i class="fas fa-sort-alpha-down"></i>
+                        <i class="fas fa-sort"></i>
                     </button>
                 </div>
             `;
@@ -680,6 +762,13 @@
         attachHeaderEvents();
         tbody.querySelectorAll('.marks-row').forEach(syncRowLayout);
         attachStudentSortEvent();
+        // Reset sort state when headers are re-rendered
+        isStudentIdSorted = false;
+        // Clear original indices when headers are re-rendered
+        tbody.querySelectorAll('.marks-row').forEach(row => {
+            delete row.dataset.originalIndex;
+        });
+        updateSortButtonIcon();
     }
 
     function addQuestion(options = {}) {
@@ -720,6 +809,15 @@
         row.classList.add('marks-row');
         tbody.appendChild(row);
         syncRowLayout(row);
+        // Reset sort state when a new row is added
+        if (isStudentIdSorted) {
+            isStudentIdSorted = false;
+            // Clear original indices when a new row is added
+            tbody.querySelectorAll('.marks-row').forEach(row => {
+                delete row.dataset.originalIndex;
+            });
+            updateSortButtonIcon();
+        }
 
         const codeInput = row.querySelector('.code-input');
         if (codeInput) {
@@ -772,6 +870,9 @@
         }
         questions.splice(0, questions.length);
         tbody.innerHTML = '';
+        // Reset sort state when table is cleared
+        isStudentIdSorted = false;
+        updateSortButtonIcon();
         for (let i = 1; i <= defaultQuestionCount; i++) {
             addQuestion({ promptForLabel: false, initialLabel: `Question ${i}` });
         }
@@ -938,7 +1039,14 @@
     }
 
     addQuestionBtn.addEventListener('click', () => addQuestion());
-    addStudentBtn.addEventListener('click', () => addStudentRow({}));
+    addStudentBtn.addEventListener('click', () => {
+        const validation = validateCodeFields();
+        if (!validation.valid) {
+            alert('কোড ফাঁকা আছে');
+            return;
+        }
+        addStudentRow({});
+    });
     clearTableBtn.addEventListener('click', clearTable);
     pdfBtn.addEventListener('click', () => submitWithAction('pdf'));
     excelBtn.addEventListener('click', () => submitWithAction('excel'));
