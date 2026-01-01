@@ -733,6 +733,72 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }, 100);
 });
+
+// WebSocket live update listeners
+document.addEventListener('DOMContentLoaded', function() {
+    const sessionId = {{ session.id }};
+    
+    // Join session room for live updates
+    if (typeof window.joinSessionRoom === 'function') {
+        window.joinSessionRoom(sessionId);
+    }
+    
+    // Listen for attendance updates
+    window.addEventListener('ws:attendance_updated', function(event) {
+        const data = event.detail;
+        if (data.session_id === sessionId) {
+            // For split courses, reload the page
+            {% if is_split_course %}
+            const editModeState = editToggle ? editToggle.checked : false;
+            localStorage.setItem('attendance_edit_mode_' + sessionId, editModeState ? 'true' : 'false');
+            window.location.reload();
+            {% else %}
+            // For non-split courses, update the specific cell if we have record_id
+            if (data.data && data.data.record_id) {
+                const cell = document.querySelector(`.attendance-cell[data-record-id="${data.data.record_id}"]`);
+                if (cell) {
+                    const statusSpan = cell.querySelector('.status');
+                    if (statusSpan && data.data.status) {
+                        statusSpan.textContent = data.data.status;
+                        statusSpan.className = data.data.status === 'P' ? 'status text-success fw-bold' : 'status text-danger fw-bold';
+                    }
+                    
+                    // Update student stats if available
+                    const row = cell.closest('tr');
+                    if (row && data.data.student_id) {
+                        const studentRow = document.querySelector(`tr[data-student-db-id="${data.data.student_db_id}"]`);
+                        if (studentRow) {
+                            const presentCell = studentRow.querySelector('.present-count');
+                            const percentageCell = studentRow.querySelector('.percentage-cell');
+                            const marksCell = studentRow.querySelector('.marks-cell .marks-display');
+                            
+                            if (presentCell && data.data.present_count !== undefined) {
+                                presentCell.textContent = data.data.present_count;
+                            }
+                            if (percentageCell && data.data.percentage !== undefined) {
+                                percentageCell.textContent = data.data.percentage.toFixed(2) + '%';
+                            }
+                            if (marksCell && data.data.marks !== undefined) {
+                                marksCell.textContent = data.data.marks;
+                            }
+                        }
+                    }
+                }
+            } else {
+                // If no specific record_id, reload the page
+                window.location.reload();
+            }
+            {% endif %}
+        }
+    });
+    
+    // Cleanup: Leave room when page unloads
+    window.addEventListener('beforeunload', function() {
+        if (typeof window.leaveSessionRoom === 'function') {
+            window.leaveSessionRoom(sessionId);
+        }
+    });
+});
 </script>
 {% endif %}
 

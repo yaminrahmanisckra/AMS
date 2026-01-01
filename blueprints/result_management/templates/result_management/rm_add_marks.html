@@ -524,6 +524,31 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
+    
+    // WebSocket live update listener for marks
+    const sessionId = {{ session.id }};
+    
+    // Join result session room for live updates
+    if (typeof window.joinResultSessionRoom === 'function') {
+        window.joinResultSessionRoom(sessionId);
+    }
+    
+    // Listen for marks updates
+    window.addEventListener('ws:marks_updated', function(event) {
+        const data = event.detail;
+        if (data.session_id === sessionId) {
+            // Reload the page to show updated marks
+            console.log('Marks updated via WebSocket, reloading...');
+            window.location.reload();
+        }
+    });
+    
+    // Cleanup: Leave room when page unloads
+    window.addEventListener('beforeunload', function() {
+        if (typeof window.leaveResultSessionRoom === 'function') {
+            window.leaveResultSessionRoom(sessionId);
+        }
+    });
 });
 </script>
 {% endblock %}

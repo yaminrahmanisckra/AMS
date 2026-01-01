@@ -665,6 +665,12 @@ def save_routine():
         db.session.add(new_entry)
     
     db.session.commit()
+    # Emit WebSocket event for live update
+    try:
+        from utils.websocket_events import emit_routine_updated
+        emit_routine_updated({'updated_at': datetime.utcnow().isoformat()})
+    except Exception as e:
+        current_app.logger.warning(f'Failed to emit routine update event: {e}')
     return jsonify({'message': 'Routine saved successfully!'}), 200
 
 @routine_management_bp.route('/api/routine/clear', methods=['POST'])

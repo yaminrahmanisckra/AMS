@@ -1027,6 +1027,18 @@ def create_session():
                     
                     db.session.commit()
                     
+                    # Emit WebSocket event for live update
+                    try:
+                        from utils.websocket_events import emit_session_created
+                        emit_session_created({
+                            'session_id': session_obj.id,
+                            'course_code': session_obj.course_code,
+                            'course_name': session_obj.course_name,
+                            'teacher_id': session_obj.teacher_id
+                        })
+                    except Exception as e:
+                        current_app.logger.warning(f'Failed to emit session created event: {e}')
+                    
                     if added_count > 0:
                         flash(f'Session created successfully! Automatically added {added_count} students from batch {batch}.', 'success')
                     else:
@@ -1040,6 +1052,17 @@ def create_session():
                     flash('Session created successfully, but there was an error adding students automatically.', 'warning')
             else:
                 db.session.commit()
+                # Emit WebSocket event for live update
+                try:
+                    from utils.websocket_events import emit_session_created
+                    emit_session_created({
+                        'session_id': session_obj.id,
+                        'course_code': session_obj.course_code,
+                        'course_name': session_obj.course_name,
+                        'teacher_id': session_obj.teacher_id
+                    })
+                except Exception as e:
+                    current_app.logger.warning(f'Failed to emit session created event: {e}')
                 flash('Session created successfully!', 'success')
             
             current_app.logger.info(f'Session created successfully - ID: {session_obj.id}, Name: {course_name}')
@@ -1144,6 +1167,18 @@ def create_session():
                 
                 # Commit session, invite, and students together
                 db.session.commit()
+                
+                # Emit WebSocket event for live update
+                try:
+                    from utils.websocket_events import emit_session_created
+                    emit_session_created({
+                        'session_id': current_session.id,
+                        'course_code': current_session.course_code,
+                        'course_name': current_session.course_name,
+                        'teacher_id': current_session.teacher_id
+                    })
+                except Exception as e:
+                    current_app.logger.warning(f'Failed to emit session created event: {e}')
                 
                 if added_count > 0:
                     message = f'Split course created. Invitation sent. Automatically added {added_count} students from batch {batch}.'
@@ -1319,6 +1354,15 @@ def take_attendance(session_id):
                     ))
             
             db.session.commit()
+            # Emit WebSocket event for live update
+            try:
+                from utils.websocket_events import emit_attendance_update
+                emit_attendance_update(session_id, {
+                    'date': date_val.isoformat(),
+                    'double_class': double_class
+                })
+            except Exception as e:
+                current_app.logger.warning(f'Failed to emit attendance update event: {e}')
             flash('Attendance saved successfully!', 'success')
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
             
@@ -1649,6 +1693,21 @@ def toggle_attendance_record(record_id):
     attendance_summary = _build_attendance_summary(session)
     student_public_id = record.student.student_id
     student_stats = attendance_summary.get('per_student', {}).get(student_public_id, {'present': 0, 'percentage': 0, 'marks': 0})
+
+    # Emit WebSocket event for live update
+    try:
+        from utils.websocket_events import emit_attendance_update
+        emit_attendance_update(record.session_id, {
+            'record_id': record_id,
+            'status': 'P' if record.is_present else 'A',
+            'student_id': student_public_id,
+            'student_db_id': record.student_id,
+            'present_count': student_stats.get('present', 0),
+            'percentage': student_stats.get('percentage', 0),
+            'marks': student_stats.get('marks', 0)
+        })
+    except Exception as e:
+        current_app.logger.warning(f'Failed to emit attendance update event: {e}')
 
     return jsonify({
         'success': True,

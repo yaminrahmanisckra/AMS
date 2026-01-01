@@ -32,3 +32,6 @@ brotlicffi>=1.0.0  # Required for WeasyPrint on macOS
 pydyf==0.10.0  # Must be 0.10.0 for WeasyPrint 62.3 compatibility
 fonttools==4.61.1  # Required for WeasyPrint, must be compatible version
 PyPDF2==1.26.0
+flask-socketio==5.3.5
+python-socketio==5.10.0
+eventlet==0.33.3

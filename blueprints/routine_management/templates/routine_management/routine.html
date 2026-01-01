@@ -645,6 +645,17 @@ document.addEventListener('DOMContentLoaded', function () {
        }
     });
     }
+    
+    // WebSocket live update listener for routine
+    window.addEventListener('ws:routine_updated', function(event) {
+        console.log('Routine updated via WebSocket, reloading...');
+        // Reload the routine display
+        if (typeof window.loadRoutine === 'function') {
+            window.loadRoutine();
+        } else {
+            window.location.reload();
+        }
+    });
 
     downloadPdfBtn.addEventListener('click', async () => {
         const routineTitle = document.getElementById('routine-title-input').value;

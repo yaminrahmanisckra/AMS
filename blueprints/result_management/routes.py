@@ -2353,6 +2353,59 @@ def add_marks(session_id):
                     current_app.logger.error(f"Error auto-populating marks from Class Management: {e}", exc_info=True)
                     # Continue without auto-population if there's an error
                     mark = None
+            else:
+                # Mark exists - sync continuous_assessment if it's None
+                if mark and selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                    if mark.continuous_assessment is None:
+                        try:
+                            from blueprints.class_management.models import Session, ClassStudent
+                            
+                            # Find matching session in Class Management (use same logic as refresh_marks)
+                            class_session = None
+                            
+                            if session.year and session.term and session.name:
+                                class_session = Session.query.filter_by(
+                                    course_code=selected_subject.code,
+                                    year=session.year,
+                                    term=session.term,
+                                    academic_session=session.name
+                                ).first()
+                            
+                            if not class_session and session.year and session.term:
+                                class_session = Session.query.filter_by(
+                                    course_code=selected_subject.code,
+                                    year=session.year,
+                                    term=session.term
+                                ).first()
+                            
+                            if not class_session:
+                                class_session = Session.query.filter_by(
+                                    course_code=selected_subject.code
+                                ).order_by(Session.created_at.desc()).first()
+                            
+                            if class_session:
+                                class_student = ClassStudent.query.filter_by(
+                                    session_id=class_session.id,
+                                    student_id=student.student_id
+                                ).first()
+                                
+                                if class_student:
+                                    # Update continuous_assessment from Class Management
+                                    if class_student.assessment_total_40 is not None:
+                                        mark.continuous_assessment = float(class_student.assessment_total_40)
+                                    elif class_student.assessment_total is not None:
+                                        assessment_total = float(class_student.assessment_total)
+                                        if assessment_total <= 40:
+                                            mark.continuous_assessment = round(assessment_total)
+                                        else:
+                                            mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                    
+                                    # Commit the update
+                                    if mark.continuous_assessment is not None:
+                                        db.session.commit()
+                        except Exception as e:
+                            current_app.logger.error(f"Error syncing continuous_assessment for existing mark: {e}", exc_info=True)
+                            db.session.rollback()
             
             marks_data[student.id] = mark
             # registrations_data is already populated above from StudentCourseRegistration
@@ -2472,6 +2525,15 @@ def add_marks(session_id):
             existing_mark.grade_point, existing_mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
 
         db.session.commit()
+        # Emit WebSocket event for live update
+        try:
+            from utils.websocket_events import emit_marks_update
+            emit_marks_update(session_id, {
+                'subject_id': subject.id,
+                'updated_at': datetime.utcnow().isoformat()
+            })
+        except Exception as e:
+            current_app.logger.warning(f'Failed to emit marks update event: {e}')
         flash(f'Marks for {subject.name} saved successfully!', 'success')
         return redirect(url_for('result_management.add_marks', session_id=session_id, subject_id=subject.id))
 
@@ -2625,6 +2687,16 @@ def auto_save_marks(session_id):
                 continue
         
         db.session.commit()
+        # Emit WebSocket event for live update
+        try:
+            from utils.websocket_events import emit_marks_update
+            from datetime import datetime
+            emit_marks_update(session_id, {
+                'subject_id': subject_id,
+                'updated_count': updated_count
+            })
+        except Exception as e:
+            current_app.logger.warning(f'Failed to emit marks update event: {e}')
         return jsonify({
             'success': True,
             'message': f'Auto-saved marks for {updated_count} student(s)',

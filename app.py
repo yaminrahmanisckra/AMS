@@ -6,6 +6,7 @@ from io import BytesIO, StringIO
 from dotenv import load_dotenv
 from flask import Flask, render_template, redirect, url_for, flash, request, send_file, Response, jsonify, current_app, session
 from flask_login import LoginManager, current_user, login_required
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from extensions import db, migrate, mail
 from user_models import User
 from error_handler import register_error_handlers, setup_error_logging, check_dependencies, check_file_permissions, get_system_info
@@ -289,6 +290,70 @@ def create_app():
         response = send_file('static/manifest.json', mimetype='application/manifest+json')
         response.headers['Cache-Control'] = 'public, max-age=3600'
         return response
+    
+    # Initialize SocketIO for WebSocket support
+    from utils.websocket_events import init_socketio
+    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=False, engineio_logger=False)
+    init_socketio(socketio)
+    
+    # WebSocket connection handlers
+    @socketio.on('connect', namespace='/')
+    def handle_connect(auth):
+        """Handle client connection"""
+        # Flask-Login session is not available in WebSocket context
+        # We'll authenticate via session cookie in the request context
+        # For now, allow connection - authentication will be handled via session
+        return True
+    
+    @socketio.on('disconnect', namespace='/')
+    def handle_disconnect():
+        """Handle client disconnection"""
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            leave_room(f'user_{current_user.id}')
+    
+    @socketio.on('join_session', namespace='/')
+    def handle_join_session(data):
+        """Join a session room for live updates"""
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            session_id = data.get('session_id')
+            if session_id:
+                join_room(f'session_{session_id}')
+                emit('joined_session', {'session_id': session_id})
+    
+    @socketio.on('leave_session', namespace='/')
+    def handle_leave_session(data):
+        """Leave a session room"""
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            session_id = data.get('session_id')
+            if session_id:
+                leave_room(f'session_{session_id}')
+                emit('left_session', {'session_id': session_id})
+    
+    @socketio.on('join_result_session', namespace='/')
+    def handle_join_result_session(data):
+        """Join a result session room for live updates"""
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            session_id = data.get('session_id')
+            if session_id:
+                join_room(f'result_session_{session_id}')
+                emit('joined_result_session', {'session_id': session_id})
+    
+    @socketio.on('leave_result_session', namespace='/')
+    def handle_leave_result_session(data):
+        """Leave a result session room"""
+        from flask_login import current_user
+        if current_user.is_authenticated:
+            session_id = data.get('session_id')
+            if session_id:
+                leave_room(f'result_session_{session_id}')
+                emit('left_result_session', {'session_id': session_id})
+    
+    # Store socketio in app context for access in routes
+    app.socketio = socketio
     
     # Register error handlers for cPanel deployment
     register_error_handlers(app)
@@ -10135,7 +10200,8 @@ if __name__ == '__main__':
         print("   It's waiting for HTTP requests. Press CTRL+C to stop.")
         print("="*60 + "\n")
         
-        app.run(host=host, port=port, threaded=True, use_reloader=False, request_handler=QuietHandler)
+        # Use SocketIO to run the app (enables WebSocket support)
+        app.socketio.run(app, host=host, port=port, use_reloader=False, log_output=False, allow_unsafe_werkzeug=True)
     except OSError as e:
         if "Address already in use" in str(e):
             print(f"\n❌ Error: Port {port} is already in use!")
