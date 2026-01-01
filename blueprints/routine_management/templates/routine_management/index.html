@@ -1,4 +1,4 @@
-{% extends "routine_management/base.html" %}
+{% extends "base.html" %}
 
 {% block title %}Routine Dashboard{% endblock %}
 
@@ -13,14 +13,14 @@
     --secondary-color: #6c757d;
 }
 
-.module-wrapper {
+.dashboard-wrapper {
     background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
     min-height: 100vh;
     padding: 2rem 0 3rem;
     position: relative;
 }
 
-.module-wrapper::before {
+.dashboard-wrapper::before {
     content: '';
     position: absolute;
     top: 0;
@@ -35,18 +35,18 @@
     z-index: 0;
 }
 
-.module-wrapper > .container {
+.dashboard-wrapper > .container {
     position: relative;
     z-index: 1;
 }
 
-.module-header {
+.dashboard-header {
     text-align: center;
     margin-bottom: 2rem;
     padding: 1.5rem 0;
 }
 
-.module-header h1 {
+.dashboard-header h1 {
     font-size: clamp(1.75rem, 4vw, 2.5rem);
     font-weight: 600;
     margin-bottom: 0.75rem;
@@ -55,7 +55,7 @@
     line-height: 1.2;
 }
 
-.module-header p {
+.dashboard-header p {
     font-size: clamp(0.9375rem, 2vw, 1.125rem);
     color: #6c757d;
     margin: 0;
@@ -63,7 +63,7 @@
     line-height: 1.6;
 }
 
-.module-card {
+.dashboard-card {
     border: none;
     border-radius: 12px;
     padding: 1.125rem 0.75rem;
@@ -77,7 +77,7 @@
     border: 1px solid #e9ecef;
 }
 
-.module-card::before {
+.dashboard-card::before {
     content: '';
     position: absolute;
     top: 0;
@@ -91,17 +91,17 @@
     z-index: 1;
 }
 
-.module-card:hover {
+.dashboard-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     border-color: var(--card-color);
 }
 
-.module-card:hover::before {
+.dashboard-card:hover::before {
     transform: scaleX(1);
 }
 
-.module-card .icon-circle {
+.dashboard-card .icon-circle {
     width: 42px;
     height: 42px;
     border-radius: 12px;
@@ -116,15 +116,16 @@
     z-index: 2;
 }
 
-.module-card:hover .icon-circle {
+.dashboard-card:hover .icon-circle {
     transform: scale(1.1) rotate(5deg);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
 
-.module-card .icon-circle i {
+.dashboard-card .icon-circle i {
     font-size: 1.05rem;
     color: white;
     animation: iconFloat 3s ease-in-out infinite;
+    filter: brightness(1.1);
 }
 
 @keyframes iconFloat {
@@ -136,7 +137,7 @@
     }
 }
 
-.module-card:hover .icon-circle i {
+.dashboard-card:hover .icon-circle i {
     animation: iconPulse 0.6s ease-in-out;
 }
 
@@ -149,7 +150,7 @@
     }
 }
 
-.module-card h5 {
+.dashboard-card h5 {
     font-size: clamp(0.875rem, 1.8vw, 1rem);
     font-weight: 600;
     margin-bottom: 0.375rem;
@@ -161,11 +162,11 @@
     letter-spacing: -0.01em;
 }
 
-.module-card:hover h5 {
+.dashboard-card:hover h5 {
     color: var(--card-color);
 }
 
-.module-card p {
+.dashboard-card p {
     font-size: clamp(0.75rem, 1.35vw, 0.875rem);
     color: #6c757d;
     line-height: 1.6;
@@ -175,50 +176,87 @@
     font-weight: 400;
 }
 
-.card-yellow {
-    --card-color: #ffc107;
+/* Professional card color variations - Light and bright colors */
+.card-blue {
+    --card-color: #3b82f6; /* Bright Blue */
+}
+
+.card-green {
+    --card-color: #10b981; /* Bright Green */
 }
 
 .card-cyan {
-    --card-color: #0dcaf0;
+    --card-color: #06b6d4; /* Bright Cyan */
+}
+
+.card-yellow {
+    --card-color: #fbbf24; /* Bright Yellow/Amber */
+}
+
+.card-red {
+    --card-color: #ef4444; /* Bright Red */
+}
+
+.card-purple {
+    --card-color: #a855f7; /* Bright Purple */
+}
+
+.card-orange {
+    --card-color: #f97316; /* Bright Orange */
+}
+
+.card-teal {
+    --card-color: #14b8a6; /* Bright Teal */
+}
+
+.card-indigo {
+    --card-color: #6366f1; /* Bright Indigo */
+}
+
+.card-pink {
+    --card-color: #ec4899; /* Bright Pink */
+}
+
+.card-emerald {
+    --card-color: #34d399; /* Bright Emerald */
 }
 
 /* Mobile responsive - Compact design */
 @media (max-width: 576px) {
-    .module-wrapper {
+    .dashboard-wrapper {
         padding: 1rem 0 1.5rem;
     }
     
-    .module-header {
+    .dashboard-header {
         margin-bottom: 1.25rem;
         padding: 1rem 0;
     }
     
-    .module-card {
+    .dashboard-card {
         padding: 0.675rem 0.5rem;
         min-height: 97.5px;
         border-radius: 14px;
     }
     
-    .module-card .icon-circle {
+    .dashboard-card .icon-circle {
         width: 36px;
         height: 36px;
         margin-bottom: 0.5rem;
         border-radius: 14px;
     }
     
-    .module-card .icon-circle i {
+    .dashboard-card .icon-circle i {
         font-size: 0.9rem;
     }
     
-    .module-card h5 {
+    .dashboard-card h5 {
         font-size: 0.8125rem;
         font-weight: 600;
         margin-bottom: 0.3rem;
         line-height: 1.4;
     }
     
-    .module-card p {
+    .dashboard-card p {
         font-size: 0.6875rem;
         line-height: 1.5;
         font-weight: 400;
@@ -226,71 +264,125 @@
 }
 
 @media (min-width: 577px) and (max-width: 768px) {
-    .module-card {
+    .dashboard-card {
         min-height: 123.75px;
+    }
+    
+    .dashboard-card .icon-circle {
+        width: 45px;
+        height: 45px;
+    }
+    
+    .dashboard-card .icon-circle i {
+        font-size: 1.125rem;
     }
 }
 
 @media (min-width: 992px) {
-    .module-card {
-        border-radius: 14px;
-        padding: 1.25rem 1rem;
+    .dashboard-card {
+        padding: 1.05rem 0.825rem;
+        min-height: 127.5px;
     }
     
-    .module-card .icon-circle {
-        width: 60px;
-        height: 60px;
+    .dashboard-card .icon-circle {
+        width: 48.75px;
+        height: 48.75px;
     }
     
-    .module-card .icon-circle i {
-        font-size: 1.35rem;
+    .dashboard-card .icon-circle i {
+        font-size: 1.2375rem;
+    }
+}
+
+/* Animation for cards on load */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dashboard-card {
+    animation: fadeInUp 0.6s ease forwards;
+    opacity: 0;
+}
+
+.dashboard-card:nth-child(1) { animation-delay: 0.1s; }
+.dashboard-card:nth-child(2) { animation-delay: 0.2s; }
+.dashboard-card:nth-child(3) { animation-delay: 0.3s; }
+.dashboard-card:nth-child(4) { animation-delay: 0.4s; }
+.dashboard-card:nth-child(5) { animation-delay: 0.5s; }
+.dashboard-card:nth-child(6) { animation-delay: 0.6s; }
+.dashboard-card:nth-child(7) { animation-delay: 0.7s; }
+.dashboard-card:nth-child(8) { animation-delay: 0.8s; }
+.dashboard-card:nth-child(9) { animation-delay: 0.9s; }
+.dashboard-card:nth-child(10) { animation-delay: 1s; }
+.dashboard-card:nth-child(11) { animation-delay: 1.1s; }
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Focus states for accessibility */
+.dashboard-card:focus {
+    outline: 3px solid #667eea;
+    outline-offset: 2px;
+}
+
+/* Print styles */
+@media print {
+    .dashboard-wrapper {
+        background: white;
     }
     
-    .module-card h5 {
-        font-size: 1rem;
-    }
-    
-    .module-card p {
-        font-size: 0.8rem;
+    .dashboard-card {
+        break-inside: avoid;
+        box-shadow: none;
+        border: 1px solid #ddd;
     }
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="module-wrapper">
-<div class="container">
-    <div class="module-header">
-        <h1>Routine Management Dashboard</h1>
-        <p>Manage all aspects of the academic routine from here.</p>
-    </div>
+<div class="dashboard-wrapper">
+    <div class="container">
+        <div class="dashboard-header">
+            <h1>Routine Management Dashboard</h1>
+            <p>Manage all aspects of the academic routine from here.</p>
+        </div>
 
-    <div class="row g-3 g-md-4">
-        {% if can_edit %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3">
-            <a href="{{ url_for('routine_management.manage_rooms') }}" class="text-decoration-none" aria-label="Manage Rooms">
-                <div class="module-card text-center h-100 card-yellow">
-                    <div class="icon-circle">
-                        <i class="fas fa-door-open"></i>
+        <div class="row g-3 g-md-4">
+            {% if can_edit %}
+            <div class="col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+                <a href="{{ url_for('routine_management.manage_rooms') }}" class="text-decoration-none" aria-label="Manage Rooms">
+                    <div class="dashboard-card text-center h-100 card-yellow">
+                        <div class="icon-circle">
+                            <i class="fas fa-door-open"></i>
+                        </div>
+                        <h5 class="mb-1">Manage Rooms</h5>
+                        <p class="text-muted small mb-0">Add, view, and manage classrooms and labs.</p>
                     </div>
-                    <h5 class="mb-1">Manage Rooms</h5>
-                    <p class="text-muted small mb-0">Add, view, and manage classrooms and labs.</p>
-                </div>
-            </a>
-        </div>
-        {% endif %}
-        <div class="{% if can_edit %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% else %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% endif %}">
-            <a href="{{ url_for('routine_management.generate_routine') }}" class="text-decoration-none" aria-label="Generate Routine">
-                <div class="module-card text-center h-100 card-cyan">
-                    <div class="icon-circle">
-                        <i class="fas fa-calendar-check"></i>
+                </a>
+            </div>
+            {% endif %}
+            <div class="{% if can_edit %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% else %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% endif %}">
+                <a href="{{ url_for('routine_management.generate_routine') }}" class="text-decoration-none" aria-label="Generate Routine">
+                    <div class="dashboard-card text-center h-100 card-cyan">
+                        <div class="icon-circle">
+                            <i class="fas fa-calendar-check"></i>
+                        </div>
+                        <h5 class="mb-1">Generate Routine</h5>
+                        <p class="text-muted small mb-0">Create and publish the final class routine. Course and teacher information will be loaded from curriculum.</p>
                     </div>
-                    <h5 class="mb-1">Generate Routine</h5>
-                    <p class="text-muted small mb-0">Create and publish the final class routine. Course and teacher information will be loaded from curriculum.</p>
-                </div>
-            </a>
+                </a>
+            </div>
         </div>
     </div>
 </div>
-</div>
-{% endblock %} 
+{% endblock %}
