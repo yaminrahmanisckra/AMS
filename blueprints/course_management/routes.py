@@ -493,12 +493,94 @@ def edit_curriculum(curriculum_id):
 @course_management_bp.route('/curriculum/<int:curriculum_id>/delete', methods=['POST'])
 @login_required
 def delete_curriculum(curriculum_id):
-    """Delete a curriculum"""
+    """Delete a curriculum and all related courses (with proper cleanup)"""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
     curriculum_name = curriculum.name
-    db.session.delete(curriculum)
-    db.session.commit()
-    flash(f'Curriculum "{curriculum_name}" deleted successfully!', 'success')
+    
+    try:
+        # Delete all courses in this curriculum (cascade will handle Course objects,
+        # but we need to explicitly handle sessions via CourseSessionAssignment)
+        # Since Course has cascade delete, we should iterate and delete courses
+        # to ensure proper cleanup of sessions
+        
+        # Get all courses before deletion
+        courses = Course.query.filter_by(curriculum_id=curriculum_id).all()
+        
+        # Import necessary models for course cleanup
+        from blueprints.class_management.models import (
+            Session, ClassStudent, ClassAttendance, CourseReview, 
+            EvaluationInvite, EvaluationSubmission, StudentFeedbackLink, 
+            StudentFeedbackResponse, ClassSplitInvite, CourseOutline
+        )
+        try:
+            from blueprints.academic_calendar.models import BatchCustomEvent
+        except ImportError:
+            BatchCustomEvent = None
+        
+        # Delete each course and its related sessions
+        for course in courses:
+            course_id = course.id
+            # Clean up any teacher assignments / sessions tied to this course
+            assignments = CourseSessionAssignment.query.filter_by(course_id=course_id).all()
+            for assignment in assignments:
+                session_obj = Session.query.get(assignment.session_id) if assignment.session_id else None
+                if session_obj:
+                    session_id = session_obj.id
+                    
+                    # Delete all related records for this session
+                    # 1. Delete student feedback responses first
+                    feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter_by(session_id=session_id).all()]
+                    if feedback_link_ids:
+                        StudentFeedbackResponse.query.filter(
+                            StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
+                        ).delete(synchronize_session=False)
+                    
+                    # 2. Delete student feedback links
+                    StudentFeedbackLink.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 3. Delete batch custom events (if model exists)
+                    if BatchCustomEvent:
+                        BatchCustomEvent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 4. Delete course outline
+                    CourseOutline.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 5. Delete evaluation submissions
+                    EvaluationSubmission.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 6. Delete evaluation invites
+                    EvaluationInvite.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 7. Delete course reviews
+                    CourseReview.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 8. Delete split course invites (where this session is the inviter)
+                    ClassSplitInvite.query.filter_by(inviter_session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 9. Delete attendance records
+                    ClassAttendance.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 10. Delete student records
+                    ClassStudent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                    
+                    # 11. Delete the session
+                    db.session.delete(session_obj)
+                
+                db.session.delete(assignment)
+            
+            # Detach historical records instead of deleting them
+            StudentCourseRegistration.query.filter_by(course_id=course_id).update({'course_id': None})
+            DutyAssignment.query.filter_by(course_id=course_id).update({'course_id': None})
+        
+        # Delete the curriculum (courses will be deleted via cascade, but we've already cleaned up sessions)
+        db.session.delete(curriculum)
+        db.session.commit()
+        flash(f'Curriculum "{curriculum_name}" deleted successfully!', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to delete curriculum {curriculum_id}: {exc}', exc_info=True)
+        flash('Failed to delete curriculum. Please try again.', 'error')
+    
     return redirect(url_for('course_management.index'))
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>/course/add', methods=['POST'])
@@ -617,13 +699,63 @@ def delete_course(course_id):
     course_code = course.course_code
 
     try:
+        # Import necessary models
+        from blueprints.class_management.models import (
+            Session, ClassStudent, ClassAttendance, CourseReview, 
+            EvaluationInvite, EvaluationSubmission, StudentFeedbackLink, 
+            StudentFeedbackResponse, ClassSplitInvite, CourseOutline
+        )
+        try:
+            from blueprints.academic_calendar.models import BatchCustomEvent
+        except ImportError:
+            BatchCustomEvent = None
+        
         # Clean up any teacher assignments / sessions tied to this course
         assignments = CourseSessionAssignment.query.filter_by(course_id=course_id).all()
         for assignment in assignments:
             session_obj = Session.query.get(assignment.session_id) if assignment.session_id else None
             if session_obj:
-                ClassStudent.query.filter_by(session_id=session_obj.id).delete()
+                session_id = session_obj.id
+                
+                # Delete all related records for this session
+                # 1. Delete student feedback responses first
+                feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter_by(session_id=session_id).all()]
+                if feedback_link_ids:
+                    StudentFeedbackResponse.query.filter(
+                        StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
+                    ).delete(synchronize_session=False)
+                
+                # 2. Delete student feedback links
+                StudentFeedbackLink.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 3. Delete batch custom events (if model exists)
+                if BatchCustomEvent:
+                    BatchCustomEvent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 4. Delete course outline
+                CourseOutline.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 5. Delete evaluation submissions
+                EvaluationSubmission.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 6. Delete evaluation invites
+                EvaluationInvite.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 7. Delete course reviews
+                CourseReview.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 8. Delete split course invites (where this session is the inviter)
+                ClassSplitInvite.query.filter_by(inviter_session_id=session_id).delete(synchronize_session=False)
+                
+                # 9. Delete attendance records
+                ClassAttendance.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 10. Delete student records
+                ClassStudent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+                
+                # 11. Delete the session
                 db.session.delete(session_obj)
+            
             db.session.delete(assignment)
 
         # Detach historical records instead of deleting them
@@ -2831,12 +2963,9 @@ def unassign_teacher_session():
                     except Exception as e:
                         current_app.logger.warning(f'Error deleting ClassStudent for session {session_id}: {e}')
                     
-                    # 9. Delete split course invites
+                    # 9. Delete split course invites (where this session is the inviter)
                     try:
-                        ClassSplitInvite.query.filter(
-                            (ClassSplitInvite.inviter_session_id == session_id) | 
-                            (ClassSplitInvite.invited_session_id == session_id)
-                        ).delete(synchronize_session=False)
+                        ClassSplitInvite.query.filter_by(inviter_session_id=session_id).delete(synchronize_session=False)
                     except Exception as e:
                         current_app.logger.warning(f'Error deleting ClassSplitInvite for session {session_id}: {e}')
                     

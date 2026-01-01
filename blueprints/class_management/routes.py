@@ -2081,88 +2081,113 @@ def edit_student(student_id):
 @class_management_bp.route('/delete_student/<int:student_id>', methods=['POST'])
 @login_required
 def delete_student(student_id):
-    """Delete a student"""
-    student = ClassStudent.query.get_or_404(student_id)
-    session_id = student.session_id
-    session = student.session
-    student_identifier = student.student_id
-    db.session.delete(student)
-    _delete_student_from_peers(session, student_identifier)
-    db.session.commit()
-    flash('Student deleted successfully!', 'success')
-    return redirect(url_for('class_management.students_list', session_id=session_id))
+    """Delete a student from a session"""
+    try:
+        student = ClassStudent.query.get_or_404(student_id)
+        session_id = student.session_id
+        session = student.session
+        student_identifier = student.student_id
+        
+        # Delete student from peer sessions (split courses)
+        _delete_student_from_peers(session, student_identifier)
+        
+        # Delete the student (cascade will handle related attendance records)
+        db.session.delete(student)
+        db.session.commit()
+        flash('Student deleted successfully!', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting student {student_id}: {e}', exc_info=True)
+        flash(f'Error deleting student: {str(e)}', 'danger')
+        # Try to get session_id for redirect even if deletion failed
+        try:
+            student = ClassStudent.query.get(student_id)
+            session_id = student.session_id if student else None
+        except:
+            session_id = None
+    
+    if session_id:
+        return redirect(url_for('class_management.students_list', session_id=session_id))
+    return redirect(url_for('class_management.index'))
 
 @class_management_bp.route('/delete_session/<int:session_id>', methods=['POST'])
 @login_required
 def delete_session(session_id):
-    """Delete a session - using direct database connection to completely bypass SQLAlchemy"""
-    import sqlite3
-    import os
-    
-    # Get database path - use the same logic as app.py
-    basedir = os.path.abspath(os.path.dirname(__file__))
-    # Go up: blueprints/class_management -> blueprints -> root
-    root_dir = os.path.abspath(os.path.join(basedir, '..', '..'))
-    db_path = os.path.join(root_dir, 'instance', 'academic_management.db')
-    
-    if not os.path.exists(db_path):
-        flash('Database not found.', 'danger')
-        return redirect(url_for('class_management.index'))
-    
-    # CRITICAL: Do NOT load Session object with SQLAlchemy - use raw SQL only
-    # Loading it would cause SQLAlchemy to track it and try to update relationships
-    
+    """Delete a session and all related records using SQLAlchemy ORM (database-agnostic)"""
     try:
-        # Use direct SQLite connection - completely isolated from SQLAlchemy
-        # Use isolation_level=None for autocommit to ensure immediate execution
-        conn = sqlite3.connect(db_path, isolation_level=None, check_same_thread=False)
-        cursor = conn.cursor()
+        # Check authorization: admin/head can delete any session, regular teachers only their own
+        user_roles = set(parse_roles(getattr(current_user, 'role', '')))
+        if getattr(current_user, 'active_role', None):
+            user_roles = set(parse_roles(current_user.active_role))
+        can_delete_all = is_admin(current_user) or 'head' in user_roles or 'dean' in user_roles
         
-        # Disable foreign key checks to avoid any constraint issues
-        cursor.execute('PRAGMA foreign_keys = OFF')
+        session = Session.query.get_or_404(session_id)
         
-        # Verify session exists (without loading into SQLAlchemy)
-        cursor.execute('SELECT id FROM class_session WHERE id = ?', (session_id,))
-        if not cursor.fetchone():
-            conn.close()
-            flash('Session not found.', 'danger')
-            return redirect(url_for('class_management.index'))
+        # If not admin/head, check if this session belongs to the current teacher
+        if not can_delete_all:
+            current_teacher = _ensure_current_teacher()
+            if not current_teacher or session.teacher_id != current_teacher.id:
+                flash('You do not have permission to delete this session.', 'danger')
+                return redirect(url_for('class_management.index'))
         
-        # CRITICAL: Delete course_outline FIRST using raw SQL
-        # This must happen before SQLAlchemy can interfere
-        cursor.execute('DELETE FROM course_outline WHERE session_id = ?', (session_id,))
-        deleted_count = cursor.rowcount
-        current_app.logger.info(f'Deleted {deleted_count} course_outline records for session {session_id}')
-        
-        # Delete other related records
-        cursor.execute('DELETE FROM class_attendance WHERE session_id = ?', (session_id,))
-        cursor.execute('DELETE FROM class_student WHERE session_id = ?', (session_id,))
-        cursor.execute('DELETE FROM course_review WHERE session_id = ?', (session_id,))
-        cursor.execute('DELETE FROM evaluation_invite WHERE session_id = ?', (session_id,))
-        cursor.execute('DELETE FROM evaluation_submission WHERE session_id = ?', (session_id,))
-        cursor.execute('DELETE FROM student_feedback_link WHERE session_id = ?', (session_id,))
-        cursor.execute('DELETE FROM class_split_invite WHERE inviter_session_id = ?', (session_id,))
-        
-        # Finally delete the session itself
-        cursor.execute('DELETE FROM class_session WHERE id = ?', (session_id,))
-        
-        # Re-enable foreign keys
-        cursor.execute('PRAGMA foreign_keys = ON')
-        
-        conn.close()
-        
-        # Clear SQLAlchemy session to remove any stale objects
+        # Import BatchCustomEvent if available
         try:
-            db.session.rollback()
-            db.session.expunge_all()
-        except:
-            pass
+            from blueprints.academic_calendar.models import BatchCustomEvent
+        except ImportError:
+            BatchCustomEvent = None
         
-        flash('Session deleted successfully!', 'success')
+        # Delete all related records in correct order (respecting foreign key constraints)
+        try:
+            # 1. Delete student feedback responses first (before feedback links)
+            feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter_by(session_id=session_id).all()]
+            if feedback_link_ids:
+                StudentFeedbackResponse.query.filter(
+                    StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
+                ).delete(synchronize_session=False)
+            
+            # 2. Delete student feedback links
+            StudentFeedbackLink.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 3. Delete batch custom events (if model exists)
+            if BatchCustomEvent:
+                BatchCustomEvent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 4. Delete course outline
+            CourseOutline.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 5. Delete evaluation submissions
+            EvaluationSubmission.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 6. Delete evaluation invites
+            EvaluationInvite.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 7. Delete course reviews
+            CourseReview.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 8. Delete split course invites (where this session is the inviter)
+            ClassSplitInvite.query.filter_by(inviter_session_id=session_id).delete(synchronize_session=False)
+            
+            # 9. Delete class attendance (cascade will handle if relationship is set up)
+            ClassAttendance.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 10. Delete class students (cascade will handle if relationship is set up)
+            ClassStudent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 11. Finally delete the session itself
+            db.session.delete(session)
+            db.session.commit()
+            
+            current_app.logger.info(f'Session {session_id} and all related data deleted successfully')
+            flash('Session deleted successfully!', 'success')
+            
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f'Error deleting session {session_id}: {e}', exc_info=True)
+            flash(f'Error deleting session: {str(e)}', 'danger')
+            
     except Exception as e:
-        current_app.logger.error(f"Error deleting session {session_id}: {e}")
-        import traceback
-        current_app.logger.error(traceback.format_exc())
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting session {session_id}: {e}', exc_info=True)
         flash(f'Error deleting session: {str(e)}', 'danger')
     
     return redirect(url_for('class_management.index'))

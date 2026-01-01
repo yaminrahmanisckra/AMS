@@ -93,22 +93,71 @@ def edit_teacher(id):
     return redirect(url_for('routine_management.manage_teachers'))
 
 @routine_management_bp.route('/teacher/delete/<int:id>', methods=['POST'])
+@login_required
 def delete_teacher(id):
+    """Delete a teacher and all related data"""
     teacher = Teacher.query.get_or_404(id)
     
     try:
+        # Import necessary models
+        from blueprints.class_management.models import (
+            Session, ClassStudent, ClassAttendance, CourseReview, 
+            EvaluationInvite, EvaluationSubmission, StudentFeedbackLink, 
+            StudentFeedbackResponse, ClassSplitInvite, CourseOutline
+        )
+        try:
+            from blueprints.academic_calendar.models import BatchCustomEvent
+        except ImportError:
+            BatchCustomEvent = None
+        
         # Delete assigned courses
-        AssignedCourse.query.filter_by(teacher_id=id).delete()
+        AssignedCourse.query.filter_by(teacher_id=id).delete(synchronize_session=False)
         
         # Delete routine entries
-        Routine.query.filter_by(teacher_id=id).delete()
+        Routine.query.filter_by(teacher_id=id).delete(synchronize_session=False)
         
         # Delete class sessions and their related data
-        from blueprints.class_management.models import Session, ClassStudent, ClassAttendance
         sessions = Session.query.filter_by(teacher_id=id).all()
         for session in sessions:
-            ClassAttendance.query.filter_by(session_id=session.id).delete()
-            ClassStudent.query.filter_by(session_id=session.id).delete()
+            session_id = session.id
+            
+            # Delete all related records for this session
+            # 1. Delete student feedback responses first
+            feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter_by(session_id=session_id).all()]
+            if feedback_link_ids:
+                StudentFeedbackResponse.query.filter(
+                    StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
+                ).delete(synchronize_session=False)
+            
+            # 2. Delete student feedback links
+            StudentFeedbackLink.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 3. Delete batch custom events (if model exists)
+            if BatchCustomEvent:
+                BatchCustomEvent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 4. Delete course outline
+            CourseOutline.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 5. Delete evaluation submissions
+            EvaluationSubmission.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 6. Delete evaluation invites
+            EvaluationInvite.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 7. Delete course reviews
+            CourseReview.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 8. Delete split course invites (where this session is the inviter)
+            ClassSplitInvite.query.filter_by(inviter_session_id=session_id).delete(synchronize_session=False)
+            
+            # 9. Delete attendance records
+            ClassAttendance.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 10. Delete student records
+            ClassStudent.query.filter_by(session_id=session_id).delete(synchronize_session=False)
+            
+            # 11. Delete the session
             db.session.delete(session)
         
         # Now delete the teacher
@@ -117,6 +166,7 @@ def delete_teacher(id):
         flash('Teacher and all related data deleted successfully!', 'success')
     except Exception as e:
         db.session.rollback()
+        current_app.logger.error(f'Error deleting teacher {id}: {e}', exc_info=True)
         flash(f'Error deleting teacher: {str(e)}', 'danger')
     
     return redirect(url_for('routine_management.manage_teachers'))
@@ -137,11 +187,19 @@ def manage_rooms():
     return render_template('routine_management/rooms.html', form=form, rooms=rooms)
 
 @routine_management_bp.route('/room/delete/<int:id>', methods=['POST'])
+@login_required
 def delete_room(id):
-    room = Room.query.get_or_404(id)
-    db.session.delete(room)
-    db.session.commit()
-    flash('Room deleted successfully!', 'success')
+    """Delete a room"""
+    try:
+        room = Room.query.get_or_404(id)
+        room_number = room.room_number
+        db.session.delete(room)
+        db.session.commit()
+        flash(f'Room {room_number} deleted successfully!', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting room {id}: {e}', exc_info=True)
+        flash(f'Error deleting room: {str(e)}', 'danger')
     return redirect(url_for('routine_management.manage_rooms'))
 
 # Course Assignment
@@ -266,11 +324,20 @@ def edit_assignment(id):
     return render_template('routine_management/edit_assignment.html', form=form, assignment_id=id)
 
 @routine_management_bp.route('/assignment/delete/<int:id>', methods=['POST'])
+@login_required
 def delete_assignment(id):
-    assignment = AssignedCourse.query.get_or_404(id)
-    db.session.delete(assignment)
-    db.session.commit()
-    flash('Course assignment deleted successfully!', 'success')
+    """Delete a course assignment"""
+    try:
+        assignment = AssignedCourse.query.get_or_404(id)
+        course_code = assignment.course.course_code if assignment.course else 'Unknown'
+        teacher_name = assignment.teacher.name if assignment.teacher else 'Unknown'
+        db.session.delete(assignment)
+        db.session.commit()
+        flash(f'Course assignment ({course_code} - {teacher_name}) deleted successfully!', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting assignment {id}: {e}', exc_info=True)
+        flash(f'Error deleting assignment: {str(e)}', 'danger')
     return redirect(url_for('routine_management.assign_course'))
 
 def can_edit_routine():
