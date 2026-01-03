@@ -1,7 +1,7 @@
 // Service Worker for Academic Management System PWA
-const CACHE_NAME = 'ams-ku-v1';
+const CACHE_NAME = 'ams-ku-v2'; // Updated version to clear old cache
 const urlsToCache = [
-  '/',
+  // Removed '/' - HTML pages should NEVER be cached
   '/static/css/style.css',
   '/static/js/script.js',
   '/static/js/debug.js',
@@ -54,6 +54,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // NEVER cache HTML pages (login, dashboard, etc.) - always fetch from network
+  const isHTMLRequest = event.request.destination === 'document' || 
+                        event.request.headers.get('accept')?.includes('text/html') ||
+                        event.request.url.match(/\.(html|htm)$/i) ||
+                        !event.request.url.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|ico|json)$/i);
+  
+  if (isHTMLRequest) {
+    // For HTML pages, always fetch from network, never cache
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        return response;
+      }).catch(() => {
+        // Only fallback to cache if network fails completely
+        return caches.match(event.request);
+      })
+    );
+    return;
+  }
+
+  // For static assets (CSS, JS, images), use cache-first strategy
   event.respondWith(
     caches.match(event.request)
       .then((response) => {

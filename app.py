@@ -4,7 +4,7 @@ import csv
 from datetime import datetime
 from io import BytesIO, StringIO
 from dotenv import load_dotenv
-from flask import Flask, render_template, redirect, url_for, flash, request, send_file, Response, jsonify, current_app, session
+from flask import Flask, render_template, redirect, url_for, flash, request, send_file, Response, jsonify, current_app, session, make_response
 from flask_login import LoginManager, current_user, login_required
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from extensions import db, migrate, mail
@@ -201,11 +201,16 @@ def create_app():
     app.config['SESSION_COOKIE_SECURE'] = False  # Set to True only for HTTPS in production
     app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
 
-    # ALWAYS use SQLite for local development - simplest approach
+    # Database configuration - Check environment variable first, fallback to SQLite
     basedir = os.path.abspath(os.path.dirname(__file__))
-    db_path = os.path.join(basedir, 'instance', 'academic_management.db')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
+    database_url = os.getenv('DATABASE_URL')
+    if database_url:
+        app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    else:
+        # Fallback to SQLite if DATABASE_URL not set
+        db_path = os.path.join(basedir, 'instance', 'academic_management.db')
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
         
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -500,7 +505,12 @@ def create_app():
                 status='active'
             ).count() > 0
 
-        return render_template('dashboard.html', show_course_registration_review=show_course_registration_review)
+        response = make_response(render_template('dashboard.html', show_course_registration_review=show_course_registration_review))
+        # Add cache-control headers to prevent browser caching of user-specific content
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
 
     @app.route('/test-form', methods=['GET', 'POST'])
     def test_form():
@@ -1920,7 +1930,7 @@ def create_app():
                 if teacher:
                     user_teachers[user.id] = teacher
         
-        return render_template(
+        response = make_response(render_template(
             'admin_dashboard.html',
             users=other_users,
             student_users=student_users,
@@ -1928,7 +1938,12 @@ def create_app():
             role_choices=NON_ADMIN_ROLE_CHOICES,
             search_query=search,
             user_teachers=user_teachers
-        )
+        ))
+        # Add cache-control headers to prevent browser caching of user-specific content
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
 
     @app.route('/admin/role-privileges')
     @login_required
@@ -1945,7 +1960,12 @@ def create_app():
         if 'student' not in roles and 'teaching_assistant' not in roles:
             flash('Student dashboard is available only for student accounts.', 'danger')
             return redirect(url_for('index'))
-        return render_template('student/dashboard.html')
+        response = make_response(render_template('student/dashboard.html'))
+        # Add cache-control headers to prevent browser caching of user-specific content
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
 
     @app.route('/head/dashboard')
     @login_required
@@ -1954,7 +1974,12 @@ def create_app():
         if 'head' not in roles and 'dean' not in roles:
             flash('Head dashboard is available only for Head or Dean accounts.', 'danger')
             return redirect(url_for('index'))
-        return render_template('head/dashboard.html')
+        response = make_response(render_template('head/dashboard.html'))
+        # Add cache-control headers to prevent browser caching of user-specific content
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
 
     @app.route('/head/exam-committee-archive')
     @login_required

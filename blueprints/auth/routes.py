@@ -81,6 +81,7 @@ def login():
         # Login with the new user, don't remember to prevent cookie persistence issues
         login_user(user, remember=False)
         session['active_role'] = selected_role
+        
         current_app.logger.info(f"Successfully logged in user: {user.username} (ID: {user.id}) with role: {selected_role}")
         flash('Login successful!', 'success')
         
@@ -88,6 +89,12 @@ def login():
         response = redirect(url_for('index'))
         # Force session to be saved
         session.permanent = False
+        
+        # Add cache-control headers to prevent browser caching
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
         return response
     
     # GET request handling
@@ -116,13 +123,44 @@ def login():
 @auth_bp.route('/logout')
 @login_required
 def logout():
+    # Get username before logout for logging
+    username = current_user.username if current_user.is_authenticated else None
+    
+    # Logout user
     logout_user()
-    session.clear()  # Clear all session data
+    
+    # Clear Flask session completely
+    session.clear()
+    
     flash('You have been logged out.', 'info')
+    
+    # Create redirect response
     response = redirect(url_for('auth.login'))
-    # Delete Flask session cookie and Flask-Login remember cookie
-    response.set_cookie('session', '', expires=0, path='/')
-    response.set_cookie('remember_token', '', expires=0, path='/')
+    
+    # Delete session cookie - match the exact settings used when creating it
+    # Flask uses 'session' as default cookie name
+    session_cookie_name = current_app.config.get('SESSION_COOKIE_NAME', 'session')
+    
+    # Delete cookie with same settings as when created
+    response.set_cookie(
+        session_cookie_name, 
+        '', 
+        expires=0, 
+        path=current_app.config.get('SESSION_COOKIE_PATH', '/'),
+        domain=current_app.config.get('SESSION_COOKIE_DOMAIN', None),
+        secure=current_app.config.get('SESSION_COOKIE_SECURE', False),
+        httponly=current_app.config.get('SESSION_COOKIE_HTTPONLY', True),
+        samesite=current_app.config.get('SESSION_COOKIE_SAMESITE', 'Lax')
+    )
+    
+    # Also delete remember_token if used
+    response.set_cookie('remember_token', '', expires=0, path='/', domain=None)
+    
+    # Add cache-control headers to prevent browser caching
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
     return response
 
 @auth_bp.route('/register', methods=['GET', 'POST'])
