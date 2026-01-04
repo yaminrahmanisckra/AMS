@@ -209,11 +209,22 @@ def create_app():
     database_url = os.getenv('DATABASE_URL')
     if database_url:
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        # MySQL connection pool settings for cPanel/shared hosting
+        # pool_pre_ping: Check if connection is alive before using (handles server restarts/disconnects)
+        # pool_recycle: Recycle connections after 3600 seconds (1 hour) to avoid stale connections
+        # connect_args: Additional connection arguments for PyMySQL
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': True,  # Verify connections before using them
+            'pool_recycle': 3600,   # Recycle connections after 1 hour
+            'connect_args': {
+                'connect_timeout': 10,  # Connection timeout in seconds
+            }
+        }
     else:
         # Fallback to SQLite if DATABASE_URL not set
         db_path = os.path.join(basedir, 'instance', 'academic_management.db')
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
         
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
