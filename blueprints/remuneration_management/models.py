@@ -168,11 +168,3 @@ class RemunerationForm(db.Model):
 
 
 
-
-
-
-
-
-
-
-

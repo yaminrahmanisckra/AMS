@@ -60,7 +60,94 @@ from role_utils import has_teacher_privileges, is_admin, parse_roles
 # WeasyPrint lazy import - only import when needed to prevent startup hang
 # Module-level import removed because it causes startup hang on macOS
 # This prevents the app from hanging during startup
-# WeasyPrint lazy loading functions removed - now using xhtml2pdf
+_WEASYPRINT_HTML = None
+_WEASYPRINT_AVAILABLE = None
+
+def _get_weasyprint_html():
+    """Lazy import WeasyPrint HTML - only import when actually needed"""
+    global _WEASYPRINT_HTML, _WEASYPRINT_AVAILABLE
+    
+    if _WEASYPRINT_AVAILABLE is None:
+        # First time - try to import
+        import logging
+        import os
+        import platform
+        import ctypes
+        from ctypes import util as ctypes_util
+        
+        logger = logging.getLogger(__name__)
+        
+        # Setup library paths for macOS BEFORE importing WeasyPrint
+        if platform.system() == 'Darwin':
+            homebrew_lib_path = '/opt/homebrew/lib'
+            if os.path.exists(homebrew_lib_path):
+                # Set environment variables
+                os.environ['DYLD_FALLBACK_LIBRARY_PATH'] = f"{homebrew_lib_path}:{os.environ.get('DYLD_FALLBACK_LIBRARY_PATH', '')}"
+                os.environ['PKG_CONFIG_PATH'] = f"/opt/homebrew/lib/pkgconfig:{os.environ.get('PKG_CONFIG_PATH', '')}"
+                
+                # Monkey-patch ctypes.util.find_library
+                original_find_library = ctypes_util.find_library
+                def patched_find_library(name):
+                    lib_mappings = {
+                        'gobject-2.0-0': 'libgobject-2.0.0.dylib',
+                        'gobject-2.0': 'libgobject-2.0.dylib',
+                    }
+                    if name in lib_mappings:
+                        lib_path = os.path.join(homebrew_lib_path, lib_mappings[name])
+                        if os.path.exists(lib_path):
+                            return lib_path
+                    for pattern in [f'lib{name}.dylib', f'lib{name}.0.dylib']:
+                        lib_path = os.path.join(homebrew_lib_path, pattern)
+                        if os.path.exists(lib_path):
+                            return lib_path
+                    result = original_find_library(name)
+                    return result if result else None
+                
+                ctypes_util.find_library = patched_find_library
+                
+                # Pre-load libraries
+                try:
+                    lib_path = os.path.join(homebrew_lib_path, 'libgobject-2.0.0.dylib')
+                    if os.path.exists(lib_path):
+                        ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+                except:
+                    pass
+        
+        try:
+            logger.info("Attempting to import WeasyPrint (lazy import)...")
+            from weasyprint import HTML
+            _WEASYPRINT_HTML = HTML
+            _WEASYPRINT_AVAILABLE = True
+            logger.info("✓ WeasyPrint imported successfully (lazy import)")
+        except ImportError as e:
+            _WEASYPRINT_AVAILABLE = False
+            _WEASYPRINT_HTML = None
+            logger.error(f"✗ WeasyPrint ImportError: {e}")
+            logger.warning("PDF generation features will be disabled.")
+        except Exception as e:
+            _WEASYPRINT_AVAILABLE = False
+            _WEASYPRINT_HTML = None
+            logger.error(f"✗ WeasyPrint import error: {e}", exc_info=True)
+            logger.warning("PDF generation features will be disabled.")
+    
+    if _WEASYPRINT_AVAILABLE and _WEASYPRINT_HTML is None:
+        # Retry if somehow HTML is None but available is True
+        try:
+            from weasyprint import HTML
+            _WEASYPRINT_HTML = HTML
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to re-import WeasyPrint: {e}")
+            _WEASYPRINT_AVAILABLE = False
+    
+    return _WEASYPRINT_HTML if _WEASYPRINT_AVAILABLE else None
+
+def _is_weasyprint_available():
+    """Check if WeasyPrint is available (lazy check)"""
+    if _WEASYPRINT_AVAILABLE is None:
+        _get_weasyprint_html()  # Trigger lazy import
+    return _WEASYPRINT_AVAILABLE is True
 
 
 COURSE_REVIEW_GRADE_ROWS = [
@@ -3313,14 +3400,137 @@ def _generate_course_outline_docx(session_id):
     )
 
 def _generate_course_outline_pdf(session_id, skip_auth_check=False):
-    """Generate comprehensive course outline as PDF document - Currently unavailable
+    """Generate comprehensive course outline as PDF document with cover page and page numbers using WeasyPrint
     
     Args:
         session_id: The session ID for the course outline
         skip_auth_check: If True, skip authorization checks (for student downloads)
     """
-    flash('PDF export is currently unavailable due to system library compatibility issues. DOCX export is available as an alternative.', 'info')
-    return redirect(url_for('class_management.course_file', session_id=session_id))
+    try:
+        from weasyprint import HTML, CSS
+    except ImportError:
+        flash('WeasyPrint is not installed. Please install it to generate PDFs.', 'error')
+        return redirect(url_for('class_management.course_file', session_id=session_id))
+    
+    session = Session.query.get_or_404(session_id)
+    
+    # Skip authorization check if requested (for student downloads)
+    if not skip_auth_check:
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        
+        # Check if user is authorized (teacher or part of split group)
+        is_authorized = False
+        if teacher and teacher.id == session.teacher_id:
+            is_authorized = True
+        elif session.split_group_id:
+            related_sessions = Session.query.filter_by(split_group_id=session.split_group_id).all()
+            for related_session in related_sessions:
+                if related_session.teacher and related_session.teacher.id == teacher.id:
+                    is_authorized = True
+                    break
+        
+        if not is_authorized:
+            flash('You are not authorized to download this course outline.', 'danger')
+            return redirect(url_for('class_management.course_file', session_id=session_id))
+    
+    course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
+    if not course_outline:
+        flash('Course outline not found. Please create it first.', 'warning')
+        return redirect(url_for('class_management.course_file', session_id=session_id))
+    
+    # Get course data from curriculum if available
+    course_data = None
+    if Course:
+        course_data = Course.query.filter_by(course_code=session.course_code).first()
+    
+    # Parse all JSON fields
+    def safe_json_parse(data, default=None):
+        if not data:
+            return default if default is not None else []
+        try:
+            return json.loads(data) if isinstance(data, str) else data
+        except:
+            return default if default is not None else []
+    
+    course_objectives = safe_json_parse(course_outline.course_objectives, [])
+    lesson_plan = safe_json_parse(course_outline.lesson_plan, [])
+    clo_data_raw = safe_json_parse(course_outline.clo_data, [])
+    # Ensure plos is always a list in each CLO entry
+    clo_data = []
+    for clo in clo_data_raw:
+        clo_entry = dict(clo)
+        plos = clo_entry.get('plos', [])
+        if not isinstance(plos, list):
+            if isinstance(plos, str):
+                clo_entry['plos'] = [plos] if plos else []
+            else:
+                clo_entry['plos'] = []
+        clo_data.append(clo_entry)
+    course_content_summary = safe_json_parse(course_outline.course_content_summary, {})
+    assessment_strategy = safe_json_parse(course_outline.assessment_strategy, {})
+    assessment_techniques = safe_json_parse(course_outline.assessment_techniques, [])
+    cie_breakdown = safe_json_parse(course_outline.cie_breakdown, []) if hasattr(course_outline, 'cie_breakdown') else []
+    smee_breakdown = safe_json_parse(course_outline.smee_breakdown, []) if hasattr(course_outline, 'smee_breakdown') else []
+    rubrics = safe_json_parse(course_outline.rubrics, [])
+    grading_policy = safe_json_parse(course_outline.grading_policy, [])
+    evaluation_policy = safe_json_parse(course_outline.evaluation_policy, {})
+    textbooks = safe_json_parse(course_outline.textbooks, [])
+    reference_books = safe_json_parse(course_outline.reference_books, [])
+    other_resources = safe_json_parse(course_outline.other_resources, [])
+    course_file_components = safe_json_parse(course_outline.course_file_components, [])
+    other_issues = safe_json_parse(course_outline.other_issues, {})
+    
+    # Get all teachers for this course (if split group exists)
+    course_teachers = [session.teacher]
+    course_teachers_pdf = [session.teacher]
+    if session.split_group_id:
+        related_sessions = Session.query.filter_by(split_group_id=session.split_group_id).all()
+        for related_session in related_sessions:
+            if related_session.teacher and related_session.teacher not in course_teachers:
+                course_teachers.append(related_session.teacher)
+            if related_session.teacher and related_session.teacher not in course_teachers_pdf:
+                course_teachers_pdf.append(related_session.teacher)
+    
+    # Render HTML template
+    html_content = render_template(
+        'class_management/course_outline_pdf.html',
+        session=session,
+        course_outline=course_outline,
+        course_data=course_data,
+        course_objectives=course_objectives,
+        lesson_plan=lesson_plan,
+        clo_data=clo_data,
+        course_content_summary=course_content_summary,
+        assessment_strategy=assessment_strategy,
+        assessment_techniques=assessment_techniques,
+        cie_breakdown=cie_breakdown,
+        smee_breakdown=smee_breakdown,
+        rubrics=rubrics,
+        grading_policy=grading_policy,
+        evaluation_policy=evaluation_policy,
+        textbooks=textbooks,
+        reference_books=reference_books,
+        other_resources=other_resources,
+        course_file_components=course_file_components,
+        other_issues=other_issues,
+        course_teachers=course_teachers,
+        course_teachers_pdf=course_teachers_pdf
+    )
+    
+    # Generate PDF using WeasyPrint
+    buffer = io.BytesIO()
+    HTML(string=html_content).write_pdf(buffer)
+    buffer.seek(0)
+    
+    filename = f"course_outline_{session.course_code or 'course'}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    return Response(
+        buffer.getvalue(),
+        mimetype='application/pdf',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': str(len(buffer.getvalue())),
+        },
+    )
 
 @class_management_bp.route('/course_file/<int:session_id>/outline/download/docx')
 @login_required
@@ -4196,13 +4406,23 @@ def download_attendance_sheet(session_id):
         return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
 @class_management_bp.route('/download_attendance_sheet_weasyprint/<int:session_id>')
-@class_management_bp.route('/download_attendance_sheet_weasyprint/<int:session_id>')
 @login_required
 def download_attendance_sheet_weasyprint(session_id):
     """Generate attendance sheet PDF using WeasyPrint in legal landscape format."""
+    # Lazy import WeasyPrint - only when actually needed
+    HTML = _get_weasyprint_html()
+    if HTML is None:
+        from error_handler import log_error
+        error_msg = 'Error generating PDF: WeasyPrint is not available. '
+        error_msg += 'Please ensure WeasyPrint dependencies are installed. '
+        error_msg += 'On macOS, run: brew install cairo pango gdk-pixbuf gobject-introspection'
+        flash(error_msg, 'error')
+        current_app.logger.error("WeasyPrint not available for PDF generation")
+        current_app.logger.error(f"Current availability status: {_WEASYPRINT_AVAILABLE}")
+        return redirect(url_for('class_management.view_attendance', session_id=session_id))
+    
     try:
         from error_handler import log_error
-        from weasyprint import HTML
         
         session = Session.query.get_or_404(session_id)
         attendance_summary = _build_attendance_summary(session)
@@ -4338,10 +4558,15 @@ def download_attendance_sheet_weasyprint(session_id):
             data_rows=data_rows
         )
         
-        # Generate PDF with WeasyPrint
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content).write_pdf(pdf_buffer)
-        pdf_buffer.seek(0)
+        # Generate PDF with WeasyPrint (lazy import already done above)
+        try:
+            pdf_buffer = io.BytesIO()
+            HTML(string=html_content).write_pdf(pdf_buffer)
+            pdf_buffer.seek(0)
+        except Exception as e:
+            current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)
+            flash(f'Error generating PDF: {str(e)}', 'error')
+            return redirect(url_for('class_management.view_attendance', session_id=session_id))
         
         filename = f"attendance_sheet_{course_code or session.id}.pdf"
         
@@ -4385,6 +4610,15 @@ def assessment(session_id):
             except:
                 reveal_status = {}
         current_teacher_reveals = reveal_status.get(str(current_teacher.id), {})
+        
+        # Default attendance marks to revealed if not set
+        if 'attendance' not in current_teacher_reveals:
+            current_teacher_reveals['attendance'] = True
+            # Save the default if session doesn't have reveal status yet
+            if str(current_teacher.id) not in reveal_status:
+                reveal_status[str(current_teacher.id)] = current_teacher_reveals
+                session.assessment_revealed = json.dumps(reveal_status)
+                db.session.commit()
         
         if request.method == 'POST':
             try:
@@ -4451,6 +4685,7 @@ def assessment(session_id):
                 else:
                     flash('Unsupported course type for assessment entry.', 'error')
                     return redirect(url_for('class_management.assessment', session_id=session_id))
+
 
                 db.session.commit()
                 flash('Assessment marks saved successfully!', 'success')
@@ -6641,10 +6876,20 @@ def student_feedback_responses_pdf(session_id):
     )
 
 @class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/pdf-weasyprint')
-@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/pdf-weasyprint')
 @login_required
 def student_feedback_responses_pdf_weasyprint(session_id):
     """Generate student feedback PDF using WeasyPrint with Kalpurush for Praise and Suggestions."""
+    # Lazy import WeasyPrint - only when actually needed
+    HTML = _get_weasyprint_html()
+    if HTML is None:
+        error_msg = 'Error generating PDF: WeasyPrint is not available. '
+        error_msg += 'Please ensure WeasyPrint dependencies are installed. '
+        error_msg += 'On macOS, run: brew install cairo pango gdk-pixbuf gobject-introspection'
+        flash(error_msg, 'error')
+        current_app.logger.error("WeasyPrint not available for PDF generation")
+        current_app.logger.error(f"Current availability status: {_WEASYPRINT_AVAILABLE}")
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+    
     session_obj = Session.query.get_or_404(session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher or teacher.id != session_obj.teacher_id:
@@ -6667,7 +6912,6 @@ def student_feedback_responses_pdf_weasyprint(session_id):
 
     try:
         from error_handler import log_error
-        from weasyprint import HTML
         import os
         
         # Prepare data for template
@@ -6715,10 +6959,15 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             kalpurush_font_path=font_path if os.path.exists(font_path) else None
         )
         
-        # Generate PDF with WeasyPrint
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
-        pdf_buffer.seek(0)
+        # Generate PDF with WeasyPrint (lazy import already done above)
+        try:
+            pdf_buffer = io.BytesIO()
+            HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+            pdf_buffer.seek(0)
+        except Exception as e:
+            current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)
+            flash(f'Error generating PDF: {str(e)}', 'error')
+            return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
         
         filename = f"student_feedback_responses_{session_obj.course_code or 'course'}.pdf"
         
@@ -6741,6 +6990,170 @@ def student_feedback_responses_pdf_weasyprint(session_id):
         current_app.logger.error(f"Error generating WeasyPrint student feedback PDF for session {session_id}: {e}", exc_info=True)
         flash(f'Error generating PDF: {str(e)}', 'error')
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/docx')
+@login_required
+def student_feedback_responses_docx(session_id):
+    session_obj = Session.query.get_or_404(session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not teacher or teacher.id != session_obj.teacher_id:
+        flash('You are not authorized to access this download.', 'danger')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    feedback_link = StudentFeedbackLink.query.filter_by(session_id=session_id).first()
+    if not feedback_link:
+        flash('No feedback responses found.', 'info')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    responses = (
+        StudentFeedbackResponse.query.filter_by(feedback_link_id=feedback_link.id)
+        .order_by(StudentFeedbackResponse.submitted_at.asc())
+        .all()
+    )
+    if not responses:
+        flash('No feedback responses to download.', 'info')
+        return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+    from docx import Document
+    from docx.shared import Pt
+    from docx.oxml.ns import qn
+
+    document = Document()
+    normal_style = document.styles['Normal']
+    normal_style.font.name = 'Kalpurush'
+    normal_style.font.size = Pt(11)
+    normal_style._element.rPr.rFonts.set(qn('w:eastAsia'), 'Kalpurush')
+
+    heading1 = document.styles['Heading 1']
+    heading1.font.name = 'Helvetica'
+    heading1.font.size = Pt(16)
+    heading1.font.bold = True
+
+    heading2 = document.styles['Heading 2']
+    heading2.font.name = 'Helvetica'
+    heading2.font.size = Pt(13)
+    heading2.font.bold = True
+
+    for idx, item in enumerate(responses, start=1):
+        try:
+            data = json.loads(item.payload or '{}')
+        except json.JSONDecodeError:
+            data = {}
+
+        academic = data.get('academic_info', {}) or {}
+        section_a = data.get('section_a', {}) or {}
+        section_b = data.get('section_b', {}) or {}
+        section_c = data.get('section_c', {}) or {}
+        section_d = data.get('section_d', {}) or {}
+
+        if idx > 1:
+            document.add_page_break()
+
+        title_para = document.add_paragraph('STUDENT FEEDBACK FORM')
+        title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_run = title_para.runs[0]
+        title_run.bold = True
+        title_run.font.size = Pt(16)
+
+        uni_para = document.add_paragraph('KHULNA UNIVERSITY')
+        uni_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        uni_para.runs[0].bold = True
+        uni_para.runs[0].font.size = Pt(12)
+
+        meta_para = document.add_paragraph(f"Response {idx} - {item.submitted_at.strftime('%Y-%m-%d %H:%M')}")
+        meta_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        meta_para.runs[0].font.size = Pt(10)
+
+        add_header_table([
+            ('Academic Session', academic.get('academic_session') or '—'),
+            ('Title of the Course', academic.get('course_title') or session_obj.course_name or '—'),
+            ('Course Code', academic.get('course_code') or session_obj.course_code or '—'),
+        ])
+
+        instruction_para = document.add_paragraph(
+            'PLEASE TICK/CROSS IN THE BLANK SPACE WHICH BEST DESCRIBES HOW MUCH YOU AGREE WITH THE FOLLOWING STATEMENTS'
+        )
+        instruction_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        instruction_para.runs[0].font.size = Pt(9)
+
+        document.add_paragraph('A. SATISFACTION WITH THE COURSE', style='Heading 3')
+        section_a_rows = []
+        for key, question in FEEDBACK_SECTION_A:
+            selected = section_a.get(key)
+            row = [question]
+            for option in likert_header[1:]:
+                row.append('✓' if selected and selected.lower() == option.lower() else '')
+            section_a_rows.append(row)
+        add_likert_table(section_a_rows, likert_header)
+
+        document.add_paragraph('B. TEACHING-LEARNING METHODS', style='Heading 3')
+        first_question = FEEDBACK_SECTION_B_LIKERT[0]
+        first_selected = section_b.get(first_question[0])
+        first_rows = [[first_question[1]] + [('✓' if first_selected and first_selected.lower() == opt.lower() else '') for opt in likert_header[1:]]]
+        add_likert_table(first_rows, likert_header)
+
+        methods_heading = document.add_paragraph('Teaching methods that contributed significantly (selected):')
+        methods_heading.runs[0].bold = True
+        methods = section_b.get('teaching_methods') or []
+        if methods:
+            for method in methods:
+                bullet = document.add_paragraph(method, style='List Bullet')
+                bullet.paragraph_format.space_after = Pt(1)
+        else:
+            document.add_paragraph('—', style='List Bullet')
+
+        remaining_rows = []
+        for key, question in FEEDBACK_SECTION_B_LIKERT[1:]:
+            selected = section_b.get(key)
+            row = [question]
+            for option in likert_header[1:]:
+                row.append('✓' if selected and selected.lower() == option.lower() else '')
+            remaining_rows.append(row)
+        add_likert_table(remaining_rows, likert_header)
+
+        document.add_paragraph('C. ENGAGEMENT AND WORKLOAD', style='Heading 3')
+        engagement_rows = [
+            ('How much time do you devote to this course before and after each lecture?', section_c.get('study_time') or '—'),
+            ('About what percent of the class meetings (including discussions) did you attend?', section_c.get('attendance_percent') or '—'),
+        ]
+        engagement_table = document.add_table(rows=len(engagement_rows), cols=2)
+        engagement_table.style = 'Table Grid'
+        for row_idx, (label, value) in enumerate(engagement_rows):
+            set_cell_shading(engagement_table.cell(row_idx, 0), 'D9D9D9')
+            set_cell_text(engagement_table.cell(row_idx, 0), label, bold=True, align='left')
+            set_cell_text(engagement_table.cell(row_idx, 1), value, align='left')
+
+        effort_heading = document.add_paragraph('Significant aspects of your effort (selected):')
+        effort_heading.runs[0].bold = True
+        efforts = section_c.get('effort_focus') or []
+        if efforts:
+            for effort in efforts:
+                bullet = document.add_paragraph(effort, style='List Bullet')
+                bullet.paragraph_format.space_after = Pt(1)
+        else:
+            document.add_paragraph('—', style='List Bullet')
+
+        document.add_paragraph('D. PRAISE AND SUGGESTIONS', style='Heading 3')
+        add_open_block('What did you like especially about this course?', section_d.get('likes'))
+        add_open_block('What are the challenges you have faced in attending the course?', section_d.get('challenges'))
+        add_open_block('Suggestions on how to improve the course:', section_d.get('suggestions'))
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    buffer.seek(0)
+    docx_data = buffer.getvalue()
+    buffer.close()
+
+    filename = f"student_feedback_responses_{session_obj.course_code or 'course'}.docx"
+    return Response(
+        docx_data,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Length': str(len(docx_data)),
+        },
+    )
+
 @class_management_bp.route('/student/course-files')
 @login_required
 def student_course_files():

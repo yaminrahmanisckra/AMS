@@ -16,17 +16,8 @@
             box-sizing: border-box;
         }
         
-        {% if font_data_url %}
-        @font-face {
-            font-family: 'Kalpurush';
-            src: url('{{ font_data_url }}') format('truetype');
-            font-weight: normal;
-            font-style: normal;
-        }
-        {% endif %}
-        
         body {
-            font-family: {% if font_path or font_data_url %}'Kalpurush', {% endif %}'Noto Sans Bengali', 'Hind Siliguri', 'SolaimanLipi', 'Mukti', 'Siyam Rupali', sans-serif;
+            font-family: {% if font_path %}'Kalpurush', {% endif %}'Noto Sans Bengali', 'Hind Siliguri', 'SolaimanLipi', 'Mukti', 'Siyam Rupali', sans-serif;
             font-size: 7pt;
             line-height: 1.2;
             color: #000;
@@ -514,7 +505,7 @@
         <table class="foot-table">
             <tr>
                 <td><strong>সর্বমোট টাকার পরিমাণ (কথায়):</strong></td>
-                <td style="font-family: {% if font_path or font_data_url %}'Kalpurush', {% endif %}'Noto Sans Bengali', 'Hind Siliguri', 'SolaimanLipi', 'Mukti', 'Siyam Rupali', sans-serif;">{{ total_in_words or '' }}</td>
+                <td style="font-family: {% if font_path %}'Kalpurush', {% endif %}'Noto Sans Bengali', 'Hind Siliguri', 'SolaimanLipi', 'Mukti', 'Siyam Rupali', sans-serif;">{{ total_in_words or '' }}</td>
             </tr>
         </table>
         
