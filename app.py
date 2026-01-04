@@ -181,6 +181,9 @@ if platform.system() == 'Darwin':  # macOS
             # The error will be caught when WeasyPrint tries to import
             pass
 
+# xhtml2pdf helper function removed - conflicts with reportlab 4.0.7
+# PDF export routes now redirect to DOCX export or show error message
+
 def create_app():
     app = Flask(__name__)
 
@@ -209,8 +212,8 @@ def create_app():
     else:
         # Fallback to SQLite if DATABASE_URL not set
         db_path = os.path.join(basedir, 'instance', 'academic_management.db')
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
         
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -6268,32 +6271,27 @@ def create_app():
                 status='active'
             ).first()
             
-            if not chief_assignment and not member_assignment:
-                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member for this session/year/term'}), 403
+            # Allow all teachers to access this endpoint for auto-population
+            # Removed restriction - all teachers can now access remuneration statement data
             
-            # Get parameters
-            session = request.args.get('session', '').strip()
-            year = request.args.get('year', '').strip()
-            term = request.args.get('term', '').strip()
-            
-            if not session or not year or not term:
-                return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
-            
+            # Get parameters (duplicate check removed - already validated above)
             from blueprints.remuneration_management.models import RemunerationForm
             
-            # If user is Chief, get their own form
-            # If user is Member, get the Chief's form for the same committee
+            # Get the Exam Committee Chief's form for this session/year/term
+            # All teachers can access this for auto-population
             form_entry = None
+            
+            # First, try to get the current user's form if they are the Chief
             if chief_assignment:
-                # User is Chief - get their own form
                 form_entry = RemunerationForm.query.filter_by(
                     user_id=current_user.id,
                     academic_year=session,
                     year=year,
                     term=term
                 ).order_by(RemunerationForm.id.desc()).first()
-            elif member_assignment:
-                # User is Member - find the Chief for this committee and get their form
+            
+            # If not found, try to find the Chief's form for this session/year/term (works for all teachers)
+            if not form_entry:
                 chief_for_committee = DutyAssignment.query.filter_by(
                     duty_type='exam_committee_chief',
                     academic_session=session,
@@ -7822,6 +7820,9 @@ def create_app():
         
         try:
             form_id = request.args.get('form_id')
+            academic_year = request.args.get('academic_year') or request.args.get('session', '').strip()
+            year = request.args.get('year', '').strip()
+            term = request.args.get('term', '').strip()
             
             if form_id:
                 # Load specific form
@@ -7839,6 +7840,38 @@ def create_app():
                     saved_data = form_entry.to_dict()
                 
                 return jsonify({'success': True, 'data': saved_data})
+            elif academic_year and year and term:
+                # Load form by session/year/term for current user
+                form_entry = RemunerationForm.query.filter_by(
+                    user_id=current_user.id,
+                    academic_year=academic_year,
+                    year=year,
+                    term=term
+                ).order_by(RemunerationForm.id.desc()).first()
+                
+                if form_entry and form_entry.form_data:
+                    try:
+                        saved_data = json.loads(form_entry.form_data)
+                        saved_data['form_id'] = form_entry.id
+                        # Include exam dates from database fields if not in JSON
+                        if form_entry.exam_start_date:
+                            saved_data['exam_start_date'] = form_entry.exam_start_date
+                        if form_entry.exam_end_date:
+                            saved_data['exam_end_date'] = form_entry.exam_end_date
+                        return jsonify({
+                            'success': True,
+                            'data': saved_data,
+                            'message': 'Form data loaded successfully'
+                        })
+                    except Exception as e:
+                        current_app.logger.error(f'Error parsing form_data JSON: {str(e)}')
+                        return jsonify({'success': False, 'message': 'Error loading form data'}), 500
+                else:
+                    return jsonify({
+                        'success': True,
+                        'data': None,
+                        'message': 'No saved form found for this session/year/term'
+                    })
             else:
                 # Load from session as fallback
                 saved_data = session.get('remuneration_form_data', None)
@@ -9208,49 +9241,8 @@ def create_app():
                 if rate_val == 'custom':
                     rate_val = get_val(f'rate_custom_{idx}')
                 
-                # Initialize rate display (default to rate_val)
-                rate_val_display = rate_val
-                
-                # For row 3, show simplified quantity (sum of individual quantities like "33+1")
-                quantity_display = get_val(f'quantity_{idx}')
-                if idx == 3:
-                    # Get breakdown from form data (sent from frontend)
-                    breakdown_text = request.form.get('row3_breakdown', '').strip()
-                    if breakdown_text:
-                        # Extract individual quantities from breakdown text
-                        # Format: "042 A: 33 × 100 = 3300" or "042 B: 1 × 100 = 100 < 600 → 600"
-                        import re
-                        # Extract numbers before "×" (these are the quantities)
-                        quantities = re.findall(r':\s*(\d+)\s*×', breakdown_text)
-                        if quantities:
-                            # Show as sum format: "33+1" or just the sum "34"
-                            quantity_display = '+'.join(quantities)
-                        else:
-                            # Fallback: use total quantity
-                            quantity_display = get_val(f'quantity_{idx}') or '0'
-                    else:
-                        # Fallback: show total quantity if breakdown not available
-                        quantity_display = get_val(f'quantity_{idx}') or '0'
-                    
-                    # For rate, check if rate display shows multiple rates
-                    rate_display_text = request.form.get('rate_display_3_text', '').strip()
-                    if rate_display_text:
-                        # Use the rate display text which shows all rates (e.g., "100, 600")
-                        rate_val_display = rate_display_text.replace('৳', '').strip()
-                    else:
-                        # Extract unique rates from breakdown if available
-                        courses = request.form.getlist(f'course_no_{idx}[]')
-                        sections = request.form.getlist(f'section_{idx}[]')
-                        if courses and sections:
-                            # Try to determine rates from breakdown text
-                            # If breakdown shows "100" and "600", show both
-                            if '600' in breakdown_text or '→ 600' in breakdown_text:
-                                # Check if there are courses with different rates
-                                rate_val_display = '100, 600'  # Show both rates
-                            else:
-                                rate_val_display = rate_val
-                
                 # For row 4, show calculation process (student_count × multiplier = product)
+                quantity_display = get_val(f'quantity_{idx}')
                 if idx == 4:
                     student_count = get_val('student_count_4')
                     section_multiplier = get_val('section_multiplier_4')
@@ -9295,14 +9287,6 @@ def create_app():
                         courses_val = get_val('course_custom_16') or ''  # Row 16 uses custom text input
                     else:
                         courses_val = get_course_sections(str(idx))
-                        # For row 1 (প্রশ্নপত্র প্রণয়ন), row 2 (প্রশ্নপত্র মডারেশন), 
-                        # row 5 (সেশনাল), and row 6 (সেশনাল মৌখিক পরীক্ষা), remove "(Full)" part
-                        if idx in [1, 2, 5, 6] and courses_val:
-                            # Remove "(Full)" from all course entries
-                            courses_val = courses_val.replace(' (Full)', '').replace(' (full)', '')
-                    
-                    # Use rate_val_display for Row 3 if it was set, otherwise use rate_val
-                    final_rate_val = rate_val_display if idx == 3 and 'rate_val_display' in locals() else rate_val
                     
                     jobs_data.append({
                         'serial': str(serial),
@@ -9310,7 +9294,7 @@ def create_app():
                         'courses': courses_val,
                         'quantity': quantity_display,
                         'paper_type': get_val(f'paper_type_{idx}'),
-                        'rate': rate_val_display,
+                        'rate': rate_val,
                         'amount': get_val(f'amount_{idx}')
                     })
                 
@@ -9451,11 +9435,11 @@ def create_app():
             # Generate PDF using WeasyPrint
             pdf_buffer = BytesIO()
             
-            # Create CSS for PDF - Optimized for single page layout
+            # Create CSS for PDF - slightly increased spacing, single page
             css_string = """
             @page {
                 size: 8.5in 14in; /* Legal size */
-                margin: 0.12in 0.2in; /* Optimized margins */
+                margin: 0.18in 0.28in; /* Slightly increased margins */
             }
             * {
                 page-break-inside: avoid !important;
@@ -9465,177 +9449,163 @@ def create_app():
             body {
                 margin: 0 !important;
                 padding: 0 !important;
-                font-size: 0.5rem !important;
-                line-height: 1.2 !important;
-            }
-            .pdf-container {
-                width: 100%;
+                font-size: 0.56rem !important; /* Slightly smaller to compensate spacing */
+                line-height: 1.18 !important; /* Slightly more breathing room */
             }
             .rem-wrapper {
                 margin: 0 !important;
                 padding: 0 !important;
             }
             .rem-sheet {
-                padding: 6px 12px !important;
+                padding: 10px 17px !important; /* Slightly increased padding */
                 margin: 0 !important;
                 border: none !important;
                 border-radius: 0 !important;
             }
             .rem-heading {
-                margin-bottom: 0.1rem !important;
-                gap: 0.5rem !important;
+                margin-bottom: 0.15rem !important;
+                gap: 0.7rem !important;
             }
             .rem-heading-logo img {
-                height: 32px !important;
+                height: 38px !important; /* Larger logo */
             }
             .rem-heading-content .text-muted {
-                font-size: 0.55rem !important;
-                margin-bottom: 0.02rem !important;
+                font-size: 0.62rem !important;
+                margin-bottom: 0.04rem !important;
             }
             .rem-heading h4 {
-                font-size: 0.68rem !important;
-                margin-bottom: 0.01rem !important;
+                font-size: 0.78rem !important;
+                margin-bottom: 0.015rem !important;
             }
             .rem-heading-content > div {
-                font-size: 0.64rem !important;
-                margin-bottom: 0.01rem !important;
+                font-size: 0.72rem !important;
+                margin-bottom: 0.015rem !important;
             }
             .rem-heading-content small {
-                font-size: 0.5rem !important;
-                margin-top: 0.02rem !important;
+                font-size: 0.56rem !important;
+                margin-top: 0.04rem !important;
             }
             .voucher-box {
-                padding: 0.08rem 0.25rem 0.01rem 0.25rem !important;
-                font-size: 0.5rem !important;
-                width: 180px !important;
+                padding: 0.12rem 0.35rem 0.015rem 0.35rem !important;
+                font-size: 0.56rem !important;
+                width: 210px !important;
             }
             .voucher-box div {
-                padding: 0.03rem 0 !important;
+                padding: 0.04rem 0 !important;
             }
             .voucher-box span {
-                min-width: 50px !important;
-                font-size: 0.54rem !important;
+                min-width: 52px !important;
+                font-size: 0.56rem !important;
             }
             .voucher-box input {
-                font-size: 0.54rem !important;
-                padding: 0.05rem 0.14rem !important;
+                font-size: 0.56rem !important;
+                padding: 0.06rem 0.16rem !important;
             }
             .meta-grid {
-                margin-top: 0.3rem !important;
-                margin-bottom: 0.3rem !important;
+                margin-top: 0.25rem !important;
+                margin-bottom: 0.25rem !important;
             }
             .meta-grid td {
-                padding: 0.2rem 0.35rem !important;
-                font-size: 0.5rem !important;
+                padding: 0.18rem 0.32rem !important;
+                font-size: 0.56rem !important;
             }
             .meta-label {
-                font-size: 0.5rem !important;
-                width: 125px !important;
+                font-size: 0.56rem !important;
+                width: 142px !important;
             }
             .meta-grid input,
             .meta-grid select {
-                font-size: 0.5rem !important;
-                padding: 0.08rem 0.18rem !important;
+                font-size: 0.56rem !important;
+                padding: 0.11rem 0.22rem !important;
             }
             .rem-table {
-                margin: 0.45rem 0 !important;
-                font-size: 0.46rem !important;
-                border-collapse: collapse !important;
+                margin: 0.25rem 0 !important;
+                font-size: 0.51rem !important;
             }
             .rem-table th,
             .rem-table td {
-                padding: 0.28rem 0.45rem !important;
-                font-size: 0.46rem !important;
-                line-height: 1.22 !important;
+                padding: 0.18rem 0.27rem !important;
+                font-size: 0.51rem !important;
+                line-height: 1.12 !important;
             }
             .rem-table th {
-                padding: 0.32rem 0.45rem !important;
-                font-size: 0.46rem !important;
-                font-weight: 600 !important;
+                padding: 0.22rem 0.27rem !important;
+                font-size: 0.51rem !important;
             }
             .section-title {
-                margin-top: 0.35rem !important;
-                margin-bottom: 0.2rem !important;
-                font-size: 0.62rem !important;
-            }
-            .section-title.finance {
-                margin-top: 0.6rem !important;
+                margin-top: 0.65rem !important;
+                margin-bottom: 0.35rem !important;
+                font-size: 0.71rem !important;
             }
             .signature-box {
-                min-height: 30px !important;
-                min-width: 115px !important;
-                padding: 0.2rem !important;
-                font-size: 0.5rem !important;
+                min-height: 38px !important;
+                padding: 0.22rem !important;
+                font-size: 0.56rem !important;
             }
             .signature-box span {
-                margin-top: 0.35rem !important;
-                padding-top: 0.12rem !important;
-            }
-            .signature-section {
-                gap: 0.3rem !important;
-                margin-top: 0.3rem !important;
+                margin-top: 0.55rem !important;
+                padding-top: 0.18rem !important;
             }
             .controller-signature-section,
             .finance-signature-section,
             .audit-approval-section {
-                margin-top: 0.15rem !important;
-                margin-bottom: 0.18rem !important;
-                gap: 0.3rem !important;
+                margin-top: 0.25rem !important;
+                margin-bottom: 0.28rem !important;
+                gap: 0.25rem !important;
             }
             .controller-signature-box,
             .finance-signature-box,
             .audit-signature-box-single {
-                min-height: 26px !important;
-                min-width: 115px !important;
-                padding: 0.15rem 0.15rem !important;
+                min-height: 32px !important;
+                padding: 0.17rem 0.16rem !important;
             }
             .controller-designation,
             .finance-designation,
             .audit-designation {
-                font-size: 0.49rem !important;
-                margin-bottom: 0.22rem !important;
-                padding-bottom: 0.14rem !important;
+                font-size: 0.51rem !important;
+                margin-bottom: 0.27rem !important;
+                padding-bottom: 0.16rem !important;
             }
             .controller-signature-line,
             .finance-signature-line,
             .audit-signature-line {
-                margin-top: 0.18rem !important;
-                font-size: 0.49rem !important;
+                margin-top: 0.22rem !important;
+                font-size: 0.51rem !important;
             }
             .foot-table {
-                margin: 0.35rem 0 0.3rem 0 !important;
+                margin: 0.25rem 0 0.18rem 0 !important;
             }
             .foot-table td {
-                padding: 0.2rem 0.35rem !important;
-                font-size: 0.5rem !important;
+                padding: 0.18rem 0.32rem !important;
+                font-size: 0.56rem !important;
             }
             .foot-table input {
-                font-size: 0.5rem !important;
-                padding: 0.13rem 0.25rem !important;
+                font-size: 0.56rem !important;
+                padding: 0.11rem 0.22rem !important;
             }
             .info-note,
             .statement-note,
             .finance-release-note,
             .audit-approval-text {
-                font-size: 0.46rem !important;
-                margin: 0.12rem 0 !important;
-                line-height: 1.2 !important;
+                font-size: 0.51rem !important;
+                margin: 0.18rem 0 !important;
+                line-height: 1.22 !important;
             }
             .info-note input,
             .statement-note input {
-                font-size: 0.46rem !important;
-                padding: 0.03rem 0.08rem !important;
+                font-size: 0.51rem !important;
+                padding: 0.04rem 0.11rem !important;
             }
             .bank-declaration {
-                padding: 0.18rem !important;
-                margin-top: 0.15rem !important;
-                font-size: 0.46rem !important;
-                line-height: 1.2 !important;
+                padding: 0.27rem !important;
+                margin-top: 0.25rem !important;
+                font-size: 0.51rem !important;
+                line-height: 1.22 !important;
             }
             .revenue-ticket {
-                width: 24mm !important;
-                height: 24mm !important;
-                margin-left: 0.3rem !important;
+                width: 26px !important;
+                height: 26px !important;
+                margin-left: 0.35rem !important;
             }
             """
             
@@ -9668,40 +9638,14 @@ def create_app():
             # Create HTML object
             html_obj = HTML(string=html_content, base_url=request.url_root)
             
-            # Create CSS object
-            css_obj = None
-            if css_string:
-                try:
-                    css_obj = CSS(string=css_string)
-                except Exception as css_error:
-                    current_app.logger.error(f'Error parsing CSS: {str(css_error)}', exc_info=True)
-                    # Fallback: try without CSS or with minimal CSS
-                    css_string = """
-                    @page {
-                        size: 8.5in 14in;
-                        margin: 0.15in 0.25in;
-                    }
-                    * {
-                        page-break-inside: avoid !important;
-                        page-break-after: avoid !important;
-                        page-break-before: avoid !important;
-                    }
-                    """
-                    try:
-                        css_obj = CSS(string=css_string)
-                    except:
-                        css_obj = None
+            # Create CSS object if font CSS exists
+            css_obj = CSS(string=css_string) if css_string else None
             
             # Write PDF with CSS
-            try:
-                if css_obj:
-                    html_obj.write_pdf(pdf_buffer, stylesheets=[css_obj], presentational_hints=True)
-                else:
-                    html_obj.write_pdf(pdf_buffer, presentational_hints=True)
-            except Exception as pdf_error:
-                current_app.logger.error(f'Error writing PDF: {str(pdf_error)}', exc_info=True)
-                raise
-            
+            if css_obj:
+                html_obj.write_pdf(pdf_buffer, stylesheets=[css_obj], presentational_hints=True)
+            else:
+                html_obj.write_pdf(pdf_buffer, presentational_hints=True)
             pdf_buffer.seek(0)
             
             return send_file(
@@ -9713,11 +9657,7 @@ def create_app():
             
         except Exception as e:
             current_app.logger.error(f'Error generating PDF: {str(e)}', exc_info=True)
-            import traceback
-            error_trace = traceback.format_exc()
-            current_app.logger.error(f'Full traceback: {error_trace}')
-            # Return more detailed error for debugging
-            return jsonify({'error': f'Failed to generate PDF document: {str(e)}'}), 500
+            return jsonify({'error': 'Failed to generate PDF document'}), 500
 
     @app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
     @login_required

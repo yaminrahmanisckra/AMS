@@ -5866,6 +5866,24 @@ function populateFormData(data) {
             calculateRow(rowId);
         }
     });
+    
+    // Trigger calculations for all rows after form data is populated
+    setTimeout(() => {
+        // Calculate all rows (1-16) to ensure all amounts are computed
+        for (let rowId = 1; rowId <= 16; rowId++) {
+            try {
+                calculateRow(rowId);
+            } catch (error) {
+                console.error(`Error calculating row ${rowId}:`, error);
+            }
+        }
+        // Also calculate total amount
+        const totalAmountInput = document.getElementById('total_amount');
+        if (totalAmountInput) {
+            const event = new Event('input', { bubbles: true });
+            totalAmountInput.dispatchEvent(event);
+        }
+    }, 1000);
 }
 
 function generateFormTitle(formData) {
