@@ -9179,7 +9179,6 @@ def create_app():
         
         try:
             from weasyprint import HTML, CSS
-            from weasyprint.text.fonts import FontConfiguration
             import os
             
             # Get form data
