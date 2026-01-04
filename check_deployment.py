@@ -40,12 +40,22 @@ def check_python_version():
     version = sys.version_info
     version_str = f"{version.major}.{version.minor}.{version.micro}"
     print_info(f"Python version: {version_str}")
+    print_info(f"Python executable: {sys.executable}")
+    
+    # Check if we're in a virtual environment
+    if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+        print_info("Running in virtual environment")
+    else:
+        print_warning("Not running in virtual environment")
+        print_info("On cPanel, ensure you're using the Python app's environment")
     
     if version.major == 3 and version.minor >= 7:
         print_success(f"Python {version_str} is compatible (requires 3.7+)")
         return True
     else:
         print_error(f"Python {version_str} is not compatible (requires 3.7+)")
+        print_warning("On cPanel Python apps, use the app's Python, not system Python")
+        print_info("Check cPanel → Software → Setup Python App for correct Python version")
         return False
 
 def check_required_files():
@@ -117,6 +127,7 @@ def check_file_permissions():
 def check_dependencies():
     """Check if required Python packages are installed"""
     print_header("Checking Dependencies")
+    print_info(f"Using Python: {sys.executable}")
     
     required_packages = [
         'flask',
@@ -157,7 +168,12 @@ def check_dependencies():
     
     if missing_packages:
         print_error(f"Missing packages: {', '.join(missing_packages)}")
-        print_info("Install missing packages with: pip install " + " ".join(missing_packages))
+        print_warning("IMPORTANT: On cPanel, packages must be installed in the Python app's virtual environment")
+        print_info("To install:")
+        print_info("1. Go to cPanel → Software → Setup Python App")
+        print_info("2. Select your app → Click 'Install App' or check 'Install Dependencies'")
+        print_info("3. Or use the app's Python: /home/USER/virtualenv/APP/version/bin/pip install package_name")
+        print_info("4. Or run: pip install " + " ".join(missing_packages))
         return False
     
     return True
@@ -327,6 +343,13 @@ def run_full_check():
     """Run all checks"""
     print(f"\n{BOLD}{GREEN}Academic Management System - Deployment Health Check{RESET}\n")
     print(f"Working directory: {os.getcwd()}\n")
+    
+    # Check if this looks like cPanel environment
+    if os.path.exists('/home') and 'virtualenv' in os.getcwd() or os.path.exists('passenger_wsgi.py'):
+        print_info("Detected cPanel Python app environment")
+        print_warning("NOTE: This script should be run with the Python app's Python, not system Python")
+        print_info("The Python app uses its own virtual environment with packages installed separately")
+        print()
     
     results = {}
     
