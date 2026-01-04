@@ -9169,6 +9169,24 @@ def create_app():
             current_app.logger.error(f'Error generating DOCX: {str(e)}', exc_info=True)
             return jsonify({'error': 'Failed to generate document'}), 500
 
+    @app.route('/static/Fonts/kalpurush.ttf')
+    @app.route('/static/fonts/kalpurush.ttf')
+    def serve_kalpurush_font():
+        """Serve Kalpurush font file for WeasyPrint PDF generation"""
+        from flask import send_file
+        import os
+        
+        font_paths = [
+            os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf'),
+            os.path.join(current_app.root_path, 'static', 'fonts', 'kalpurush.ttf'),
+        ]
+        
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                return send_file(font_path, mimetype='font/ttf')
+        
+        return 'Font not found', 404
+
     @app.route('/remuneration/export-pdf', methods=['POST'])
     @login_required
     def remuneration_export_pdf():
@@ -9392,9 +9410,24 @@ def create_app():
                     if jobs_data and jobs_data[-1]['serial'] == str(serial - 1):
                         jobs_data[-1]['courses'] = custom_course
             
-            # Get font file path for Bengali font
-            font_path = os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf')
-            font_path_absolute = os.path.abspath(font_path) if os.path.exists(font_path) else None
+            # Get font file path for Bengali font - try multiple paths
+            font_path_absolute = None
+            font_paths_to_try = [
+                os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf'),  # Capital F
+                os.path.join(current_app.root_path, 'static', 'fonts', 'kalpurush.ttf'),   # Lowercase f
+                os.path.join(current_app.root_path, 'static', 'Fonts', 'Kalpurush.ttf'),   # Capital K
+                os.path.join(current_app.root_path, 'static', 'fonts', 'Kalpurush.ttf'),   # Capital K, lowercase f
+            ]
+
+            for font_path in font_paths_to_try:
+                if os.path.exists(font_path):
+                    font_path_absolute = os.path.abspath(font_path)
+                    current_app.logger.info(f'Kalpurush font found at: {font_path_absolute}')
+                    break
+
+            if not font_path_absolute:
+                current_app.logger.warning('Kalpurush font not found in any expected location. Bengali text may not render correctly.')
+                current_app.logger.warning(f'Searched paths: {font_paths_to_try}')
             
             # Render HTML template with data
             html_content = render_template(
@@ -9450,6 +9483,7 @@ def create_app():
                 padding: 0 !important;
                 font-size: 0.56rem !important; /* Slightly smaller to compensate spacing */
                 line-height: 1.18 !important; /* Slightly more breathing room */
+                font-family: 'Kalpurush', sans-serif !important;
             }
             .rem-wrapper {
                 margin: 0 !important;
@@ -9608,31 +9642,104 @@ def create_app():
             }
             """
             
+            # Initialize html_content for font injection
+            html_content_final = html_content
+            
             if font_path_absolute:
-                # Format path for WeasyPrint (handle both Windows and Unix paths)
-                if os.name == 'nt':  # Windows
-                    font_url = f"file:///{font_path_absolute.replace(os.sep, '/').replace(':', '')}"
-                else:  # macOS/Linux
-                    font_url = f"file://{font_path_absolute}"
-                
-                font_css = f"""
-                @font-face {{
-                    font-family: 'Kalpurush';
-                    src: url('{font_url}') format('truetype');
-                    font-weight: normal;
-                    font-style: normal;
-                }}
-                @font-face {{
-                    font-family: 'Kalpurush';
-                    src: url('{font_url}') format('truetype');
-                    font-weight: bold;
-                    font-style: normal;
-                }}
-                body {{
-                    font-family: 'Kalpurush', sans-serif;
-                }}
-                """
-                css_string = font_css + css_string
+                # Inject @font-face rule directly into HTML <head> section
+                # This works better with WeasyPrint 52.5 than CSS object
+                try:
+                    import base64
+                    with open(font_path_absolute, 'rb') as font_file:
+                        font_data = font_file.read()
+                        font_base64 = base64.b64encode(font_data).decode('utf-8')
+                    
+                    # Try application/font-sfnt MIME type for TTF fonts
+                    font_face_rule = f"""
+        <style>
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url(data:application/font-sfnt;base64,{font_base64}) format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }}
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url(data:application/font-sfnt;base64,{font_base64}) format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }}
+        </style>
+        """
+                    
+                    # Inject into HTML <head> section
+                    if '</head>' in html_content_final:
+                        html_content_final = html_content_final.replace('</head>', font_face_rule + '</head>')
+                    elif '<head>' in html_content_final:
+                        html_content_final = html_content_final.replace('<head>', '<head>' + font_face_rule)
+                    else:
+                        # No head tag, add it at the beginning
+                        html_content_final = font_face_rule + html_content_final
+                    
+                    # Also add to CSS string for redundancy
+                    font_css = """
+        * {
+            font-family: 'Kalpurush', sans-serif !important;
+        }
+        body {
+            font-family: 'Kalpurush', sans-serif !important;
+        }
+        .english-text {
+            font-family: 'Tahoma', 'Arial', sans-serif !important;
+        }
+        """
+                    css_string = font_css + css_string
+                    current_app.logger.info('Kalpurush font embedded as base64 in HTML <head>')
+                except Exception as e:
+                    current_app.logger.error(f'Failed to embed font as base64: {e}', exc_info=True)
+                    # Fallback: try file:// URL (works on some systems)
+                    if os.name == 'nt':  # Windows
+                        font_url = f"file:///{font_path_absolute.replace(os.sep, '/').replace(':', '')}"
+                    else:  # macOS/Linux
+                        font_url = f"file://{font_path_absolute}"
+                    
+                    font_face_rule = f"""
+        <style>
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url('{font_url}') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }}
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url('{font_url}') format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }}
+        </style>
+        """
+                    
+                    if '</head>' in html_content_final:
+                        html_content_final = html_content_final.replace('</head>', font_face_rule + '</head>')
+                    elif '<head>' in html_content_final:
+                        html_content_final = html_content_final.replace('<head>', '<head>' + font_face_rule)
+                    
+                    font_css = """
+        * {
+            font-family: 'Kalpurush', sans-serif !important;
+        }
+        body {
+            font-family: 'Kalpurush', sans-serif !important;
+        }
+        .english-text {
+            font-family: 'Tahoma', 'Arial', sans-serif !important;
+        }
+        """
+                    css_string = font_css + css_string
+            
+            # Use the final HTML content (with font injected)
+            html_content = html_content_final
             
             # Create HTML object
             html_obj = HTML(string=html_content, base_url=request.url_root)
@@ -9646,13 +9753,24 @@ def create_app():
             else:
                 html_obj.write_pdf(pdf_buffer, presentational_hints=True)
             pdf_buffer.seek(0)
+            pdf_data = pdf_buffer.getvalue()
             
-            return send_file(
-                pdf_buffer,
+            # Enhanced headers for cPanel compatibility
+            response = Response(
+                pdf_data,
                 mimetype='application/pdf',
-                as_attachment=True,
-                download_name='Exam_Remuneration_Form.pdf'
+                headers={
+                    'Content-Disposition': f'attachment; filename="Exam_Remuneration_Form.pdf"; filename*=UTF-8\'\'Exam_Remuneration_Form.pdf',
+                    'Content-Length': str(len(pdf_data)),
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                    'X-Content-Type-Options': 'nosniff',
+                    'X-Frame-Options': 'DENY'
+                }
             )
+            
+            return response
             
         except Exception as e:
             current_app.logger.error(f'Error generating PDF: {str(e)}', exc_info=True)
