@@ -9602,8 +9602,8 @@ def create_app():
                 line-height: 1.22 !important;
             }
             .revenue-ticket {
-                width: 26px !important;
-                height: 26px !important;
+                width: 18mm !important;
+                height: 18mm !important;
                 margin-left: 0.35rem !important;
             }
             """
