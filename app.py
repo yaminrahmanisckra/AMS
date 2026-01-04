@@ -3392,7 +3392,9 @@ def create_app():
         
         data = request.get_json() or {}
         course_id = data.get('course_id')
-        if course_id:
+        if course_id == '' or course_id is None:
+            course_id = None
+        else:
             try:
                 course_id = int(course_id)
             except (TypeError, ValueError):
@@ -3413,8 +3415,25 @@ def create_app():
         term = data.get('term', '').strip()
         batch = data.get('batch', '').strip()
         duty_type = data.get('duty_type', '').strip()
+        
         teacher_id = data.get('teacher_id')
+        if teacher_id == '' or teacher_id is None:
+            teacher_id = None
+        else:
+            try:
+                teacher_id = int(teacher_id)
+            except (TypeError, ValueError):
+                teacher_id = None
+        
         student_id = data.get('student_id')
+        if student_id == '' or student_id is None:
+            student_id = None
+        else:
+            try:
+                student_id = int(student_id)
+            except (TypeError, ValueError):
+                student_id = None
+        
         remarks = data.get('remarks', '').strip()
         
         if course_id and Course and not course_code:
