@@ -4681,21 +4681,37 @@ def download_all_student_results(session_id):
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for student in students:
                     try:
-                        # Re-use logic from download_student_result
-                        results_query = db.session.query(
-                            RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
-                            RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-                        ).select_from(RMark)
-                        results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
-                        results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
-                        results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
-                        results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
-                        results_query = results_query.all()
+                        # Check if registrations exist for this student
+                        registrations_count = RCourseRegistration.query.filter_by(student_id=student.id).count()
                         
-                        current_app.logger.info(f'📊 Student {student.student_id}: Found {len(results_query)} result records')
+                        # Re-use logic from download_student_result - try with registrations first, then without
+                        if registrations_count > 0:
+                            results_query = db.session.query(
+                                RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
+                                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
+                            ).select_from(RMark)
+                            results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
+                            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
+                            results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
+                            results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
+                            results_query = results_query.all()
+                        else:
+                            # No registrations - query marks directly (for backward compatibility)
+                            results_query = db.session.query(
+                                RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
+                                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
+                            ).select_from(RMark)
+                            results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
+                            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
+                            results_query = results_query.filter(RStudent.id == student.id)
+                            results_query = results_query.filter(RSubject.session_id == session_id)
+                            results_query = results_query.order_by(RSubject.code)
+                            results_query = results_query.all()
+                        
+                        current_app.logger.info(f'📊 Student {student.student_id}: Found {len(results_query)} result records (registrations: {registrations_count})')
 
                         if not results_query:
-                            current_app.logger.warning(f'⚠️ No results found for student {student.student_id} (no RMark records with RCourseRegistration)')
+                            current_app.logger.warning(f'⚠️ No results found for student {student.student_id} (no RMark records)')
                             continue
 
                         total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
@@ -4821,16 +4837,28 @@ def download_all_course_results(session_id):
                             else:
                                 extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
                         all_columns = base_columns + extra_columns
-                        results = db.session.query(*all_columns)\
-                            .join(RMark, RStudent.id == RMark.student_id)\
-                            .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
-                            .filter(RMark.subject_id == subject.id)\
-                            .order_by(RStudent.student_id).all()
+                        
+                        # Check if registrations exist for this subject
+                        registrations_count = RCourseRegistration.query.filter_by(subject_id=subject.id).count()
+                        
+                        if registrations_count > 0:
+                            results = db.session.query(*all_columns)\
+                                .join(RMark, RStudent.id == RMark.student_id)\
+                                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
+                                .filter(RMark.subject_id == subject.id)\
+                                .order_by(RStudent.student_id).all()
+                        else:
+                            # No registrations - query marks directly (for backward compatibility)
+                            results = db.session.query(*all_columns)\
+                                .select_from(RStudent)\
+                                .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == subject.id))\
+                                .filter(RStudent.session_id == session_id)\
+                                .order_by(RStudent.student_id).all()
 
-                        current_app.logger.info(f'📊 Subject {subject.code}: Found {len(results)} result records')
+                        current_app.logger.info(f'📊 Subject {subject.code}: Found {len(results)} result records (registrations: {registrations_count})')
                         
                         if not results:
-                            current_app.logger.warning(f'⚠️ No results found for subject {subject.code} (no RMark records with RCourseRegistration)')
+                            current_app.logger.warning(f'⚠️ No results found for subject {subject.code} (no RMark records)')
                             continue
 
                         pdf_buffer = BytesIO()
