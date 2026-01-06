@@ -4751,10 +4751,16 @@ def download_all_student_results(session_id):
         current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
         
         if pdf_count == 0:
-            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id}')
-            flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
+            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id} (zip size: {len(zip_data)} bytes)')
+            flash(f'No PDFs were generated. Please check the logs for errors. Found {len(students)} students but no results.', 'warning')
             return redirect(url_for('result_management.view_results', session_id=session_id))
         
+        if len(zip_data) == 0:
+            current_app.logger.error(f'❌ Zip file is empty even though {pdf_count} PDFs were generated!')
+            flash(f'Error: Zip file is empty. Please check the logs.', 'danger')
+            return redirect(url_for('result_management.view_results', session_id=session_id))
+        
+        current_app.logger.info(f'✅ Creating response for zip file: {filename}, size: {len(zip_data)} bytes, {pdf_count} PDFs')
         response = Response(
             zip_data,
             mimetype='application/zip',
@@ -4860,10 +4866,16 @@ def download_all_course_results(session_id):
         current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
         
         if pdf_count == 0:
-            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id}')
-            flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
+            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id} (zip size: {len(zip_data)} bytes)')
+            flash(f'No PDFs were generated. Please check the logs for errors. Found {len(subjects)} subjects but no results.', 'warning')
             return redirect(url_for('result_management.view_results', session_id=session_id))
         
+        if len(zip_data) == 0:
+            current_app.logger.error(f'❌ Zip file is empty even though {pdf_count} PDFs were generated!')
+            flash(f'Error: Zip file is empty. Please check the logs.', 'danger')
+            return redirect(url_for('result_management.view_results', session_id=session_id))
+        
+        current_app.logger.info(f'✅ Creating response for zip file: {filename}, size: {len(zip_data)} bytes, {pdf_count} PDFs')
         response = Response(
             zip_data,
             mimetype='application/zip',
