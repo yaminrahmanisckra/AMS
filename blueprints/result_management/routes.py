@@ -2688,6 +2688,7 @@ def add_marks(session_id):
             else:
                 # Mark exists - ALWAYS try to sync from ClassManagement (unless manually entered)
                 # This ensures marks are always up-to-date when page loads
+                current_app.logger.info(f'🔄 Processing EXISTING mark for student {student.student_id}, subject {selected_subject.code}')
                 if mark:
                     needs_update = False
                     current_app.logger.info(f'📝 Existing mark for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}, part_a={mark.part_a}, part_b={mark.part_b}, attendance_manual={mark.attendance_manual}')
