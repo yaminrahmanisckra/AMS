@@ -4660,16 +4660,22 @@ def download_student_result_docx(session_id, student_id):
 @result_management_bp.route('/download/all_student_results/<int:session_id>')
 @login_required
 def download_all_student_results(session_id):
-    session = RSession.query.get_or_404(session_id)
-    students = RStudent.query.filter_by(session_id=session_id).all()
-    
-    if not students:
-        flash('No students in this session to generate results for.', 'warning')
-        return redirect(url_for('result_management.student_wise_result', session_id=session_id))
+    current_app.logger.info(f'🚀 Starting bulk download for all student results, session_id={session_id}')
+    try:
+        session = RSession.query.get_or_404(session_id)
+        current_app.logger.info(f'📋 Session found: {session.name}')
+        
+        students = RStudent.query.filter_by(session_id=session_id).all()
+        current_app.logger.info(f'👥 Found {len(students)} students in session {session_id}')
+        
+        if not students:
+            current_app.logger.warning(f'⚠️ No students found for session {session_id}')
+            flash('No students in this session to generate results for.', 'warning')
+            return redirect(url_for('result_management.student_wise_result', session_id=session_id))
 
-    zip_buffer = BytesIO()
-    pdf_count = 0
-    error_count = 0
+        zip_buffer = BytesIO()
+        pdf_count = 0
+        error_count = 0
     
     try:
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -4765,16 +4771,22 @@ def download_all_student_results(session_id):
 @result_management_bp.route('/download/all_course_results/<int:session_id>')
 @login_required
 def download_all_course_results(session_id):
-    session = RSession.query.get_or_404(session_id)
-    subjects = RSubject.query.filter_by(session_id=session_id).all()
-
-    if not subjects:
-        flash('No subjects in this session to generate results for.', 'warning')
-        return redirect(url_for('result_management.course_wise_result', session_id=session_id))
+    current_app.logger.info(f'🚀 Starting bulk download for all course results, session_id={session_id}')
+    try:
+        session = RSession.query.get_or_404(session_id)
+        current_app.logger.info(f'📋 Session found: {session.name}')
         
-    zip_buffer = BytesIO()
-    pdf_count = 0
-    error_count = 0
+        subjects = RSubject.query.filter_by(session_id=session_id).all()
+        current_app.logger.info(f'📚 Found {len(subjects)} subjects in session {session_id}')
+
+        if not subjects:
+            current_app.logger.warning(f'⚠️ No subjects found for session {session_id}')
+            flash('No subjects in this session to generate results for.', 'warning')
+            return redirect(url_for('result_management.course_wise_result', session_id=session_id))
+        
+        zip_buffer = BytesIO()
+        pdf_count = 0
+        error_count = 0
     
     try:
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
