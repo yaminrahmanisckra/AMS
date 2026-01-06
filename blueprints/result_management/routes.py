@@ -1272,8 +1272,6 @@ def refresh_marks(session_id):
                     
                     except Exception as e:
                         current_app.logger.error(f'Error fetching exam marks: {e}', exc_info=True)
-                    except Exception as e:
-                        current_app.logger.error(f"❌ Refresh: Error fetching exam marks for student {student.student_id}: {e}", exc_info=True)
                 
                 # Calculate total_marks, grade_point, and grade_letter
                 try:
