@@ -4716,6 +4716,12 @@ def download_all_student_results(session_id):
     zip_data = zip_buffer.getvalue()
     filename = f'All_Student_Results_{session.name}.zip'
     
+    current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
+    
+    if pdf_count == 0:
+        flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
+        return redirect(url_for('result_management.view_results', session_id=session_id))
+    
     response = Response(
         zip_data,
         mimetype='application/zip',
@@ -4743,43 +4749,73 @@ def download_all_course_results(session_id):
         return redirect(url_for('result_management.course_wise_result', session_id=session_id))
         
     zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
-        for subject in subjects:
-            base_columns = [
-                RStudent.student_id, RStudent.name, RMark.total_marks,
-                RMark.grade_letter, RMark.grade_point, RMark.is_retake
-            ]
-            extra_columns = []
-            if subject.subject_type in ['Theory', 'Theory (UG)']:
-                extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
-            elif subject.subject_type == 'Sessional':
-                extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
-            elif subject.subject_type == 'Dissertation':
-                if subject.dissertation_type == 'Type1':
-                    extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
-                else:
-                    extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
-            all_columns = base_columns + extra_columns
-            results = db.session.query(*all_columns)\
-                .join(RMark, RStudent.id == RMark.student_id)\
-                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
-                .filter(RMark.subject_id == subject.id)\
-                .order_by(RStudent.student_id).all()
+    pdf_count = 0
+    error_count = 0
+    
+    try:
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for subject in subjects:
+                try:
+                    base_columns = [
+                        RStudent.student_id, RStudent.name, RMark.total_marks,
+                        RMark.grade_letter, RMark.grade_point, RMark.is_retake
+                    ]
+                    extra_columns = []
+                    if subject.subject_type in ['Theory', 'Theory (UG)', 'Theory (PG)']:
+                        extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
+                    elif subject.subject_type == 'Sessional':
+                        extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
+                    elif subject.subject_type == 'Dissertation':
+                        if subject.dissertation_type == 'Type1':
+                            extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
+                        else:
+                            extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
+                    all_columns = base_columns + extra_columns
+                    results = db.session.query(*all_columns)\
+                        .join(RMark, RStudent.id == RMark.student_id)\
+                        .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
+                        .filter(RMark.subject_id == subject.id)\
+                        .order_by(RStudent.student_id).all()
 
-            if not results: continue
+                    if not results:
+                        current_app.logger.warning(f'No results found for subject {subject.code}')
+                        continue
 
-            pdf_buffer = BytesIO()
-            pdf = CourseTabulationPDF(pdf_buffer, subject, session)
-            elements = pdf.generate_elements(results)
-            pdf.doc.build(elements)
-            pdf_buffer.seek(0)
-            zf.writestr(f'Course_{subject.code}_Result.pdf', pdf_buffer.read())
+                    pdf_buffer = BytesIO()
+                    pdf = CourseTabulationPDF(pdf_buffer, subject, session)
+                    elements = pdf.generate_elements(results)
+                    pdf.doc.build(elements)
+                    pdf_buffer.seek(0)
+                    pdf_data = pdf_buffer.read()
+                    
+                    if pdf_data:
+                        zf.writestr(f'Course_{subject.code}_Result.pdf', pdf_data)
+                        pdf_count += 1
+                        current_app.logger.info(f'✅ Generated PDF for course {subject.code} ({len(pdf_data)} bytes)')
+                    else:
+                        current_app.logger.error(f'❌ Empty PDF buffer for course {subject.code}')
+                        error_count += 1
+                        
+                except Exception as e:
+                    current_app.logger.error(f'❌ Error generating PDF for course {subject.code}: {e}', exc_info=True)
+                    error_count += 1
+                    continue
+    except Exception as e:
+        current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
+        flash(f'Error creating zip file: {str(e)}', 'danger')
+        return redirect(url_for('result_management.view_results', session_id=session_id))
 
     zip_buffer.seek(0)
     
     # Enhanced headers for cPanel compatibility
     zip_data = zip_buffer.getvalue()
     filename = f'All_Course_Results_{session.name}.zip'
+    
+    current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
+    
+    if pdf_count == 0:
+        flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
+        return redirect(url_for('result_management.view_results', session_id=session_id))
     
     response = Response(
         zip_data,
