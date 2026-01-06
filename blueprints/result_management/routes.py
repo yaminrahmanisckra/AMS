@@ -4678,7 +4678,7 @@ def download_all_student_results(session_id):
         error_count = 0
         
         try:
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
             for student in students:
                 try:
                     # Re-use logic from download_student_result
