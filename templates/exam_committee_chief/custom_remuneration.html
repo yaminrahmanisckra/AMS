@@ -1721,6 +1721,18 @@ async function autoLoadClassTestTableWithAssignments() {
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
             `;
             table4Tbody.appendChild(row);
+            
+            // Trigger fetch for auto-loaded rows
+            if (courseSelect && courseSelect.value) {
+                setTimeout(() => {
+                    fetchClassTestInfo(
+                        courseSelect,
+                        row.querySelector('input[name="class_test_section[]"]'),
+                        row.querySelector('input[name="class_test_no[]"]'),
+                        row.querySelector('input[name="class_test_students[]"]')
+                    );
+                }, 100);
+            }
         });
         
         // Count unique courses (split courses A and B count as 1)
@@ -2680,10 +2692,17 @@ function onCourseChange(selectElement) {
 
 // On class test course change
 async function onClassTestCourseChange(selectElement) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2682',message:'onClassTestCourseChange called',data:{courseValue:selectElement?.value||'empty',hasValue:!!selectElement?.value},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     const row = selectElement.closest('tr');
     const sectionInput = row.querySelector('input[name="class_test_section[]"]');
     const classTestInput = row.querySelector('input[name="class_test_no[]"]');
     const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2690',message:'Elements found',data:{hasRow:!!row,hasSectionInput:!!sectionInput,hasClassTestInput:!!classTestInput,hasStudentsInput:!!studentsInput,sectionValue:sectionInput?.value||''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     
     // Update class test count based on section (fallback)
     updateClassTestCount(sectionInput);
@@ -2854,13 +2873,23 @@ function updateClassTestCount(sectionInput) {
 
 // Fetch class test count and student count for class test
 async function fetchClassTestInfo(courseSelect, sectionInput, classTestInput, studentsInput) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2856',message:'fetchClassTestInfo called',data:{courseValue:courseSelect?.value||'empty',sectionValue:sectionInput?.value||''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     const session = document.getElementById('session').value;
     const year = document.getElementById('year').value;
     const term = document.getElementById('term').value;
     const courseCode = courseSelect.value.split(' - ')[0];
     const section = (sectionInput?.value || '').trim().toUpperCase();
     
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2863',message:'Parameters extracted',data:{session:session||'empty',year:year||'empty',term:term||'empty',courseCode:courseCode||'empty',section:section||'empty'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    
     if (!session || !year || !term || !courseCode) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2866',message:'Missing parameters - early return',data:{hasSession:!!session,hasYear:!!year,hasTerm:!!term,hasCourseCode:!!courseCode},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         if (!classTestInput.value || classTestInput.value.trim() === '') {
             classTestInput.value = '0';
         }
@@ -2872,11 +2901,21 @@ async function fetchClassTestInfo(courseSelect, sectionInput, classTestInput, st
     
     try {
         const url = `/remuneration/api/class-test-info?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&section=${encodeURIComponent(section)}`;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2874',message:'API call starting',data:{url:url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
         const response = await fetch(url);
         const data = await response.json();
         
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2876',message:'API response received',data:{success:data?.success,classTestCount:data?.class_test_count,studentCount:data?.student_count,message:data?.message||'',status:response?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
+        
         // Only auto-fill if field is empty
         if (data.success) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2879',message:'Setting values',data:{classTestInputValue:classTestInput?.value||'',studentsInputValue:studentsInput?.value||'',willSetClassTest:!classTestInput.value||classTestInput.value.trim()==='',willSetStudents:!studentsInput.value||studentsInput.value.trim()===''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+            // #endregion
             if (!classTestInput.value || classTestInput.value.trim() === '') {
                 classTestInput.value = data.class_test_count || '0';
             }
@@ -2892,6 +2931,9 @@ async function fetchClassTestInfo(courseSelect, sectionInput, classTestInput, st
             }
         }
     } catch (error) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2894',message:'Error in fetchClassTestInfo',data:{error:error?.message||String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
+        // #endregion
         console.error('Error fetching class test info:', error);
         if (!classTestInput.value || classTestInput.value.trim() === '') {
             classTestInput.value = '0';
