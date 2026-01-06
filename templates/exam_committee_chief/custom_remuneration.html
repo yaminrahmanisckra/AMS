@@ -395,7 +395,7 @@
                                 <option value="">Select Course</option>
                             </select>
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this); const row = this.closest('tr'); const courseSelect = row.querySelector('select[name=\\'class_test_course[]\\']'); if (courseSelect?.value) { fetchClassTestInfo(courseSelect, this, row.querySelector('input[name=\\'class_test_no[]\\']'), row.querySelector('input[name=\\'class_test_students[]\\']')); } updateTableCounts();"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                         <td>
                             <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                                 <option value="">Select Teacher</option>
@@ -1706,7 +1706,7 @@ async function autoLoadClassTestTableWithAssignments() {
                         ${courseOptions}
                     </select>
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="updateClassTestCount(this); const row = this.closest('tr'); if (row.querySelector('select[name=\\'class_test_course[]\\']')?.value) { fetchClassTestInfo(row.querySelector('select[name=\\'class_test_course[]\\']'), this, row.querySelector('input[name=\\'class_test_no[]\\']'), row.querySelector('input[name=\\'class_test_students[]\\']')); }"></td>
+                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                 <td>
                     <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                         <option value="">Select Teacher</option>
@@ -2481,7 +2481,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="${courseText}" selected>${courseText}</option>
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="A" placeholder="A/B/Full" onchange="updateClassTestCount(this); const row = this.closest('tr'); const courseSelect = row.querySelector('select[name=\\'class_test_course[]\\']'); if (courseSelect?.value) { fetchClassTestInfo(courseSelect, this, row.querySelector('input[name=\\'class_test_no[]\\']'), row.querySelector('input[name=\\'class_test_students[]\\']')); }"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="A" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                     <td>
                         <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher[]" onchange="onTeacherNameChange(this, 'class_test')">
                             <option value="">Select Teacher</option>
@@ -2517,7 +2517,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="${courseText}" selected>${courseText}</option>
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="B" placeholder="A/B/Full" onchange="updateClassTestCount(this); const row = this.closest('tr'); const courseSelect = row.querySelector('select[name=\\'class_test_course[]\\']'); if (courseSelect?.value) { fetchClassTestInfo(courseSelect, this, row.querySelector('input[name=\\'class_test_no[]\\']'), row.querySelector('input[name=\\'class_test_students[]\\']')); }"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="B" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                     <td>
                         <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher[]" onchange="onTeacherNameChange(this, 'class_test')">
                             <option value="">Select Teacher</option>
@@ -2882,6 +2882,22 @@ function updateClassTestCount(sectionInput) {
             classTestInput.value = '4';
         }
     }
+}
+
+// Helper function to handle section change and fetch class test info
+function onClassTestSectionChange(sectionInput) {
+    updateClassTestCount(sectionInput);
+    const row = sectionInput.closest('tr');
+    if (!row) return;
+    
+    const courseSelect = row.querySelector('select[name="class_test_course[]"]');
+    const classTestInput = row.querySelector('input[name="class_test_no[]"]');
+    const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+    
+    if (courseSelect && courseSelect.value && classTestInput && studentsInput) {
+        fetchClassTestInfo(courseSelect, sectionInput, classTestInput, studentsInput);
+    }
+    updateTableCounts();
 }
 
 // Fetch class test count and student count for class test
