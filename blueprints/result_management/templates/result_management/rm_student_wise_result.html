@@ -75,7 +75,7 @@
     <div class="card mb-4">
         <div class="card-body">
             <form method="GET" id="student-select-form">
-                <div class="input-group">
+                <div class="input-group mb-3">
                     <select class="form-select" name="student_id" onchange="document.getElementById('student-select-form').submit();">
                         <option value="">-- Select a Student --</option>
                         {% for student in students %}
@@ -93,6 +93,32 @@
                     </a>
                     {% endif %}
                 </div>
+                {% if selected_student_id %}
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        {% if prev_student_id %}
+                        <a href="{{ url_for('result_management.student_wise_result', session_id=session.id, student_id=prev_student_id) }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-chevron-left"></i> Previous
+                        </a>
+                        {% else %}
+                        <button class="btn btn-outline-secondary" disabled>
+                            <i class="bi bi-chevron-left"></i> Previous
+                        </button>
+                        {% endif %}
+                    </div>
+                    <div>
+                        {% if next_student_id %}
+                        <a href="{{ url_for('result_management.student_wise_result', session_id=session.id, student_id=next_student_id) }}" class="btn btn-outline-secondary">
+                            Next <i class="bi bi-chevron-right"></i>
+                        </a>
+                        {% else %}
+                        <button class="btn btn-outline-secondary" disabled>
+                            Next <i class="bi bi-chevron-right"></i>
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
             </form>
         </div>
     </div>

@@ -3630,8 +3630,20 @@ def student_wise_result(session_id):
     selected_student = None
     results = []
     term_assessment = {}
+    prev_student_id = None
+    next_student_id = None
 
     if selected_student_id:
+        # Find previous and next student IDs for navigation
+        student_ids = [s.id for s in students]
+        try:
+            current_index = student_ids.index(selected_student_id)
+            if current_index > 0:
+                prev_student_id = student_ids[current_index - 1]
+            if current_index < len(student_ids) - 1:
+                next_student_id = student_ids[current_index + 1]
+        except ValueError:
+            pass  # selected_student_id not in list
         selected_student = RStudent.query.get(selected_student_id)
         if not selected_student or selected_student.session_id != session_id:
             flash('Invalid student selected.', 'danger')
@@ -3802,7 +3814,9 @@ def student_wise_result(session_id):
                            selected_student_id=selected_student_id,
                            selected_student=selected_student,
                            results=results,
-                           term_assessment=term_assessment)
+                           term_assessment=term_assessment,
+                           prev_student_id=prev_student_id,
+                           next_student_id=next_student_id)
 
 
 @result_management_bp.route('/course_registration/<int:session_id>', methods=['GET', 'POST'])
