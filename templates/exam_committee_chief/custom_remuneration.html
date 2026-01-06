@@ -1706,7 +1706,7 @@ async function autoLoadClassTestTableWithAssignments() {
                         ${courseOptions}
                     </select>
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="updateClassTestCount(this); fetchClassTestInfo(this.closest('tr').querySelector('select[name=\\'class_test_course[]\\']'), this, this.closest('tr').querySelector('input[name=\\'class_test_no[]\\']'), this.closest('tr').querySelector('input[name=\\'class_test_students[]\\']'));"></td>
+                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="updateClassTestCount(this); const row = this.closest('tr'); if (row.querySelector('select[name=\\'class_test_course[]\\']')?.value) { fetchClassTestInfo(row.querySelector('select[name=\\'class_test_course[]\\']'), this, row.querySelector('input[name=\\'class_test_no[]\\']'), row.querySelector('input[name=\\'class_test_students[]\\']')); }"></td>
                 <td>
                     <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                         <option value="">Select Teacher</option>
