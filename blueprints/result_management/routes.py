@@ -3518,40 +3518,67 @@ def course_wise_result(session_id):
                     .filter(RStudent.session_id == session_id)\
                     .order_by(RStudent.student_id).all()
             
-            # Calculate missing total_marks, grade_point, grade_letter on-the-fly
-            # Fetch all marks for this subject to update missing calculations
+            # Recalculate ALL total_marks, grade_point, grade_letter to ensure accuracy
+            # This ensures totals are always correct even if marks were updated
             marks_to_update = RMark.query.filter_by(subject_id=selected_subject_id).all()
             needs_update = False
             for mark in marks_to_update:
-                if mark.total_marks is None:
-                    # Calculate total_marks, grade_point, grade_letter
-                    try:
-                        registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=selected_subject_id).first()
-                        is_retake = registration.is_retake if registration else False
-                        mark.is_retake = is_retake
-                        
-                        total_marks = 0
-                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
-                        elif selected_subject.subject_type == 'Sessional':
-                            total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
-                        elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
-                            total_marks = sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
-                        elif selected_subject.subject_type == 'Dissertation':
-                            if selected_subject.dissertation_type == 'Type1':
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
-                            elif selected_subject.dissertation_type == 'Type2':
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
-                            else:
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation, mark.project_report, mark.defense]))
-                        elif selected_subject.subject_type == 'Viva':
-                            total_marks = mark.viva or 0
-                        
-                        mark.total_marks = total_marks
-                        mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
-                        needs_update = True
-                    except Exception as e:
-                        current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
+                # ALWAYS recalculate - don't check if total_marks is None
+                try:
+                    registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=selected_subject_id).first()
+                    is_retake = registration.is_retake if registration else False
+                    mark.is_retake = is_retake
+                    
+                    # Calculate total_marks based on subject type
+                    total_marks = 0
+                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                        # Sum all non-None values: attendance + continuous_assessment + part_a + part_b
+                        total_marks = sum(filter(None, [
+                            mark.attendance if mark.attendance is not None else 0,
+                            mark.continuous_assessment if mark.continuous_assessment is not None else 0,
+                            mark.part_a if mark.part_a is not None else 0,
+                            mark.part_b if mark.part_b is not None else 0
+                        ]))
+                    elif selected_subject.subject_type == 'Sessional':
+                        total_marks = sum(filter(None, [
+                            mark.attendance if mark.attendance is not None else 0,
+                            mark.sessional_report if mark.sessional_report is not None else 0,
+                            mark.sessional_viva if mark.sessional_viva is not None else 0
+                        ]))
+                    elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+                        total_marks = sum(filter(None, [
+                            mark.attendance if mark.attendance is not None else 0,
+                            mark.thesis_evaluation if mark.thesis_evaluation is not None else 0,
+                            mark.presentation if mark.presentation is not None else 0
+                        ]))
+                    elif selected_subject.subject_type == 'Dissertation':
+                        if selected_subject.dissertation_type == 'Type1':
+                            total_marks = sum(filter(None, [
+                                mark.supervisor_assessment if mark.supervisor_assessment is not None else 0,
+                                mark.proposal_presentation if mark.proposal_presentation is not None else 0
+                            ]))
+                        elif selected_subject.dissertation_type == 'Type2':
+                            total_marks = sum(filter(None, [
+                                mark.supervisor_assessment if mark.supervisor_assessment is not None else 0,
+                                mark.project_report if mark.project_report is not None else 0,
+                                mark.defense if mark.defense is not None else 0
+                            ]))
+                        else:
+                            total_marks = sum(filter(None, [
+                                mark.supervisor_assessment if mark.supervisor_assessment is not None else 0,
+                                mark.proposal_presentation if mark.proposal_presentation is not None else 0,
+                                mark.project_report if mark.project_report is not None else 0,
+                                mark.defense if mark.defense is not None else 0
+                            ]))
+                    elif selected_subject.subject_type == 'Viva':
+                        total_marks = mark.viva if mark.viva is not None else 0
+                    
+                    # Update total_marks and grades
+                    mark.total_marks = total_marks
+                    mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
+                    needs_update = True
+                except Exception as e:
+                    current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
             
             if needs_update:
                 db.session.commit()
