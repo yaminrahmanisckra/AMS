@@ -1132,10 +1132,13 @@ def refresh_marks(session_id):
                                                 mark.continuous_assessment = round(assessment_total)
                                             else:
                                                 mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                        
+                except Exception as e:
+                    current_app.logger.error(f"Error importing from Class Management for student {student.student_id}: {e}", exc_info=True)
+                    # Continue even if Class Management import fails
+                
                 # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
                 # This should be done for ALL students, regardless of class_session or class_student existence
-                # Move it OUTSIDE the class_session block to ensure it always runs
+                # This is a SEPARATE try block, independent of Class Management
                 if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
                     try:
                         from blueprints.class_management.models import ExamPaperEvaluation
@@ -1270,10 +1273,6 @@ def refresh_marks(session_id):
                                 current_app.logger.warning(f'⚠️ Refresh: ExamPaperEvaluation found but marks_data is empty for course {selected_subject.code}')
                     except Exception as e:
                         current_app.logger.error(f"❌ Refresh: Error fetching exam marks for student {student.student_id}: {e}", exc_info=True)
-                except Exception as e:
-                    current_app.logger.error(f"Error importing from Class Management for student {student.student_id}: {e}", exc_info=True)
-                    error_count += 1
-                    continue
                 
                 # Calculate total_marks, grade_point, and grade_letter
                 try:
