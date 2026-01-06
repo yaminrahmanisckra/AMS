@@ -3172,7 +3172,12 @@ def add_marks(session_id):
                 existing_mark.part_a = float(part_a) if part_a else None
                 existing_mark.part_b = float(part_b) if part_b else None
                 
-                total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.continuous_assessment, existing_mark.part_a, existing_mark.part_b]))
+                # Direct addition - don't use filter(None) as it skips 0 values
+                attendance = existing_mark.attendance if existing_mark.attendance is not None else 0
+                ca = existing_mark.continuous_assessment if existing_mark.continuous_assessment is not None else 0
+                part_a = existing_mark.part_a if existing_mark.part_a is not None else 0
+                part_b = existing_mark.part_b if existing_mark.part_b is not None else 0
+                total_marks = attendance + ca + part_a + part_b
             
             elif subject.subject_type == 'Sessional':
                 attendance = request.form.get(f'attendance_{student.id}')
@@ -3372,7 +3377,12 @@ def auto_save_marks(session_id):
                     existing_mark.continuous_assessment = float(student_marks.get('continuous_assessment')) if student_marks.get('continuous_assessment') else None
                     existing_mark.part_a = float(student_marks.get('part_a')) if student_marks.get('part_a') else None
                     existing_mark.part_b = float(student_marks.get('part_b')) if student_marks.get('part_b') else None
-                    total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.continuous_assessment, existing_mark.part_a, existing_mark.part_b]))
+                    # Direct addition - don't use filter(None) as it skips 0 values
+                attendance = existing_mark.attendance if existing_mark.attendance is not None else 0
+                ca = existing_mark.continuous_assessment if existing_mark.continuous_assessment is not None else 0
+                part_a = existing_mark.part_a if existing_mark.part_a is not None else 0
+                part_b = existing_mark.part_b if existing_mark.part_b is not None else 0
+                total_marks = attendance + ca + part_a + part_b
                 
                 elif subject.subject_type == 'Sessional':
                     if student_marks.get('attendance'):
@@ -3687,7 +3697,12 @@ def student_wise_result(session_id):
                         
                         total_marks = 0
                         if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
+                            # Direct addition - don't use filter(None) as it skips 0 values
+                            attendance = mark.attendance if mark.attendance is not None else 0
+                            ca = mark.continuous_assessment if mark.continuous_assessment is not None else 0
+                            part_a = mark.part_a if mark.part_a is not None else 0
+                            part_b = mark.part_b if mark.part_b is not None else 0
+                            total_marks = attendance + ca + part_a + part_b
                         elif subject.subject_type == 'Sessional':
                             total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
                         elif subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
