@@ -1094,9 +1094,47 @@ def refresh_marks(session_id):
                                     mark.sessional_viva = float(class_student.sessional_viva)
                                 else:
                                     mark.sessional_viva = None
+                        else:
+                            # class_student not found - try to import attendance from Class Management anyway
+                            # This ensures attendance and assessment are imported even if student is not in Class Management session
+                            if not mark.attendance_manual:
+                                try:
+                                    from blueprints.class_management.routes import _build_attendance_summary
+                                    
+                                    attendance_summary = _build_attendance_summary(class_session)
+                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                    
+                                    if student_attendance and 'marks' in student_attendance:
+                                        attendance_marks = student_attendance.get('marks', 0)
+                                        if attendance_marks is not None:
+                                            mark.attendance = float(attendance_marks)
+                                except Exception as e:
+                                    current_app.logger.debug(f"Could not import attendance for student {student.student_id} (not in Class Management): {e}")
                             
-                            # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
+                            # Try to find student in other Class Management sessions for this course
                             if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                if mark.continuous_assessment is None:
+                                    # Try to find student in any Class Management session for this course
+                                    alternative_class_student = ClassStudent.query.join(
+                                        Session, ClassStudent.session_id == Session.id
+                                    ).filter(
+                                        Session.course_code == selected_subject.code,
+                                        ClassStudent.student_id == student.student_id
+                                    ).first()
+                                    
+                                    if alternative_class_student:
+                                        if alternative_class_student.assessment_total_40 is not None:
+                                            mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
+                                        elif alternative_class_student.assessment_total is not None:
+                                            assessment_total = float(alternative_class_student.assessment_total)
+                                            if assessment_total <= 40:
+                                                mark.continuous_assessment = round(assessment_total)
+                                            else:
+                                                mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                        
+                        # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
+                        # This should be done for all students, regardless of class_student existence
+                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
                                 try:
                                     from blueprints.class_management.models import ExamPaperEvaluation
                                     import json
@@ -2039,10 +2077,16 @@ def add_marks(session_id):
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
-    subjects = RSubject.query.filter_by(session_id=session_id).all()
+    
+    # Get all subjects for this session, ordered by code for consistent display
+    subjects = RSubject.query.filter_by(session_id=session_id).order_by(RSubject.code).all()
+    current_app.logger.info(f'Result Management: Found {len(subjects)} subjects for session {session_id} ({session.name})')
     
     selected_subject_id = request.args.get('subject_id', type=int)
     selected_subject = RSubject.query.get(selected_subject_id) if selected_subject_id else None
+    
+    if selected_subject:
+        current_app.logger.info(f'Result Management: Selected subject {selected_subject.code} ({selected_subject.name}) for session {session_id}')
 
     # Only show students who are registered for the selected subject in Course Management
     if selected_subject:
@@ -2071,27 +2115,28 @@ def add_marks(session_id):
                 current_app.logger.warning(f'No student profiles found for session {session_id}. Cannot load registered students.')
                 students = []
             else:
-                # Build filters - prioritize year/term matching
-                # Session name matching is less critical - year/term are the key identifiers
+                # Build filters - make matching more flexible
                 # Include 'finalized', 'pending', and 'archived' statuses
-                # - 'finalized': Active registrations
-                # - 'pending': Coordinator-registered, awaiting finalization
-                # - 'archived': Previously finalized registrations that were archived (still valid for marks entry)
                 course_filters = [
                     StudentCourseRegistration.student_id.in_(student_profile_id_to_rstudent_id.keys()),
                     StudentCourseRegistration.course_code == selected_subject.code,
                     StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
                 ]
-                # Year and Term are required - must match exactly
-                if session.year:
-                    course_filters.append(StudentCourseRegistration.year == session.year)
-                if session.term:
-                    course_filters.append(StudentCourseRegistration.term == session.term)
-                # Session name is optional - don't filter by it to allow cross-session matching
-                # This is important because registrations might be in a different session (e.g., 2023-24)
-                # but the Result Management session might be 2024-25
                 
-                registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
+                # Try exact match first (year + term)
+                registered_regs = None
+                if session.year and session.term:
+                    exact_filters = course_filters + [
+                        StudentCourseRegistration.year == session.year,
+                        StudentCourseRegistration.term == session.term
+                    ]
+                    registered_regs = StudentCourseRegistration.query.filter(*exact_filters).all()
+                    current_app.logger.debug(f'Exact match (year={session.year}, term={session.term}): {len(registered_regs)} registrations found')
+                
+                # Fallback: try without year/term if exact match found nothing
+                if not registered_regs or len(registered_regs) == 0:
+                    registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
+                    current_app.logger.debug(f'Fallback match (course_code only): {len(registered_regs)} registrations found')
                 
                 # Map registration student_id (Student profile ID) back to RStudent.id
                 registered_rstudent_ids = set()
@@ -2099,12 +2144,15 @@ def add_marks(session_id):
                     rstudent_id = student_profile_id_to_rstudent_id.get(reg.student_id)
                     if rstudent_id:
                         registered_rstudent_ids.add(rstudent_id)
+                    else:
+                        current_app.logger.warning(f'Registration found but RStudent mapping failed: reg.student_id={reg.student_id}, course_code={reg.course_code}')
                 
                 if registered_rstudent_ids:
                     students = RStudent.query.filter(RStudent.id.in_(registered_rstudent_ids)).order_by(RStudent.student_id).all()
+                    current_app.logger.info(f'Loaded {len(students)} registered students for subject {selected_subject.code}')
                 else:
                     # No registered students found for this subject
-                    current_app.logger.info(f'No registered students found for subject {selected_subject.code} in session {session.name}/{session.year}/{session.term}')
+                    current_app.logger.warning(f'No registered students found for subject {selected_subject.code} (code={selected_subject.code}, session={session.name}/{session.year}/{session.term})')
                     students = []
         except Exception as e:
             current_app.logger.error(f'Error loading registered students: {str(e)}', exc_info=True)
@@ -2113,6 +2161,9 @@ def add_marks(session_id):
     else:
         # No subject selected - show empty list (subject must be selected)
         students = []
+        current_app.logger.debug(f'Result Management: No subject selected, students list is empty')
+    
+    current_app.logger.info(f'Result Management: Loaded {len(students)} students for subject {selected_subject.code if selected_subject else "N/A"}')
     
     marks_data = {}
     registrations_data = {} # To store retake status from Course Management
@@ -2164,18 +2215,49 @@ def add_marks(session_id):
         except Exception as e:
             current_app.logger.error(f'Error loading registration data: {str(e)}', exc_info=True)
         
+        current_app.logger.debug(f'Result Management: Processing {len(students)} students for auto-populate')
+        
         for student in students:
             mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
             
             # If mark doesn't exist, try to auto-populate from Class Management
             if not mark:
+                current_app.logger.debug(f'Result Management: No existing mark found for student {student.student_id}, attempting auto-populate')
                 try:
                     from blueprints.class_management.models import Session, ClassStudent, ClassAttendance
                     
                     # Find matching session in Class Management by course code
-                    class_session = Session.query.filter_by(
-                        course_code=selected_subject.code
-                    ).first()
+                    # Try multiple strategies to find the session
+                    class_session = None
+                    
+                    # Strategy 1: Exact match (course_code + year + term + academic_session)
+                    if session.year and session.term and session.name:
+                        class_session = Session.query.filter_by(
+                            course_code=selected_subject.code,
+                            year=session.year,
+                            term=session.term,
+                            academic_session=session.name
+                        ).first()
+                        if class_session:
+                            current_app.logger.debug(f'Found class_session (exact match) for {selected_subject.code}')
+                    
+                    # Strategy 2: Partial match (course_code + year + term)
+                    if not class_session and session.year and session.term:
+                        class_session = Session.query.filter_by(
+                            course_code=selected_subject.code,
+                            year=session.year,
+                            term=session.term
+                        ).first()
+                        if class_session:
+                            current_app.logger.debug(f'Found class_session (year+term match) for {selected_subject.code}')
+                    
+                    # Strategy 3: Fallback (course_code only, most recent)
+                    if not class_session:
+                        class_session = Session.query.filter_by(
+                            course_code=selected_subject.code
+                        ).order_by(Session.created_at.desc()).first()
+                        if class_session:
+                            current_app.logger.debug(f'Found class_session (course_code only) for {selected_subject.code}')
                     
                     if class_session:
                         # Find student in Class Management
@@ -2379,65 +2461,323 @@ def add_marks(session_id):
                             # Save the auto-populated mark
                             db.session.add(mark)
                             db.session.commit()
+                        else:
+                            # class_student not found - try to import attendance from Class Management anyway
+                            # Create mark even if class_student doesn't exist
+                            mark = RMark(student_id=student.id, subject_id=selected_subject.id)
                             
-                except Exception as e:
-                    current_app.logger.error(f"Error auto-populating marks from Class Management: {e}", exc_info=True)
-                    # Continue without auto-population if there's an error
-                    mark = None
-            else:
-                # Mark exists - sync continuous_assessment if it's None
-                if mark and selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                    if mark.continuous_assessment is None:
-                        try:
-                            from blueprints.class_management.models import Session, ClassStudent
+                            # Try to import attendance from Class Management session
+                            if not mark.attendance_manual:
+                                try:
+                                    from blueprints.class_management.routes import _build_attendance_summary
+                                    
+                                    attendance_summary = _build_attendance_summary(class_session)
+                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                    
+                                    if student_attendance and 'marks' in student_attendance:
+                                        attendance_marks = student_attendance.get('marks', 0)
+                                        if attendance_marks is not None:
+                                            mark.attendance = float(attendance_marks)
+                                except Exception as e:
+                                    current_app.logger.debug(f"Could not import attendance for student {student.student_id} (not in Class Management): {e}")
                             
-                            # Find matching session in Class Management (use same logic as refresh_marks)
-                            class_session = None
-                            
-                            if session.year and session.term and session.name:
-                                class_session = Session.query.filter_by(
-                                    course_code=selected_subject.code,
-                                    year=session.year,
-                                    term=session.term,
-                                    academic_session=session.name
-                                ).first()
-                            
-                            if not class_session and session.year and session.term:
-                                class_session = Session.query.filter_by(
-                                    course_code=selected_subject.code,
-                                    year=session.year,
-                                    term=session.term
-                                ).first()
-                            
-                            if not class_session:
-                                class_session = Session.query.filter_by(
-                                    course_code=selected_subject.code
-                                ).order_by(Session.created_at.desc()).first()
-                            
-                            if class_session:
-                                class_student = ClassStudent.query.filter_by(
-                                    session_id=class_session.id,
-                                    student_id=student.student_id
+                            # Try to find student in other Class Management sessions for this course
+                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                # Try to find student in any Class Management session for this course
+                                alternative_class_student = ClassStudent.query.join(
+                                    Session, ClassStudent.session_id == Session.id
+                                ).filter(
+                                    Session.course_code == selected_subject.code,
+                                    ClassStudent.student_id == student.student_id
                                 ).first()
                                 
-                                if class_student:
-                                    # Update continuous_assessment from Class Management
-                                    if class_student.assessment_total_40 is not None:
-                                        mark.continuous_assessment = float(class_student.assessment_total_40)
-                                    elif class_student.assessment_total is not None:
-                                        assessment_total = float(class_student.assessment_total)
+                                if alternative_class_student:
+                                    if alternative_class_student.assessment_total_40 is not None:
+                                        mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
+                                        current_app.logger.debug(f'Imported assessment_total_40={mark.continuous_assessment} for student {student.student_id}')
+                                    elif alternative_class_student.assessment_total is not None:
+                                        assessment_total = float(alternative_class_student.assessment_total)
                                         if assessment_total <= 40:
                                             mark.continuous_assessment = round(assessment_total)
                                         else:
                                             mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                        current_app.logger.debug(f'Imported assessment_total={mark.continuous_assessment} for student {student.student_id}')
+                            
+                            # Import exam marks (Part A/B) even if class_student not found
+                            try:
+                                from blueprints.class_management.models import ExamPaperEvaluation
+                                import json
+                                
+                                exam_entry = ExamPaperEvaluation.query.filter_by(
+                                    course_code=selected_subject.code,
+                                    archived=False
+                                ).first()
+                                
+                                if not exam_entry:
+                                    exam_entry = ExamPaperEvaluation.query.filter(
+                                        ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
+                                        ExamPaperEvaluation.archived == False
+                                    ).first()
+                                
+                                if exam_entry and exam_entry.marks_data:
+                                    try:
+                                        exam_marks = json.loads(exam_entry.marks_data)
+                                        rows = exam_marks.get('rows', [])
+                                        
+                                        student_row = None
+                                        for row in rows:
+                                            row_student_id = str(row.get('student_id', '')).strip()
+                                            row_code = str(row.get('code', '')).strip()
+                                            student_id_str = str(student.student_id).strip()
+                                            
+                                            if row_student_id == student_id_str or row_code == student_id_str:
+                                                student_row = row
+                                                break
+                                        
+                                        if student_row:
+                                            # Import Part A and B from exam marks (same logic as above)
+                                            marks_dict = student_row.get('marks', {})
+                                            questions = exam_marks.get('questions', [])
+                                            section_a_found = False
+                                            section_b_found = False
+                                            
+                                            for question in questions:
+                                                question_label = question.get('label', '').lower()
+                                                question_marks = marks_dict.get(question.get('label', ''), {})
+                                                
+                                                if ('section a' in question_label or 'part a' in question_label) and not section_a_found:
+                                                    if isinstance(question_marks, dict):
+                                                        section_a_total = sum(float(v) for k, v in question_marks.items() if v and str(v).strip())
+                                                        if section_a_total > 0:
+                                                            mark.part_a = min(25.0, section_a_total)
+                                                            section_a_found = True
+                                                    elif isinstance(question_marks, (int, float)):
+                                                        mark.part_a = min(25.0, float(question_marks))
+                                                        section_a_found = True
+                                                
+                                                elif ('section b' in question_label or 'part b' in question_label) and not section_b_found:
+                                                    if isinstance(question_marks, dict):
+                                                        section_b_total = sum(float(v) for k, v in question_marks.items() if v and str(v).strip())
+                                                        if section_b_total > 0:
+                                                            mark.part_b = min(25.0, section_b_total)
+                                                            section_b_found = True
+                                                    elif isinstance(question_marks, (int, float)):
+                                                        mark.part_b = min(25.0, float(question_marks))
+                                                        section_b_found = True
+                                    except Exception as e:
+                                        current_app.logger.debug(f"Error importing exam marks for student {student.student_id}: {e}")
+                            except Exception as e:
+                                current_app.logger.debug(f"Error fetching exam marks for student {student.student_id}: {e}")
+                            
+                            # Save the mark even if no data was imported
+                            db.session.add(mark)
+                            db.session.commit()
+                            current_app.logger.debug(f'Created mark for student {student.student_id} (class_student not found)')
+                    else:
+                        # class_session not found - create empty mark and try to import from alternative sources
+                        mark = RMark(student_id=student.id, subject_id=selected_subject.id)
+                        
+                        # Try to find student in any Class Management session for this course
+                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                            alternative_class_student = ClassStudent.query.join(
+                                Session, ClassStudent.session_id == Session.id
+                            ).filter(
+                                Session.course_code == selected_subject.code,
+                                ClassStudent.student_id == student.student_id
+                            ).first()
+                            
+                            if alternative_class_student:
+                                # Import assessment
+                                if alternative_class_student.assessment_total_40 is not None:
+                                    mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
+                                elif alternative_class_student.assessment_total is not None:
+                                    assessment_total = float(alternative_class_student.assessment_total)
+                                    if assessment_total <= 40:
+                                        mark.continuous_assessment = round(assessment_total)
+                                    else:
+                                        mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                
+                                # Try to import attendance from the alternative session
+                                try:
+                                    from blueprints.class_management.routes import _build_attendance_summary
+                                    alt_session = Session.query.get(alternative_class_student.session_id)
+                                    if alt_session:
+                                        attendance_summary = _build_attendance_summary(alt_session)
+                                        student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                        if student_attendance and 'marks' in student_attendance:
+                                            attendance_marks = student_attendance.get('marks', 0)
+                                            if attendance_marks is not None:
+                                                mark.attendance = float(attendance_marks)
+                                except Exception as e:
+                                    current_app.logger.debug(f"Could not import attendance from alternative session: {e}")
+                        
+                        db.session.add(mark)
+                        db.session.commit()
+                        current_app.logger.debug(f'Created mark for student {student.student_id} (class_session not found)')
+                            
+                except Exception as e:
+                    current_app.logger.error(f"Error auto-populating marks from Class Management: {e}", exc_info=True)
+                    # Continue without auto-population if there's an error
+                    # Create empty mark so student still shows in the list
+                    try:
+                        mark = RMark(student_id=student.id, subject_id=selected_subject.id)
+                        db.session.add(mark)
+                        db.session.commit()
+                    except Exception as create_error:
+                        current_app.logger.error(f"Error creating empty mark: {create_error}", exc_info=True)
+                        mark = None
+            else:
+                # Mark exists - sync attendance and continuous_assessment if they're None or 0.0
+                if mark:
+                    needs_update = False
+                    current_app.logger.debug(f'Result Management: Existing mark found for student {student.student_id}, attempting to sync from Class Management')
+                    
+                    try:
+                        from blueprints.class_management.models import Session, ClassStudent
+                        from blueprints.class_management.routes import _build_attendance_summary
+                        
+                        # Find matching session (try multiple strategies)
+                        class_session = None
+                        
+                        if session.year and session.term and session.name:
+                            class_session = Session.query.filter_by(
+                                course_code=selected_subject.code,
+                                year=session.year,
+                                term=session.term,
+                                academic_session=session.name
+                            ).first()
+                        
+                        if not class_session and session.year and session.term:
+                            class_session = Session.query.filter_by(
+                                course_code=selected_subject.code,
+                                year=session.year,
+                                term=session.term
+                            ).first()
+                        
+                        if not class_session:
+                            class_session = Session.query.filter_by(
+                                course_code=selected_subject.code
+                            ).order_by(Session.created_at.desc()).first()
+                        
+                        if class_session:
+                            # Find student in Class Management
+                            class_student = ClassStudent.query.filter_by(
+                                session_id=class_session.id,
+                                student_id=student.student_id
+                            ).first()
+                            
+                            # Sync attendance if not manually entered and (None or 0.0)
+                            # 0.0 might be a default/placeholder value that should be replaced
+                            if not mark.attendance_manual and (mark.attendance is None or mark.attendance == 0.0):
+                                try:
+                                    attendance_summary = _build_attendance_summary(class_session)
+                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
                                     
-                                    # Commit the update
-                                    if mark.continuous_assessment is not None:
+                                    if student_attendance and 'marks' in student_attendance:
+                                        attendance_marks = student_attendance.get('marks', 0)
+                                        if attendance_marks is not None and attendance_marks > 0:
+                                            mark.attendance = float(attendance_marks)
+                                            needs_update = True
+                                            current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id}')
+                                except Exception as e:
+                                    current_app.logger.error(f"Error syncing attendance for student {student.student_id}: {e}", exc_info=True)
+                            
+                            # Sync continuous assessment if None (for Theory subjects)
+                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                if mark.continuous_assessment is None:
+                                    if class_student:
+                                        if class_student.assessment_total_40 is not None:
+                                            mark.continuous_assessment = float(class_student.assessment_total_40)
+                                            needs_update = True
+                                            current_app.logger.debug(f'Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id}')
+                                        elif class_student.assessment_total is not None:
+                                            assessment_total = float(class_student.assessment_total)
+                                            if assessment_total <= 40:
+                                                mark.continuous_assessment = round(assessment_total)
+                                            else:
+                                                mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                            needs_update = True
+                                            current_app.logger.debug(f'Synced assessment_total={mark.continuous_assessment} for student {student.student_id}')
+                                    else:
+                                        # Try to find student in any Class Management session for this course
+                                        alternative_class_student = ClassStudent.query.join(
+                                            Session, ClassStudent.session_id == Session.id
+                                        ).filter(
+                                            Session.course_code == selected_subject.code,
+                                            ClassStudent.student_id == student.student_id
+                                        ).first()
+                                        
+                                        if alternative_class_student:
+                                            if alternative_class_student.assessment_total_40 is not None:
+                                                mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
+                                                needs_update = True
+                                                current_app.logger.debug(f'Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id} (from alternative session)')
+                                            elif alternative_class_student.assessment_total is not None:
+                                                assessment_total = float(alternative_class_student.assessment_total)
+                                                if assessment_total <= 40:
+                                                    mark.continuous_assessment = round(assessment_total)
+                                                else:
+                                                    mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                                needs_update = True
+                                                current_app.logger.debug(f'Synced assessment_total={mark.continuous_assessment} for student {student.student_id} (from alternative session)')
+                            
+                            # Commit sync changes
+                            if needs_update:
+                                db.session.commit()
+                                current_app.logger.debug(f'Committed sync updates for student {student.student_id}')
+                        else:
+                            # No class_session found - try to find student in any session for this course
+                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                if mark.continuous_assessment is None:
+                                    alternative_class_student = ClassStudent.query.join(
+                                        Session, ClassStudent.session_id == Session.id
+                                    ).filter(
+                                        Session.course_code == selected_subject.code,
+                                        ClassStudent.student_id == student.student_id
+                                    ).first()
+                                    
+                                    if alternative_class_student:
+                                        if alternative_class_student.assessment_total_40 is not None:
+                                            mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
+                                            needs_update = True
+                                            current_app.logger.debug(f'Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id} (no primary session)')
+                                        elif alternative_class_student.assessment_total is not None:
+                                            assessment_total = float(alternative_class_student.assessment_total)
+                                            if assessment_total <= 40:
+                                                mark.continuous_assessment = round(assessment_total)
+                                            else:
+                                                mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                            needs_update = True
+                                            current_app.logger.debug(f'Synced assessment_total={mark.continuous_assessment} for student {student.student_id} (no primary session)')
+                                    
+                                    if needs_update:
                                         db.session.commit()
-                        except Exception as e:
-                            current_app.logger.error(f"Error syncing continuous_assessment for existing mark: {e}", exc_info=True)
-                            db.session.rollback()
+                            
+                            # Try to sync attendance from any available session
+                            if not mark.attendance_manual and (mark.attendance is None or mark.attendance == 0.0):
+                                try:
+                                    # Try to find any session for this course
+                                    any_session = Session.query.filter_by(
+                                        course_code=selected_subject.code
+                                    ).order_by(Session.created_at.desc()).first()
+                                    
+                                    if any_session:
+                                        attendance_summary = _build_attendance_summary(any_session)
+                                        student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                        
+                                        if student_attendance and 'marks' in student_attendance:
+                                            attendance_marks = student_attendance.get('marks', 0)
+                                            if attendance_marks is not None and attendance_marks > 0:
+                                                mark.attendance = float(attendance_marks)
+                                                db.session.commit()
+                                                current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id} (no primary session)')
+                                except Exception as e:
+                                    current_app.logger.debug(f"Could not sync attendance for student {student.student_id}: {e}")
+                    except Exception as e:
+                        current_app.logger.error(f'Error syncing existing marks for student {student.student_id}: {e}', exc_info=True)
             
+            # Add mark to marks_data (even if None) to ensure all registered students are shown
+            # Template will handle None marks by showing empty input fields
             marks_data[student.id] = mark
             # registrations_data is already populated above from StudentCourseRegistration
 

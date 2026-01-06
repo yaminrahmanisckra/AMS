@@ -215,34 +215,48 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateRow(row) {
         try {
+            if (!row) {
+                return;
+            }
+            
             const isRetake = row.dataset.isRetake === '1';
             let total = 0;
             
-            row.querySelectorAll('.marks-input').forEach(input => {
-                const value = parseFloat(input.value);
-                if (!isNaN(value)) {
-                    total += value;
+            // Find all marks input fields in this row
+            const marksInputs = row.querySelectorAll('.marks-input');
+            
+            // Calculate total from all marks inputs
+            marksInputs.forEach(input => {
+                if (input && input.value !== null && input.value !== undefined && input.value !== '') {
+                    const value = parseFloat(input.value);
+                    if (!isNaN(value) && value >= 0) {
+                        total += value;
+                    }
                 }
             });
 
             const grade = calculateGradeJS(total, isRetake);
 
-            // Show total marks as rounded integer for result generation
+            // Update total marks cell
             const totalMarksCell = row.querySelector('.total-marks-cell');
-            const totalMarksInput = row.querySelector('.total-marks-input');
-            const gradeCell = row.querySelector('.grade-cell');
-            const remarksCell = row.querySelector('.remarks-cell');
-            
             if (totalMarksCell) {
                 totalMarksCell.textContent = Math.round(total);
             }
+            
+            // Update hidden total marks input
+            const totalMarksInput = row.querySelector('.total-marks-input');
             if (totalMarksInput) {
                 totalMarksInput.value = Math.round(total);
             }
+            
+            // Update grade cell
+            const gradeCell = row.querySelector('.grade-cell');
             if (gradeCell) {
                 gradeCell.textContent = `${grade.grade_letter} (${grade.grade_point.toFixed(2)})`;
             }
             
+            // Update remarks cell
+            const remarksCell = row.querySelector('.remarks-cell');
             if (remarksCell) {
                 remarksCell.innerHTML = '';
                 if (isRetake) {
@@ -257,52 +271,97 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    document.querySelectorAll('tr[data-student-id]').forEach(row => {
-        // Calculate on page load
-        updateRow(row);
+    function initializeMarksCalculation() {
+        const rows = document.querySelectorAll('tr[data-student-id]');
         
-        // Add event listeners for real-time calculation
-        row.querySelectorAll('.marks-input').forEach(input => {
-            // Listen to both input and change events
-            input.addEventListener('input', () => {
-                updateRow(row);
-                // Trigger auto-save
-                if (typeof triggerAutoSave === 'function') {
-                    triggerAutoSave();
-                }
-            });
-            
-            input.addEventListener('change', () => {
-                updateRow(row);
-            });
-            
-            // Also trigger on paste
-            input.addEventListener('paste', () => {
-                setTimeout(() => updateRow(row), 10);
-            });
-        });
-        
-        // Handle attendance input changes to show/hide manual badge
-        const attendanceInput = row.querySelector('.attendance-input');
-        if (attendanceInput) {
-            const studentId = attendanceInput.dataset.studentId;
-            const manualBadge = document.getElementById(`manual-badge-${studentId}`);
-            
-            attendanceInput.addEventListener('input', () => {
-                // Show badge when user enters a value
-                if (attendanceInput.value && attendanceInput.value.trim() !== '') {
-                    if (manualBadge) {
-                        manualBadge.style.display = 'inline-block';
-                    }
-                } else {
-                    // Hide badge when input is cleared
-                    if (manualBadge) {
-                        manualBadge.style.display = 'none';
-                    }
-                }
-            });
+        if (rows.length === 0) {
+            // No rows found yet, try again after a delay
+            setTimeout(initializeMarksCalculation, 500);
+            return;
         }
-    });
+        
+        rows.forEach(row => {
+            // Calculate on page load
+            updateRow(row);
+            
+            // Add event listeners for real-time calculation
+            const marksInputs = row.querySelectorAll('.marks-input');
+            marksInputs.forEach(input => {
+                // Check if listener already added (using data attribute)
+                if (input.dataset.listenerAdded === 'true') {
+                    return;
+                }
+                
+                // Mark as having listener
+                input.dataset.listenerAdded = 'true';
+                
+                // Listen to input events for real-time calculation
+                input.addEventListener('input', function() {
+                    updateRow(row);
+                    // Trigger auto-save
+                    if (typeof triggerAutoSave === 'function') {
+                        triggerAutoSave();
+                    }
+                });
+                
+                input.addEventListener('change', function() {
+                    updateRow(row);
+                });
+                
+                // Also trigger on paste
+                input.addEventListener('paste', function() {
+                    setTimeout(() => updateRow(row), 10);
+                });
+            });
+            
+            // Handle attendance input changes to show/hide manual badge
+            const attendanceInput = row.querySelector('.attendance-input');
+            if (attendanceInput) {
+                const studentId = attendanceInput.dataset.studentId;
+                const manualBadge = document.getElementById(`manual-badge-${studentId}`);
+                
+                attendanceInput.addEventListener('input', function() {
+                    // Show badge when user enters a value
+                    if (attendanceInput.value && attendanceInput.value.trim() !== '') {
+                        if (manualBadge) {
+                            manualBadge.style.display = 'inline-block';
+                        }
+                    } else {
+                        // Hide badge when input is cleared
+                        if (manualBadge) {
+                            manualBadge.style.display = 'none';
+                        }
+                    }
+                });
+            }
+        });
+    }
+    
+    // Initialize immediately
+    initializeMarksCalculation();
+    
+    // Also recalculate after delays to ensure DOM is fully ready
+    setTimeout(() => {
+        document.querySelectorAll('tr[data-student-id]').forEach(row => {
+            updateRow(row);
+        });
+    }, 200);
+    
+    setTimeout(() => {
+        document.querySelectorAll('tr[data-student-id]').forEach(row => {
+            updateRow(row);
+        });
+    }, 1000);
+    
+    // Recalculate when subject changes (if there's a subject selector)
+    const subjectSelect = document.querySelector('select[name="subject_id"]');
+    if (subjectSelect) {
+        subjectSelect.addEventListener('change', () => {
+            setTimeout(() => {
+                initializeMarksCalculation();
+            }, 500);
+        });
+    }
     
     // Auto-save functionality
     let autoSaveTimeout = null;
