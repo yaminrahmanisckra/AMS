@@ -1706,7 +1706,7 @@ async function autoLoadClassTestTableWithAssignments() {
                         ${courseOptions}
                     </select>
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
+                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="updateClassTestCount(this); fetchClassTestInfo(this.closest('tr').querySelector('select[name=\\'class_test_course[]\\']'), this, this.closest('tr').querySelector('input[name=\\'class_test_no[]\\']'), this.closest('tr').querySelector('input[name=\\'class_test_students[]\\']'));"></td>
                 <td>
                     <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                         <option value="">Select Teacher</option>
@@ -2685,12 +2685,14 @@ async function onClassTestCourseChange(selectElement) {
     const classTestInput = row.querySelector('input[name="class_test_no[]"]');
     const studentsInput = row.querySelector('input[name="class_test_students[]"]');
     
+    // Update class test count based on section (fallback)
     updateClassTestCount(sectionInput);
     
-    // Fetch student count
+    // Fetch class test count and student count from API
     if (selectElement.value) {
-        await fetchStudentCountForClassTest(selectElement, studentsInput);
+        await fetchClassTestInfo(selectElement, sectionInput, classTestInput, studentsInput);
     } else {
+        classTestInput.value = '0';
         studentsInput.value = '0';
     }
 }
@@ -2850,7 +2852,57 @@ function updateClassTestCount(sectionInput) {
     }
 }
 
-// Fetch student count for class test
+// Fetch class test count and student count for class test
+async function fetchClassTestInfo(courseSelect, sectionInput, classTestInput, studentsInput) {
+    const session = document.getElementById('session').value;
+    const year = document.getElementById('year').value;
+    const term = document.getElementById('term').value;
+    const courseCode = courseSelect.value.split(' - ')[0];
+    const section = (sectionInput?.value || '').trim().toUpperCase();
+    
+    if (!session || !year || !term || !courseCode) {
+        if (!classTestInput.value || classTestInput.value.trim() === '') {
+            classTestInput.value = '0';
+        }
+        if (!studentsInput.value || studentsInput.value.trim() === '') {
+            studentsInput.value = '0';
+        }
+        return;
+    }
+    
+    try {
+        const url = `/remuneration/api/class-test-info?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&section=${encodeURIComponent(section)}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        // Only auto-fill if field is empty
+        if (data.success) {
+            if (!classTestInput.value || classTestInput.value.trim() === '') {
+                classTestInput.value = data.class_test_count || '0';
+            }
+            if (!studentsInput.value || studentsInput.value.trim() === '') {
+                studentsInput.value = data.student_count || '0';
+            }
+        } else {
+            if (!classTestInput.value || classTestInput.value.trim() === '') {
+                classTestInput.value = '0';
+            }
+            if (!studentsInput.value || studentsInput.value.trim() === '') {
+                studentsInput.value = '0';
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching class test info:', error);
+        if (!classTestInput.value || classTestInput.value.trim() === '') {
+            classTestInput.value = '0';
+        }
+        if (!studentsInput.value || studentsInput.value.trim() === '') {
+            studentsInput.value = '0';
+        }
+    }
+}
+
+// Fetch student count for class test (kept for backward compatibility)
 async function fetchStudentCountForClassTest(courseSelect, studentsInput) {
     const session = document.getElementById('session').value;
     const year = document.getElementById('year').value;

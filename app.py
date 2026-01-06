@@ -8623,6 +8623,132 @@ def create_app():
             current_app.logger.error(f'Error fetching tabulators: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch tabulators'}), 500
 
+    @app.route('/remuneration/api/class-test-info', methods=['GET'])
+    @login_required
+    def remuneration_get_class_test_info():
+        """Get class test count and student count for a course"""
+        restriction = _require_teacher_privileges()
+        if restriction:
+            return restriction
+        
+        course_code = request.args.get('course_code')
+        academic_session = request.args.get('academic_session')
+        year = request.args.get('year')
+        term = request.args.get('term')
+        section = request.args.get('section', '').strip().upper()
+        
+        if not course_code or not academic_session:
+            return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
+        
+        try:
+            from blueprints.class_management.models import Teacher, Session, ClassStudent
+            from sqlalchemy import func, or_, case
+            
+            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            if not teacher:
+                return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+            
+            # Extract course code only
+            if ' - ' in course_code:
+                course_code = course_code.split(' - ', 1)[0].strip()
+            course_code = course_code.strip()
+            
+            # Find matching sessions
+            import re
+            course_numbers = re.findall(r'\d+', course_code)
+            
+            all_teacher_sessions = Session.query.filter(
+                Session.teacher_id == teacher.id,
+                Session.academic_session == academic_session
+            ).all()
+            
+            matched_sessions = []
+            for session in all_teacher_sessions:
+                if session.course_code == course_code:
+                    matched_sessions.append(session)
+                    continue
+                if session.course_code and course_code in session.course_code:
+                    matched_sessions.append(session)
+                    continue
+                if session.course_code and session.course_code in course_code:
+                    matched_sessions.append(session)
+                    continue
+                if session.course_code and course_numbers:
+                    session_numbers = re.findall(r'\d+', session.course_code)
+                    if any(num in session_numbers for num in course_numbers):
+                        matched_sessions.append(session)
+                        continue
+            
+            if not matched_sessions and len(all_teacher_sessions) == 1:
+                matched_sessions = all_teacher_sessions
+            
+            if matched_sessions:
+                session_ids = [s.id for s in matched_sessions]
+                
+                # Filter by section if provided
+                if section in ['A', 'B']:
+                    matched_sessions = [s for s in matched_sessions if 
+                                      (section == 'A' and s.course_scope in ['full', 'part_a']) or
+                                      (section == 'B' and s.course_scope in ['full', 'part_b'])]
+                    if matched_sessions:
+                        session_ids = [s.id for s in matched_sessions]
+                
+                # Count distinct students
+                student_count = db.session.query(
+                    func.count(func.distinct(ClassStudent.student_id))
+                ).filter(
+                    ClassStudent.session_id.in_(session_ids)
+                ).scalar() or 0
+                
+                # Count number of class tests (assessments with data)
+                # Count how many students have at least one assessment filled
+                class_test_count = 0
+                if student_count > 0:
+                    # Get all students for these sessions
+                    students = ClassStudent.query.filter(
+                        ClassStudent.session_id.in_(session_ids)
+                    ).all()
+                    
+                    # Count how many assessments have data across all students
+                    assessment_counts = {}
+                    for student in students:
+                        if student.assessment1 is not None:
+                            assessment_counts['assessment1'] = assessment_counts.get('assessment1', 0) + 1
+                        if student.assessment2 is not None:
+                            assessment_counts['assessment2'] = assessment_counts.get('assessment2', 0) + 1
+                        if student.assessment3 is not None:
+                            assessment_counts['assessment3'] = assessment_counts.get('assessment3', 0) + 1
+                        if student.assessment4 is not None:
+                            assessment_counts['assessment4'] = assessment_counts.get('assessment4', 0) + 1
+                    
+                    # Number of class tests = number of assessment columns with data
+                    class_test_count = len(assessment_counts)
+                    
+                    # If section is A or B, typically 2 class tests; if Full, typically 4
+                    if class_test_count == 0:
+                        if section in ['A', 'B']:
+                            class_test_count = 2
+                        elif section == 'FULL' or not section:
+                            class_test_count = 4
+                
+                return jsonify({
+                    'success': True,
+                    'class_test_count': class_test_count,
+                    'student_count': student_count
+                })
+            
+            # Fallback: return defaults
+            default_class_test_count = 2 if section in ['A', 'B'] else 4
+            return jsonify({
+                'success': True,
+                'class_test_count': default_class_test_count,
+                'student_count': 0
+            })
+            
+        except Exception as e:
+            current_app.logger.error(f'Error fetching class test info: {str(e)}', exc_info=True)
+            return jsonify({'success': False, 'message': 'Failed to fetch class test info'}), 500
+
     @app.route('/remuneration/api/student-count', methods=['GET'])
     @login_required
     def remuneration_get_student_count():
