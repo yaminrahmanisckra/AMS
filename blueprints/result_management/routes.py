@@ -4746,33 +4746,35 @@ def download_all_student_results(session_id):
         flash(f'Error: {str(e)}', 'danger')
         return redirect(url_for('result_management.view_results', session_id=session_id))
 
-    zip_buffer.seek(0)
-    
-    # Enhanced headers for cPanel compatibility
-    zip_data = zip_buffer.getvalue()
-    filename = f'All_Student_Results_{session.name}.zip'
-    
-    current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
-    
-    if pdf_count == 0:
-        flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
-        return redirect(url_for('result_management.view_results', session_id=session_id))
-    
-    response = Response(
-        zip_data,
-        mimetype='application/zip',
-        headers={
-            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-            'Content-Length': str(len(zip_data)),
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY'
-        }
-    )
-    
-    return response
+        zip_buffer.seek(0)
+        
+        # Enhanced headers for cPanel compatibility
+        zip_data = zip_buffer.getvalue()
+        filename = f'All_Student_Results_{session.name}.zip'
+        
+        current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
+        
+        if pdf_count == 0:
+            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id}')
+            flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
+            return redirect(url_for('result_management.view_results', session_id=session_id))
+        
+        response = Response(
+            zip_data,
+            mimetype='application/zip',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+                'Content-Length': str(len(zip_data)),
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'X-Content-Type-Options': 'nosniff',
+                'X-Frame-Options': 'DENY'
+            }
+        )
+        
+        current_app.logger.info(f'✅ Returning zip file: {filename}, size: {len(zip_data)} bytes')
+        return response
 
 @result_management_bp.route('/download/all_course_results/<int:session_id>')
 @login_required
@@ -4853,30 +4855,32 @@ def download_all_course_results(session_id):
         flash(f'Error: {str(e)}', 'danger')
         return redirect(url_for('result_management.view_results', session_id=session_id))
 
-    zip_buffer.seek(0)
-    
-    # Enhanced headers for cPanel compatibility
-    zip_data = zip_buffer.getvalue()
-    filename = f'All_Course_Results_{session.name}.zip'
-    
-    current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
-    
-    if pdf_count == 0:
-        flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
-        return redirect(url_for('result_management.view_results', session_id=session_id))
-    
-    response = Response(
-        zip_data,
-        mimetype='application/zip',
-        headers={
-            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-            'Content-Length': str(len(zip_data)),
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Pragma': 'no-cache',
-            'Expires': '0',
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY'
-        }
-    )
-    
-    return response
+        zip_buffer.seek(0)
+        
+        # Enhanced headers for cPanel compatibility
+        zip_data = zip_buffer.getvalue()
+        filename = f'All_Course_Results_{session.name}.zip'
+        
+        current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
+        
+        if pdf_count == 0:
+            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id}')
+            flash(f'No PDFs were generated. Please check the logs for errors.', 'warning')
+            return redirect(url_for('result_management.view_results', session_id=session_id))
+        
+        response = Response(
+            zip_data,
+            mimetype='application/zip',
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+                'Content-Length': str(len(zip_data)),
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'X-Content-Type-Options': 'nosniff',
+                'X-Frame-Options': 'DENY'
+            }
+        )
+        
+        current_app.logger.info(f'✅ Returning zip file: {filename}, size: {len(zip_data)} bytes')
+        return response
