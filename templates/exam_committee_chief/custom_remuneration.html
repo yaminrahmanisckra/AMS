@@ -2496,6 +2496,19 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                 `;
                 table4Tbody.appendChild(rowA);
                 
+                // Trigger fetch for auto-loaded row A
+                setTimeout(() => {
+                    const courseSelectA = rowA.querySelector('select[name="class_test_course[]"]');
+                    if (courseSelectA && courseSelectA.value) {
+                        fetchClassTestInfo(
+                            courseSelectA,
+                            rowA.querySelector('input[name="class_test_section[]"]'),
+                            rowA.querySelector('input[name="class_test_no[]"]'),
+                            rowA.querySelector('input[name="class_test_students[]"]')
+                        );
+                    }
+                }, 100);
+                
                 // Add row for Section B
                 const rowB = document.createElement('tr');
                 rowB.innerHTML = `
