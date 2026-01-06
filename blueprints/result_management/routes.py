@@ -2884,19 +2884,26 @@ def add_marks(session_id):
         
         # Final safety check: Ensure all students have marks in marks_data
         if selected_subject:
+            current_app.logger.info(f'Final check: {len(students)} students, {len(marks_data)} marks in marks_data')
             for student in students:
                 if student.id not in marks_data:
-                    current_app.logger.warning(f'Student {student.student_id} missing from marks_data, loading from database')
+                    current_app.logger.warning(f'Student {student.student_id} (ID: {student.id}) missing from marks_data, loading from database')
                     mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
                     if mark is None:
+                        current_app.logger.warning(f'Creating new mark for student {student.student_id}')
                         mark = RMark(student_id=student.id, subject_id=selected_subject.id)
                         db.session.add(mark)
                         try:
                             db.session.commit()
+                            current_app.logger.info(f'Created new mark for student {student.student_id}')
                         except Exception as e:
                             current_app.logger.error(f'Error creating mark for missing student {student.student_id}: {e}', exc_info=True)
                             db.session.rollback()
+                    else:
+                        current_app.logger.info(f'Loaded existing mark for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}')
                     marks_data[student.id] = mark
+            
+            current_app.logger.info(f'After final check: {len(marks_data)} marks in marks_data for {len(students)} students')
 
     if request.method == 'POST':
         subject_id = request.form.get('subject_id', type=int)
@@ -3031,6 +3038,15 @@ def add_marks(session_id):
         current_app.logger.debug(f'Subjects being passed to template: {[s.code for s in subjects[:5]]}...')
     else:
         current_app.logger.warning(f'No subjects found for session {session_id} - dropdown will be empty!')
+    
+    # Log marks_data status
+    if selected_subject:
+        current_app.logger.info(f'Marks data status: {len(marks_data)} marks for {len(students)} students')
+        if marks_data:
+            sample_mark = list(marks_data.values())[0]
+            current_app.logger.debug(f'Sample mark: attendance={sample_mark.attendance}, assessment={sample_mark.continuous_assessment}, part_a={sample_mark.part_a}, part_b={sample_mark.part_b}')
+        else:
+            current_app.logger.warning(f'⚠️ marks_data is EMPTY! This will cause no marks to display!')
     
     return render_template('rm_add_marks.html', 
                            session=session, 
