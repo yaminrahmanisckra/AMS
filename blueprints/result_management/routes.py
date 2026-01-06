@@ -3014,8 +3014,8 @@ def add_marks(session_id):
                                                                 mark.part_b = new_part_b
                                                                 needs_update = True
                                                                 current_app.logger.info(f'✅ Updated part_a/b (split): {mark.part_a}/{mark.part_b} for student {student.student_id}')
-                                                        except (ValueError, TypeError) as e:
-                                                            current_app.logger.warning(f'⚠️ Could not parse total marks "{total_marks_str}": {e}')
+                                                        except (ValueError, TypeError):
+                                                            current_app.logger.warning(f'⚠️ Could not parse total marks "{total_marks_str}"')
                                                 else:
                                                     current_app.logger.warning(f'⚠️ Cannot split: {len(questions)} questions (expected 2)')
                                             
@@ -3027,6 +3027,8 @@ def add_marks(session_id):
                                             current_app.logger.warning(f'⚠️ Student row not found in exam data for student {student.student_id}. Searched in {len(rows)} rows.')
                                     except json.JSONDecodeError as e:
                                         current_app.logger.error(f"❌ Error parsing exam marks JSON: {e}", exc_info=True)
+                                    except json.JSONDecodeError as e:
+                                        current_app.logger.error(f"❌ Error parsing exam marks JSON: {e}", exc_info=True)
                                     except Exception as e:
                                         current_app.logger.error(f"❌ Error processing exam marks: {e}", exc_info=True)
                                 else:
@@ -3034,12 +3036,6 @@ def add_marks(session_id):
                                         current_app.logger.warning(f'⚠️ No ExamPaperEvaluation entry found for course {selected_subject.code} (archived=False)')
                                     elif not exam_entry.marks_data:
                                         current_app.logger.warning(f'⚠️ ExamPaperEvaluation entry found but marks_data is empty for course {selected_subject.code}')
-                                    except json.JSONDecodeError as e:
-                                        current_app.logger.error(f"Error parsing exam marks JSON: {e}", exc_info=True)
-                                    except Exception as e:
-                                        current_app.logger.error(f"Error processing exam marks: {e}", exc_info=True)
-                                else:
-                                    current_app.logger.warning(f'No ExamPaperEvaluation entry found for course {selected_subject.code}')
                             except Exception as e:
                                 current_app.logger.error(f"Error fetching exam marks: {e}", exc_info=True)
                         
