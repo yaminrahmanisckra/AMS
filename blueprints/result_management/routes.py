@@ -2690,7 +2690,8 @@ def add_marks(session_id):
                 # This ensures marks are always up-to-date when page loads
                 if mark:
                     needs_update = False
-                    current_app.logger.info(f'Existing mark for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}, attendance_manual={mark.attendance_manual}')
+                    current_app.logger.info(f'📝 Existing mark for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}, part_a={mark.part_a}, part_b={mark.part_b}, attendance_manual={mark.attendance_manual}')
+                    current_app.logger.info(f'📝 Subject info: code="{selected_subject.code}", name="{selected_subject.name}", type="{selected_subject.subject_type}"')
                     
                     try:
                         from blueprints.class_management.models import Session as CMSession, ClassStudent
@@ -2810,8 +2811,12 @@ def add_marks(session_id):
                         
                         # Sync Part A and Part B from Exam Paper Evaluation (for Theory subjects)
                         # This is independent of ClassManagement, so always try to sync
-                        current_app.logger.info(f'🔍 Checking Part A/B sync for student {student.student_id}: subject_type="{selected_subject.subject_type}"')
-                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                        current_app.logger.info(f'🔍 Checking Part A/B sync for student {student.student_id}')
+                        current_app.logger.info(f'📋 Subject details: code="{selected_subject.code}", name="{selected_subject.name}", subject_type="{selected_subject.subject_type}" (type: {type(selected_subject.subject_type)})')
+                        current_app.logger.info(f'🔍 Checking if subject_type in ("Theory", "Theory (UG)", "Theory (PG)")')
+                        is_theory = selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)')
+                        current_app.logger.info(f'🔍 is_theory={is_theory}')
+                        if is_theory:
                             current_app.logger.info(f'✅ Subject type is Theory, proceeding with Part A/B sync for student {student.student_id}')
                             try:
                                 from blueprints.class_management.models import ExamPaperEvaluation
