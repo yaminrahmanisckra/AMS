@@ -3039,8 +3039,6 @@ def add_marks(session_id):
                                             current_app.logger.warning(f'⚠️ Student row not found in exam data for student {student.student_id}. Searched in {len(rows)} rows.')
                                     except json.JSONDecodeError as e:
                                         current_app.logger.error(f"❌ Error parsing exam marks JSON: {e}", exc_info=True)
-                                    except json.JSONDecodeError as e:
-                                        current_app.logger.error(f"❌ Error parsing exam marks JSON: {e}", exc_info=True)
                                     except Exception as e:
                                         current_app.logger.error(f"❌ Error processing exam marks: {e}", exc_info=True)
                                 else:
