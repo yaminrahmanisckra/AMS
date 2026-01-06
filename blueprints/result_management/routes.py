@@ -4737,9 +4737,13 @@ def download_all_student_results(session_id):
                     current_app.logger.error(f'❌ Error generating PDF for student {student.student_id}: {e}', exc_info=True)
                     error_count += 1
                     continue
+        except Exception as e:
+            current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
+            flash(f'Error creating zip file: {str(e)}', 'danger')
+            return redirect(url_for('result_management.view_results', session_id=session_id))
     except Exception as e:
-        current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
-        flash(f'Error creating zip file: {str(e)}', 'danger')
+        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
+        flash(f'Error: {str(e)}', 'danger')
         return redirect(url_for('result_management.view_results', session_id=session_id))
 
     zip_buffer.seek(0)
@@ -4789,9 +4793,9 @@ def download_all_course_results(session_id):
         zip_buffer = BytesIO()
         pdf_count = 0
         error_count = 0
-    
-    try:
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        
+        try:
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
             for subject in subjects:
                 try:
                     base_columns = [
@@ -4840,9 +4844,13 @@ def download_all_course_results(session_id):
                     current_app.logger.error(f'❌ Error generating PDF for course {subject.code}: {e}', exc_info=True)
                     error_count += 1
                     continue
+        except Exception as e:
+            current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
+            flash(f'Error creating zip file: {str(e)}', 'danger')
+            return redirect(url_for('result_management.view_results', session_id=session_id))
     except Exception as e:
-        current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
-        flash(f'Error creating zip file: {str(e)}', 'danger')
+        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
+        flash(f'Error: {str(e)}', 'danger')
         return redirect(url_for('result_management.view_results', session_id=session_id))
 
     zip_buffer.seek(0)
