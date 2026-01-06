@@ -7228,7 +7228,11 @@ def student_course_files():
     except Exception as e:
         current_app.logger.error(f"Error in student_course_files: {e}", exc_info=True)
         flash('An error occurred while loading course files.', 'error')
-        return redirect(url_for('index'))
+        # Redirect to student dashboard instead of index
+        try:
+            return redirect(url_for('student_dashboard'))
+        except:
+            return redirect(url_for('index'))
 
 @class_management_bp.route('/student/course-files/<int:session_id>/download-pdf')
 @login_required

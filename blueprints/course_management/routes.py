@@ -1420,14 +1420,26 @@ def download_registration_pdf():
         # Build PDF
         doc.build(elements)
         buffer.seek(0)
+        pdf_data = buffer.getvalue()
         
         filename = f'course_registration_{student_id}_{datetime.now().strftime("%Y%m%d")}.pdf'
-        return send_file(
-            buffer,
+        
+        # Use Response instead of send_file for better cPanel compatibility
+        from flask import Response
+        response = Response(
+            pdf_data,
             mimetype='application/pdf',
-            as_attachment=True,
-            download_name=filename
+            headers={
+                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+                'Content-Length': str(len(pdf_data)),
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0',
+                'X-Content-Type-Options': 'nosniff',
+                'X-Frame-Options': 'DENY'
+            }
         )
+        return response
     except Exception as e:
         current_app.logger.error(f"Error generating registration PDF: {e}", exc_info=True)
         return jsonify({'success': False, 'message': f'Error generating PDF: {str(e)}'}), 500
@@ -2352,6 +2364,103 @@ def coordinator_save_student_registration():
         db.session.rollback()
         current_app.logger.error(f'Failed to save coordinator registration: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': 'Failed to save registration'}), 500
+
+
+@course_management_bp.route('/coordinator/register-student/deregister', methods=['POST'])
+@login_required
+def coordinator_deregister_students():
+    """Deregister students from a course (Head/Coordinator can deregister)"""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    data = request.get_json() or {}
+    student_ids = data.get('student_ids', [])
+    course_code = data.get('course_code', '').strip()
+    session_name = data.get('session', '').strip()
+    year = data.get('year', '').strip()
+    term = data.get('term', '').strip()
+    
+    if not student_ids or len(student_ids) == 0:
+        return jsonify({'success': False, 'message': 'No students selected for deregistration'}), 400
+    
+    if not course_code or not session_name or not year or not term:
+        return jsonify({'success': False, 'message': 'Course, Session, Year, and Term are required'}), 400
+    
+    try:
+        deregistered_count = 0
+        skipped_count = 0
+        errors = []
+        
+        for student_id in student_ids:
+            try:
+                # Find the registration
+                registration = StudentCourseRegistration.query.filter_by(
+                    student_id=student_id,
+                    course_code=course_code,
+                    academic_session=session_name,
+                    year=year,
+                    term=term
+                ).first()
+                
+                if not registration:
+                    skipped_count += 1
+                    continue
+                
+                # Check if registration was finalized - need to remove from Class Management
+                was_finalized = registration.status == 'finalized'
+                
+                # Delete related invites first
+                invites = CourseRegistrationInvite.query.filter_by(
+                    registration_id=registration.id
+                ).all()
+                for invite in invites:
+                    db.session.delete(invite)
+                
+                # Delete the registration
+                db.session.delete(registration)
+                
+                # If registration was finalized, remove from Class Management
+                if was_finalized:
+                    try:
+                        _remove_students_from_class_sessions(
+                            course_code=course_code,
+                            academic_session=session_name,
+                            year=year,
+                            term=term,
+                            student_ids=[student_id]
+                        )
+                    except Exception as remove_error:
+                        current_app.logger.warning(f'Error removing student {student_id} from Class Management: {remove_error}', exc_info=True)
+                        # Continue even if Class Management removal fails
+                
+                deregistered_count += 1
+                
+            except Exception as student_error:
+                current_app.logger.error(f'Error deregistering student {student_id}: {student_error}', exc_info=True)
+                errors.append(f'Student ID {student_id}: {str(student_error)}')
+                skipped_count += 1
+                continue
+        
+        db.session.commit()
+        
+        message = f'Successfully deregistered {deregistered_count} student(s).'
+        if skipped_count > 0:
+            message += f' {skipped_count} student(s) skipped.'
+        if errors:
+            message += f' Errors: {"; ".join(errors[:3])}'  # Show first 3 errors
+        
+        return jsonify({
+            'success': True,
+            'message': message,
+            'deregistered_count': deregistered_count,
+            'skipped_count': skipped_count
+        })
+        
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to deregister students: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to deregister students'}), 500
 
 
 @course_management_bp.route('/coordinator/register-student/api/batches', methods=['GET'])

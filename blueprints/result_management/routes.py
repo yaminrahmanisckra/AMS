@@ -1215,6 +1215,37 @@ def refresh_marks(session_id):
                     error_count += 1
                     continue
                 
+                # Calculate total_marks, grade_point, and grade_letter
+                try:
+                    # Get is_retake status
+                    registration = RCourseRegistration.query.filter_by(student_id=student.id, subject_id=subject_id).first()
+                    is_retake = registration.is_retake if registration else False
+                    mark.is_retake = is_retake
+                    
+                    total_marks = 0
+                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                        total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
+                    elif selected_subject.subject_type == 'Sessional':
+                        total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
+                    elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+                        total_marks = sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
+                    elif selected_subject.subject_type == 'Dissertation':
+                        if selected_subject.dissertation_type == 'Type1':
+                            total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
+                        elif selected_subject.dissertation_type == 'Type2':
+                            total_marks = sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
+                        else:
+                            # Fallback for existing Dissertation subjects without type
+                            total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation, mark.project_report, mark.defense]))
+                    elif selected_subject.subject_type == 'Viva':
+                        total_marks = mark.viva or 0
+                    
+                    mark.total_marks = total_marks
+                    mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
+                except Exception as e:
+                    current_app.logger.error(f"Error calculating grades for student {student.student_id}: {e}", exc_info=True)
+                    # Continue even if calculation fails
+                
                 updated_count += 1
                 
             except Exception as e:
@@ -2781,6 +2812,58 @@ def course_wise_result(session_id):
                     .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
                     .filter(RStudent.session_id == session_id)\
                     .order_by(RStudent.student_id).all()
+            
+            # Calculate missing total_marks, grade_point, grade_letter on-the-fly
+            # Fetch all marks for this subject to update missing calculations
+            marks_to_update = RMark.query.filter_by(subject_id=selected_subject_id).all()
+            needs_update = False
+            for mark in marks_to_update:
+                if mark.total_marks is None:
+                    # Calculate total_marks, grade_point, grade_letter
+                    try:
+                        registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=selected_subject_id).first()
+                        is_retake = registration.is_retake if registration else False
+                        mark.is_retake = is_retake
+                        
+                        total_marks = 0
+                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
+                        elif selected_subject.subject_type == 'Sessional':
+                            total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
+                        elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+                            total_marks = sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
+                        elif selected_subject.subject_type == 'Dissertation':
+                            if selected_subject.dissertation_type == 'Type1':
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
+                            elif selected_subject.dissertation_type == 'Type2':
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
+                            else:
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation, mark.project_report, mark.defense]))
+                        elif selected_subject.subject_type == 'Viva':
+                            total_marks = mark.viva or 0
+                        
+                        mark.total_marks = total_marks
+                        mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
+                        needs_update = True
+                    except Exception as e:
+                        current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
+            
+            if needs_update:
+                db.session.commit()
+                # Re-query results with updated values
+                if registrations_count > 0:
+                    results = db.session.query(*all_columns)\
+                        .select_from(RStudent)\
+                        .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == selected_subject_id))\
+                        .outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
+                        .filter(RStudent.session_id == session_id)\
+                        .order_by(RStudent.student_id).all()
+                else:
+                    results = db.session.query(*all_columns)\
+                        .select_from(RStudent)\
+                        .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
+                        .filter(RStudent.session_id == session_id)\
+                        .order_by(RStudent.student_id).all()
         except Exception as e:
             current_app.logger.error(f'Error fetching course-wise results: {e}', exc_info=True)
             flash('Error loading results. Please try again.', 'danger')
@@ -2852,6 +2935,81 @@ def student_wise_result(session_id):
                  .filter(RStudent.id == selected_student_id)\
                  .filter(RSubject.session_id == session_id)\
                  .order_by(RSubject.code).all()
+            
+            # Calculate missing total_marks, grade_point, grade_letter on-the-fly
+            # Fetch all marks for this student to update missing calculations
+            marks_to_update = RMark.query.filter_by(student_id=selected_student_id).all()
+            needs_update = False
+            for mark in marks_to_update:
+                if mark.total_marks is None:
+                    # Get subject to determine calculation method
+                    subject = RSubject.query.get(mark.subject_id)
+                    if not subject:
+                        continue
+                    
+                    # Calculate total_marks, grade_point, grade_letter
+                    try:
+                        registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=mark.subject_id).first()
+                        is_retake = registration.is_retake if registration else False
+                        mark.is_retake = is_retake
+                        
+                        total_marks = 0
+                        if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
+                        elif subject.subject_type == 'Sessional':
+                            total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
+                        elif subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+                            total_marks = sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
+                        elif subject.subject_type == 'Dissertation':
+                            if subject.dissertation_type == 'Type1':
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
+                            elif subject.dissertation_type == 'Type2':
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
+                            else:
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation, mark.project_report, mark.defense]))
+                        elif subject.subject_type == 'Viva':
+                            total_marks = mark.viva or 0
+                        
+                        mark.total_marks = total_marks
+                        mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
+                        needs_update = True
+                    except Exception as e:
+                        current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
+            
+            if needs_update:
+                db.session.commit()
+                # Re-query results with updated values
+                if registrations_count > 0:
+                    results = db.session.query(
+                        RSubject.code.label('subject_code'),
+                        RSubject.name.label('subject_name'),
+                        RSubject.credit.label('registered_credits'),
+                        RMark.grade_letter,
+                        RMark.grade_point,
+                        RMark.is_retake,
+                        RSubject.subject_type
+                    ).select_from(RStudent)\
+                     .join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)\
+                     .join(RSubject, RSubject.id == RCourseRegistration.subject_id)\
+                     .outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id))\
+                     .filter(RStudent.id == selected_student_id)\
+                     .filter(RSubject.session_id == session_id)\
+                     .order_by(RSubject.code).all()
+                else:
+                    results = db.session.query(
+                        RSubject.code.label('subject_code'),
+                        RSubject.name.label('subject_name'),
+                        RSubject.credit.label('registered_credits'),
+                        RMark.grade_letter,
+                        RMark.grade_point,
+                        RMark.is_retake,
+                        RSubject.subject_type
+                    ).select_from(RStudent)\
+                     .join(RMark, RMark.student_id == RStudent.id)\
+                     .join(RSubject, RSubject.id == RMark.subject_id)\
+                     .filter(RStudent.id == selected_student_id)\
+                     .filter(RSubject.session_id == session_id)\
+                     .order_by(RSubject.code).all()
         except Exception as e:
             current_app.logger.error(f'Error fetching student-wise results: {e}', exc_info=True)
             flash('Error loading results. Please try again.', 'danger')

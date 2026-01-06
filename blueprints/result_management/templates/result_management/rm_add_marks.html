@@ -214,37 +214,71 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function updateRow(row) {
-        const isRetake = row.dataset.isRetake === '1';
-        let total = 0;
-        
-        row.querySelectorAll('.marks-input').forEach(input => {
-            total += parseFloat(input.value) || 0;
-        });
+        try {
+            const isRetake = row.dataset.isRetake === '1';
+            let total = 0;
+            
+            row.querySelectorAll('.marks-input').forEach(input => {
+                const value = parseFloat(input.value);
+                if (!isNaN(value)) {
+                    total += value;
+                }
+            });
 
-        const grade = calculateGradeJS(total, isRetake);
+            const grade = calculateGradeJS(total, isRetake);
 
-        // Show total marks as rounded integer for result generation
-        row.querySelector('.total-marks-cell').textContent = Math.round(total);
-        row.querySelector('.total-marks-input').value = Math.round(total);
-        row.querySelector('.grade-cell').textContent = `${grade.grade_letter} (${grade.grade_point.toFixed(2)})`;
-        
-        const remarksCell = row.querySelector('.remarks-cell');
-        remarksCell.innerHTML = '';
-        if (isRetake) {
-            const badge = document.createElement('span');
-            badge.className = 'badge bg-warning text-dark';
-            badge.textContent = 'Retake';
-            remarksCell.appendChild(badge);
+            // Show total marks as rounded integer for result generation
+            const totalMarksCell = row.querySelector('.total-marks-cell');
+            const totalMarksInput = row.querySelector('.total-marks-input');
+            const gradeCell = row.querySelector('.grade-cell');
+            const remarksCell = row.querySelector('.remarks-cell');
+            
+            if (totalMarksCell) {
+                totalMarksCell.textContent = Math.round(total);
+            }
+            if (totalMarksInput) {
+                totalMarksInput.value = Math.round(total);
+            }
+            if (gradeCell) {
+                gradeCell.textContent = `${grade.grade_letter} (${grade.grade_point.toFixed(2)})`;
+            }
+            
+            if (remarksCell) {
+                remarksCell.innerHTML = '';
+                if (isRetake) {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge bg-warning text-dark';
+                    badge.textContent = 'Retake';
+                    remarksCell.appendChild(badge);
+                }
+            }
+        } catch (error) {
+            console.error('Error updating row:', error);
         }
     }
 
     document.querySelectorAll('tr[data-student-id]').forEach(row => {
+        // Calculate on page load
         updateRow(row);
+        
+        // Add event listeners for real-time calculation
         row.querySelectorAll('.marks-input').forEach(input => {
+            // Listen to both input and change events
             input.addEventListener('input', () => {
                 updateRow(row);
                 // Trigger auto-save
-                triggerAutoSave();
+                if (typeof triggerAutoSave === 'function') {
+                    triggerAutoSave();
+                }
+            });
+            
+            input.addEventListener('change', () => {
+                updateRow(row);
+            });
+            
+            // Also trigger on paste
+            input.addEventListener('paste', () => {
+                setTimeout(() => updateRow(row), 10);
             });
         });
         
@@ -483,7 +517,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (refreshMarksBtn) {
         refreshMarksBtn.addEventListener('click', function() {
             const subjectId = this.dataset.subjectId;
-            const sessionId = {{ session.id }};
+            // Use sessionId declared in outer scope (line 313)
             
             if (!subjectId) {
                 alert('Subject ID not found');
@@ -525,9 +559,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // WebSocket live update listener for marks
-    const sessionId = {{ session.id }};
-    
+    // WebSocket live update listener for marks (using sessionId declared above)
     // Join result session room for live updates
     if (typeof window.joinResultSessionRoom === 'function') {
         window.joinResultSessionRoom(sessionId);

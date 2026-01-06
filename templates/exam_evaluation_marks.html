@@ -241,6 +241,15 @@
 .student-id-input {
     min-width: 140px;
 }
+/* Duplicate Student ID highlighting */
+.duplicate-student-id {
+    background-color: #fff3cd !important;
+    border-left: 3px solid #ffc107 !important;
+}
+.duplicate-student-id .student-id-input.is-invalid {
+    border-color: #dc3545 !important;
+    background-color: #f8d7da !important;
+}
 .total-field {
     min-width: 90px;
     font-weight: 600;
@@ -1005,7 +1014,99 @@
         payloadInput.value = JSON.stringify(data);
     }
 
+    function checkDuplicateStudentIds() {
+        const studentIds = new Map(); // Map to track student_id -> row number
+        const duplicates = [];
+        
+        tbody.querySelectorAll('.marks-row').forEach((row, index) => {
+            const studentInput = row.querySelector('.student-id-input');
+            if (studentInput) {
+                const studentId = studentInput.value.trim();
+                if (studentId) {
+                    if (studentIds.has(studentId)) {
+                        // Found duplicate
+                        const firstRow = studentIds.get(studentId);
+                        duplicates.push({
+                            studentId: studentId,
+                            row1: firstRow + 1, // 1-based row number
+                            row2: index + 1
+                        });
+                    } else {
+                        studentIds.set(studentId, index);
+                    }
+                }
+            }
+        });
+        
+        return duplicates;
+    }
+
+    function highlightDuplicateRows(duplicates) {
+        // Remove previous highlights
+        tbody.querySelectorAll('.marks-row').forEach(row => {
+            row.classList.remove('duplicate-student-id');
+            const studentInput = row.querySelector('.student-id-input');
+            if (studentInput) {
+                studentInput.classList.remove('is-invalid');
+            }
+        });
+        
+        // Highlight duplicate rows
+        const allRows = Array.from(tbody.querySelectorAll('.marks-row'));
+        duplicates.forEach(dup => {
+            const row1 = allRows[dup.row1 - 1];
+            const row2 = allRows[dup.row2 - 1];
+            
+            if (row1) {
+                row1.classList.add('duplicate-student-id');
+                const input1 = row1.querySelector('.student-id-input');
+                if (input1) input1.classList.add('is-invalid');
+            }
+            if (row2) {
+                row2.classList.add('duplicate-student-id');
+                const input2 = row2.querySelector('.student-id-input');
+                if (input2) input2.classList.add('is-invalid');
+            }
+        });
+    }
+
     function submitWithAction(action) {
+        // For PDF/Excel export, skip duplicate check
+        if (action === 'pdf' || action === 'excel') {
+            actionInput.value = action;
+            buildPayload();
+            if (typeof marksForm.requestSubmit === 'function') {
+                marksForm.requestSubmit();
+            } else {
+                marksForm.submit();
+            }
+            return;
+        }
+        
+        // Check for duplicate Student IDs before saving
+        const duplicates = checkDuplicateStudentIds();
+        if (duplicates.length > 0) {
+            highlightDuplicateRows(duplicates);
+            
+            let message = 'Duplicate Student ID found:\n\n';
+            duplicates.forEach((dup, idx) => {
+                message += `${idx + 1}. Student ID "${dup.studentId}" appears in row ${dup.row1} and row ${dup.row2}\n`;
+            });
+            message += '\nPlease fix duplicate Student IDs before saving.';
+            
+            alert(message);
+            return false;
+        }
+        
+        // Remove any previous highlights
+        tbody.querySelectorAll('.marks-row').forEach(row => {
+            row.classList.remove('duplicate-student-id');
+            const studentInput = row.querySelector('.student-id-input');
+            if (studentInput) {
+                studentInput.classList.remove('is-invalid');
+            }
+        });
+        
         actionInput.value = action;
         buildPayload();
         if (typeof marksForm.requestSubmit === 'function') {
@@ -1057,9 +1158,52 @@
     marksForm.addEventListener('submit', buildPayload);
     
     // Add auto-save to code and student ID inputs (delegated event listener)
+    function validateStudentIdOnInput(input) {
+        if (!input || !input.classList.contains('student-id-input')) {
+            return;
+        }
+        
+        const studentId = input.value.trim();
+        if (!studentId) {
+            // Remove validation if empty
+            input.classList.remove('is-invalid');
+            input.closest('.marks-row')?.classList.remove('duplicate-student-id');
+            return;
+        }
+        
+        // Check for duplicates
+        const allRows = Array.from(tbody.querySelectorAll('.marks-row'));
+        const currentRow = input.closest('.marks-row');
+        const currentIndex = allRows.indexOf(currentRow);
+        
+        let hasDuplicate = false;
+        allRows.forEach((row, index) => {
+            if (index !== currentIndex) {
+                const otherInput = row.querySelector('.student-id-input');
+                if (otherInput && otherInput.value.trim() === studentId) {
+                    hasDuplicate = true;
+                }
+            }
+        });
+        
+        // Update validation state
+        if (hasDuplicate) {
+            input.classList.add('is-invalid');
+            currentRow?.classList.add('duplicate-student-id');
+        } else {
+            input.classList.remove('is-invalid');
+            currentRow?.classList.remove('duplicate-student-id');
+        }
+    }
+
     document.addEventListener('input', function(e) {
         if (e.target.classList.contains('code-input') || e.target.classList.contains('student-id-input')) {
             debounceAutoSave();
+            
+            // Real-time validation for Student ID
+            if (e.target.classList.contains('student-id-input')) {
+                validateStudentIdOnInput(e.target);
+            }
         }
     });
 

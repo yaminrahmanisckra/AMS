@@ -127,22 +127,24 @@
         
         table.part-a-table {
             margin-bottom: 0.2in;
+            table-layout: fixed;
+            width: 100%;
         }
         
         table.part-a-table td:first-child {
             background-color: #f8f9fa;
             color: #1a237e;
             font-weight: bold;
-            width: 2.3in;
-            padding: 6pt;
+            width: 2.2in;
+            padding: 5pt;
             border: 1px solid #dee2e6;
             vertical-align: top;
             font-size: 10.5pt;
         }
         
         table.part-a-table td:last-child {
-            width: 4.7in;
-            padding: 6pt;
+            width: 4.6in;
+            padding: 5pt;
             border: 1px solid #dee2e6;
             vertical-align: top;
             font-size: 11pt;
@@ -179,16 +181,18 @@
         
         table.lesson-plan-table {
             font-size: 9pt;
+            table-layout: fixed;
+            width: 100%;
         }
         
         table.lesson-plan-table th {
             font-size: 10pt;
-            padding: 5pt 3pt;
+            padding: 4pt 2pt;
         }
         
         table.lesson-plan-table td {
             font-size: 9pt;
-            padding: 4pt 3pt;
+            padding: 3pt 2pt;
         }
         
         .content-section {
@@ -244,13 +248,20 @@
         }
         
         /* Specific column widths for lesson plan */
-        table.lesson-plan-table td:nth-child(1) { width: 0.7in; }
-        table.lesson-plan-table td:nth-child(2) { width: 1.2in; }
-        table.lesson-plan-table td:nth-child(3) { width: 1.6in; }
-        table.lesson-plan-table td:nth-child(4) { width: 1.4in; }
-        table.lesson-plan-table td:nth-child(5) { width: 1.2in; }
-        table.lesson-plan-table td:nth-child(6) { width: 1.2in; }
-        table.lesson-plan-table td:nth-child(7) { width: 0.7in; }
+        table.lesson-plan-table th:nth-child(1),
+        table.lesson-plan-table td:nth-child(1) { width: 0.55in; }
+        table.lesson-plan-table th:nth-child(2),
+        table.lesson-plan-table td:nth-child(2) { width: 1.0in; }
+        table.lesson-plan-table th:nth-child(3),
+        table.lesson-plan-table td:nth-child(3) { width: 1.4in; }
+        table.lesson-plan-table th:nth-child(4),
+        table.lesson-plan-table td:nth-child(4) { width: 1.15in; }
+        table.lesson-plan-table th:nth-child(5),
+        table.lesson-plan-table td:nth-child(5) { width: 1.0in; }
+        table.lesson-plan-table th:nth-child(6),
+        table.lesson-plan-table td:nth-child(6) { width: 1.0in; }
+        table.lesson-plan-table th:nth-child(7),
+        table.lesson-plan-table td:nth-child(7) { width: 0.55in; }
         
         /* Specific column widths for CLO table */
         table.clo-table td:nth-child(1) { width: 0.8in; }

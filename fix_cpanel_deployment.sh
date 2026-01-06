@@ -130,3 +130,6 @@ echo "3. Restart application: touch passenger_wsgi.py"
 echo "4. Check cPanel → Software → Setup Python App → Restart"
 echo ""
 
+
+
+

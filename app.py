@@ -1513,9 +1513,36 @@ def create_app():
                     },
                 )
 
+            # Validate for duplicate Student IDs before saving
+            rows = data.get('rows', [])
+            student_ids_seen = {}
+            duplicates = []
+            
+            for idx, row in enumerate(rows):
+                student_id = str(row.get('student_id', '')).strip()
+                if student_id:  # Only check non-empty Student IDs
+                    if student_id in student_ids_seen:
+                        # Found duplicate
+                        first_row = student_ids_seen[student_id]
+                        duplicates.append({
+                            'student_id': student_id,
+                            'row1': first_row + 1,  # 1-based row number
+                            'row2': idx + 1
+                        })
+                    else:
+                        student_ids_seen[student_id] = idx
+            
+            if duplicates:
+                error_message = 'Duplicate Student ID found:\n\n'
+                for dup in duplicates:
+                    error_message += f"Student ID \"{dup['student_id']}\" appears in row {dup['row1']} and row {dup['row2']}\n"
+                error_message += '\nPlease fix duplicate Student IDs before saving.'
+                flash(error_message, 'error')
+                return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
+
             entry.marks_data = json.dumps(data)
             db.session.commit()
-            flash(f"Marks entry saved for {len(data.get('rows', []))} students.", 'success')
+            flash(f"Marks entry saved for {len(rows)} students.", 'success')
             return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
 
         initial_data = {}
@@ -6719,13 +6746,24 @@ def create_app():
             # Write PDF
             html_obj.write_pdf(pdf_buffer, presentational_hints=True)
             pdf_buffer.seek(0)
+            pdf_data = pdf_buffer.getvalue()
             
-            return send_file(
-                pdf_buffer,
+            # Enhanced headers for cPanel compatibility
+            response = Response(
+                pdf_data,
                 mimetype='application/pdf',
-                as_attachment=True,
-                download_name='Custom_Remuneration_Statement.pdf'
+                headers={
+                    'Content-Disposition': f'attachment; filename="Custom_Remuneration_Statement.pdf"; filename*=UTF-8\'\'Custom_Remuneration_Statement.pdf',
+                    'Content-Length': str(len(pdf_data)),
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                    'X-Content-Type-Options': 'nosniff',
+                    'X-Frame-Options': 'DENY'
+                }
             )
+            
+            return response
             
         except Exception as e:
             current_app.logger.error(f'Error generating custom remuneration PDF: {str(e)}', exc_info=True)

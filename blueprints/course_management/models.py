@@ -56,7 +56,7 @@ class Course(db.Model):
     course_code = db.Column(db.String(20), nullable=False)
     course_name = db.Column(db.String(100), nullable=False)
     credit = db.Column(db.Float, nullable=False)
-    course_type = db.Column(db.String(20), nullable=False)  # Theory/Sessional/Viva
+    course_type = db.Column(db.String(50), nullable=False)  # Theory/Sessional/Viva/Dissertation Proposal (PG), etc.
     category = db.Column(db.String(20), nullable=False, default='ug') # UG/PG
     core_optional = db.Column(db.String(20), nullable=True)  # Core/Optional
     syllabus_year = db.Column(db.String(20), nullable=True)  # Syllabus Year

@@ -351,38 +351,38 @@ html {
 
 {% block content %}
 <div class="dashboard-wrapper">
-    <div class="container">
+<div class="container">
         <div class="dashboard-header">
-            <h1>Routine Management Dashboard</h1>
-            <p>Manage all aspects of the academic routine from here.</p>
-        </div>
+        <h1>Routine Management Dashboard</h1>
+        <p>Manage all aspects of the academic routine from here.</p>
+    </div>
 
-        <div class="row g-3 g-md-4">
-            {% if can_edit %}
-            <div class="col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3">
-                <a href="{{ url_for('routine_management.manage_rooms') }}" class="text-decoration-none" aria-label="Manage Rooms">
+    <div class="row g-3 g-md-4">
+        {% if can_edit %}
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3">
+            <a href="{{ url_for('routine_management.manage_rooms') }}" class="text-decoration-none" aria-label="Manage Rooms">
                     <div class="dashboard-card text-center h-100 card-yellow">
-                        <div class="icon-circle">
-                            <i class="fas fa-door-open"></i>
-                        </div>
-                        <h5 class="mb-1">Manage Rooms</h5>
-                        <p class="text-muted small mb-0">Add, view, and manage classrooms and labs.</p>
+                    <div class="icon-circle">
+                        <i class="fas fa-door-open"></i>
                     </div>
-                </a>
-            </div>
-            {% endif %}
-            <div class="{% if can_edit %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% else %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% endif %}">
-                <a href="{{ url_for('routine_management.generate_routine') }}" class="text-decoration-none" aria-label="Generate Routine">
+                    <h5 class="mb-1">Manage Rooms</h5>
+                    <p class="text-muted small mb-0">Add, view, and manage classrooms and labs.</p>
+                </div>
+            </a>
+        </div>
+        {% endif %}
+        <div class="{% if can_edit %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% else %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% endif %}">
+            <a href="{{ url_for('routine_management.generate_routine') }}" class="text-decoration-none" aria-label="Generate Routine">
                     <div class="dashboard-card text-center h-100 card-cyan">
-                        <div class="icon-circle">
-                            <i class="fas fa-calendar-check"></i>
-                        </div>
-                        <h5 class="mb-1">Generate Routine</h5>
-                        <p class="text-muted small mb-0">Create and publish the final class routine. Course and teacher information will be loaded from curriculum.</p>
+                    <div class="icon-circle">
+                        <i class="fas fa-calendar-check"></i>
                     </div>
-                </a>
-            </div>
+                    <h5 class="mb-1">Generate Routine</h5>
+                    <p class="text-muted small mb-0">Create and publish the final class routine. Course and teacher information will be loaded from curriculum.</p>
+                </div>
+            </a>
         </div>
     </div>
 </div>
-{% endblock %}
+</div>
+{% endblock %} 
