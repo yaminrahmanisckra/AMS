@@ -2810,10 +2810,13 @@ def add_marks(session_id):
                         
                         # Sync Part A and Part B from Exam Paper Evaluation (for Theory subjects)
                         # This is independent of ClassManagement, so always try to sync
+                        current_app.logger.info(f'🔍 Checking Part A/B sync for student {student.student_id}: subject_type="{selected_subject.subject_type}"')
                         if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                            current_app.logger.info(f'✅ Subject type is Theory, proceeding with Part A/B sync for student {student.student_id}')
                             try:
                                 from blueprints.class_management.models import ExamPaperEvaluation
                                 import json
+                                current_app.logger.info(f'🔍 Looking for ExamPaperEvaluation: course_code="{selected_subject.code}", course_name="{selected_subject.name}"')
                                 
                                 # Find Exam Paper Evaluation entry for this course
                                 exam_entry = ExamPaperEvaluation.query.filter_by(
@@ -2821,12 +2824,21 @@ def add_marks(session_id):
                                     archived=False
                                 ).first()
                                 
+                                if exam_entry:
+                                    current_app.logger.info(f'✅ Found ExamPaperEvaluation by course_code: ID={exam_entry.id}, course_code="{exam_entry.course_code}", course_name="{exam_entry.course_name}"')
+                                else:
+                                    current_app.logger.info(f'⚠️ No ExamPaperEvaluation found by course_code="{selected_subject.code}", trying course_name...')
+                                
                                 # If not found, try searching by course name
                                 if not exam_entry:
                                     exam_entry = ExamPaperEvaluation.query.filter(
                                         ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
                                         ExamPaperEvaluation.archived == False
                                     ).first()
+                                    if exam_entry:
+                                        current_app.logger.info(f'✅ Found ExamPaperEvaluation by course_name: ID={exam_entry.id}, course_code="{exam_entry.course_code}", course_name="{exam_entry.course_name}"')
+                                    else:
+                                        current_app.logger.warning(f'⚠️ No ExamPaperEvaluation found by course_name="{selected_subject.name}"')
                                 
                                 if exam_entry and exam_entry.marks_data:
                                     current_app.logger.info(f'🔍 Found ExamPaperEvaluation entry for course {selected_subject.code} (ID: {exam_entry.id})')
@@ -3035,9 +3047,11 @@ def add_marks(session_id):
                                     if not exam_entry:
                                         current_app.logger.warning(f'⚠️ No ExamPaperEvaluation entry found for course {selected_subject.code} (archived=False)')
                                     elif not exam_entry.marks_data:
-                                        current_app.logger.warning(f'⚠️ ExamPaperEvaluation entry found but marks_data is empty for course {selected_subject.code}')
+                                        current_app.logger.warning(f'⚠️ ExamPaperEvaluation entry found (ID={exam_entry.id}) but marks_data is empty for course {selected_subject.code}')
                             except Exception as e:
-                                current_app.logger.error(f"Error fetching exam marks: {e}", exc_info=True)
+                                current_app.logger.error(f"❌ Error fetching exam marks for student {student.student_id}: {e}", exc_info=True)
+                        else:
+                            current_app.logger.info(f'⏭️ Skipping Part A/B sync: subject_type="{selected_subject.subject_type}" is not Theory')
                         
                         # Commit all sync changes at once
                         if needs_update:
