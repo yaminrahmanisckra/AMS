@@ -2098,6 +2098,51 @@ def add_marks(session_id):
             # Get all RStudents in this session
             all_rstudents = RStudent.query.filter_by(session_id=session_id).all()
             student_id_to_rstudent_id = {rs.student_id: rs.id for rs in all_rstudents}
+            existing_student_ids = set(student_id_to_rstudent_id.keys())
+            
+            # Get ALL registrations for this course_code first (to find missing RStudents)
+            all_registrations = StudentCourseRegistration.query.filter(
+                StudentCourseRegistration.course_code == selected_subject.code,
+                StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
+            ).all()
+            
+            # Auto-create RStudent records for registered students who don't exist yet
+            students_to_create = []
+            for reg in all_registrations:
+                # Get StudentProfile to get student_id (public ID)
+                student_profile = StudentProfile.query.get(reg.student_id)
+                if not student_profile:
+                    current_app.logger.warning(f'StudentProfile not found for registration: reg.student_id={reg.student_id}, course_code={reg.course_code}')
+                    continue
+                
+                # Check if RStudent already exists for this session
+                if student_profile.student_id not in existing_student_ids:
+                    # Create new RStudent record
+                    r_student = RStudent(
+                        student_id=student_profile.student_id,
+                        name=student_profile.name,
+                        session_id=session_id,
+                        year=session.year if session.year else None,
+                        discipline=None,
+                        school=None
+                    )
+                    students_to_create.append(r_student)
+                    existing_student_ids.add(student_profile.student_id)
+                    current_app.logger.debug(f'Auto-creating RStudent: student_id={student_profile.student_id}, name={student_profile.name}')
+            
+            # Bulk create missing RStudent records
+            if students_to_create:
+                try:
+                    db.session.bulk_save_objects(students_to_create)
+                    db.session.commit()
+                    current_app.logger.info(f'Auto-created {len(students_to_create)} RStudent records for session {session_id}')
+                    
+                    # Refresh the mapping after creating new students
+                    all_rstudents = RStudent.query.filter_by(session_id=session_id).all()
+                    student_id_to_rstudent_id = {rs.student_id: rs.id for rs in all_rstudents}
+                except Exception as e:
+                    current_app.logger.error(f'Error auto-creating RStudent records: {e}', exc_info=True)
+                    db.session.rollback()
             
             # Get Student profiles for these student_ids
             student_profiles = StudentProfile.query.filter(
