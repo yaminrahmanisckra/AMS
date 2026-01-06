@@ -2264,6 +2264,11 @@ def add_marks(session_id):
         for student in students:
             mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
             
+            if mark:
+                current_app.logger.info(f'Existing mark found for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}, part_a={mark.part_a}, part_b={mark.part_b}, attendance_manual={mark.attendance_manual}')
+            else:
+                current_app.logger.info(f'No existing mark for student {student.student_id}, will create new mark')
+            
             # If mark doesn't exist, try to auto-populate from Class Management
             if not mark:
                 current_app.logger.debug(f'Result Management: No existing mark found for student {student.student_id}, attempting auto-populate')
@@ -2313,6 +2318,7 @@ def add_marks(session_id):
                         if class_student:
                             # Create new RMark and auto-populate from Class Management
                             mark = RMark(student_id=student.id, subject_id=selected_subject.id)
+                            current_app.logger.info(f'Creating new mark for student {student.student_id}, class_student found: assessment_total_40={class_student.assessment_total_40}, assessment_total={class_student.assessment_total}')
                             
                             # Import attendance calculation functions from Class Management
                             # Only auto-populate if attendance_manual is False or None (not manually entered)
@@ -2322,22 +2328,27 @@ def add_marks(session_id):
                                     
                                     # Build attendance summary for the session (same as Class Management uses)
                                     attendance_summary = _build_attendance_summary(class_session)
+                                    current_app.logger.debug(f'Built attendance summary for class_session {class_session.id}, total_classes={attendance_summary.get("total_classes", 0)}')
                                     
                                     # Get student's attendance data using student_id (public ID)
                                     # The summary uses student_id (public) as key, not database ID
                                     student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                    current_app.logger.debug(f'Student attendance data for {student.student_id}: {student_attendance}')
                                     
                                     if student_attendance and 'marks' in student_attendance:
                                         # Get marks directly from the summary (already calculated by Class Management)
                                         attendance_marks = student_attendance.get('marks', 0)
+                                        current_app.logger.info(f'Found attendance marks for student {student.student_id}: {attendance_marks}')
                                         if attendance_marks is not None:
                                             mark.attendance = float(attendance_marks)
+                                            current_app.logger.info(f'Set attendance={mark.attendance} for student {student.student_id}')
                                         else:
                                             mark.attendance = None
+                                            current_app.logger.warning(f'Attendance marks is None for student {student.student_id}')
                                     else:
                                         # If no attendance data found, set to None
                                         mark.attendance = None
-                                        current_app.logger.debug(f"No attendance data found for student {student.student_id} in session {class_session.id}")
+                                        current_app.logger.warning(f"No attendance data found for student {student.student_id} in session {class_session.id}. student_attendance={student_attendance}")
                                 except ImportError as e:
                                     # If import fails, log warning
                                     current_app.logger.warning(f"Could not import _build_attendance_summary: {e}")
@@ -2350,9 +2361,11 @@ def add_marks(session_id):
                             if class_student.assessment_total_40 is not None:
                                 # PG: Already rounded in assessment calculation
                                 mark.continuous_assessment = float(class_student.assessment_total_40)
+                                current_app.logger.info(f'Set continuous_assessment={mark.continuous_assessment} from assessment_total_40 for student {student.student_id}')
                             elif class_student.assessment_total is not None:
                                 # assessment_total might be out of 30, convert to out of 40 if needed
                                 assessment_total = float(class_student.assessment_total)
+                                current_app.logger.info(f'Found assessment_total={assessment_total} for student {student.student_id}')
                                 # If it's already out of 40, use as is; otherwise scale it
                                 if assessment_total <= 40:
                                     # UG: Round for result generation
@@ -2360,8 +2373,10 @@ def add_marks(session_id):
                                 else:
                                     # Scale from 30 to 40 if needed, then round for result generation
                                     mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                current_app.logger.info(f'Set continuous_assessment={mark.continuous_assessment} for student {student.student_id}')
                             else:
                                 mark.continuous_assessment = None
+                                current_app.logger.warning(f'No assessment data found for student {student.student_id}: assessment_total_40={class_student.assessment_total_40}, assessment_total={class_student.assessment_total}')
                             
                             # Get Section A and B marks from Exam Paper Evaluation
                             try:
@@ -2713,17 +2728,25 @@ def add_marks(session_id):
                             # Sync attendance if not manually entered and (None or 0.0)
                             # 0.0 might be a default/placeholder value that should be replaced
                             if not mark.attendance_manual and (mark.attendance is None or mark.attendance == 0.0):
+                                current_app.logger.info(f'Syncing attendance for student {student.student_id}: current_attendance={mark.attendance}, attendance_manual={mark.attendance_manual}')
                                 try:
                                     attendance_summary = _build_attendance_summary(class_session)
+                                    current_app.logger.debug(f'Built attendance summary for sync: class_session {class_session.id}, total_classes={attendance_summary.get("total_classes", 0)}')
                                     student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                    current_app.logger.debug(f'Student attendance data for sync {student.student_id}: {student_attendance}')
                                     
                                     if student_attendance and 'marks' in student_attendance:
                                         attendance_marks = student_attendance.get('marks', 0)
+                                        current_app.logger.info(f'Found attendance marks for sync {student.student_id}: {attendance_marks}')
                                         # Allow 0 attendance to be synced (remove > 0 check)
                                         if attendance_marks is not None:
                                             mark.attendance = float(attendance_marks)
                                             needs_update = True
-                                            current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id}')
+                                            current_app.logger.info(f'✅ Synced attendance={mark.attendance} for student {student.student_id}')
+                                        else:
+                                            current_app.logger.warning(f'Attendance marks is None for student {student.student_id}')
+                                    else:
+                                        current_app.logger.warning(f'No attendance data in summary for student {student.student_id}: student_attendance={student_attendance}')
                                 except Exception as e:
                                     current_app.logger.error(f"Error syncing attendance for student {student.student_id}: {e}", exc_info=True)
                             
@@ -2757,20 +2780,26 @@ def add_marks(session_id):
                             # Sync continuous assessment if None (for Theory subjects)
                             if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
                                 if mark.continuous_assessment is None:
+                                    current_app.logger.info(f'Syncing continuous_assessment for student {student.student_id}: current_assessment={mark.continuous_assessment}')
                                     if class_student:
+                                        current_app.logger.info(f'class_student found: assessment_total_40={class_student.assessment_total_40}, assessment_total={class_student.assessment_total}')
                                         if class_student.assessment_total_40 is not None:
                                             mark.continuous_assessment = float(class_student.assessment_total_40)
                                             needs_update = True
-                                            current_app.logger.debug(f'Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id}')
+                                            current_app.logger.info(f'✅ Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id}')
                                         elif class_student.assessment_total is not None:
                                             assessment_total = float(class_student.assessment_total)
+                                            current_app.logger.info(f'Found assessment_total={assessment_total} for student {student.student_id}')
                                             if assessment_total <= 40:
                                                 mark.continuous_assessment = round(assessment_total)
                                             else:
                                                 mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
                                             needs_update = True
-                                            current_app.logger.debug(f'Synced assessment_total={mark.continuous_assessment} for student {student.student_id}')
+                                            current_app.logger.info(f'✅ Synced assessment_total={mark.continuous_assessment} for student {student.student_id}')
+                                        else:
+                                            current_app.logger.warning(f'No assessment data in class_student for student {student.student_id}')
                                     else:
+                                        current_app.logger.warning(f'class_student not found in primary session for student {student.student_id}')
                                         # Try to find student in any Class Management session for this course
                                         alternative_class_student = ClassStudent.query.join(
                                             Session, ClassStudent.session_id == Session.id
@@ -2780,10 +2809,11 @@ def add_marks(session_id):
                                         ).first()
                                         
                                         if alternative_class_student:
+                                            current_app.logger.info(f'Found alternative_class_student: assessment_total_40={alternative_class_student.assessment_total_40}, assessment_total={alternative_class_student.assessment_total}')
                                             if alternative_class_student.assessment_total_40 is not None:
                                                 mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
                                                 needs_update = True
-                                                current_app.logger.debug(f'Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id} (from alternative session)')
+                                                current_app.logger.info(f'✅ Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id} (from alternative session)')
                                             elif alternative_class_student.assessment_total is not None:
                                                 assessment_total = float(alternative_class_student.assessment_total)
                                                 if assessment_total <= 40:
@@ -2791,7 +2821,9 @@ def add_marks(session_id):
                                                 else:
                                                     mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
                                                 needs_update = True
-                                                current_app.logger.debug(f'Synced assessment_total={mark.continuous_assessment} for student {student.student_id} (from alternative session)')
+                                                current_app.logger.info(f'✅ Synced assessment_total={mark.continuous_assessment} for student {student.student_id} (from alternative session)')
+                                        else:
+                                            current_app.logger.warning(f'No alternative_class_student found for student {student.student_id}')
                             
                             # Commit sync changes only if there are updates
                             if needs_update:
