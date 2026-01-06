@@ -1137,15 +1137,13 @@ def refresh_marks(session_id):
                     # Continue even if Class Management import fails
                 
                 # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
-                # This should be done for ALL students, regardless of class_session or class_student existence
-                # This is a SEPARATE try block, independent of Class Management
+                # SIMPLE DIRECT APPROACH - No complex logic, just get the data
                 if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
                     try:
                         from blueprints.class_management.models import ExamPaperEvaluation
                         import json
                         
-                        current_app.logger.info(f'🔄 Refresh: Syncing Part A/B for student {student.student_id}, course {selected_subject.code}')
-                        
+                        # Find ExamPaperEvaluation - try course_code first, then course_name
                         exam_entry = ExamPaperEvaluation.query.filter_by(
                             course_code=selected_subject.code,
                             archived=False
@@ -1157,144 +1155,123 @@ def refresh_marks(session_id):
                                 ExamPaperEvaluation.archived == False
                             ).first()
                         
-                        if exam_entry:
-                            current_app.logger.info(f'✅ Refresh: Found ExamPaperEvaluation ID={exam_entry.id} for course {selected_subject.code}')
-                        else:
-                            current_app.logger.warning(f'⚠️ Refresh: No ExamPaperEvaluation found for course {selected_subject.code}')
-                        
                         if exam_entry and exam_entry.marks_data:
                             try:
-                                exam_marks = json.loads(exam_entry.marks_data)
-                                questions = exam_marks.get('questions', [])
-                                rows = exam_marks.get('rows', [])
+                                exam_data = json.loads(exam_entry.marks_data)
+                                questions = exam_data.get('questions', [])
+                                rows = exam_data.get('rows', [])
                                 
-                                current_app.logger.info(f'📊 Refresh: Exam data - {len(questions)} questions, {len(rows)} student rows')
-                                current_app.logger.info(f'📋 Refresh: Question labels: {[q.get("label", "") for q in questions]}')
-                                
+                                # Find student in rows - try both student_id and code
                                 student_row = None
-                                for row in rows:
-                                    row_student_id = str(row.get('student_id', '')).strip()
-                                    row_code = str(row.get('code', '')).strip()
-                                    student_id_str = str(student.student_id).strip()
-                                    
-                                    current_app.logger.debug(f'🔍 Refresh: Comparing - row_student_id="{row_student_id}", row_code="{row_code}", student_id="{student_id_str}"')
-                                    
-                                    if row_student_id == student_id_str or row_code == student_id_str:
-                                        student_row = row
-                                        current_app.logger.info(f'✅ Refresh: Found student row for {student.student_id}')
-                                        current_app.logger.info(f'📝 Refresh: Student row data: {student_row}')
-                                        break
+                                student_id_str = str(student.student_id).strip()
                                 
-                                if not student_row:
-                                    current_app.logger.warning(f'⚠️ Refresh: Student row NOT found for student {student.student_id} in {len(rows)} rows')
+                                for row in rows:
+                                    row_id = str(row.get('student_id', '')).strip()
+                                    row_code = str(row.get('code', '')).strip()
+                                    
+                                    if row_id == student_id_str or row_code == student_id_str:
+                                        student_row = row
+                                        break
                                 
                                 if student_row:
                                     marks_dict = student_row.get('marks', {})
-                                    section_a_found = False
-                                    section_b_found = False
                                     
-                                    # Check question labels for Section A/B
+                                    # SIMPLE APPROACH: Look for ANY key containing "a" or "b" or "part" or "section"
+                                    part_a_value = None
+                                    part_b_value = None
+                                    
+                                    # First, try to find by question labels
                                     for question in questions:
-                                        question_label = question.get('label', '').lower()
+                                        q_label = question.get('label', '')
+                                        q_label_lower = q_label.lower()
                                         
-                                        if ('section a' in question_label or 'part a' in question_label) and not section_a_found:
-                                            question_marks = marks_dict.get(question.get('label', ''), {})
-                                            if isinstance(question_marks, dict):
-                                                section_a_total = sum(float(v) for k, v in question_marks.items() if v and str(v).strip())
-                                                if section_a_total > 0:
-                                                    mark.part_a = min(25.0, section_a_total)
-                                                    section_a_found = True
-                                                    current_app.logger.info(f'✅ Refresh: Set part_a={mark.part_a} for student {student.student_id}')
-                                            elif isinstance(question_marks, (int, float)):
-                                                mark.part_a = min(25.0, float(question_marks))
-                                                section_a_found = True
-                                                current_app.logger.info(f'✅ Refresh: Set part_a={mark.part_a} for student {student.student_id}')
+                                        if ('a' in q_label_lower or 'part a' in q_label_lower or 'section a' in q_label_lower) and not part_a_value:
+                                            q_marks = marks_dict.get(q_label, {})
+                                            if isinstance(q_marks, dict):
+                                                total = sum(float(v) for k, v in q_marks.items() if v and str(v).strip() and str(v).strip() != '')
+                                                if total > 0:
+                                                    part_a_value = min(25.0, total)
+                                            elif isinstance(q_marks, (int, float)):
+                                                if q_marks > 0:
+                                                    part_a_value = min(25.0, float(q_marks))
                                         
-                                        elif ('section b' in question_label or 'part b' in question_label) and not section_b_found:
-                                            question_label_exact = question.get('label', '')
-                                            question_marks = marks_dict.get(question_label_exact, {})
-                                            current_app.logger.info(f'🔍 Refresh: Part B - question_label="{question_label_exact}", question_marks type={type(question_marks)}, value={question_marks}')
-                                            
-                                            if isinstance(question_marks, dict):
-                                                section_b_total = 0
-                                                for k, v in question_marks.items():
-                                                    try:
-                                                        if v and str(v).strip():
-                                                            section_b_total += float(v)
-                                                            current_app.logger.debug(f'  Refresh: Part B sub-part "{k}": {v} (total: {section_b_total})')
-                                                    except (ValueError, TypeError):
-                                                        pass
-                                                
-                                                if section_b_total > 0:
-                                                    mark.part_b = min(25.0, section_b_total)
-                                                    section_b_found = True
-                                                    current_app.logger.info(f'✅ Refresh: Set part_b={mark.part_b} for student {student.student_id} (from question "{question_label_exact}")')
-                                                else:
-                                                    current_app.logger.warning(f'⚠️ Refresh: Part B total is 0 for student {student.student_id}')
-                                            elif isinstance(question_marks, (int, float)):
-                                                mark.part_b = min(25.0, float(question_marks))
-                                                section_b_found = True
-                                                current_app.logger.info(f'✅ Refresh: Set part_b={mark.part_b} for student {student.student_id} (from question "{question_label_exact}")')
-                                            else:
-                                                current_app.logger.warning(f'⚠️ Refresh: Part B question_marks is not dict or number: {type(question_marks)} = {question_marks}')
+                                        if ('b' in q_label_lower or 'part b' in q_label_lower or 'section b' in q_label_lower) and not part_b_value:
+                                            q_marks = marks_dict.get(q_label, {})
+                                            if isinstance(q_marks, dict):
+                                                total = sum(float(v) for k, v in q_marks.items() if v and str(v).strip() and str(v).strip() != '')
+                                                if total > 0:
+                                                    part_b_value = min(25.0, total)
+                                            elif isinstance(q_marks, (int, float)):
+                                                if q_marks > 0:
+                                                    part_b_value = min(25.0, float(q_marks))
                                     
-                                    # Alternative patterns
-                                    if not section_a_found or not section_b_found:
-                                        for question_label, question_data in marks_dict.items():
-                                            q_label_lower = question_label.lower()
+                                    # If not found, try ALL keys in marks_dict
+                                    if not part_a_value or not part_b_value:
+                                        for key, value in marks_dict.items():
+                                            key_lower = key.lower()
                                             
-                                            if not section_a_found and ('section a' in q_label_lower or 'part a' in q_label_lower or 'a)' in q_label_lower):
-                                                if isinstance(question_data, dict):
-                                                    section_a_total = sum(float(v) for k, v in question_data.items() if v and str(v).strip())
-                                                    if section_a_total > 0:
-                                                        mark.part_a = min(25.0, section_a_total)
-                                                        section_a_found = True
-                                                        current_app.logger.info(f'✅ Refresh: Set part_a (alt)={mark.part_a} for student {student.student_id}')
-                                                elif isinstance(question_data, (int, float, str)):
+                                            if not part_a_value and ('a' in key_lower or 'part a' in key_lower or 'section a' in key_lower or key_lower.endswith(' a)')):
+                                                if isinstance(value, dict):
+                                                    total = sum(float(v) for k, v in value.items() if v and str(v).strip() and str(v).strip() != '')
+                                                    if total > 0:
+                                                        part_a_value = min(25.0, total)
+                                                elif isinstance(value, (int, float, str)):
                                                     try:
-                                                        val = float(question_data)
+                                                        val = float(value)
                                                         if val > 0:
-                                                            mark.part_a = min(25.0, val)
-                                                            section_a_found = True
-                                                            current_app.logger.info(f'✅ Refresh: Set part_a (alt)={mark.part_a} for student {student.student_id}')
-                                                    except (ValueError, TypeError):
+                                                            part_a_value = min(25.0, val)
+                                                    except:
                                                         pass
                                             
-                                            if not section_b_found and ('section b' in q_label_lower or 'part b' in q_label_lower or 'b)' in q_label_lower):
-                                                if isinstance(question_data, dict):
-                                                    section_b_total = sum(float(v) for k, v in question_data.items() if v and str(v).strip())
-                                                    if section_b_total > 0:
-                                                        mark.part_b = min(25.0, section_b_total)
-                                                        section_b_found = True
-                                                        current_app.logger.info(f'✅ Refresh: Set part_b (alt)={mark.part_b} for student {student.student_id}')
-                                                elif isinstance(question_data, (int, float, str)):
+                                            if not part_b_value and ('b' in key_lower or 'part b' in key_lower or 'section b' in key_lower or key_lower.endswith(' b)')):
+                                                if isinstance(value, dict):
+                                                    total = sum(float(v) for k, v in value.items() if v and str(v).strip() and str(v).strip() != '')
+                                                    if total > 0:
+                                                        part_b_value = min(25.0, total)
+                                                elif isinstance(value, (int, float, str)):
                                                     try:
-                                                        val = float(question_data)
+                                                        val = float(value)
                                                         if val > 0:
-                                                            mark.part_b = min(25.0, val)
-                                                            section_b_found = True
-                                                            current_app.logger.info(f'✅ Refresh: Set part_b (alt)={mark.part_b} for student {student.student_id}')
-                                                    except (ValueError, TypeError):
+                                                            part_b_value = min(25.0, val)
+                                                    except:
                                                         pass
                                     
-                                    # If 2 questions and no sections found, split total
-                                    if not section_a_found and not section_b_found and len(questions) == 2:
-                                        total_marks_str = student_row.get('total', '')
-                                        if total_marks_str:
+                                    # If still not found and we have exactly 2 questions, split total
+                                    if not part_a_value and not part_b_value and len(questions) == 2:
+                                        total_str = student_row.get('total', '')
+                                        if total_str:
                                             try:
-                                                total = float(total_marks_str)
-                                                mark.part_a = total / 2
-                                                mark.part_b = total / 2
-                                                current_app.logger.info(f'✅ Refresh: Split total={total} into part_a={mark.part_a}, part_b={mark.part_b} for student {student.student_id}')
-                                            except (ValueError, TypeError):
+                                                total = float(total_str)
+                                                part_a_value = total / 2
+                                                part_b_value = total / 2
+                                            except:
                                                 pass
-                            except json.JSONDecodeError as e:
-                                current_app.logger.error(f"❌ Refresh: Error parsing exam marks JSON: {e}", exc_info=True)
+                                    
+                                    # SET THE VALUES
+                                    if part_a_value is not None:
+                                        mark.part_a = part_a_value
+                                        current_app.logger.info(f'✅ Set part_a={mark.part_a} for student {student.student_id}')
+                                    
+                                    if part_b_value is not None:
+                                        mark.part_b = part_b_value
+                                        current_app.logger.info(f'✅ Set part_b={mark.part_b} for student {student.student_id}')
+                                    
+                                    if part_a_value is None and part_b_value is None:
+                                        current_app.logger.warning(f'⚠️ Could not find Part A/B for student {student.student_id}. marks_dict keys: {list(marks_dict.keys())}')
+                                
+                                else:
+                                    current_app.logger.warning(f'⚠️ Student {student.student_id} not found in exam data rows')
+                            
                             except Exception as e:
-                                current_app.logger.error(f"❌ Refresh: Error processing exam marks: {e}", exc_info=True)
+                                current_app.logger.error(f'Error processing exam marks: {e}', exc_info=True)
                         else:
-                            if exam_entry and not exam_entry.marks_data:
-                                current_app.logger.warning(f'⚠️ Refresh: ExamPaperEvaluation found but marks_data is empty for course {selected_subject.code}')
+                            if not exam_entry:
+                                current_app.logger.warning(f'No ExamPaperEvaluation found for course {selected_subject.code}')
+                            elif not exam_entry.marks_data:
+                                current_app.logger.warning(f'ExamPaperEvaluation found but marks_data is empty')
+                    
+                    except Exception as e:
+                        current_app.logger.error(f'Error fetching exam marks: {e}', exc_info=True)
                     except Exception as e:
                         current_app.logger.error(f"❌ Refresh: Error fetching exam marks for student {student.student_id}: {e}", exc_info=True)
                 
