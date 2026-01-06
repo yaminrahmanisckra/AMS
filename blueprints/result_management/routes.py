@@ -969,6 +969,8 @@ def refresh_marks(session_id):
         }
         
         # Find registered students from Course Management
+        # Get ALL registrations for this course_code (regardless of year/term)
+        # This ensures students who deregistered and re-registered are still included
         if not student_profile_id_to_rstudent_id:
             students = []
         else:
@@ -977,12 +979,10 @@ def refresh_marks(session_id):
                 StudentCourseRegistration.course_code == selected_subject.code,
                 StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
             ]
-            if session.year:
-                course_filters.append(StudentCourseRegistration.year == session.year)
-            if session.term:
-                course_filters.append(StudentCourseRegistration.term == session.term)
             
+            # Get all registrations for this course_code
             registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
+            current_app.logger.debug(f'Refresh marks: Found {len(registered_regs)} total registrations for course_code={selected_subject.code}')
             
             # Map registration student_id (Student profile ID) back to RStudent.id
             registered_rstudent_ids = set()
@@ -993,6 +993,7 @@ def refresh_marks(session_id):
             
             if registered_rstudent_ids:
                 students = RStudent.query.filter(RStudent.id.in_(registered_rstudent_ids)).order_by(RStudent.student_id).all()
+                current_app.logger.debug(f'Refresh marks: Loaded {len(students)} students from {len(registered_regs)} registrations')
             else:
                 students = []
         
@@ -2123,20 +2124,18 @@ def add_marks(session_id):
                     StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
                 ]
                 
-                # Try exact match first (year + term)
-                registered_regs = None
-                if session.year and session.term:
-                    exact_filters = course_filters + [
-                        StudentCourseRegistration.year == session.year,
-                        StudentCourseRegistration.term == session.term
-                    ]
-                    registered_regs = StudentCourseRegistration.query.filter(*exact_filters).all()
-                    current_app.logger.debug(f'Exact match (year={session.year}, term={session.term}): {len(registered_regs)} registrations found')
+                # Get ALL registrations for this course_code (regardless of year/term)
+                # This ensures students who deregistered and re-registered are still included
+                registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
+                current_app.logger.debug(f'Found {len(registered_regs)} total registrations for course_code={selected_subject.code}')
                 
-                # Fallback: try without year/term if exact match found nothing
-                if not registered_regs or len(registered_regs) == 0:
-                    registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
-                    current_app.logger.debug(f'Fallback match (course_code only): {len(registered_regs)} registrations found')
+                # If we have year/term, prefer exact matches but don't exclude others
+                # This handles cases where students re-registered with different year/term
+                if session.year and session.term and registered_regs:
+                    # Count exact matches for logging
+                    exact_matches = [reg for reg in registered_regs 
+                                   if reg.year == session.year and reg.term == session.term]
+                    current_app.logger.debug(f'Exact match (year={session.year}, term={session.term}): {len(exact_matches)} out of {len(registered_regs)} registrations')
                 
                 # Map registration student_id (Student profile ID) back to RStudent.id
                 registered_rstudent_ids = set()
@@ -2145,11 +2144,11 @@ def add_marks(session_id):
                     if rstudent_id:
                         registered_rstudent_ids.add(rstudent_id)
                     else:
-                        current_app.logger.warning(f'Registration found but RStudent mapping failed: reg.student_id={reg.student_id}, course_code={reg.course_code}')
+                        current_app.logger.warning(f'Registration found but RStudent mapping failed: reg.student_id={reg.student_id}, course_code={reg.course_code}, status={reg.status}')
                 
                 if registered_rstudent_ids:
                     students = RStudent.query.filter(RStudent.id.in_(registered_rstudent_ids)).order_by(RStudent.student_id).all()
-                    current_app.logger.info(f'Loaded {len(students)} registered students for subject {selected_subject.code}')
+                    current_app.logger.info(f'Loaded {len(students)} registered students for subject {selected_subject.code} (from {len(registered_regs)} registrations)')
                 else:
                     # No registered students found for this subject
                     current_app.logger.warning(f'No registered students found for subject {selected_subject.code} (code={selected_subject.code}, session={session.name}/{session.year}/{session.term})')
@@ -2951,15 +2950,13 @@ def auto_save_marks(session_id):
         if not student_profile_id_to_rstudent_id:
             return jsonify({'success': False, 'message': 'No students found'}), 400
         
+        # Get ALL registrations for this course_code (regardless of year/term)
+        # This ensures students who deregistered and re-registered are still included
         course_filters = [
             StudentCourseRegistration.student_id.in_(student_profile_id_to_rstudent_id.keys()),
             StudentCourseRegistration.course_code == subject.code,
             StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
         ]
-        if session.year:
-            course_filters.append(StudentCourseRegistration.year == session.year)
-        if session.term:
-            course_filters.append(StudentCourseRegistration.term == session.term)
         
         registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
         registered_rstudent_ids = set()
