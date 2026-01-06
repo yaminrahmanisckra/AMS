@@ -2863,8 +2863,40 @@ def add_marks(session_id):
             
             # Add mark to marks_data (even if None) to ensure all registered students are shown
             # Template will handle None marks by showing empty input fields
+            # Always add mark to marks_data, even if sync failed
+            if mark is None:
+                # If mark is None for some reason, try to load it from database first
+                current_app.logger.warning(f'Mark is None for student {student.student_id}, attempting to load from database')
+                mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
+                if mark is None:
+                    # Still None - create an empty one
+                    current_app.logger.warning(f'Mark still None after query, creating new mark for student {student.student_id}')
+                    mark = RMark(student_id=student.id, subject_id=selected_subject.id)
+                    db.session.add(mark)
+                    try:
+                        db.session.commit()
+                    except Exception as e:
+                        current_app.logger.error(f'Error creating empty mark for student {student.student_id}: {e}', exc_info=True)
+                        db.session.rollback()
+            
             marks_data[student.id] = mark
             # registrations_data is already populated above from StudentCourseRegistration
+        
+        # Final safety check: Ensure all students have marks in marks_data
+        if selected_subject:
+            for student in students:
+                if student.id not in marks_data:
+                    current_app.logger.warning(f'Student {student.student_id} missing from marks_data, loading from database')
+                    mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
+                    if mark is None:
+                        mark = RMark(student_id=student.id, subject_id=selected_subject.id)
+                        db.session.add(mark)
+                        try:
+                            db.session.commit()
+                        except Exception as e:
+                            current_app.logger.error(f'Error creating mark for missing student {student.student_id}: {e}', exc_info=True)
+                            db.session.rollback()
+                    marks_data[student.id] = mark
 
     if request.method == 'POST':
         subject_id = request.form.get('subject_id', type=int)
