@@ -3378,11 +3378,11 @@ def auto_save_marks(session_id):
                     existing_mark.part_a = float(student_marks.get('part_a')) if student_marks.get('part_a') else None
                     existing_mark.part_b = float(student_marks.get('part_b')) if student_marks.get('part_b') else None
                     # Direct addition - don't use filter(None) as it skips 0 values
-                attendance = existing_mark.attendance if existing_mark.attendance is not None else 0
-                ca = existing_mark.continuous_assessment if existing_mark.continuous_assessment is not None else 0
-                part_a = existing_mark.part_a if existing_mark.part_a is not None else 0
-                part_b = existing_mark.part_b if existing_mark.part_b is not None else 0
-                total_marks = attendance + ca + part_a + part_b
+                    attendance = existing_mark.attendance if existing_mark.attendance is not None else 0
+                    ca = existing_mark.continuous_assessment if existing_mark.continuous_assessment is not None else 0
+                    part_a = existing_mark.part_a if existing_mark.part_a is not None else 0
+                    part_b = existing_mark.part_b if existing_mark.part_b is not None else 0
+                    total_marks = attendance + ca + part_a + part_b
                 
                 elif subject.subject_type == 'Sessional':
                     if student_marks.get('attendance'):
