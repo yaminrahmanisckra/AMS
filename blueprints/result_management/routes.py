@@ -4741,11 +4741,7 @@ def download_all_student_results(session_id):
             current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
             flash(f'Error creating zip file: {str(e)}', 'danger')
             return redirect(url_for('result_management.view_results', session_id=session_id))
-    except Exception as e:
-        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
-        flash(f'Error: {str(e)}', 'danger')
-        return redirect(url_for('result_management.view_results', session_id=session_id))
-
+        
         zip_buffer.seek(0)
         
         # Enhanced headers for cPanel compatibility
@@ -4775,6 +4771,10 @@ def download_all_student_results(session_id):
         
         current_app.logger.info(f'✅ Returning zip file: {filename}, size: {len(zip_data)} bytes')
         return response
+    except Exception as e:
+        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
+        flash(f'Error: {str(e)}', 'danger')
+        return redirect(url_for('result_management.view_results', session_id=session_id))
 
 @result_management_bp.route('/download/all_course_results/<int:session_id>')
 @login_required
@@ -4850,11 +4850,7 @@ def download_all_course_results(session_id):
             current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
             flash(f'Error creating zip file: {str(e)}', 'danger')
             return redirect(url_for('result_management.view_results', session_id=session_id))
-    except Exception as e:
-        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
-        flash(f'Error: {str(e)}', 'danger')
-        return redirect(url_for('result_management.view_results', session_id=session_id))
-
+        
         zip_buffer.seek(0)
         
         # Enhanced headers for cPanel compatibility
@@ -4884,3 +4880,7 @@ def download_all_course_results(session_id):
         
         current_app.logger.info(f'✅ Returning zip file: {filename}, size: {len(zip_data)} bytes')
         return response
+    except Exception as e:
+        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
+        flash(f'Error: {str(e)}', 'danger')
+        return redirect(url_for('result_management.view_results', session_id=session_id))
