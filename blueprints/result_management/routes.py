@@ -2952,6 +2952,13 @@ def add_marks(session_id):
         flash(f'Marks for {subject.name} saved successfully!', 'success')
         return redirect(url_for('result_management.add_marks', session_id=session_id, subject_id=subject.id))
 
+    # Debug logging before rendering
+    current_app.logger.info(f'Rendering add_marks template: session_id={session_id}, subjects_count={len(subjects)}, students_count={len(students)}')
+    if subjects:
+        current_app.logger.debug(f'Subjects being passed to template: {[s.code for s in subjects[:5]]}...')
+    else:
+        current_app.logger.warning(f'No subjects found for session {session_id} - dropdown will be empty!')
+    
     return render_template('rm_add_marks.html', 
                            session=session, 
                            subjects=subjects,
