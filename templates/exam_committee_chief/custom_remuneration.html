@@ -3426,7 +3426,7 @@ function addClassTestRow() {
                 <option value="">Select Course</option>
             </select>
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this); updateTableCounts();"></td>
+        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
         <td>
             <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                 <option value="">Select Teacher</option>
