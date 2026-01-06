@@ -4676,8 +4676,8 @@ def download_all_student_results(session_id):
         zip_buffer = BytesIO()
         pdf_count = 0
         error_count = 0
-    
-    try:
+        
+        try:
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
             for student in students:
                 try:
