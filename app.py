@@ -8750,10 +8750,14 @@ def create_app():
             
             try:
                 with open(log_path, 'a') as f:
-                    f.write(json.dumps({'location':'app.py:8720','message':'Returning result','data':result,'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'R'})+'\n')
+                    f.write(json.dumps({'location':'app.py:8732','message':'Returning result','data':result,'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'R'})+'\n')
             except: pass
             
             return jsonify(result)
+            
+        except Exception as e:
+            current_app.logger.error(f'Error fetching class test info: {str(e)}', exc_info=True)
+            return jsonify({'success': False, 'message': 'Failed to fetch class test info'}), 500
             
         except Exception as e:
             current_app.logger.error(f'Error fetching class test info: {str(e)}', exc_info=True)
