@@ -4691,9 +4691,11 @@ def download_all_student_results(session_id):
                     results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
                     results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
                     results_query = results_query.all()
+                    
+                    current_app.logger.info(f'📊 Student {student.student_id}: Found {len(results_query)} result records')
 
                     if not results_query:
-                        current_app.logger.warning(f'No results found for student {student.student_id}')
+                        current_app.logger.warning(f'⚠️ No results found for student {student.student_id} (no RMark records with RCourseRegistration)')
                         continue
 
                     total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
@@ -4813,8 +4815,10 @@ def download_all_course_results(session_id):
                         .filter(RMark.subject_id == subject.id)\
                         .order_by(RStudent.student_id).all()
 
+                    current_app.logger.info(f'📊 Subject {subject.code}: Found {len(results)} result records')
+                    
                     if not results:
-                        current_app.logger.warning(f'No results found for subject {subject.code}')
+                        current_app.logger.warning(f'⚠️ No results found for subject {subject.code} (no RMark records with RCourseRegistration)')
                         continue
 
                     pdf_buffer = BytesIO()
