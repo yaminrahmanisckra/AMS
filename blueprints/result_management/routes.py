@@ -2719,12 +2719,40 @@ def add_marks(session_id):
                                     
                                     if student_attendance and 'marks' in student_attendance:
                                         attendance_marks = student_attendance.get('marks', 0)
-                                        if attendance_marks is not None and attendance_marks > 0:
+                                        # Allow 0 attendance to be synced (remove > 0 check)
+                                        if attendance_marks is not None:
                                             mark.attendance = float(attendance_marks)
                                             needs_update = True
                                             current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id}')
                                 except Exception as e:
                                     current_app.logger.error(f"Error syncing attendance for student {student.student_id}: {e}", exc_info=True)
+                            
+                            # Also try to sync attendance even if class_student not found in primary session
+                            if not mark.attendance_manual and (mark.attendance is None or mark.attendance == 0.0):
+                                if not class_student:
+                                    try:
+                                        # Try to find student in any Class Management session for this course
+                                        alternative_class_student = ClassStudent.query.join(
+                                            Session, ClassStudent.session_id == Session.id
+                                        ).filter(
+                                            Session.course_code == selected_subject.code,
+                                            ClassStudent.student_id == student.student_id
+                                        ).first()
+                                        
+                                        if alternative_class_student:
+                                            alt_session = Session.query.get(alternative_class_student.session_id)
+                                            if alt_session:
+                                                attendance_summary = _build_attendance_summary(alt_session)
+                                                student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
+                                                
+                                                if student_attendance and 'marks' in student_attendance:
+                                                    attendance_marks = student_attendance.get('marks', 0)
+                                                    if attendance_marks is not None:
+                                                        mark.attendance = float(attendance_marks)
+                                                        needs_update = True
+                                                        current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id} (from alternative session)')
+                                    except Exception as e:
+                                        current_app.logger.debug(f"Could not sync attendance from alternative session for student {student.student_id}: {e}")
                             
                             # Sync continuous assessment if None (for Theory subjects)
                             if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
@@ -2811,10 +2839,14 @@ def add_marks(session_id):
                                         
                                         if student_attendance and 'marks' in student_attendance:
                                             attendance_marks = student_attendance.get('marks', 0)
-                                            if attendance_marks is not None and attendance_marks > 0:
+                                            # Allow 0 attendance to be synced (remove > 0 check)
+                                            if attendance_marks is not None:
                                                 mark.attendance = float(attendance_marks)
-                                                db.session.commit()
+                                                needs_update = True
                                                 current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id} (no primary session)')
+                                    
+                                    if needs_update:
+                                        db.session.commit()
                                 except Exception as e:
                                     current_app.logger.debug(f"Could not sync attendance for student {student.student_id}: {e}")
                     except Exception as e:
