@@ -4679,7 +4679,7 @@ def download_all_student_results(session_id):
         
         try:
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for student in students:
+                for student in students:
                 try:
                     # Re-use logic from download_student_result
                     results_query = db.session.query(
@@ -4796,7 +4796,7 @@ def download_all_course_results(session_id):
         
         try:
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for subject in subjects:
+                for subject in subjects:
                 try:
                     base_columns = [
                         RStudent.student_id, RStudent.name, RMark.total_marks,
