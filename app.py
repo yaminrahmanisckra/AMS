@@ -8623,10 +8623,91 @@ def create_app():
             current_app.logger.error(f'Error fetching tabulators: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch tabulators'}), 500
 
+    def _count_finalized_registrations(course_code, academic_session, year, term):
+        """Helper function to count finalized StudentCourseRegistration records"""
+        from blueprints.course_management.models import StudentCourseRegistration
+        from sqlalchemy import func
+        
+        # Normalize course code (remove course name if present)
+        if ' - ' in course_code:
+            course_code = course_code.split(' - ', 1)[0].strip()
+        course_code = course_code.strip()
+        
+        # Normalize year/term labels (remove "Year"/"Term" suffix if present)
+        def normalize_label(label):
+            if not label:
+                return ''
+            label = str(label).strip()
+            for suffix in [' Year', ' Term', 'Year', 'Term']:
+                if label.lower().endswith(suffix.lower()):
+                    label = label[:-len(suffix)].strip()
+            return label
+        
+        normalized_year = normalize_label(year) if year else None
+        normalized_term = normalize_label(term) if term else None
+        
+        # Build query for finalized registrations
+        base_query = db.session.query(
+            func.count(func.distinct(StudentCourseRegistration.student_id))
+        ).filter(
+            StudentCourseRegistration.academic_session == academic_session,
+            StudentCourseRegistration.status == 'finalized'
+        )
+        
+        # Add year filter if provided
+        if normalized_year:
+            base_query = base_query.filter(StudentCourseRegistration.year == normalized_year)
+        
+        # Add term filter if provided
+        if normalized_term:
+            base_query = base_query.filter(StudentCourseRegistration.term == normalized_term)
+        
+        # Try multiple strategies for course code matching
+        count = 0
+        
+        # Strategy 1: Exact match
+        query1 = base_query.filter(StudentCourseRegistration.course_code == course_code)
+        count = query1.scalar() or 0
+        
+        # Strategy 2: Case-insensitive match
+        if count == 0:
+            query2 = base_query.filter(
+                func.lower(StudentCourseRegistration.course_code) == func.lower(course_code)
+            )
+            count = query2.scalar() or 0
+        
+        # Strategy 3: Partial match (course code contains)
+        if count == 0:
+            query3 = base_query.filter(
+                StudentCourseRegistration.course_code.like(f'%{course_code}%')
+            )
+            count = query3.scalar() or 0
+        
+        # Strategy 4: Match by numbers in course code
+        if count == 0:
+            import re
+            course_numbers = re.findall(r'\d+', course_code)
+            if course_numbers:
+                main_number = max(course_numbers, key=len)
+                if len(main_number) >= 4:
+                    query4 = base_query.filter(
+                        StudentCourseRegistration.course_code.like(f'%{main_number}%')
+                    )
+                    count = query4.scalar() or 0
+        
+        return count
+
     @app.route('/remuneration/api/class-test-info', methods=['GET'])
     @login_required
     def remuneration_get_class_test_info():
         """Get class test count and student count for a course"""
+        import json
+        import os
+        log_path = '/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log'
+        try:
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({'location':'app.py:8626','message':'API endpoint called','data':{'course_code':request.args.get('course_code'),'academic_session':request.args.get('academic_session'),'year':request.args.get('year'),'term':request.args.get('term'),'section':request.args.get('section')},'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'J'})+'\n')
+        except: pass
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
@@ -8637,113 +8718,42 @@ def create_app():
         term = request.args.get('term')
         section = request.args.get('section', '').strip().upper()
         
+        try:
+            with open(log_path, 'a') as f:
+                f.write(json.dumps({'location':'app.py:8640','message':'Parameters received','data':{'course_code':course_code,'academic_session':academic_session,'year':year,'term':term,'section':section},'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'K'})+'\n')
+        except: pass
+        
         if not course_code or not academic_session:
+            try:
+                with open(log_path, 'a') as f:
+                    f.write(json.dumps({'location':'app.py:8641','message':'Missing required params','data':{'has_course_code':bool(course_code),'has_academic_session':bool(academic_session)},'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'L'})+'\n')
+            except: pass
             return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
         
         try:
-            from blueprints.class_management.models import Teacher, Session, ClassStudent
-            from sqlalchemy import func, or_, case
+            import time
             
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-            if not teacher:
-                return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+            # Count finalized registrations for student count
+            student_count = _count_finalized_registrations(course_code, academic_session, year, term)
             
-            # Extract course code only
-            if ' - ' in course_code:
-                course_code = course_code.split(' - ', 1)[0].strip()
-            course_code = course_code.strip()
+            # Class test count: fixed rule based on section
+            if section in ['A', 'B']:
+                class_test_count = 2
+            else:
+                class_test_count = 4
             
-            # Find matching sessions
-            import re
-            course_numbers = re.findall(r'\d+', course_code)
-            
-            all_teacher_sessions = Session.query.filter(
-                Session.teacher_id == teacher.id,
-                Session.academic_session == academic_session
-            ).all()
-            
-            matched_sessions = []
-            for session in all_teacher_sessions:
-                if session.course_code == course_code:
-                    matched_sessions.append(session)
-                    continue
-                if session.course_code and course_code in session.course_code:
-                    matched_sessions.append(session)
-                    continue
-                if session.course_code and session.course_code in course_code:
-                    matched_sessions.append(session)
-                    continue
-                if session.course_code and course_numbers:
-                    session_numbers = re.findall(r'\d+', session.course_code)
-                    if any(num in session_numbers for num in course_numbers):
-                        matched_sessions.append(session)
-                        continue
-            
-            if not matched_sessions and len(all_teacher_sessions) == 1:
-                matched_sessions = all_teacher_sessions
-            
-            if matched_sessions:
-                session_ids = [s.id for s in matched_sessions]
-                
-                # Filter by section if provided
-                if section in ['A', 'B']:
-                    matched_sessions = [s for s in matched_sessions if 
-                                      (section == 'A' and s.course_scope in ['full', 'part_a']) or
-                                      (section == 'B' and s.course_scope in ['full', 'part_b'])]
-                    if matched_sessions:
-                        session_ids = [s.id for s in matched_sessions]
-                
-                # Count distinct students
-                student_count = db.session.query(
-                    func.count(func.distinct(ClassStudent.student_id))
-                ).filter(
-                    ClassStudent.session_id.in_(session_ids)
-                ).scalar() or 0
-                
-                # Count number of class tests (assessments with data)
-                # Count how many students have at least one assessment filled
-                class_test_count = 0
-                if student_count > 0:
-                    # Get all students for these sessions
-                    students = ClassStudent.query.filter(
-                        ClassStudent.session_id.in_(session_ids)
-                    ).all()
-                    
-                    # Count how many assessments have data across all students
-                    assessment_counts = {}
-                    for student in students:
-                        if student.assessment1 is not None:
-                            assessment_counts['assessment1'] = assessment_counts.get('assessment1', 0) + 1
-                        if student.assessment2 is not None:
-                            assessment_counts['assessment2'] = assessment_counts.get('assessment2', 0) + 1
-                        if student.assessment3 is not None:
-                            assessment_counts['assessment3'] = assessment_counts.get('assessment3', 0) + 1
-                        if student.assessment4 is not None:
-                            assessment_counts['assessment4'] = assessment_counts.get('assessment4', 0) + 1
-                    
-                    # Number of class tests = number of assessment columns with data
-                    class_test_count = len(assessment_counts)
-                    
-                    # If section is A or B, typically 2 class tests; if Full, typically 4
-                    if class_test_count == 0:
-                        if section in ['A', 'B']:
-                            class_test_count = 2
-                        elif section == 'FULL' or not section:
-                            class_test_count = 4
-                
-                return jsonify({
-                    'success': True,
-                    'class_test_count': class_test_count,
-                    'student_count': student_count
-                })
-            
-            # Fallback: return defaults
-            default_class_test_count = 2 if section in ['A', 'B'] else 4
-            return jsonify({
+            result = {
                 'success': True,
-                'class_test_count': default_class_test_count,
-                'student_count': 0
-            })
+                'class_test_count': class_test_count,
+                'student_count': student_count
+            }
+            
+            try:
+                with open(log_path, 'a') as f:
+                    f.write(json.dumps({'location':'app.py:8720','message':'Returning result','data':result,'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'R'})+'\n')
+            except: pass
+            
+            return jsonify(result)
             
         except Exception as e:
             current_app.logger.error(f'Error fetching class test info: {str(e)}', exc_info=True)
