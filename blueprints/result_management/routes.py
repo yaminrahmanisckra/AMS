@@ -3532,44 +3532,39 @@ def course_wise_result(session_id):
                     # Calculate total_marks based on subject type
                     total_marks = 0
                     if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                        # Sum all non-None values: attendance + continuous_assessment + part_a + part_b
-                        total_marks = sum(filter(None, [
-                            mark.attendance if mark.attendance is not None else 0,
-                            mark.continuous_assessment if mark.continuous_assessment is not None else 0,
-                            mark.part_a if mark.part_a is not None else 0,
-                            mark.part_b if mark.part_b is not None else 0
-                        ]))
+                        # Sum all values (None = 0): attendance + continuous_assessment + part_a + part_b
+                        # Don't use filter(None) because it skips 0 values too
+                        attendance = mark.attendance if mark.attendance is not None else 0
+                        ca = mark.continuous_assessment if mark.continuous_assessment is not None else 0
+                        part_a = mark.part_a if mark.part_a is not None else 0
+                        part_b = mark.part_b if mark.part_b is not None else 0
+                        total_marks = attendance + ca + part_a + part_b
                     elif selected_subject.subject_type == 'Sessional':
-                        total_marks = sum(filter(None, [
-                            mark.attendance if mark.attendance is not None else 0,
-                            mark.sessional_report if mark.sessional_report is not None else 0,
-                            mark.sessional_viva if mark.sessional_viva is not None else 0
-                        ]))
+                        attendance = mark.attendance if mark.attendance is not None else 0
+                        report = mark.sessional_report if mark.sessional_report is not None else 0
+                        viva = mark.sessional_viva if mark.sessional_viva is not None else 0
+                        total_marks = attendance + report + viva
                     elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
-                        total_marks = sum(filter(None, [
-                            mark.attendance if mark.attendance is not None else 0,
-                            mark.thesis_evaluation if mark.thesis_evaluation is not None else 0,
-                            mark.presentation if mark.presentation is not None else 0
-                        ]))
+                        attendance = mark.attendance if mark.attendance is not None else 0
+                        evaluation = mark.thesis_evaluation if mark.thesis_evaluation is not None else 0
+                        presentation = mark.presentation if mark.presentation is not None else 0
+                        total_marks = attendance + evaluation + presentation
                     elif selected_subject.subject_type == 'Dissertation':
                         if selected_subject.dissertation_type == 'Type1':
-                            total_marks = sum(filter(None, [
-                                mark.supervisor_assessment if mark.supervisor_assessment is not None else 0,
-                                mark.proposal_presentation if mark.proposal_presentation is not None else 0
-                            ]))
+                            supervisor = mark.supervisor_assessment if mark.supervisor_assessment is not None else 0
+                            proposal = mark.proposal_presentation if mark.proposal_presentation is not None else 0
+                            total_marks = supervisor + proposal
                         elif selected_subject.dissertation_type == 'Type2':
-                            total_marks = sum(filter(None, [
-                                mark.supervisor_assessment if mark.supervisor_assessment is not None else 0,
-                                mark.project_report if mark.project_report is not None else 0,
-                                mark.defense if mark.defense is not None else 0
-                            ]))
+                            supervisor = mark.supervisor_assessment if mark.supervisor_assessment is not None else 0
+                            report = mark.project_report if mark.project_report is not None else 0
+                            defense = mark.defense if mark.defense is not None else 0
+                            total_marks = supervisor + report + defense
                         else:
-                            total_marks = sum(filter(None, [
-                                mark.supervisor_assessment if mark.supervisor_assessment is not None else 0,
-                                mark.proposal_presentation if mark.proposal_presentation is not None else 0,
-                                mark.project_report if mark.project_report is not None else 0,
-                                mark.defense if mark.defense is not None else 0
-                            ]))
+                            supervisor = mark.supervisor_assessment if mark.supervisor_assessment is not None else 0
+                            proposal = mark.proposal_presentation if mark.proposal_presentation is not None else 0
+                            report = mark.project_report if mark.project_report is not None else 0
+                            defense = mark.defense if mark.defense is not None else 0
+                            total_marks = supervisor + proposal + report + defense
                     elif selected_subject.subject_type == 'Viva':
                         total_marks = mark.viva if mark.viva is not None else 0
                     
