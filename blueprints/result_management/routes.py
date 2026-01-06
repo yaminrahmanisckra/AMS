@@ -4733,10 +4733,10 @@ def download_all_student_results(session_id):
                             current_app.logger.error(f'❌ Empty PDF buffer for student {student.student_id}')
                             error_count += 1
                         
-                except Exception as e:
-                    current_app.logger.error(f'❌ Error generating PDF for student {student.student_id}: {e}', exc_info=True)
-                    error_count += 1
-                    continue
+                    except Exception as e:
+                        current_app.logger.error(f'❌ Error generating PDF for student {student.student_id}: {e}', exc_info=True)
+                        error_count += 1
+                        continue
         except Exception as e:
             current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
             flash(f'Error creating zip file: {str(e)}', 'danger')
@@ -4840,10 +4840,10 @@ def download_all_course_results(session_id):
                             current_app.logger.error(f'❌ Empty PDF buffer for course {subject.code}')
                             error_count += 1
                         
-                except Exception as e:
-                    current_app.logger.error(f'❌ Error generating PDF for course {subject.code}: {e}', exc_info=True)
-                    error_count += 1
-                    continue
+                    except Exception as e:
+                        current_app.logger.error(f'❌ Error generating PDF for course {subject.code}: {e}', exc_info=True)
+                        error_count += 1
+                        continue
         except Exception as e:
             current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
             flash(f'Error creating zip file: {str(e)}', 'danger')
