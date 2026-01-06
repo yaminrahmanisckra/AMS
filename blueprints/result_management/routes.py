@@ -4681,57 +4681,57 @@ def download_all_student_results(session_id):
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for student in students:
                     try:
-                    # Re-use logic from download_student_result
-                    results_query = db.session.query(
-                        RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
-                        RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-                    ).select_from(RMark)
-                    results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
-                    results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
-                    results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
-                    results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
-                    results_query = results_query.all()
-                    
-                    current_app.logger.info(f'📊 Student {student.student_id}: Found {len(results_query)} result records')
+                        # Re-use logic from download_student_result
+                        results_query = db.session.query(
+                            RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
+                            RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
+                        ).select_from(RMark)
+                        results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
+                        results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
+                        results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
+                        results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
+                        results_query = results_query.all()
+                        
+                        current_app.logger.info(f'📊 Student {student.student_id}: Found {len(results_query)} result records')
 
-                    if not results_query:
-                        current_app.logger.warning(f'⚠️ No results found for student {student.student_id} (no RMark records with RCourseRegistration)')
-                        continue
+                        if not results_query:
+                            current_app.logger.warning(f'⚠️ No results found for student {student.student_id} (no RMark records with RCourseRegistration)')
+                            continue
 
-                    total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
-                    processed_results = []
-                    for res in results_query:
-                        earned_credits = res.registered_credits if (res.grade_letter and res.grade_letter != 'F') else 0
-                        earned_credit_points = (res.grade_point or 0) * res.registered_credits
-                        processed_results.append({
-                            'subject_code': res.subject_code, 'subject_name': res.subject_name, 'registered_credits': res.registered_credits,
-                            'grade_letter': res.grade_letter, 'grade_point': res.grade_point, 'earned_credits': earned_credits,
-                            'earned_credit_points': earned_credit_points, 'remarks': 'Retake' if res.is_retake else ''
-                        })
-                        total_registered_credits += res.registered_credits
-                        total_earned_credits += earned_credits
-                        total_earned_credit_points += earned_credit_points
-                    
-                    tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
-                    term_assessment = {
-                        'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
-                        'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
-                    }
-                    
-                    pdf_buffer = BytesIO()
-                    pdf = StudentTabulationPDF(pdf_buffer, student, session)
-                    elements = pdf.generate_elements(processed_results, term_assessment)
-                    pdf.doc.build(elements)
-                    pdf_buffer.seek(0)
-                    pdf_data = pdf_buffer.read()
-                    
-                    if pdf_data:
-                        zf.writestr(f'Student_{student.student_id}_Tabulation.pdf', pdf_data)
-                        pdf_count += 1
-                        current_app.logger.info(f'✅ Generated PDF for student {student.student_id} ({len(pdf_data)} bytes)')
-                    else:
-                        current_app.logger.error(f'❌ Empty PDF buffer for student {student.student_id}')
-                        error_count += 1
+                        total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
+                        processed_results = []
+                        for res in results_query:
+                            earned_credits = res.registered_credits if (res.grade_letter and res.grade_letter != 'F') else 0
+                            earned_credit_points = (res.grade_point or 0) * res.registered_credits
+                            processed_results.append({
+                                'subject_code': res.subject_code, 'subject_name': res.subject_name, 'registered_credits': res.registered_credits,
+                                'grade_letter': res.grade_letter, 'grade_point': res.grade_point, 'earned_credits': earned_credits,
+                                'earned_credit_points': earned_credit_points, 'remarks': 'Retake' if res.is_retake else ''
+                            })
+                            total_registered_credits += res.registered_credits
+                            total_earned_credits += earned_credits
+                            total_earned_credit_points += earned_credit_points
+                        
+                        tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
+                        term_assessment = {
+                            'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
+                            'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
+                        }
+                        
+                        pdf_buffer = BytesIO()
+                        pdf = StudentTabulationPDF(pdf_buffer, student, session)
+                        elements = pdf.generate_elements(processed_results, term_assessment)
+                        pdf.doc.build(elements)
+                        pdf_buffer.seek(0)
+                        pdf_data = pdf_buffer.read()
+                        
+                        if pdf_data:
+                            zf.writestr(f'Student_{student.student_id}_Tabulation.pdf', pdf_data)
+                            pdf_count += 1
+                            current_app.logger.info(f'✅ Generated PDF for student {student.student_id} ({len(pdf_data)} bytes)')
+                        else:
+                            current_app.logger.error(f'❌ Empty PDF buffer for student {student.student_id}')
+                            error_count += 1
                         
                 except Exception as e:
                     current_app.logger.error(f'❌ Error generating PDF for student {student.student_id}: {e}', exc_info=True)
@@ -4798,47 +4798,47 @@ def download_all_course_results(session_id):
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for subject in subjects:
                     try:
-                    base_columns = [
-                        RStudent.student_id, RStudent.name, RMark.total_marks,
-                        RMark.grade_letter, RMark.grade_point, RMark.is_retake
-                    ]
-                    extra_columns = []
-                    if subject.subject_type in ['Theory', 'Theory (UG)', 'Theory (PG)']:
-                        extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
-                    elif subject.subject_type == 'Sessional':
-                        extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
-                    elif subject.subject_type == 'Dissertation':
-                        if subject.dissertation_type == 'Type1':
-                            extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
+                        base_columns = [
+                            RStudent.student_id, RStudent.name, RMark.total_marks,
+                            RMark.grade_letter, RMark.grade_point, RMark.is_retake
+                        ]
+                        extra_columns = []
+                        if subject.subject_type in ['Theory', 'Theory (UG)', 'Theory (PG)']:
+                            extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
+                        elif subject.subject_type == 'Sessional':
+                            extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
+                        elif subject.subject_type == 'Dissertation':
+                            if subject.dissertation_type == 'Type1':
+                                extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
+                            else:
+                                extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
+                        all_columns = base_columns + extra_columns
+                        results = db.session.query(*all_columns)\
+                            .join(RMark, RStudent.id == RMark.student_id)\
+                            .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
+                            .filter(RMark.subject_id == subject.id)\
+                            .order_by(RStudent.student_id).all()
+
+                        current_app.logger.info(f'📊 Subject {subject.code}: Found {len(results)} result records')
+                        
+                        if not results:
+                            current_app.logger.warning(f'⚠️ No results found for subject {subject.code} (no RMark records with RCourseRegistration)')
+                            continue
+
+                        pdf_buffer = BytesIO()
+                        pdf = CourseTabulationPDF(pdf_buffer, subject, session)
+                        elements = pdf.generate_elements(results)
+                        pdf.doc.build(elements)
+                        pdf_buffer.seek(0)
+                        pdf_data = pdf_buffer.read()
+                        
+                        if pdf_data:
+                            zf.writestr(f'Course_{subject.code}_Result.pdf', pdf_data)
+                            pdf_count += 1
+                            current_app.logger.info(f'✅ Generated PDF for course {subject.code} ({len(pdf_data)} bytes)')
                         else:
-                            extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
-                    all_columns = base_columns + extra_columns
-                    results = db.session.query(*all_columns)\
-                        .join(RMark, RStudent.id == RMark.student_id)\
-                        .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
-                        .filter(RMark.subject_id == subject.id)\
-                        .order_by(RStudent.student_id).all()
-
-                    current_app.logger.info(f'📊 Subject {subject.code}: Found {len(results)} result records')
-                    
-                    if not results:
-                        current_app.logger.warning(f'⚠️ No results found for subject {subject.code} (no RMark records with RCourseRegistration)')
-                        continue
-
-                    pdf_buffer = BytesIO()
-                    pdf = CourseTabulationPDF(pdf_buffer, subject, session)
-                    elements = pdf.generate_elements(results)
-                    pdf.doc.build(elements)
-                    pdf_buffer.seek(0)
-                    pdf_data = pdf_buffer.read()
-                    
-                    if pdf_data:
-                        zf.writestr(f'Course_{subject.code}_Result.pdf', pdf_data)
-                        pdf_count += 1
-                        current_app.logger.info(f'✅ Generated PDF for course {subject.code} ({len(pdf_data)} bytes)')
-                    else:
-                        current_app.logger.error(f'❌ Empty PDF buffer for course {subject.code}')
-                        error_count += 1
+                            current_app.logger.error(f'❌ Empty PDF buffer for course {subject.code}')
+                            error_count += 1
                         
                 except Exception as e:
                     current_app.logger.error(f'❌ Error generating PDF for course {subject.code}: {e}', exc_info=True)
