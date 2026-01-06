@@ -1282,7 +1282,12 @@ def refresh_marks(session_id):
                     
                     total_marks = 0
                     if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                        total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
+                        # Direct addition - don't use filter(None) as it skips 0 values
+                        attendance = mark.attendance if mark.attendance is not None else 0
+                        ca = mark.continuous_assessment if mark.continuous_assessment is not None else 0
+                        part_a = mark.part_a if mark.part_a is not None else 0
+                        part_b = mark.part_b if mark.part_b is not None else 0
+                        total_marks = attendance + ca + part_a + part_b
                     elif selected_subject.subject_type == 'Sessional':
                         total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
                     elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
