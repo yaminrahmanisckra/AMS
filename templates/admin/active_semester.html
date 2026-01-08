@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+
+{% block title %}Active Semester Management{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex flex-wrap align-items-center justify-content-between mb-4 gap-3">
+        <h1 class="mb-0">Active Semester Management</h1>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Admin Dashboard
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <!-- Current Active Semesters -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-calendar-check me-2"></i>Current Active Semesters</h5>
+        </div>
+        <div class="card-body">
+            {% if active_semesters %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Academic Session</th>
+                                <th>Year</th>
+                                <th>Term</th>
+                                <th>Batch</th>
+                                <th>Activated By</th>
+                                <th>Activated At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sem in active_semesters %}
+                            <tr id="semester-row-{{ sem.id }}">
+                                <td><strong>{{ sem.academic_session }}</strong></td>
+                                <td>{{ sem.year }}</td>
+                                <td>{{ sem.term }}</td>
+                                <td>
+                                    {% if sem.batch %}
+                                        <span class="badge bg-info">{{ sem.batch }}</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">All Batches</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ sem.activated_by or '-' }}</td>
+                                <td>{{ sem.activated_at[:19] if sem.activated_at else '-' }}</td>
+                                <td>
+                                    <button class="btn btn-sm btn-danger deactivate-btn" 
+                                            data-id="{{ sem.id }}"
+                                            data-session="{{ sem.academic_session }}"
+                                            data-year="{{ sem.year }}"
+                                            data-term="{{ sem.term }}"
+                                            data-batch="{{ sem.batch or '' }}">
+                                        <i class="fas fa-times me-1"></i>Deactivate
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>No Active Semester Configured</strong>
+                    <p class="mb-0 mt-2">Please set an active semester to filter data across all modules. Until then, all data will be visible.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Set Active Semester -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-success text-white">
+            <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>Set Active Semester</h5>
+        </div>
+        <div class="card-body">
+            <form id="setActiveSemesterForm">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="academic_session" class="form-label">Academic Session <span class="text-danger">*</span></label>
+                        <select class="form-select" id="academic_session" name="academic_session" required>
+                            <option value="">Select Session</option>
+                            {% for session in available_sessions %}
+                                <option value="{{ session.academic_session }}">{{ session.academic_session }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="year" class="form-label">Year <span class="text-danger">*</span></label>
+                        <select class="form-select" id="year" name="year" required>
+                            <option value="">Select Year</option>
+                            {% for session in available_sessions %}
+                                <option value="{{ session.year }}" data-session="{{ session.academic_session }}" style="display: none;">{{ session.year }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="term" class="form-label">Term <span class="text-danger">*</span></label>
+                        <select class="form-select" id="term" name="term" required>
+                            <option value="">Select Term</option>
+                            {% for session in available_sessions %}
+                                <option value="{{ session.term }}" data-session="{{ session.academic_session }}" data-year="{{ session.year }}" style="display: none;">{{ session.term }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="batch" class="form-label">Batch (Optional)</label>
+                        <select class="form-select" id="batch" name="batch">
+                            <option value="">All Batches</option>
+                            {% for session in available_sessions %}
+                                {% for batch in session.batches %}
+                                    <option value="{{ batch }}" data-session="{{ session.academic_session }}" data-year="{{ session.year }}" data-term="{{ session.term }}" style="display: none;">{{ batch }}</option>
+                                {% endfor %}
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Leave empty to apply to all batches</small>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">&nbsp;</label>
+                        <button type="submit" class="btn btn-success w-100">
+                            <i class="fas fa-check me-2"></i>Set Active
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- History -->
+    {% if history %}
+    <div class="card shadow-sm">
+        <div class="card-header bg-secondary text-white">
+            <h5 class="mb-0"><i class="fas fa-history me-2"></i>History (Last 50 Changes)</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Academic Session</th>
+                            <th>Year</th>
+                            <th>Term</th>
+                            <th>Batch</th>
+                            <th>Status</th>
+                            <th>Activated By</th>
+                            <th>Activated At</th>
+                            <th>Deactivated At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for config in history %}
+                        <tr>
+                            <td>{{ config.academic_session }}</td>
+                            <td>{{ config.year }}</td>
+                            <td>{{ config.term }}</td>
+                            <td>
+                                {% if config.batch %}
+                                    <span class="badge bg-info">{{ config.batch }}</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">All</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if config.is_active %}
+                                    <span class="badge bg-success">Active</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ config.activated_by or '-' }}</td>
+                            <td>{{ config.activated_at.strftime('%Y-%m-%d %H:%M') if config.activated_at else '-' }}</td>
+                            <td>{{ config.deactivated_at.strftime('%Y-%m-%d %H:%M') if config.deactivated_at else '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const sessionSelect = document.getElementById('academic_session');
+    const yearSelect = document.getElementById('year');
+    const termSelect = document.getElementById('term');
+    const batchSelect = document.getElementById('batch');
+
+    // Filter years based on selected session
+    sessionSelect.addEventListener('change', function() {
+        const selectedSession = this.value;
+        
+        // Filter years
+        const yearOptions = yearSelect.querySelectorAll('option');
+        yearOptions.forEach(option => {
+            if (option.value === '') {
+                option.style.display = 'block';
+            } else {
+                option.style.display = option.dataset.session === selectedSession ? 'block' : 'none';
+            }
+        });
+        
+        yearSelect.value = '';
+        termSelect.value = '';
+        batchSelect.value = '';
+        
+        // Reset term and batch options
+        filterTerms();
+        filterBatches();
+    });
+
+    // Filter terms based on selected session and year
+    yearSelect.addEventListener('change', function() {
+        filterTerms();
+        batchSelect.value = '';
+        filterBatches();
+    });
+
+    // Filter batches based on selected session, year, and term
+    termSelect.addEventListener('change', function() {
+        filterBatches();
+    });
+
+    function filterTerms() {
+        const selectedSession = sessionSelect.value;
+        const selectedYear = yearSelect.value;
+        
+        const termOptions = termSelect.querySelectorAll('option');
+        termOptions.forEach(option => {
+            if (option.value === '') {
+                option.style.display = 'block';
+            } else {
+                option.style.display = (option.dataset.session === selectedSession && 
+                                       option.dataset.year === selectedYear) ? 'block' : 'none';
+            }
+        });
+    }
+
+    function filterBatches() {
+        const selectedSession = sessionSelect.value;
+        const selectedYear = yearSelect.value;
+        const selectedTerm = termSelect.value;
+        
+        const batchOptions = batchSelect.querySelectorAll('option');
+        batchOptions.forEach(option => {
+            if (option.value === '') {
+                option.style.display = 'block';
+            } else {
+                option.style.display = (option.dataset.session === selectedSession && 
+                                       option.dataset.year === selectedYear &&
+                                       option.dataset.term === selectedTerm) ? 'block' : 'none';
+            }
+        });
+    }
+
+    // Form submission
+    document.getElementById('setActiveSemesterForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            academic_session: sessionSelect.value,
+            year: yearSelect.value,
+            term: termSelect.value,
+            batch: batchSelect.value || null
+        };
+        
+        if (!formData.academic_session || !formData.year || !formData.term) {
+            alert('Please fill in all required fields.');
+            return;
+        }
+        
+        // Show loading state
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Setting...';
+        
+        fetch('{{ url_for("admin_set_active_semester") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Reload page to show updated active semesters
+                window.location.reload();
+            } else {
+                alert('Error: ' + (data.message || 'Failed to set active semester'));
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred. Please try again.');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        });
+    });
+
+    // Deactivate button handlers
+    document.querySelectorAll('.deactivate-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const semesterId = this.dataset.id;
+            const session = this.dataset.session;
+            const year = this.dataset.year;
+            const term = this.dataset.term;
+            const batch = this.dataset.batch;
+            
+            const batchText = batch ? ` (Batch: ${batch})` : '';
+            const confirmMessage = `Are you sure you want to deactivate this semester?\n\nSession: ${session}\nYear: ${year}\nTerm: ${term}${batchText}\n\nThis will make this semester inactive. Users will not see data from this semester anymore.`;
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            // Show loading state
+            const originalText = this.innerHTML;
+            this.disabled = true;
+            this.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deactivating...';
+            
+            const deactivateData = {
+                academic_session: session,
+                year: year,
+                term: term,
+                batch: batch || null
+            };
+            
+            fetch('{{ url_for("admin_deactivate_semester") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(deactivateData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Show success message
+                    alert(data.message || 'Semester deactivated successfully.');
+                    // Reload page to show updated active semesters
+                    window.location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Failed to deactivate semester'));
+                    this.disabled = false;
+                    this.innerHTML = originalText;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while deactivating semester. Please try again.');
+                this.disabled = false;
+                this.innerHTML = originalText;
+            });
+        });
+    });
+});
+</script>
+{% endblock %}
+

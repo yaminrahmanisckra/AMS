@@ -32,7 +32,7 @@ from blueprints.class_management.models import (
     CourseOutline,
 )
 from blueprints.student_management.models import Student
-from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive
+from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig
 from blueprints.remuneration_management.models import RemunerationForm
 
 try:
@@ -867,6 +867,14 @@ def create_app():
             base_query = base_query.filter_by(owner_teacher_id=current_teacher.id)
         else:
             base_query = base_query.filter_by(owner_teacher_id=None)
+
+        # Apply active semester filtering (if not admin and filter function available)
+        try:
+            from utils.semester_utils import filter_by_active_semester
+            if filter_by_active_semester and not is_admin(current_user):
+                base_query = filter_by_active_semester(base_query, ExamPaperEvaluation, batch=None, admin_override=False)
+        except ImportError:
+            pass
 
         entries = base_query.filter_by(archived=False).order_by(ExamPaperEvaluation.created_at.desc()).all()
         archived_entries = base_query.filter_by(archived=True).order_by(ExamPaperEvaluation.created_at.desc()).all()
@@ -2007,6 +2015,159 @@ def create_app():
             flash('You do not have permission to access this page.', 'danger')
             return redirect(url_for('index'))
         return render_template('admin_role_privileges.html', role_labels=ROLE_LABELS)
+
+    @app.route('/admin/active-semester')
+    @login_required
+    def admin_active_semester():
+        """Active Semester Management Page"""
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+        
+        from utils.semester_utils import get_active_semester_info
+        
+        # Get current active semesters
+        active_semesters = get_active_semester_info()
+        
+        # Get available sessions from CurriculumYearTerm
+        available_sessions_data = db.session.query(
+            CurriculumYearTerm.academic_session,
+            CurriculumYearTerm.year,
+            CurriculumYearTerm.term,
+            CurriculumYearTerm.batch
+        ).filter(
+            CurriculumYearTerm.academic_session.isnot(None)
+        ).distinct().order_by(
+            CurriculumYearTerm.academic_session.desc(),
+            CurriculumYearTerm.year.asc(),
+            CurriculumYearTerm.term.asc()
+        ).all()
+        
+        # Group by academic_session, year, term
+        sessions_dict = {}
+        for row in available_sessions_data:
+            key = f"{row[0]}|{row[1]}|{row[2]}"
+            if key not in sessions_dict:
+                sessions_dict[key] = {
+                    'academic_session': row[0],
+                    'year': row[1],
+                    'term': row[2],
+                    'batches': []
+                }
+            if row[3] and row[3] not in sessions_dict[key]['batches']:
+                sessions_dict[key]['batches'].append(row[3])
+        
+        available_sessions = list(sessions_dict.values())
+        
+        # Get all active semester configs (including history)
+        all_configs = ActiveSemesterConfig.query.order_by(
+            ActiveSemesterConfig.activated_at.desc()
+        ).limit(50).all()
+        
+        return render_template('admin/active_semester.html',
+                             active_semesters=active_semesters,
+                             available_sessions=available_sessions,
+                             history=all_configs)
+
+    @app.route('/admin/active-semester/set', methods=['POST'])
+    @login_required
+    def admin_set_active_semester():
+        """API endpoint to set active semester"""
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        data = request.get_json() or {}
+        academic_session = data.get('academic_session', '').strip()
+        year = data.get('year', '').strip()
+        term = data.get('term', '').strip()
+        batch = data.get('batch', '').strip() or None
+        
+        if not academic_session or not year or not term:
+            return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+        
+        try:
+            from utils.semester_utils import set_active_semester
+            
+            activated_by = current_user.full_name or current_user.username
+            new_config = set_active_semester(
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                batch=batch,
+                activated_by=activated_by,
+                deactivate_others=True
+            )
+            
+            return jsonify({
+                'success': True,
+                'message': f'Active semester set to {academic_session} - {year} - {term}' + (f' (Batch: {batch})' if batch else ''),
+                'semester': new_config.to_dict()
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error setting active semester: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+    @app.route('/admin/active-semester/list', methods=['GET'])
+    @login_required
+    def admin_list_active_semesters():
+        """API endpoint to list active semesters"""
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        try:
+            from utils.semester_utils import get_active_semester_info
+            
+            batch = request.args.get('batch', '').strip() or None
+            active_semesters = get_active_semester_info(batch=batch)
+            
+            return jsonify({
+                'success': True,
+                'active_semesters': active_semesters
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error listing active semesters: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+    @app.route('/admin/active-semester/deactivate', methods=['POST'])
+    @login_required
+    def admin_deactivate_semester():
+        """API endpoint to deactivate a semester"""
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        data = request.get_json() or {}
+        academic_session = data.get('academic_session', '').strip()
+        year = data.get('year', '').strip()
+        term = data.get('term', '').strip()
+        batch = data.get('batch', '').strip() or None
+        
+        if not academic_session or not year or not term:
+            return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+        
+        try:
+            from utils.semester_utils import deactivate_semester
+            
+            success = deactivate_semester(
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                batch=batch
+            )
+            
+            if success:
+                batch_str = f' (Batch: {batch})' if batch else ''
+                return jsonify({
+                    'success': True,
+                    'message': f'Semester {academic_session} - {year} - {term}{batch_str} deactivated successfully.'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Semester not found or already inactive.'
+                }), 404
+        except Exception as e:
+            current_app.logger.error(f'Error deactivating semester: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
     @app.route('/student/dashboard')
     @login_required
