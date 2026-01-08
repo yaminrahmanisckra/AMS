@@ -374,10 +374,15 @@ function viewRegistration(studentId, session, year, term, isPending) {
                     <p><strong>Batch:</strong> ${data.student.batch || 'N/A'}</p>
                     <p><strong>Session:</strong> ${data.session} | <strong>Year:</strong> ${data.year} | <strong>Term:</strong> ${data.term}</p>
                 </div>
-                <div class="mb-3">
-                    <button type="button" class="btn btn-sm btn-primary" onclick="showAddCourseModal('${data.session}', '${data.year}', '${data.term}')">
-                        <i class="fas fa-plus me-1"></i>Add Course
-                    </button>
+                <div class="mb-3 d-flex justify-content-between align-items-center">
+                    <div>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="showAddCourseModal('${data.session}', '${data.year}', '${data.term}')">
+                            <i class="fas fa-plus me-1"></i>Add Course
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger" id="deregisterAllBtn" style="display: ${data.courses && data.courses.length > 0 ? 'inline-block' : 'none'};" onclick="deregisterAllCourses()">
+                            <i class="fas fa-times-circle me-1"></i>Deregister All Courses
+                        </button>
+                    </div>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-bordered" id="editTable">
@@ -454,6 +459,9 @@ function viewRegistration(studentId, session, year, term, isPending) {
                 saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Changes';
             }
             
+            // Update deregister all button visibility
+            checkAndUpdateDeregisterAllButton();
+            
             // Add event listeners for Remarks dropdown to show/hide Carry on
             document.querySelectorAll('.remark-select').forEach(select => {
                 select.addEventListener('change', function() {
@@ -489,14 +497,59 @@ function viewRegistration(studentId, session, year, term, isPending) {
 }
 
 function removeCourseFromEdit(courseId) {
-    if (!confirm('Are you sure you want to remove this course?')) {
+    if (!currentEditData) {
+        alert('No registration data available.');
         return;
     }
+    
     const row = document.querySelector(`tr[data-course-id="${courseId}"]`);
-    if (row) {
-        row.remove();
-        updateTotalCredits();
+    if (!row) {
+        alert('Course row not found.');
+        return;
     }
+    
+    const courseCode = row.cells[1] ? row.cells[1].textContent.trim() : '';
+    const courseName = row.cells[2] ? row.cells[2].textContent.trim() : '';
+    
+    if (!confirm(`Are you sure you want to remove ${courseCode} - ${courseName} from this registration?`)) {
+        return;
+    }
+    
+    // Call API to instantly deregister the course
+    fetch('/course-management/coordinator/registration/remove-course', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentEditData.student.id,
+            session: currentEditData.session,
+            year: currentEditData.year,
+            term: currentEditData.term,
+            registration_id: courseId  // StudentCourseRegistration ID
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Reload the modal content to get fresh data from backend
+            const studentId = currentEditData.student.id;
+            const session = currentEditData.session;
+            const year = currentEditData.year;
+            const term = currentEditData.term;
+            const isPending = document.getElementById('saveEditBtn').getAttribute('data-is-pending') === 'true';
+            
+            // Reload modal with fresh data
+            viewRegistration(studentId, session, year, term, isPending);
+            
+            // Show success message
+            alert(`Successfully removed ${courseCode} from registration.`);
+        } else {
+            alert(data.message || 'Failed to remove course.');
+        }
+    })
+    .catch(error => {
+        console.error('Error removing course:', error);
+        alert('Error removing course. Please try again.');
+    });
 }
 
 function updateTotalCredits() {
@@ -682,6 +735,89 @@ function updateRowNumbers() {
             slCell.textContent = index + 1;
         }
     });
+}
+
+function deregisterAllCourses() {
+    if (!currentEditData) {
+        alert('No registration data available.');
+        return;
+    }
+    
+    const rows = document.querySelectorAll('#editTableBody tr');
+    if (rows.length === 0) {
+        alert('No courses to deregister.');
+        return;
+    }
+    
+    const courseCount = rows.length;
+    if (!confirm(`Are you sure you want to deregister all ${courseCount} course(s) from this registration? This action cannot be undone.`)) {
+        return;
+    }
+    
+    // Collect all registration IDs
+    const registrationIds = [];
+    const courseCodes = [];
+    rows.forEach(row => {
+        const registrationId = row.getAttribute('data-course-id');
+        const courseCode = row.cells[1] ? row.cells[1].textContent.trim() : '';
+        if (registrationId && courseCode) {
+            registrationIds.push(parseInt(registrationId));
+            courseCodes.push(courseCode);
+        }
+    });
+    
+    if (registrationIds.length === 0) {
+        alert('No valid courses found to deregister.');
+        return;
+    }
+    
+    // Call API to deregister all courses
+    fetch('/course-management/coordinator/registration/remove-all-courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            student_id: currentEditData.student.id,
+            session: currentEditData.session,
+            year: currentEditData.year,
+            term: currentEditData.term,
+            registration_ids: registrationIds
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Reload the modal content to get fresh data from backend
+            const studentId = currentEditData.student.id;
+            const session = currentEditData.session;
+            const year = currentEditData.year;
+            const term = currentEditData.term;
+            const isPending = document.getElementById('saveEditBtn').getAttribute('data-is-pending') === 'true';
+            
+            // Reload modal with fresh data
+            viewRegistration(studentId, session, year, term, isPending);
+            
+            // Show success message
+            alert(`Successfully deregistered all ${registrationIds.length} course(s) from registration.`);
+        } else {
+            alert(data.message || 'Failed to deregister courses.');
+        }
+    })
+    .catch(error => {
+        console.error('Error deregistering all courses:', error);
+        alert('Error deregistering courses. Please try again.');
+    });
+}
+
+function checkAndUpdateDeregisterAllButton() {
+    const rows = document.querySelectorAll('#editTableBody tr');
+    const deregisterAllBtn = document.getElementById('deregisterAllBtn');
+    if (deregisterAllBtn) {
+        if (rows.length === 0) {
+            deregisterAllBtn.style.display = 'none';
+        } else {
+            deregisterAllBtn.style.display = 'inline-block';
+        }
+    }
 }
 
 document.getElementById('saveEditBtn').addEventListener('click', function() {

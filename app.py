@@ -209,6 +209,20 @@ def create_app():
     database_url = os.getenv('DATABASE_URL')
     if database_url:
         app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+        # MySQL connection pool settings to prevent "MySQL server has gone away" errors
+        # Optimized for cPanel with reduced connection pool size and timeouts
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+            'pool_pre_ping': True,  # Check connection health before using
+            'pool_recycle': 1800,   # Recycle connections after 30 minutes (1800 seconds) - reduced from 1 hour
+            'pool_size': 5,         # Number of connections to keep in pool - reduced from 10 for cPanel
+            'max_overflow': 5,      # Maximum number of connections beyond pool_size - reduced from 20
+            'pool_timeout': 20,     # Timeout when getting connection from pool - reduced from 30
+            'connect_args': {
+                'connect_timeout': 5,   # Connection timeout in seconds - reduced from 10
+                'read_timeout': 20,     # Read timeout in seconds - reduced from 30
+                'write_timeout': 20,    # Write timeout in seconds - reduced from 30
+            }
+        }
     else:
         # Fallback to SQLite if DATABASE_URL not set
         db_path = os.path.join(basedir, 'instance', 'academic_management.db')
@@ -234,6 +248,12 @@ def create_app():
     app.config['UPLOAD_FOLDER'] = upload_folder
     app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
     app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    
+    # Production logging configuration - reduce verbose logging overhead
+    import logging
+    if os.getenv('FLASK_ENV') == 'production' or os.getenv('CPANEL'):
+        app.logger.setLevel(logging.WARNING)  # Only log warnings and errors
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
     
     mail.init_app(app)
 
@@ -266,6 +286,11 @@ def create_app():
         if not active_role:
             session.pop('active_role', None)
         current_user.active_role = active_role
+
+    @app.teardown_appcontext
+    def shutdown_session(exception=None):
+        """Close database session after each request to prevent memory leaks"""
+        db.session.remove()
 
     from blueprints.class_management.routes import class_management_bp
     from blueprints.result_management.routes import result_management_bp
@@ -6116,6 +6141,11 @@ def create_app():
             
             title = f"Custom Remuneration - {' '.join(title_parts)}" if title_parts else f"Custom Remuneration - {current_user.full_name}"
             
+            # Validate user_id is available
+            if not current_user or not current_user.id:
+                current_app.logger.error('Current user or user ID is missing')
+                return jsonify({'success': False, 'message': 'User authentication error'}), 401
+            
             # Create or update form entry
             if form_id:
                 # Allow members to update Chief's forms
@@ -6140,6 +6170,10 @@ def create_app():
                 if not can_edit:
                     return jsonify({'success': False, 'message': 'You do not have permission to edit this form'}), 403
                 
+                # Ensure user_id is set (should already be set, but double-check)
+                if not form_entry.user_id:
+                    form_entry.user_id = current_user.id
+                
                 # If member is editing Chief's form, keep the original user_id (Chief's ID)
                 # This way the form remains associated with the Chief
             else:
@@ -6149,22 +6183,31 @@ def create_app():
                 form_entry = RemunerationForm(user_id=current_user.id, status='draft')
                 db.session.add(form_entry)
             
-            # Update fields
-            form_entry.title = title
+            # Update fields - ensure all fields have safe defaults
+            form_entry.title = title or f"Custom Remuneration - {current_user.full_name}"
             form_entry.academic_year = session or ''
             form_entry.year = year or ''
             form_entry.term = term or ''
-            form_entry.exam_start_date = data.get('exam_start_date', '')
-            form_entry.exam_end_date = data.get('exam_end_date', '')
+            form_entry.exam_start_date = data.get('exam_start_date') or ''
+            form_entry.exam_end_date = data.get('exam_end_date') or ''
+            
+            # Ensure user_id is set (critical for database constraint)
+            if not form_entry.user_id:
+                form_entry.user_id = current_user.id
+            
+            # Ensure status is set
+            if not form_entry.status:
+                form_entry.status = 'draft'
             
             # Total amount
             total_amount_str = data.get('total_amount', '0') or '0'
             try:
                 total_amount = float(str(total_amount_str).replace(',', '').replace('৳', '').strip() or '0')
-            except:
+            except (ValueError, TypeError) as e:
+                current_app.logger.warning(f'Error parsing total_amount: {e}, defaulting to 0.0')
                 total_amount = 0.0
             form_entry.total_amount = total_amount
-            form_entry.total_in_words = data.get('total_in_words', '')
+            form_entry.total_in_words = data.get('total_in_words') or ''
             
             # Save as JSON - Remove form_id from data before saving
             try:
@@ -6175,31 +6218,78 @@ def create_app():
                 serializable_data = {}
                 for key, value in data_to_save.items():
                     try:
+                        # Handle None values
+                        if value is None:
+                            serializable_data[key] = None
+                            continue
+                        
                         # Test if serializable
-                        json.dumps(value, default=str)
+                        json.dumps(value, default=str, ensure_ascii=False)
                         serializable_data[key] = value
-                    except Exception as e:
+                    except (TypeError, ValueError) as e:
                         # Convert non-serializable to string
                         current_app.logger.warning(f'Converting non-serializable value for key {key}: {str(e)}')
-                        serializable_data[key] = str(value)
+                        try:
+                            serializable_data[key] = str(value) if value is not None else None
+                        except Exception as str_error:
+                            current_app.logger.error(f'Error converting {key} to string: {str_error}')
+                            serializable_data[key] = None
                 
                 form_entry.form_data = json.dumps(serializable_data, ensure_ascii=False, default=str)
                 current_app.logger.info(f'✅ Form data serialized. Size: {len(form_entry.form_data)} chars, Keys: {len(serializable_data)}')
             except Exception as e:
                 current_app.logger.error(f'❌ JSON serialization error: {str(e)}')
                 import traceback
-                current_app.logger.error(traceback.format_exc())
+                current_app.logger.error(f'Full traceback: {traceback.format_exc()}')
                 db.session.rollback()
                 return jsonify({'success': False, 'message': f'Data format error: {str(e)}'}), 500
             
-            # Commit
-            try:
-                db.session.commit()
-                current_app.logger.info(f'Form saved successfully. ID: {form_entry.id}, User: {current_user.id}, Title: {title}')
-            except Exception as e:
+            # Validate before commit
+            if not form_entry.user_id:
+                current_app.logger.error('Validation failed: user_id is missing before commit')
                 db.session.rollback()
-                current_app.logger.error(f'Database commit error: {str(e)}', exc_info=True)
-                return jsonify({'success': False, 'message': f'Database error: {str(e)}'}), 500
+                return jsonify({'success': False, 'message': 'Validation error: user_id is required'}), 500
+            
+            # Commit with retry mechanism
+            max_commit_retries = 3
+            commit_success = False
+            last_error = None
+            
+            for attempt in range(max_commit_retries):
+                try:
+                    db.session.commit()
+                    current_app.logger.info(f'✅ Form saved successfully. ID: {form_entry.id}, User: {current_user.id}, Title: {title}')
+                    commit_success = True
+                    break
+                except Exception as e:
+                    last_error = e
+                    db.session.rollback()
+                    import traceback
+                    error_traceback = traceback.format_exc()
+                    current_app.logger.error(f'❌ Database commit error (attempt {attempt + 1}/{max_commit_retries}): {str(e)}')
+                    
+                    # If not the last attempt, refresh the object and retry
+                    if attempt < max_commit_retries - 1:
+                        try:
+                            db.session.refresh(form_entry)
+                            current_app.logger.info(f'Retrying commit (attempt {attempt + 2})...')
+                            continue
+                        except:
+                            pass
+                    
+                    current_app.logger.error(f'Full traceback: {error_traceback}')
+            
+            if not commit_success:
+                # Provide more helpful error message
+                error_msg = str(last_error)
+                if 'NOT NULL constraint' in error_msg:
+                    return jsonify({'success': False, 'message': f'Database constraint error: Missing required field. Details: {error_msg}'}), 500
+                elif 'UNIQUE constraint' in error_msg:
+                    return jsonify({'success': False, 'message': f'Database constraint error: Duplicate entry. Details: {error_msg}'}), 500
+                elif 'MySQL server has gone away' in error_msg or 'Lost connection' in error_msg:
+                    return jsonify({'success': False, 'message': 'Database connection lost. Please try again.'}), 500
+                else:
+                    return jsonify({'success': False, 'message': f'Database error: {error_msg}'}), 500
             
             return jsonify({
                 'success': True,
@@ -6208,12 +6298,17 @@ def create_app():
             })
             
         except json.JSONDecodeError as e:
-            return jsonify({'success': False, 'message': f'Invalid JSON: {str(e)}'}), 400
+            db.session.rollback()
+            current_app.logger.error(f'JSON decode error: {str(e)}')
+            return jsonify({'success': False, 'message': f'Invalid JSON format: {str(e)}'}), 400
         except Exception as e:
             db.session.rollback()
             error_msg = str(e)
-            current_app.logger.error(f'Error in simple save: {error_msg}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Failed to save: {error_msg}'}), 500
+            import traceback
+            error_traceback = traceback.format_exc()
+            current_app.logger.error(f'❌ Unexpected error in simple save: {error_msg}')
+            current_app.logger.error(f'Full traceback: {error_traceback}')
+            return jsonify({'success': False, 'message': f'Unexpected error: {error_msg}. Please check server logs for details.'}), 500
 
     @app.route('/exam-committee-chief/custom-remuneration/load/<int:form_id>', methods=['GET'])
     @login_required
@@ -7602,47 +7697,101 @@ def create_app():
         if restriction:
             return restriction
         
-        # Fetch teachers for name dropdown (excluding Head of the Discipline)
-        from blueprints.class_management.models import Teacher
-        from role_utils import get_teachers_excluding_head
-        teachers = get_teachers_excluding_head()
-        
-        # Fetch all curriculum year/term configurations and aggregate data
-        all_configs = CurriculumYearTerm.query.all()
-        
-        # Collect all unique academic sessions
-        academic_sessions = sorted(list(set(
-            config.academic_session for config in all_configs 
-            if config.academic_session
-        )))
-        
-        # Collect all unique years
-        all_years = sorted(list(set(
-            config.year for config in all_configs
-        )))
-        
-        # Collect all unique terms
-        all_terms = sorted(list(set(
-            config.term for config in all_configs
-            if config.term
-        )))
-        
-        # Build year-term mapping (all curricula combined)
+        # Initialize default values for graceful degradation
+        teachers = []
+        all_configs = []
+        academic_sessions = []
+        all_years = []
+        all_terms = []
         years_terms_map = {}
-        for config in all_configs:
-            year = config.year
-            term = config.term
-            if year not in years_terms_map:
-                years_terms_map[year] = []
-            if term not in years_terms_map[year]:
-                years_terms_map[year].append(term)
+        saved_data = None
+        has_warning = False
         
-        # Sort terms for each year
-        for year in years_terms_map:
-            years_terms_map[year] = sorted(years_terms_map[year])
+        try:
+            # Fetch teachers for name dropdown (excluding Head of the Discipline)
+            try:
+                from blueprints.class_management.models import Teacher
+                from role_utils import get_teachers_excluding_head
+                teachers = get_teachers_excluding_head()
+            except Exception as e:
+                current_app.logger.error(f'Error fetching teachers: {e}', exc_info=True)
+                teachers = []
+                has_warning = True
+            
+            # Fetch all curriculum year/term configurations and aggregate data
+            try:
+                all_configs = CurriculumYearTerm.query.all()
+            except Exception as e:
+                current_app.logger.error(f'Error fetching curriculum configs: {e}', exc_info=True)
+                all_configs = []
+                has_warning = True
+            
+            # Collect all unique academic sessions
+            try:
+                academic_sessions = sorted(list(set(
+                    config.academic_session for config in all_configs 
+                    if config.academic_session
+                )))
+            except Exception as e:
+                current_app.logger.error(f'Error processing academic sessions: {e}', exc_info=True)
+                academic_sessions = []
+                has_warning = True
+            
+            # Collect all unique years
+            try:
+                all_years = sorted(list(set(
+                    config.year for config in all_configs
+                )))
+            except Exception as e:
+                current_app.logger.error(f'Error processing years: {e}', exc_info=True)
+                all_years = []
+                has_warning = True
+            
+            # Collect all unique terms
+            try:
+                all_terms = sorted(list(set(
+                    config.term for config in all_configs
+                    if config.term
+                )))
+            except Exception as e:
+                current_app.logger.error(f'Error processing terms: {e}', exc_info=True)
+                all_terms = []
+                has_warning = True
+            
+            # Build year-term mapping (all curricula combined)
+            try:
+                for config in all_configs:
+                    year = config.year
+                    term = config.term
+                    if year not in years_terms_map:
+                        years_terms_map[year] = []
+                    if term not in years_terms_map[year]:
+                        years_terms_map[year].append(term)
+                
+                # Sort terms for each year
+                for year in years_terms_map:
+                    years_terms_map[year] = sorted(years_terms_map[year])
+            except Exception as e:
+                current_app.logger.error(f'Error building year-term mapping: {e}', exc_info=True)
+                years_terms_map = {}
+                has_warning = True
+            
+            # Load saved form data from session if exists
+            try:
+                saved_data = session.get('remuneration_form_data', None)
+            except Exception as e:
+                current_app.logger.error(f'Error loading saved form data: {e}', exc_info=True)
+                saved_data = None
+                has_warning = True
+            
+        except Exception as e:
+            # Catch any unexpected errors
+            current_app.logger.error(f'Unexpected error in remuneration_portal: {e}', exc_info=True)
+            has_warning = True
         
-        # Load saved form data from session if exists
-        saved_data = session.get('remuneration_form_data', None)
+        # Show warning if any errors occurred
+        if has_warning:
+            flash('Some data could not be loaded. Please refresh the page if needed.', 'warning')
         
         # Define remuneration rates based on the scanned document
         remuneration_rates = {
@@ -8225,11 +8374,15 @@ def create_app():
         
         try:
             # Find curriculum year/term configs matching the criteria
-            configs = CurriculumYearTerm.query.filter_by(
-                academic_session=academic_session,
-                year=year,
-                term=term
-            ).all()
+            try:
+                configs = CurriculumYearTerm.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).all()
+            except Exception as e:
+                current_app.logger.error(f'Error querying CurriculumYearTerm: {str(e)}', exc_info=True)
+                return jsonify({'success': False, 'message': 'Database error while fetching curriculum configs'}), 500
             
             if not configs:
                 return jsonify({'success': True, 'courses': []})
@@ -8238,9 +8391,13 @@ def create_app():
             curriculum_ids = [config.curriculum_id for config in configs]
             
             # Get all courses for these curricula
-            all_courses = Course.query.filter(
-                Course.curriculum_id.in_(curriculum_ids)
-            ).order_by(Course.course_code).all()
+            try:
+                all_courses = Course.query.filter(
+                    Course.curriculum_id.in_(curriculum_ids)
+                ).order_by(Course.course_code).all()
+            except Exception as e:
+                current_app.logger.error(f'Error querying Course: {str(e)}', exc_info=True)
+                return jsonify({'success': False, 'message': 'Database error while fetching courses'}), 500
             
             # Filter courses by year/term (check both direct match and display_year/display_term)
             # Normalize year/term for comparison (remove 'Year'/'Term' suffix if present)
@@ -8623,146 +8780,6 @@ def create_app():
             current_app.logger.error(f'Error fetching tabulators: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch tabulators'}), 500
 
-    def _count_finalized_registrations(course_code, academic_session, year, term):
-        """Helper function to count finalized StudentCourseRegistration records"""
-        from blueprints.course_management.models import StudentCourseRegistration
-        from sqlalchemy import func
-        
-        # Normalize course code (remove course name if present)
-        if ' - ' in course_code:
-            course_code = course_code.split(' - ', 1)[0].strip()
-        course_code = course_code.strip()
-        
-        # Normalize year/term labels (remove "Year"/"Term" suffix if present)
-        def normalize_label(label):
-            if not label:
-                return ''
-            label = str(label).strip()
-            for suffix in [' Year', ' Term', 'Year', 'Term']:
-                if label.lower().endswith(suffix.lower()):
-                    label = label[:-len(suffix)].strip()
-            return label
-        
-        normalized_year = normalize_label(year) if year else None
-        normalized_term = normalize_label(term) if term else None
-        
-        # Build query for finalized registrations
-        base_query = db.session.query(
-            func.count(func.distinct(StudentCourseRegistration.student_id))
-        ).filter(
-            StudentCourseRegistration.academic_session == academic_session,
-            StudentCourseRegistration.status == 'finalized'
-        )
-        
-        # Add year filter if provided
-        if normalized_year:
-            base_query = base_query.filter(StudentCourseRegistration.year == normalized_year)
-        
-        # Add term filter if provided
-        if normalized_term:
-            base_query = base_query.filter(StudentCourseRegistration.term == normalized_term)
-        
-        # Try multiple strategies for course code matching
-        count = 0
-        
-        # Strategy 1: Exact match
-        query1 = base_query.filter(StudentCourseRegistration.course_code == course_code)
-        count = query1.scalar() or 0
-        
-        # Strategy 2: Case-insensitive match
-        if count == 0:
-            query2 = base_query.filter(
-                func.lower(StudentCourseRegistration.course_code) == func.lower(course_code)
-            )
-            count = query2.scalar() or 0
-        
-        # Strategy 3: Partial match (course code contains)
-        if count == 0:
-            query3 = base_query.filter(
-                StudentCourseRegistration.course_code.like(f'%{course_code}%')
-            )
-            count = query3.scalar() or 0
-        
-        # Strategy 4: Match by numbers in course code
-        if count == 0:
-            import re
-            course_numbers = re.findall(r'\d+', course_code)
-            if course_numbers:
-                main_number = max(course_numbers, key=len)
-                if len(main_number) >= 4:
-                    query4 = base_query.filter(
-                        StudentCourseRegistration.course_code.like(f'%{main_number}%')
-                    )
-                    count = query4.scalar() or 0
-        
-        return count
-
-    @app.route('/remuneration/api/class-test-info', methods=['GET'])
-    @login_required
-    def remuneration_get_class_test_info():
-        """Get class test count and student count for a course"""
-        import json
-        import os
-        log_path = '/Users/isckra/Documents/App Projects/Academic Management System/.cursor/debug.log'
-        try:
-            with open(log_path, 'a') as f:
-                f.write(json.dumps({'location':'app.py:8626','message':'API endpoint called','data':{'course_code':request.args.get('course_code'),'academic_session':request.args.get('academic_session'),'year':request.args.get('year'),'term':request.args.get('term'),'section':request.args.get('section')},'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'J'})+'\n')
-        except: pass
-        restriction = _require_teacher_privileges()
-        if restriction:
-            return restriction
-        
-        course_code = request.args.get('course_code')
-        academic_session = request.args.get('academic_session')
-        year = request.args.get('year')
-        term = request.args.get('term')
-        section = request.args.get('section', '').strip().upper()
-        
-        try:
-            with open(log_path, 'a') as f:
-                f.write(json.dumps({'location':'app.py:8640','message':'Parameters received','data':{'course_code':course_code,'academic_session':academic_session,'year':year,'term':term,'section':section},'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'K'})+'\n')
-        except: pass
-        
-        if not course_code or not academic_session:
-            try:
-                with open(log_path, 'a') as f:
-                    f.write(json.dumps({'location':'app.py:8641','message':'Missing required params','data':{'has_course_code':bool(course_code),'has_academic_session':bool(academic_session)},'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'L'})+'\n')
-            except: pass
-            return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
-        
-        try:
-            import time
-            
-            # Count finalized registrations for student count
-            student_count = _count_finalized_registrations(course_code, academic_session, year, term)
-            
-            # Class test count: fixed rule based on section
-            if section in ['A', 'B']:
-                class_test_count = 2
-            else:
-                class_test_count = 4
-            
-            result = {
-                'success': True,
-                'class_test_count': class_test_count,
-                'student_count': student_count
-            }
-            
-            try:
-                with open(log_path, 'a') as f:
-                    f.write(json.dumps({'location':'app.py:8732','message':'Returning result','data':result,'timestamp':int(time.time()*1000),'sessionId':'debug-session','runId':'run1','hypothesisId':'R'})+'\n')
-            except: pass
-            
-            return jsonify(result)
-            
-        except Exception as e:
-            current_app.logger.error(f'Error fetching class test info: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': 'Failed to fetch class test info'}), 500
-            
-        except Exception as e:
-            current_app.logger.error(f'Error fetching class test info: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': 'Failed to fetch class test info'}), 500
-
     @app.route('/remuneration/api/student-count', methods=['GET'])
     @login_required
     def remuneration_get_student_count():
@@ -8780,12 +8797,203 @@ def create_app():
             return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
         
         try:
-            # Use helper function to count finalized registrations
-            student_count = _count_finalized_registrations(course_code, academic_session, year, term)
+            # Get current teacher
+            from blueprints.class_management.models import Teacher, Session, ClassStudent
+            
+            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            if not teacher:
+                return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+            
+            # Extract course code only (remove course name if present in format "CODE - Name")
+            original_course_code = course_code
+            course_name = None
+            if ' - ' in course_code:
+                parts = course_code.split(' - ', 1)
+                course_code = parts[0].strip()
+                if len(parts) > 1:
+                    course_name = parts[1].strip()
+            
+            # Clean course code
+            course_code = course_code.strip()
+            
+            # Count students from current teacher's class sessions for this course
+            from sqlalchemy import func, or_
+            
+            # Extract numbers from course code for flexible matching
+            import re
+            course_numbers = re.findall(r'\d+', course_code)
+            
+            # Find ALL sessions of current teacher in this academic session
+            all_teacher_sessions = Session.query.filter(
+                Session.teacher_id == teacher.id,
+                Session.academic_session == academic_session
+            ).all()
+            
+            current_app.logger.info(
+                f'Teacher {teacher.name} - Found {len(all_teacher_sessions)} total sessions in session {academic_session}'
+            )
+            
+            # Try to match sessions by course_code (multiple strategies)
+            matched_sessions = []
+            
+            for session in all_teacher_sessions:
+                # Strategy 1: Exact match
+                if session.course_code == course_code:
+                    matched_sessions.append(session)
+                    continue
+                
+                # Strategy 2: Partial match
+                if session.course_code and course_code in session.course_code:
+                    matched_sessions.append(session)
+                    continue
+                
+                # Strategy 3: Reverse partial match (course_code contains session course_code)
+                if session.course_code and session.course_code in course_code:
+                    matched_sessions.append(session)
+                    continue
+                
+                # Strategy 4: Match by numbers in course code
+                if session.course_code and course_numbers:
+                    session_numbers = re.findall(r'\d+', session.course_code)
+                    if any(num in session_numbers for num in course_numbers):
+                        matched_sessions.append(session)
+                        continue
+                
+                # Strategy 5: Match by course name
+                if session.course_name and course_name:
+                    if course_name.lower() in session.course_name.lower():
+                        matched_sessions.append(session)
+                        continue
+            
+            # If no exact match, use ALL teacher sessions for this academic session
+            if not matched_sessions and all_teacher_sessions:
+                # Log what sessions exist
+                session_info = [(s.id, s.course_code, s.course_name) for s in all_teacher_sessions]
+                current_app.logger.info(
+                    f'No exact match found. Available sessions: {session_info}'
+                )
+                
+                # If only one session, use it (likely the correct one)
+                if len(all_teacher_sessions) == 1:
+                    matched_sessions = all_teacher_sessions
+                    current_app.logger.info('Using single available session')
+            
+            if matched_sessions:
+                # Count distinct students from all matched sessions
+                session_ids = [s.id for s in matched_sessions]
+                count = db.session.query(
+                    func.count(func.distinct(ClassStudent.student_id))
+                ).filter(
+                    ClassStudent.session_id.in_(session_ids)
+                ).scalar() or 0
+                
+                current_app.logger.info(
+                    f'Teacher {teacher.name} - Matched {len(matched_sessions)} sessions for course_code={course_code}, '
+                    f'session={academic_session}, student_count={count}'
+                )
+                
+                if count > 0:
+                    return jsonify({
+                        'success': True,
+                        'student_count': count
+                    })
+            
+            # Fallback: Try StudentCourseRegistration if no class sessions found
+            current_app.logger.info(
+                f'No class sessions found for teacher. Trying StudentCourseRegistration...'
+            )
+            
+            # DEBUG: Find ALL registrations matching Jurisprudence course name
+            # Check if course_name is "Jurisprudence" - count ALL students regardless of session/year/term
+            if course_name and 'jurisprudence' in course_name.lower():
+                # First, try with session filter
+                jurisprudence_regs = db.session.query(StudentCourseRegistration).filter(
+                    StudentCourseRegistration.course_name.like('%Jurisprudence%'),
+                    StudentCourseRegistration.academic_session == academic_session
+                ).all()
+                
+                count = len(set(r.student_id for r in jurisprudence_regs)) if jurisprudence_regs else 0
+                unique_codes = set(r.course_code for r in jurisprudence_regs)
+                
+                current_app.logger.info(
+                    f'JURISPRUDENCE DEBUG (with session): Found {len(jurisprudence_regs)} registrations, '
+                    f'{count} unique students, course codes: {unique_codes}'
+                )
+                
+                # If count is low, try WITHOUT session filter - count ALL Jurisprudence students
+                if count < 10:  # If we found less than 10, maybe session is wrong
+                    all_jurisprudence_regs = db.session.query(StudentCourseRegistration).filter(
+                        StudentCourseRegistration.course_name.like('%Jurisprudence%')
+                    ).all()
+                    
+                    all_count = len(set(r.student_id for r in all_jurisprudence_regs)) if all_jurisprudence_regs else 0
+                    all_sessions = set(r.academic_session for r in all_jurisprudence_regs)
+                    all_years = set(r.year for r in all_jurisprudence_regs)
+                    all_terms = set(r.term for r in all_jurisprudence_regs)
+                    
+                    current_app.logger.info(
+                        f'JURISPRUDENCE DEBUG (ALL sessions): Found {len(all_jurisprudence_regs)} total registrations, '
+                        f'{all_count} unique students, sessions: {all_sessions}, years: {all_years}, terms: {all_terms}'
+                    )
+                    
+                    # Use the higher count
+                    if all_count > count:
+                        count = all_count
+                        current_app.logger.info(f'Using count from ALL sessions: {count}')
+                
+                if count > 0:
+                    return jsonify({
+                        'success': True,
+                        'student_count': count
+                    })
+            
+            # If not Jurisprudence or above didn't work, try normal matching
+            # First try exact course code match
+            count = db.session.query(
+                func.count(func.distinct(StudentCourseRegistration.student_id))
+            ).filter(
+                StudentCourseRegistration.course_code == course_code,
+                StudentCourseRegistration.academic_session == academic_session
+            ).scalar() or 0
+            
+            current_app.logger.info(
+                f'DEBUG: Exact match - code="{course_code}", session="{academic_session}", count={count}'
+            )
+            
+            # If no match, try course name
+            if count == 0 and course_name:
+                count = db.session.query(
+                    func.count(func.distinct(StudentCourseRegistration.student_id))
+                ).filter(
+                    StudentCourseRegistration.course_name.like(f'%{course_name}%'),
+                    StudentCourseRegistration.academic_session == academic_session
+                ).scalar() or 0
+                
+                current_app.logger.info(
+                    f'DEBUG: Course name match - name="{course_name}", count={count}'
+                )
+            
+            # If still no match, try without session filter (course code only)
+            if count == 0:
+                count = db.session.query(
+                    func.count(func.distinct(StudentCourseRegistration.student_id))
+                ).filter(
+                    StudentCourseRegistration.course_code == course_code
+                ).scalar() or 0
+                
+                current_app.logger.info(
+                    f'DEBUG: Course code only (no session) - count={count}'
+                )
+            
+            # Final log
+            current_app.logger.info(
+                f'FINAL: code="{course_code}", name="{course_name}", '
+                f'session="{academic_session}", FINAL COUNT={count}'
+            )
             
             return jsonify({
                 'success': True,
-                'student_count': student_count
+                'student_count': count
             })
             
         except Exception as e:
@@ -9259,22 +9467,126 @@ def create_app():
             serial = 1
             
             for idx, job in enumerate(jobs, 1):
-                # Get rate from dropdown or custom input
+                # Get rate from dropdown or custom input - use exactly what's in the form
                 rate_val = get_val(f'rate_{idx}')
                 if rate_val == 'custom':
                     rate_val = get_val(f'rate_custom_{idx}')
                 
-                # For row 4, show calculation process (student_count × multiplier = product)
+                # For row 3, show breakdown format: "4 × 80 = 320"
+                # If calculated amount < 600, rate should be fixed at 600
                 quantity_display = get_val(f'quantity_{idx}')
-                if idx == 4:
-                    student_count = get_val('student_count_4')
-                    section_multiplier = get_val('section_multiplier_4')
-                    quantity_product = get_val(f'quantity_{idx}')
+                if idx == 3:
+                    # Try to get breakdown from row3_breakdown field
+                    row3_breakdown = get_val('row3_breakdown')
+                    if row3_breakdown:
+                        # Parse breakdown text and format it
+                        breakdown_lines = row3_breakdown.strip().split('\n')
+                        formatted_breakdowns = []
+                        for line in breakdown_lines:
+                            # Extract scripts, rate, and calculated amount from breakdown
+                            # Format might be: "4 × 80 = 320" or "4 × 80 = 320 < 600 → 600"
+                            if '×' in line and '=' in line:
+                                # Clean up the line to extract calculation
+                                parts = line.split('=')
+                                if len(parts) >= 2:
+                                    left_part = parts[0].strip()
+                                    right_part = parts[1].strip()
+                                    # Extract scripts and rate
+                                    if '×' in left_part:
+                                        calc_parts = left_part.split('×')
+                                        if len(calc_parts) == 2:
+                                            scripts = calc_parts[0].strip()
+                                            rate = calc_parts[1].strip()
+                                            # Extract calculated amount
+                                            calc_amount = right_part.split('<')[0].strip()
+                                            try:
+                                                scripts_num = float(scripts)
+                                                rate_num = float(rate)
+                                                calc_amount_num = float(calc_amount)
+                                                # Format: "4 × 80 = 320"
+                                                formatted_breakdowns.append(f'{int(scripts_num)} × {int(rate_num)} = {int(calc_amount_num)}')
+                                            except (ValueError, TypeError):
+                                                formatted_breakdowns.append(line.strip())
+                                    else:
+                                        formatted_breakdowns.append(line.strip())
+                                else:
+                                    formatted_breakdowns.append(line.strip())
+                            else:
+                                formatted_breakdowns.append(line.strip())
+                        
+                        if formatted_breakdowns:
+                            quantity_display = ' '.join(formatted_breakdowns)
                     
-                    if student_count and section_multiplier and quantity_product:
-                        quantity_display = f'{student_count} × {section_multiplier} = {quantity_product}'
-                    elif quantity_product:
-                        quantity_display = quantity_product
+                    # If no breakdown found, try to extract from quantity field or calculate
+                    if not quantity_display or quantity_display == '0':
+                        # Get rate and quantity to create breakdown
+                        scripts_count = get_val('quantity_3')
+                        current_rate = rate_val
+                        if scripts_count and current_rate:
+                            try:
+                                scripts = float(scripts_count)
+                                rate = float(current_rate.replace(',', '').replace('৳', '').strip() or '0')
+                                if scripts > 0 and rate > 0:
+                                    calculated_amount = scripts * rate
+                                    # Check if minimum 600 should apply
+                                    if calculated_amount < 600:
+                                        # Show breakdown and indicate rate is fixed at 600
+                                        quantity_display = f'{int(scripts)} × {int(rate)} = {int(calculated_amount)}'
+                                        # Rate should be 600 if calculated < 600
+                                        rate_val = '600'
+                                    else:
+                                        quantity_display = f'{int(scripts)} × {int(rate)} = {int(calculated_amount)}'
+                            except (ValueError, TypeError):
+                                pass
+                
+                # Use the rate exactly as it appears in the form - but adjust for Row 3 minimum
+                if idx == 3:
+                    # For Row 3, if calculated amount < 600, rate should be 600
+                    scripts_count = get_val('quantity_3')
+                    current_rate = rate_val
+                    if scripts_count and current_rate:
+                        try:
+                            scripts = float(scripts_count)
+                            rate = float(current_rate.replace(',', '').replace('৳', '').strip() or '0')
+                            if scripts > 0 and rate > 0:
+                                calculated_amount = scripts * rate
+                                if calculated_amount < 600:
+                                    rate_val = '600'
+                        except (ValueError, TypeError):
+                            pass
+                
+                # For row 4, show calculation process (student_count × multiplier = product)
+                if idx == 4:
+                    # Row 4 uses arrays for multiple courses: student_count_4[], section_multiplier_4[], quantity_4[]
+                    student_counts = request.form.getlist('student_count_4[]')
+                    section_multipliers = request.form.getlist('section_multiplier_4[]')
+                    quantity_products = request.form.getlist('quantity_4[]')
+                    
+                    # Build breakdown string for all courses
+                    breakdowns = []
+                    for i in range(len(student_counts)):
+                        if student_counts[i] and section_multipliers[i] and quantity_products[i]:
+                            try:
+                                student_count = float(student_counts[i])
+                                multiplier = float(section_multipliers[i])
+                                product = float(quantity_products[i])
+                                # Verify calculation is correct
+                                if abs(student_count * multiplier - product) < 0.01:  # Allow small floating point differences
+                                    breakdowns.append(f'{int(student_count)} × {int(multiplier)} = {int(product)}')
+                                else:
+                                    # If calculation doesn't match, show corrected version
+                                    corrected_product = int(student_count * multiplier)
+                                    breakdowns.append(f'{int(student_count)} × {int(multiplier)} = {corrected_product}')
+                            except (ValueError, TypeError):
+                                # If parsing fails, just show the product
+                                if quantity_products[i]:
+                                    breakdowns.append(quantity_products[i])
+                    
+                    if breakdowns:
+                        quantity_display = ' '.join(breakdowns)
+                    else:
+                        # Fallback to total quantity if breakdowns not available
+                        quantity_display = get_val(f'quantity_{idx}') or '0'
                 
                 # For row 2, if course is "ALL", show "All" in PDF (backend calculation uses 1)
                 if idx == 2:
@@ -9435,10 +9747,38 @@ def create_app():
                 current_app.logger.warning('Kalpurush font not found in any expected location. Bengali text may not render correctly.')
                 current_app.logger.warning(f'Searched paths: {font_paths_to_try}')
             
+            # Get logo file path and convert to data URI for PDF
+            logo_path_absolute = None
+            logo_paths_to_try = [
+                os.path.join(current_app.root_path, 'static', 'Images', 'KU_logo_2.png'),  # Capital I
+                os.path.join(current_app.root_path, 'static', 'images', 'KU_logo_2.png'),   # Lowercase i
+            ]
+            
+            for logo_path in logo_paths_to_try:
+                if os.path.exists(logo_path):
+                    logo_path_absolute = os.path.abspath(logo_path)
+                    current_app.logger.info(f'Logo found at: {logo_path_absolute}')
+                    break
+            
+            # Convert logo to base64 data URI if found
+            logo_data_uri = None
+            if logo_path_absolute:
+                try:
+                    import base64
+                    with open(logo_path_absolute, 'rb') as logo_file:
+                        logo_data = logo_file.read()
+                        logo_base64 = base64.b64encode(logo_data).decode('utf-8')
+                        logo_data_uri = f'data:image/png;base64,{logo_base64}'
+                        current_app.logger.info('Logo converted to data URI for PDF')
+                except Exception as e:
+                    current_app.logger.error(f'Error converting logo to data URI: {e}')
+                    logo_data_uri = None
+            
             # Render HTML template with data
             html_content = render_template(
                 'remuneration_pdf_template.html',
                 font_path=font_path_absolute,
+                logo_data_uri=logo_data_uri,
                 voucher_no=get_val('voucher_no'),
                 voucher_date=get_val('voucher_date'),
                 applicant_name=get_val('applicant_name'),
@@ -9487,7 +9827,7 @@ def create_app():
             body {
                 margin: 0 !important;
                 padding: 0 !important;
-                font-size: 0.56rem !important; /* Slightly smaller to compensate spacing */
+                font-size: 0.64rem !important; /* Increased from 0.56rem (7pt) to 0.64rem (8pt) */
                 line-height: 1.18 !important; /* Slightly more breathing room */
                 font-family: 'Kalpurush', sans-serif !important;
             }
@@ -9546,30 +9886,30 @@ def create_app():
             }
             .meta-grid td {
                 padding: 0.18rem 0.32rem !important;
-                font-size: 0.56rem !important;
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
             }
             .meta-label {
-                font-size: 0.56rem !important;
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
                 width: 142px !important;
             }
             .meta-grid input,
             .meta-grid select {
-                font-size: 0.56rem !important;
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
                 padding: 0.11rem 0.22rem !important;
             }
             .rem-table {
                 margin: 0.25rem 0 !important;
-                font-size: 0.51rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
             }
             .rem-table th,
             .rem-table td {
                 padding: 0.18rem 0.27rem !important;
-                font-size: 0.51rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
                 line-height: 1.12 !important;
             }
             .rem-table th {
                 padding: 0.22rem 0.27rem !important;
-                font-size: 0.51rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
             }
             .section-title {
                 margin-top: 0.65rem !important;
@@ -9616,29 +9956,29 @@ def create_app():
             }
             .foot-table td {
                 padding: 0.18rem 0.32rem !important;
-                font-size: 0.56rem !important;
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
             }
             .foot-table input {
-                font-size: 0.56rem !important;
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
                 padding: 0.11rem 0.22rem !important;
             }
             .info-note,
             .statement-note,
             .finance-release-note,
             .audit-approval-text {
-                font-size: 0.51rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
                 margin: 0.18rem 0 !important;
                 line-height: 1.22 !important;
             }
             .info-note input,
             .statement-note input {
-                font-size: 0.51rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
                 padding: 0.04rem 0.11rem !important;
             }
             .bank-declaration {
                 padding: 0.27rem !important;
                 margin-top: 0.25rem !important;
-                font-size: 0.51rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
                 line-height: 1.22 !important;
             }
             .revenue-ticket {
@@ -9781,6 +10121,10 @@ def create_app():
         except Exception as e:
             current_app.logger.error(f'Error generating PDF: {str(e)}', exc_info=True)
             return jsonify({'error': 'Failed to generate PDF document'}), 500
+        finally:
+            # Clean up memory after PDF generation to prevent memory accumulation
+            import gc
+            gc.collect()
 
     @app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
     @login_required

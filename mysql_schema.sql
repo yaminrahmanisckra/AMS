@@ -48,10 +48,10 @@ CREATE TABLE IF NOT EXISTS `curriculum` (
 CREATE TABLE IF NOT EXISTS `course` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `curriculum_id` INT NULL,
-    `course_code` VARCHAR(20) NOT NULL,
+    `course_code` VARCHAR(20) NOT NULL UNIQUE,
     `course_name` VARCHAR(100) NOT NULL,
     `credit` FLOAT NOT NULL,
-    `course_type` VARCHAR(50) NOT NULL,
+    `course_type` VARCHAR(20) NOT NULL,
     `category` VARCHAR(20) NOT NULL DEFAULT 'ug',
     `core_optional` VARCHAR(20) NULL,
     `syllabus_year` VARCHAR(20) NULL,
@@ -64,8 +64,7 @@ CREATE TABLE IF NOT EXISTS `course` (
     `content_section_b` TEXT NULL,
     FOREIGN KEY (`curriculum_id`) REFERENCES `curriculum`(`id`) ON DELETE SET NULL,
     INDEX `idx_course_code` (`course_code`),
-    INDEX `idx_category` (`category`),
-    UNIQUE KEY `uq_curriculum_course_code` (`curriculum_id`, `course_code`)
+    INDEX `idx_category` (`category`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

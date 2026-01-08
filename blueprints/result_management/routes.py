@@ -969,8 +969,6 @@ def refresh_marks(session_id):
         }
         
         # Find registered students from Course Management
-        # Get ALL registrations for this course_code (regardless of year/term)
-        # This ensures students who deregistered and re-registered are still included
         if not student_profile_id_to_rstudent_id:
             students = []
         else:
@@ -979,10 +977,12 @@ def refresh_marks(session_id):
                 StudentCourseRegistration.course_code == selected_subject.code,
                 StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
             ]
+            if session.year:
+                course_filters.append(StudentCourseRegistration.year == session.year)
+            if session.term:
+                course_filters.append(StudentCourseRegistration.term == session.term)
             
-            # Get all registrations for this course_code
             registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
-            current_app.logger.debug(f'Refresh marks: Found {len(registered_regs)} total registrations for course_code={selected_subject.code}')
             
             # Map registration student_id (Student profile ID) back to RStudent.id
             registered_rstudent_ids = set()
@@ -993,7 +993,6 @@ def refresh_marks(session_id):
             
             if registered_rstudent_ids:
                 students = RStudent.query.filter(RStudent.id.in_(registered_rstudent_ids)).order_by(RStudent.student_id).all()
-                current_app.logger.debug(f'Refresh marks: Loaded {len(students)} students from {len(registered_regs)} registrations')
             else:
                 students = []
         
@@ -1132,146 +1131,127 @@ def refresh_marks(session_id):
                                                 mark.continuous_assessment = round(assessment_total)
                                             else:
                                                 mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                        
+                        # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
+                        # This should be done for all students, regardless of class_student existence
+                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                try:
+                                    from blueprints.class_management.models import ExamPaperEvaluation
+                                    import json
+                                    
+                                    exam_entry = ExamPaperEvaluation.query.filter_by(
+                                        course_code=selected_subject.code,
+                                        archived=False
+                                    ).first()
+                                    
+                                    if not exam_entry:
+                                        exam_entry = ExamPaperEvaluation.query.filter(
+                                            ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
+                                            ExamPaperEvaluation.archived == False
+                                        ).first()
+                                    
+                                    if exam_entry and exam_entry.marks_data:
+                                        try:
+                                            exam_marks = json.loads(exam_entry.marks_data)
+                                            questions = exam_marks.get('questions', [])
+                                            rows = exam_marks.get('rows', [])
+                                            
+                                            student_row = None
+                                            for row in rows:
+                                                row_student_id = str(row.get('student_id', '')).strip()
+                                                row_code = str(row.get('code', '')).strip()
+                                                student_id_str = str(student.student_id).strip()
+                                                
+                                                if row_student_id == student_id_str or row_code == student_id_str:
+                                                    student_row = row
+                                                    break
+                                            
+                                            if student_row:
+                                                marks_dict = student_row.get('marks', {})
+                                                section_a_found = False
+                                                section_b_found = False
+                                                
+                                                # Check question labels for Section A/B
+                                                for question in questions:
+                                                    question_label = question.get('label', '').lower()
+                                                    
+                                                    if ('section a' in question_label or 'part a' in question_label) and not section_a_found:
+                                                        question_marks = marks_dict.get(question.get('label', ''), {})
+                                                        if isinstance(question_marks, dict):
+                                                            section_a_total = sum(float(v) for k, v in question_marks.items() if v and str(v).strip())
+                                                            if section_a_total > 0:
+                                                                mark.part_a = min(25.0, section_a_total)
+                                                                section_a_found = True
+                                                        elif isinstance(question_marks, (int, float)):
+                                                            mark.part_a = min(25.0, float(question_marks))
+                                                            section_a_found = True
+                                                    
+                                                    elif ('section b' in question_label or 'part b' in question_label) and not section_b_found:
+                                                        question_marks = marks_dict.get(question.get('label', ''), {})
+                                                        if isinstance(question_marks, dict):
+                                                            section_b_total = sum(float(v) for k, v in question_marks.items() if v and str(v).strip())
+                                                            if section_b_total > 0:
+                                                                mark.part_b = min(25.0, section_b_total)
+                                                                section_b_found = True
+                                                        elif isinstance(question_marks, (int, float)):
+                                                            mark.part_b = min(25.0, float(question_marks))
+                                                            section_b_found = True
+                                                
+                                                # Alternative patterns
+                                                if not section_a_found or not section_b_found:
+                                                    for question_label, question_data in marks_dict.items():
+                                                        q_label_lower = question_label.lower()
+                                                        
+                                                        if not section_a_found and ('section a' in q_label_lower or 'part a' in q_label_lower or 'a)' in q_label_lower):
+                                                            if isinstance(question_data, dict):
+                                                                section_a_total = sum(float(v) for k, v in question_data.items() if v and str(v).strip())
+                                                                if section_a_total > 0:
+                                                                    mark.part_a = min(25.0, section_a_total)
+                                                                    section_a_found = True
+                                                            elif isinstance(question_data, (int, float, str)):
+                                                                try:
+                                                                    val = float(question_data)
+                                                                    if val > 0:
+                                                                        mark.part_a = min(25.0, val)
+                                                                        section_a_found = True
+                                                                except (ValueError, TypeError):
+                                                                    pass
+                                                        
+                                                        if not section_b_found and ('section b' in q_label_lower or 'part b' in q_label_lower or 'b)' in q_label_lower):
+                                                            if isinstance(question_data, dict):
+                                                                section_b_total = sum(float(v) for k, v in question_data.items() if v and str(v).strip())
+                                                                if section_b_total > 0:
+                                                                    mark.part_b = min(25.0, section_b_total)
+                                                                    section_b_found = True
+                                                            elif isinstance(question_data, (int, float, str)):
+                                                                try:
+                                                                    val = float(question_data)
+                                                                    if val > 0:
+                                                                        mark.part_b = min(25.0, val)
+                                                                        section_b_found = True
+                                                                except (ValueError, TypeError):
+                                                                    pass
+                                                
+                                                # If 2 questions and no sections found, split total
+                                                if not section_a_found and not section_b_found and len(questions) == 2:
+                                                    total_marks_str = student_row.get('total', '')
+                                                    if total_marks_str:
+                                                        try:
+                                                            total = float(total_marks_str)
+                                                            mark.part_a = total / 2
+                                                            mark.part_b = total / 2
+                                                        except (ValueError, TypeError):
+                                                            pass
+                                        except json.JSONDecodeError as e:
+                                            current_app.logger.error(f"Error parsing exam marks JSON: {e}", exc_info=True)
+                                        except Exception as e:
+                                            current_app.logger.error(f"Error processing exam marks: {e}", exc_info=True)
+                                except Exception as e:
+                                    current_app.logger.error(f"Error fetching exam marks: {e}", exc_info=True)
                 except Exception as e:
                     current_app.logger.error(f"Error importing from Class Management for student {student.student_id}: {e}", exc_info=True)
-                    # Continue even if Class Management import fails
-                
-                # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
-                # SIMPLE DIRECT APPROACH - No complex logic, just get the data
-                if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                    try:
-                        from blueprints.class_management.models import ExamPaperEvaluation
-                        import json
-                        
-                        # Find ExamPaperEvaluation - try course_code first, then course_name
-                        exam_entry = ExamPaperEvaluation.query.filter_by(
-                            course_code=selected_subject.code,
-                            archived=False
-                        ).first()
-                        
-                        if not exam_entry:
-                            exam_entry = ExamPaperEvaluation.query.filter(
-                                ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
-                                ExamPaperEvaluation.archived == False
-                            ).first()
-                        
-                        if exam_entry and exam_entry.marks_data:
-                            try:
-                                exam_data = json.loads(exam_entry.marks_data)
-                                questions = exam_data.get('questions', [])
-                                rows = exam_data.get('rows', [])
-                                
-                                # Find student in rows - try both student_id and code
-                                student_row = None
-                                student_id_str = str(student.student_id).strip()
-                                
-                                for row in rows:
-                                    row_id = str(row.get('student_id', '')).strip()
-                                    row_code = str(row.get('code', '')).strip()
-                                    
-                                    if row_id == student_id_str or row_code == student_id_str:
-                                        student_row = row
-                                        break
-                                
-                                if student_row:
-                                    marks_dict = student_row.get('marks', {})
-                                    
-                                    # SIMPLE APPROACH: Look for ANY key containing "a" or "b" or "part" or "section"
-                                    part_a_value = None
-                                    part_b_value = None
-                                    
-                                    # First, try to find by question labels
-                                    for question in questions:
-                                        q_label = question.get('label', '')
-                                        q_label_lower = q_label.lower()
-                                        
-                                        if ('a' in q_label_lower or 'part a' in q_label_lower or 'section a' in q_label_lower) and not part_a_value:
-                                            q_marks = marks_dict.get(q_label, {})
-                                            if isinstance(q_marks, dict):
-                                                total = sum(float(v) for k, v in q_marks.items() if v and str(v).strip() and str(v).strip() != '')
-                                                if total > 0:
-                                                    part_a_value = min(25.0, total)
-                                            elif isinstance(q_marks, (int, float)):
-                                                if q_marks > 0:
-                                                    part_a_value = min(25.0, float(q_marks))
-                                        
-                                        if ('b' in q_label_lower or 'part b' in q_label_lower or 'section b' in q_label_lower) and not part_b_value:
-                                            q_marks = marks_dict.get(q_label, {})
-                                            if isinstance(q_marks, dict):
-                                                total = sum(float(v) for k, v in q_marks.items() if v and str(v).strip() and str(v).strip() != '')
-                                                if total > 0:
-                                                    part_b_value = min(25.0, total)
-                                            elif isinstance(q_marks, (int, float)):
-                                                if q_marks > 0:
-                                                    part_b_value = min(25.0, float(q_marks))
-                                    
-                                    # If not found, try ALL keys in marks_dict
-                                    if not part_a_value or not part_b_value:
-                                        for key, value in marks_dict.items():
-                                            key_lower = key.lower()
-                                            
-                                            if not part_a_value and ('a' in key_lower or 'part a' in key_lower or 'section a' in key_lower or key_lower.endswith(' a)')):
-                                                if isinstance(value, dict):
-                                                    total = sum(float(v) for k, v in value.items() if v and str(v).strip() and str(v).strip() != '')
-                                                    if total > 0:
-                                                        part_a_value = min(25.0, total)
-                                                elif isinstance(value, (int, float, str)):
-                                                    try:
-                                                        val = float(value)
-                                                        if val > 0:
-                                                            part_a_value = min(25.0, val)
-                                                    except:
-                                                        pass
-                                            
-                                            if not part_b_value and ('b' in key_lower or 'part b' in key_lower or 'section b' in key_lower or key_lower.endswith(' b)')):
-                                                if isinstance(value, dict):
-                                                    total = sum(float(v) for k, v in value.items() if v and str(v).strip() and str(v).strip() != '')
-                                                    if total > 0:
-                                                        part_b_value = min(25.0, total)
-                                                elif isinstance(value, (int, float, str)):
-                                                    try:
-                                                        val = float(value)
-                                                        if val > 0:
-                                                            part_b_value = min(25.0, val)
-                                                    except:
-                                                        pass
-                                    
-                                    # If still not found and we have exactly 2 questions, split total
-                                    if not part_a_value and not part_b_value and len(questions) == 2:
-                                        total_str = student_row.get('total', '')
-                                        if total_str:
-                                            try:
-                                                total = float(total_str)
-                                                part_a_value = total / 2
-                                                part_b_value = total / 2
-                                            except:
-                                                pass
-                                    
-                                    # SET THE VALUES
-                                    if part_a_value is not None:
-                                        mark.part_a = part_a_value
-                                        current_app.logger.info(f'✅ Set part_a={mark.part_a} for student {student.student_id}')
-                                    
-                                    if part_b_value is not None:
-                                        mark.part_b = part_b_value
-                                        current_app.logger.info(f'✅ Set part_b={mark.part_b} for student {student.student_id}')
-                                    
-                                    if part_a_value is None and part_b_value is None:
-                                        current_app.logger.warning(f'⚠️ Could not find Part A/B for student {student.student_id}. marks_dict keys: {list(marks_dict.keys())}')
-                                
-                                else:
-                                    current_app.logger.warning(f'⚠️ Student {student.student_id} not found in exam data rows')
-                            
-                            except Exception as e:
-                                current_app.logger.error(f'Error processing exam marks: {e}', exc_info=True)
-                        else:
-                            if not exam_entry:
-                                current_app.logger.warning(f'No ExamPaperEvaluation found for course {selected_subject.code}')
-                            elif not exam_entry.marks_data:
-                                current_app.logger.warning(f'ExamPaperEvaluation found but marks_data is empty')
-                    
-                    except Exception as e:
-                        current_app.logger.error(f'Error fetching exam marks: {e}', exc_info=True)
+                    error_count += 1
+                    continue
                 
                 # Calculate total_marks, grade_point, and grade_letter
                 try:
@@ -1282,12 +1262,7 @@ def refresh_marks(session_id):
                     
                     total_marks = 0
                     if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                        # Direct addition - don't use filter(None) as it skips 0 values
-                        attendance = mark.attendance if mark.attendance is not None else 0
-                        ca = mark.continuous_assessment if mark.continuous_assessment is not None else 0
-                        part_a = mark.part_a if mark.part_a is not None else 0
-                        part_b = mark.part_b if mark.part_b is not None else 0
-                        total_marks = attendance + ca + part_a + part_b
+                        total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
                     elif selected_subject.subject_type == 'Sessional':
                         total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
                     elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
@@ -2122,51 +2097,6 @@ def add_marks(session_id):
             # Get all RStudents in this session
             all_rstudents = RStudent.query.filter_by(session_id=session_id).all()
             student_id_to_rstudent_id = {rs.student_id: rs.id for rs in all_rstudents}
-            existing_student_ids = set(student_id_to_rstudent_id.keys())
-            
-            # Get ALL registrations for this course_code first (to find missing RStudents)
-            all_registrations = StudentCourseRegistration.query.filter(
-                StudentCourseRegistration.course_code == selected_subject.code,
-                StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
-            ).all()
-            
-            # Auto-create RStudent records for registered students who don't exist yet
-            students_to_create = []
-            for reg in all_registrations:
-                # Get StudentProfile to get student_id (public ID)
-                student_profile = StudentProfile.query.get(reg.student_id)
-                if not student_profile:
-                    current_app.logger.warning(f'StudentProfile not found for registration: reg.student_id={reg.student_id}, course_code={reg.course_code}')
-                    continue
-                
-                # Check if RStudent already exists for this session
-                if student_profile.student_id not in existing_student_ids:
-                    # Create new RStudent record
-                    r_student = RStudent(
-                        student_id=student_profile.student_id,
-                        name=student_profile.name,
-                        session_id=session_id,
-                        year=session.year if session.year else None,
-                        discipline=None,
-                        school=None
-                    )
-                    students_to_create.append(r_student)
-                    existing_student_ids.add(student_profile.student_id)
-                    current_app.logger.debug(f'Auto-creating RStudent: student_id={student_profile.student_id}, name={student_profile.name}')
-            
-            # Bulk create missing RStudent records
-            if students_to_create:
-                try:
-                    db.session.bulk_save_objects(students_to_create)
-                    db.session.commit()
-                    current_app.logger.info(f'Auto-created {len(students_to_create)} RStudent records for session {session_id}')
-                    
-                    # Refresh the mapping after creating new students
-                    all_rstudents = RStudent.query.filter_by(session_id=session_id).all()
-                    student_id_to_rstudent_id = {rs.student_id: rs.id for rs in all_rstudents}
-                except Exception as e:
-                    current_app.logger.error(f'Error auto-creating RStudent records: {e}', exc_info=True)
-                    db.session.rollback()
             
             # Get Student profiles for these student_ids
             student_profiles = StudentProfile.query.filter(
@@ -2193,18 +2123,20 @@ def add_marks(session_id):
                     StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
                 ]
                 
-                # Get ALL registrations for this course_code (regardless of year/term)
-                # This ensures students who deregistered and re-registered are still included
-                registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
-                current_app.logger.debug(f'Found {len(registered_regs)} total registrations for course_code={selected_subject.code}')
+                # Try exact match first (year + term)
+                registered_regs = None
+                if session.year and session.term:
+                    exact_filters = course_filters + [
+                        StudentCourseRegistration.year == session.year,
+                        StudentCourseRegistration.term == session.term
+                    ]
+                    registered_regs = StudentCourseRegistration.query.filter(*exact_filters).all()
+                    current_app.logger.debug(f'Exact match (year={session.year}, term={session.term}): {len(registered_regs)} registrations found')
                 
-                # If we have year/term, prefer exact matches but don't exclude others
-                # This handles cases where students re-registered with different year/term
-                if session.year and session.term and registered_regs:
-                    # Count exact matches for logging
-                    exact_matches = [reg for reg in registered_regs 
-                                   if reg.year == session.year and reg.term == session.term]
-                    current_app.logger.debug(f'Exact match (year={session.year}, term={session.term}): {len(exact_matches)} out of {len(registered_regs)} registrations')
+                # Fallback: try without year/term if exact match found nothing
+                if not registered_regs or len(registered_regs) == 0:
+                    registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
+                    current_app.logger.debug(f'Fallback match (course_code only): {len(registered_regs)} registrations found')
                 
                 # Map registration student_id (Student profile ID) back to RStudent.id
                 registered_rstudent_ids = set()
@@ -2213,11 +2145,11 @@ def add_marks(session_id):
                     if rstudent_id:
                         registered_rstudent_ids.add(rstudent_id)
                     else:
-                        current_app.logger.warning(f'Registration found but RStudent mapping failed: reg.student_id={reg.student_id}, course_code={reg.course_code}, status={reg.status}')
+                        current_app.logger.warning(f'Registration found but RStudent mapping failed: reg.student_id={reg.student_id}, course_code={reg.course_code}')
                 
                 if registered_rstudent_ids:
                     students = RStudent.query.filter(RStudent.id.in_(registered_rstudent_ids)).order_by(RStudent.student_id).all()
-                    current_app.logger.info(f'Loaded {len(students)} registered students for subject {selected_subject.code} (from {len(registered_regs)} registrations)')
+                    current_app.logger.info(f'Loaded {len(students)} registered students for subject {selected_subject.code}')
                 else:
                     # No registered students found for this subject
                     current_app.logger.warning(f'No registered students found for subject {selected_subject.code} (code={selected_subject.code}, session={session.name}/{session.year}/{session.term})')
@@ -2288,11 +2220,6 @@ def add_marks(session_id):
         for student in students:
             mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
             
-            if mark:
-                current_app.logger.info(f'Existing mark found for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}, part_a={mark.part_a}, part_b={mark.part_b}, attendance_manual={mark.attendance_manual}')
-            else:
-                current_app.logger.info(f'No existing mark for student {student.student_id}, will create new mark')
-            
             # If mark doesn't exist, try to auto-populate from Class Management
             if not mark:
                 current_app.logger.debug(f'Result Management: No existing mark found for student {student.student_id}, attempting auto-populate')
@@ -2342,7 +2269,6 @@ def add_marks(session_id):
                         if class_student:
                             # Create new RMark and auto-populate from Class Management
                             mark = RMark(student_id=student.id, subject_id=selected_subject.id)
-                            current_app.logger.info(f'Creating new mark for student {student.student_id}, class_student found: assessment_total_40={class_student.assessment_total_40}, assessment_total={class_student.assessment_total}')
                             
                             # Import attendance calculation functions from Class Management
                             # Only auto-populate if attendance_manual is False or None (not manually entered)
@@ -2352,27 +2278,22 @@ def add_marks(session_id):
                                     
                                     # Build attendance summary for the session (same as Class Management uses)
                                     attendance_summary = _build_attendance_summary(class_session)
-                                    current_app.logger.debug(f'Built attendance summary for class_session {class_session.id}, total_classes={attendance_summary.get("total_classes", 0)}')
                                     
                                     # Get student's attendance data using student_id (public ID)
                                     # The summary uses student_id (public) as key, not database ID
                                     student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                    current_app.logger.debug(f'Student attendance data for {student.student_id}: {student_attendance}')
                                     
                                     if student_attendance and 'marks' in student_attendance:
                                         # Get marks directly from the summary (already calculated by Class Management)
                                         attendance_marks = student_attendance.get('marks', 0)
-                                        current_app.logger.info(f'Found attendance marks for student {student.student_id}: {attendance_marks}')
                                         if attendance_marks is not None:
                                             mark.attendance = float(attendance_marks)
-                                            current_app.logger.info(f'Set attendance={mark.attendance} for student {student.student_id}')
                                         else:
                                             mark.attendance = None
-                                            current_app.logger.warning(f'Attendance marks is None for student {student.student_id}')
                                     else:
                                         # If no attendance data found, set to None
                                         mark.attendance = None
-                                        current_app.logger.warning(f"No attendance data found for student {student.student_id} in session {class_session.id}. student_attendance={student_attendance}")
+                                        current_app.logger.debug(f"No attendance data found for student {student.student_id} in session {class_session.id}")
                                 except ImportError as e:
                                     # If import fails, log warning
                                     current_app.logger.warning(f"Could not import _build_attendance_summary: {e}")
@@ -2385,11 +2306,9 @@ def add_marks(session_id):
                             if class_student.assessment_total_40 is not None:
                                 # PG: Already rounded in assessment calculation
                                 mark.continuous_assessment = float(class_student.assessment_total_40)
-                                current_app.logger.info(f'Set continuous_assessment={mark.continuous_assessment} from assessment_total_40 for student {student.student_id}')
                             elif class_student.assessment_total is not None:
                                 # assessment_total might be out of 30, convert to out of 40 if needed
                                 assessment_total = float(class_student.assessment_total)
-                                current_app.logger.info(f'Found assessment_total={assessment_total} for student {student.student_id}')
                                 # If it's already out of 40, use as is; otherwise scale it
                                 if assessment_total <= 40:
                                     # UG: Round for result generation
@@ -2397,10 +2316,8 @@ def add_marks(session_id):
                                 else:
                                     # Scale from 30 to 40 if needed, then round for result generation
                                     mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                                current_app.logger.info(f'Set continuous_assessment={mark.continuous_assessment} for student {student.student_id}')
                             else:
                                 mark.continuous_assessment = None
-                                current_app.logger.warning(f'No assessment data found for student {student.student_id}: assessment_total_40={class_student.assessment_total_40}, assessment_total={class_student.assessment_total}')
                             
                             # Get Section A and B marks from Exam Paper Evaluation
                             try:
@@ -2710,432 +2627,124 @@ def add_marks(session_id):
                         current_app.logger.error(f"Error creating empty mark: {create_error}", exc_info=True)
                         mark = None
             else:
-                # Mark exists - ALWAYS try to sync from ClassManagement (unless manually entered)
-                # This ensures marks are always up-to-date when page loads
-                current_app.logger.info(f'🔄 Processing EXISTING mark for student {student.student_id}, subject {selected_subject.code}')
+                # Mark exists - sync attendance and continuous_assessment if they're None
                 if mark:
                     needs_update = False
-                    current_app.logger.info(f'📝 Existing mark for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}, part_a={mark.part_a}, part_b={mark.part_b}, attendance_manual={mark.attendance_manual}')
-                    current_app.logger.info(f'📝 Subject info: code="{selected_subject.code}", name="{selected_subject.name}", type="{selected_subject.subject_type}"')
                     
-                    try:
-                        from blueprints.class_management.models import Session as CMSession, ClassStudent
-                        from blueprints.class_management.routes import _build_attendance_summary
-                        
-                        # Find ANY ClassManagement session for this course (most flexible approach)
-                        class_sessions = CMSession.query.filter_by(course_code=selected_subject.code).order_by(CMSession.created_at.desc()).all()
-                        
-                        if class_sessions:
-                            current_app.logger.info(f'Found {len(class_sessions)} ClassManagement session(s) for course {selected_subject.code}')
+                    # Sync attendance if not manually entered and None
+                    if not mark.attendance_manual and mark.attendance is None:
+                        try:
+                            from blueprints.class_management.models import Session, ClassStudent
+                            from blueprints.class_management.routes import _build_attendance_summary
                             
-                            # Try each session until we find the student
-                            class_student = None
+                            # Find matching session (try multiple strategies)
                             class_session = None
                             
-                            for cs in class_sessions:
-                                cs_student = ClassStudent.query.filter_by(
-                                    session_id=cs.id,
-                                    student_id=student.student_id
+                            if session.year and session.term and session.name:
+                                class_session = Session.query.filter_by(
+                                    course_code=selected_subject.code,
+                                    year=session.year,
+                                    term=session.term,
+                                    academic_session=session.name
                                 ).first()
-                                
-                                if cs_student:
-                                    class_student = cs_student
-                                    class_session = cs
-                                    current_app.logger.info(f'Found class_student in session {cs.id} for student {student.student_id}')
-                                    break
                             
-                            # If student found, sync attendance and assessment
-                            if class_student and class_session:
-                                # Sync attendance (if not manually entered)
-                                if not mark.attendance_manual:
-                                    try:
-                                        attendance_summary = _build_attendance_summary(class_session)
-                                        student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                        
-                                        if student_attendance and 'marks' in student_attendance:
-                                            attendance_marks = student_attendance.get('marks', 0)
-                                            if attendance_marks is not None:
-                                                new_attendance = float(attendance_marks)
-                                                if mark.attendance != new_attendance:
-                                                    mark.attendance = new_attendance
-                                                    needs_update = True
-                                                    current_app.logger.info(f'✅ Updated attendance: {mark.attendance} for student {student.student_id}')
-                                    except Exception as e:
-                                        current_app.logger.error(f"Error syncing attendance: {e}", exc_info=True)
+                            if not class_session and session.year and session.term:
+                                class_session = Session.query.filter_by(
+                                    course_code=selected_subject.code,
+                                    year=session.year,
+                                    term=session.term
+                                ).first()
+                            
+                            if not class_session:
+                                class_session = Session.query.filter_by(
+                                    course_code=selected_subject.code
+                                ).order_by(Session.created_at.desc()).first()
+                            
+                            if class_session:
+                                attendance_summary = _build_attendance_summary(class_session)
+                                student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
                                 
-                                # Sync continuous assessment (for Theory subjects)
-                                if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                if student_attendance and 'marks' in student_attendance:
+                                    attendance_marks = student_attendance.get('marks', 0)
+                                    if attendance_marks is not None:
+                                        mark.attendance = float(attendance_marks)
+                                        needs_update = True
+                                        current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id}')
+                        except Exception as e:
+                            current_app.logger.debug(f"Error syncing attendance for existing mark: {e}")
+                    
+                    # Sync continuous_assessment if None (for Theory subjects)
+                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                        if mark.continuous_assessment is None:
+                            try:
+                                from blueprints.class_management.models import Session, ClassStudent
+                                
+                                # Find matching session (try multiple strategies)
+                                class_session = None
+                                
+                                if session.year and session.term and session.name:
+                                    class_session = Session.query.filter_by(
+                                        course_code=selected_subject.code,
+                                        year=session.year,
+                                        term=session.term,
+                                        academic_session=session.name
+                                    ).first()
+                                
+                                if not class_session and session.year and session.term:
+                                    class_session = Session.query.filter_by(
+                                        course_code=selected_subject.code,
+                                        year=session.year,
+                                        term=session.term
+                                    ).first()
+                                
+                                if not class_session:
+                                    class_session = Session.query.filter_by(
+                                        course_code=selected_subject.code
+                                    ).order_by(Session.created_at.desc()).first()
+                                
+                                # Try to find class_student in the found session
+                                class_student = None
+                                if class_session:
+                                    class_student = ClassStudent.query.filter_by(
+                                        session_id=class_session.id,
+                                        student_id=student.student_id
+                                    ).first()
+                                
+                                # If not found, try alternative sessions
+                                if not class_student:
+                                    class_student = ClassStudent.query.join(
+                                        Session, ClassStudent.session_id == Session.id
+                                    ).filter(
+                                        Session.course_code == selected_subject.code,
+                                        ClassStudent.student_id == student.student_id
+                                    ).first()
+                                
+                                if class_student:
+                                    # Update continuous_assessment from Class Management
                                     if class_student.assessment_total_40 is not None:
-                                        new_assessment = float(class_student.assessment_total_40)
-                                        if mark.continuous_assessment != new_assessment:
-                                            mark.continuous_assessment = new_assessment
-                                            needs_update = True
-                                            current_app.logger.info(f'✅ Updated assessment_total_40: {mark.continuous_assessment} for student {student.student_id}')
+                                        mark.continuous_assessment = float(class_student.assessment_total_40)
+                                        needs_update = True
+                                        current_app.logger.debug(f'Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id}')
                                     elif class_student.assessment_total is not None:
                                         assessment_total = float(class_student.assessment_total)
                                         if assessment_total <= 40:
-                                            new_assessment = round(assessment_total)
+                                            mark.continuous_assessment = round(assessment_total)
                                         else:
-                                            new_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                                        
-                                        if mark.continuous_assessment != new_assessment:
-                                            mark.continuous_assessment = new_assessment
-                                            needs_update = True
-                                            current_app.logger.info(f'✅ Updated assessment_total: {mark.continuous_assessment} for student {student.student_id}')
-                                    else:
-                                        current_app.logger.warning(f'No assessment data for student {student.student_id} in ClassManagement')
-                            else:
-                                # Student not found in any ClassManagement session - try to get attendance from any session
-                                if not mark.attendance_manual:
-                                    try:
-                                        first_session = class_sessions[0]
-                                        attendance_summary = _build_attendance_summary(first_session)
-                                        student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                        
-                                        if student_attendance and 'marks' in student_attendance:
-                                            attendance_marks = student_attendance.get('marks', 0)
-                                            if attendance_marks is not None:
-                                                new_attendance = float(attendance_marks)
-                                                if mark.attendance != new_attendance:
-                                                    mark.attendance = new_attendance
-                                                    needs_update = True
-                                                    current_app.logger.info(f'✅ Updated attendance from any session: {mark.attendance} for student {student.student_id}')
-                                    except Exception as e:
-                                        current_app.logger.debug(f"Could not sync attendance from any session: {e}")
+                                            mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
+                                        needs_update = True
+                                        current_app.logger.debug(f'Synced assessment_total={mark.continuous_assessment} for student {student.student_id}')
                                 
-                                # Try to find student in any session for assessment
-                                if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                                    for cs in class_sessions:
-                                        alt_student = ClassStudent.query.filter_by(
-                                            session_id=cs.id,
-                                            student_id=student.student_id
-                                        ).first()
-                                        
-                                        if alt_student:
-                                            if alt_student.assessment_total_40 is not None:
-                                                new_assessment = float(alt_student.assessment_total_40)
-                                                if mark.continuous_assessment != new_assessment:
-                                                    mark.continuous_assessment = new_assessment
-                                                    needs_update = True
-                                                    current_app.logger.info(f'✅ Updated assessment from alternative session: {mark.continuous_assessment} for student {student.student_id}')
-                                                    break
-                                            elif alt_student.assessment_total is not None:
-                                                assessment_total = float(alt_student.assessment_total)
-                                                if assessment_total <= 40:
-                                                    new_assessment = round(assessment_total)
-                                                else:
-                                                    new_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                                                
-                                                if mark.continuous_assessment != new_assessment:
-                                                    mark.continuous_assessment = new_assessment
-                                                    needs_update = True
-                                                    current_app.logger.info(f'✅ Updated assessment from alternative session: {mark.continuous_assessment} for student {student.student_id}')
-                                                    break
-                        else:
-                            current_app.logger.warning(f'No ClassManagement sessions found for course {selected_subject.code}')
-                        
-                        # Sync Part A and Part B from Exam Paper Evaluation (for Theory subjects)
-                        # This is independent of ClassManagement, so always try to sync
-                        current_app.logger.info(f'🔍 Checking Part A/B sync for student {student.student_id}')
-                        current_app.logger.info(f'📋 Subject details: code="{selected_subject.code}", name="{selected_subject.name}", subject_type="{selected_subject.subject_type}" (type: {type(selected_subject.subject_type)})')
-                        current_app.logger.info(f'🔍 Checking if subject_type in ("Theory", "Theory (UG)", "Theory (PG)")')
-                        is_theory = selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)')
-                        current_app.logger.info(f'🔍 is_theory={is_theory}')
-                        if is_theory:
-                            current_app.logger.info(f'✅ Subject type is Theory, proceeding with Part A/B sync for student {student.student_id}')
-                            try:
-                                from blueprints.class_management.models import ExamPaperEvaluation
-                                import json
-                                current_app.logger.info(f'🔍 Looking for ExamPaperEvaluation: course_code="{selected_subject.code}", course_name="{selected_subject.name}"')
-                                
-                                # Find Exam Paper Evaluation entry for this course
-                                exam_entry = ExamPaperEvaluation.query.filter_by(
-                                    course_code=selected_subject.code,
-                                    archived=False
-                                ).first()
-                                
-                                if exam_entry:
-                                    current_app.logger.info(f'✅ Found ExamPaperEvaluation by course_code: ID={exam_entry.id}, course_code="{exam_entry.course_code}", course_name="{exam_entry.course_name}"')
-                                else:
-                                    current_app.logger.info(f'⚠️ No ExamPaperEvaluation found by course_code="{selected_subject.code}", trying course_name...')
-                                
-                                # If not found, try searching by course name
-                                if not exam_entry:
-                                    exam_entry = ExamPaperEvaluation.query.filter(
-                                        ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
-                                        ExamPaperEvaluation.archived == False
-                                    ).first()
-                                    if exam_entry:
-                                        current_app.logger.info(f'✅ Found ExamPaperEvaluation by course_name: ID={exam_entry.id}, course_code="{exam_entry.course_code}", course_name="{exam_entry.course_name}"')
-                                    else:
-                                        current_app.logger.warning(f'⚠️ No ExamPaperEvaluation found by course_name="{selected_subject.name}"')
-                                
-                                if exam_entry and exam_entry.marks_data:
-                                    current_app.logger.info(f'🔍 Found ExamPaperEvaluation entry for course {selected_subject.code} (ID: {exam_entry.id})')
-                                    try:
-                                        exam_marks = json.loads(exam_entry.marks_data)
-                                        questions = exam_marks.get('questions', [])
-                                        rows = exam_marks.get('rows', [])
-                                        
-                                        current_app.logger.info(f'📊 Exam data: {len(questions)} questions, {len(rows)} student rows')
-                                        current_app.logger.info(f'📋 Question labels: {[q.get("label", "") for q in questions]}')
-                                        
-                                        # Find student's marks in exam data
-                                        student_row = None
-                                        for row in rows:
-                                            row_student_id = str(row.get('student_id', '')).strip()
-                                            row_code = str(row.get('code', '')).strip()
-                                            student_id_str = str(student.student_id).strip()
-                                            
-                                            current_app.logger.debug(f'🔎 Comparing: row_student_id="{row_student_id}", row_code="{row_code}", student_id="{student_id_str}"')
-                                            
-                                            if row_student_id == student_id_str or row_code == student_id_str:
-                                                student_row = row
-                                                current_app.logger.info(f'✅ Found student row in exam data for {student.student_id}')
-                                                break
-                                        
-                                        if student_row:
-                                            marks_dict = student_row.get('marks', {})
-                                            current_app.logger.info(f'📝 Student marks_dict keys: {list(marks_dict.keys())}')
-                                            current_app.logger.info(f'📝 Student marks_dict: {marks_dict}')
-                                            
-                                            section_a_found = False
-                                            section_b_found = False
-                                            
-                                            # First, check question labels for Section A/B
-                                            for question in questions:
-                                                question_label = question.get('label', '')
-                                                question_label_lower = question_label.lower()
-                                                
-                                                current_app.logger.debug(f'🔍 Checking question: "{question_label}" (lower: "{question_label_lower}")')
-                                                
-                                                if ('section a' in question_label_lower or 'part a' in question_label_lower) and not section_a_found:
-                                                    # Try exact match first
-                                                    question_marks = marks_dict.get(question_label, {})
-                                                    current_app.logger.info(f'🔍 Part A: question_label="{question_label}", question_marks type={type(question_marks)}, value={question_marks}')
-                                                    
-                                                    if isinstance(question_marks, dict):
-                                                        section_a_total = 0
-                                                        for k, v in question_marks.items():
-                                                            try:
-                                                                if v and str(v).strip():
-                                                                    section_a_total += float(v)
-                                                                    current_app.logger.debug(f'  Part A sub-part "{k}": {v} (total so far: {section_a_total})')
-                                                            except (ValueError, TypeError):
-                                                                pass
-                                                        
-                                                        if section_a_total > 0:
-                                                            new_part_a = min(25.0, section_a_total)
-                                                            if mark.part_a != new_part_a:
-                                                                mark.part_a = new_part_a
-                                                                needs_update = True
-                                                                current_app.logger.info(f'✅ Updated part_a: {mark.part_a} for student {student.student_id} (from question "{question_label}")')
-                                                            section_a_found = True
-                                                    elif isinstance(question_marks, (int, float)):
-                                                        new_part_a = min(25.0, float(question_marks))
-                                                        if mark.part_a != new_part_a:
-                                                            mark.part_a = new_part_a
-                                                            needs_update = True
-                                                            current_app.logger.info(f'✅ Updated part_a: {mark.part_a} for student {student.student_id} (from question "{question_label}")')
-                                                        section_a_found = True
-                                                    else:
-                                                        current_app.logger.warning(f'⚠️ Part A question_marks is not dict or number: {type(question_marks)} = {question_marks}')
-                                                
-                                                elif ('section b' in question_label_lower or 'part b' in question_label_lower) and not section_b_found:
-                                                    # Try exact match first
-                                                    question_marks = marks_dict.get(question_label, {})
-                                                    current_app.logger.info(f'🔍 Part B: question_label="{question_label}", question_marks type={type(question_marks)}, value={question_marks}')
-                                                    
-                                                    if isinstance(question_marks, dict):
-                                                        section_b_total = 0
-                                                        for k, v in question_marks.items():
-                                                            try:
-                                                                if v and str(v).strip():
-                                                                    section_b_total += float(v)
-                                                                    current_app.logger.debug(f'  Part B sub-part "{k}": {v} (total so far: {section_b_total})')
-                                                            except (ValueError, TypeError):
-                                                                pass
-                                                        
-                                                        if section_b_total > 0:
-                                                            new_part_b = min(25.0, section_b_total)
-                                                            if mark.part_b != new_part_b:
-                                                                mark.part_b = new_part_b
-                                                                needs_update = True
-                                                                current_app.logger.info(f'✅ Updated part_b: {mark.part_b} for student {student.student_id} (from question "{question_label}")')
-                                                            section_b_found = True
-                                                    elif isinstance(question_marks, (int, float)):
-                                                        new_part_b = min(25.0, float(question_marks))
-                                                        if mark.part_b != new_part_b:
-                                                            mark.part_b = new_part_b
-                                                            needs_update = True
-                                                            current_app.logger.info(f'✅ Updated part_b: {mark.part_b} for student {student.student_id} (from question "{question_label}")')
-                                                        section_b_found = True
-                                                    else:
-                                                        current_app.logger.warning(f'⚠️ Part B question_marks is not dict or number: {type(question_marks)} = {question_marks}')
-                                            
-                                            # If still not found, try alternative patterns
-                                            if not section_a_found or not section_b_found:
-                                                current_app.logger.info(f'🔍 Trying alternative patterns. section_a_found={section_a_found}, section_b_found={section_b_found}')
-                                                for question_label, question_data in marks_dict.items():
-                                                    q_label_lower = question_label.lower()
-                                                    
-                                                    if not section_a_found and ('section a' in q_label_lower or 'part a' in q_label_lower or 'a)' in q_label_lower):
-                                                        current_app.logger.info(f'🔍 Found Part A pattern in key: "{question_label}"')
-                                                        if isinstance(question_data, dict):
-                                                            section_a_total = 0
-                                                            for k, v in question_data.items():
-                                                                try:
-                                                                    if v and str(v).strip():
-                                                                        section_a_total += float(v)
-                                                                except (ValueError, TypeError):
-                                                                    pass
-                                                            if section_a_total > 0:
-                                                                new_part_a = min(25.0, section_a_total)
-                                                                if mark.part_a != new_part_a:
-                                                                    mark.part_a = new_part_a
-                                                                    needs_update = True
-                                                                    current_app.logger.info(f'✅ Updated part_a (alt): {mark.part_a} for student {student.student_id} from key "{question_label}"')
-                                                                section_a_found = True
-                                                        elif isinstance(question_data, (int, float, str)):
-                                                            try:
-                                                                val = float(question_data)
-                                                                if val > 0:
-                                                                    new_part_a = min(25.0, val)
-                                                                    if mark.part_a != new_part_a:
-                                                                        mark.part_a = new_part_a
-                                                                        needs_update = True
-                                                                        current_app.logger.info(f'✅ Updated part_a (alt): {mark.part_a} for student {student.student_id} from key "{question_label}"')
-                                                                    section_a_found = True
-                                                            except (ValueError, TypeError):
-                                                                pass
-                                                    
-                                                    if not section_b_found and ('section b' in q_label_lower or 'part b' in q_label_lower or 'b)' in q_label_lower):
-                                                        current_app.logger.info(f'🔍 Found Part B pattern in key: "{question_label}"')
-                                                        if isinstance(question_data, dict):
-                                                            section_b_total = 0
-                                                            for k, v in question_data.items():
-                                                                try:
-                                                                    if v and str(v).strip():
-                                                                        section_b_total += float(v)
-                                                                except (ValueError, TypeError):
-                                                                    pass
-                                                            if section_b_total > 0:
-                                                                new_part_b = min(25.0, section_b_total)
-                                                                if mark.part_b != new_part_b:
-                                                                    mark.part_b = new_part_b
-                                                                    needs_update = True
-                                                                    current_app.logger.info(f'✅ Updated part_b (alt): {mark.part_b} for student {student.student_id} from key "{question_label}"')
-                                                                section_b_found = True
-                                                        elif isinstance(question_data, (int, float, str)):
-                                                            try:
-                                                                val = float(question_data)
-                                                                if val > 0:
-                                                                    new_part_b = min(25.0, val)
-                                                                    if mark.part_b != new_part_b:
-                                                                        mark.part_b = new_part_b
-                                                                        needs_update = True
-                                                                        current_app.logger.info(f'✅ Updated part_b (alt): {mark.part_b} for student {student.student_id} from key "{question_label}"')
-                                                                    section_b_found = True
-                                                            except (ValueError, TypeError):
-                                                                pass
-                                            
-                                            # If we have total but not individual sections, and there are exactly 2 questions, split them
-                                            if not section_a_found and not section_b_found:
-                                                current_app.logger.info(f'⚠️ Part A/B not found. Trying split from total. Questions count: {len(questions)}')
-                                                if len(questions) == 2:
-                                                    total_marks_str = student_row.get('total', '')
-                                                    current_app.logger.info(f'📊 Total marks string: "{total_marks_str}"')
-                                                    if total_marks_str:
-                                                        try:
-                                                            total = float(total_marks_str)
-                                                            # Split 50-50 between two questions
-                                                            new_part_a = total / 2
-                                                            new_part_b = total / 2
-                                                            if mark.part_a != new_part_a or mark.part_b != new_part_b:
-                                                                mark.part_a = new_part_a
-                                                                mark.part_b = new_part_b
-                                                                needs_update = True
-                                                                current_app.logger.info(f'✅ Updated part_a/b (split): {mark.part_a}/{mark.part_b} for student {student.student_id}')
-                                                        except (ValueError, TypeError):
-                                                            current_app.logger.warning(f'⚠️ Could not parse total marks "{total_marks_str}"')
-                                                else:
-                                                    current_app.logger.warning(f'⚠️ Cannot split: {len(questions)} questions (expected 2)')
-                                            
-                                            if not section_a_found:
-                                                current_app.logger.warning(f'⚠️ Part A not found for student {student.student_id}')
-                                            if not section_b_found:
-                                                current_app.logger.warning(f'⚠️ Part B not found for student {student.student_id}')
-                                        else:
-                                            current_app.logger.warning(f'⚠️ Student row not found in exam data for student {student.student_id}. Searched in {len(rows)} rows.')
-                                    except json.JSONDecodeError as e:
-                                        current_app.logger.error(f"❌ Error parsing exam marks JSON: {e}", exc_info=True)
-                                    except Exception as e:
-                                        current_app.logger.error(f"❌ Error processing exam marks: {e}", exc_info=True)
-                                else:
-                                    if not exam_entry:
-                                        current_app.logger.warning(f'⚠️ No ExamPaperEvaluation entry found for course {selected_subject.code} (archived=False)')
-                                    elif not exam_entry.marks_data:
-                                        current_app.logger.warning(f'⚠️ ExamPaperEvaluation entry found (ID={exam_entry.id}) but marks_data is empty for course {selected_subject.code}')
+                                # Commit the update
+                                if needs_update:
+                                    db.session.commit()
                             except Exception as e:
-                                current_app.logger.error(f"❌ Error fetching exam marks for student {student.student_id}: {e}", exc_info=True)
-                        else:
-                            current_app.logger.info(f'⏭️ Skipping Part A/B sync: subject_type="{selected_subject.subject_type}" is not Theory')
-                        
-                        # Commit all sync changes at once
-                        if needs_update:
-                            try:
-                                db.session.commit()
-                                current_app.logger.info(f'✅ Committed sync updates for student {student.student_id}')
-                            except Exception as commit_error:
-                                current_app.logger.error(f'Error committing sync: {commit_error}', exc_info=True)
+                                current_app.logger.error(f"Error syncing continuous_assessment for existing mark: {e}", exc_info=True)
                                 db.session.rollback()
-                    except Exception as e:
-                        current_app.logger.error(f'Error syncing marks for student {student.student_id}: {e}', exc_info=True)
-                        # Continue with existing mark even if sync fails
             
             # Add mark to marks_data (even if None) to ensure all registered students are shown
             # Template will handle None marks by showing empty input fields
-            # Always add mark to marks_data, even if sync failed
-            if mark is None:
-                # If mark is None for some reason, try to load it from database first
-                current_app.logger.warning(f'Mark is None for student {student.student_id}, attempting to load from database')
-                mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
-                if mark is None:
-                    # Still None - create an empty one
-                    current_app.logger.warning(f'Mark still None after query, creating new mark for student {student.student_id}')
-                    mark = RMark(student_id=student.id, subject_id=selected_subject.id)
-                    db.session.add(mark)
-                    try:
-                        db.session.commit()
-                    except Exception as e:
-                        current_app.logger.error(f'Error creating empty mark for student {student.student_id}: {e}', exc_info=True)
-                        db.session.rollback()
-            
             marks_data[student.id] = mark
             # registrations_data is already populated above from StudentCourseRegistration
-        
-        # Final safety check: Ensure all students have marks in marks_data
-        if selected_subject:
-            current_app.logger.info(f'Final check: {len(students)} students, {len(marks_data)} marks in marks_data')
-            for student in students:
-                if student.id not in marks_data:
-                    current_app.logger.warning(f'Student {student.student_id} (ID: {student.id}) missing from marks_data, loading from database')
-                    mark = RMark.query.filter_by(student_id=student.id, subject_id=selected_subject.id).first()
-                    if mark is None:
-                        current_app.logger.warning(f'Creating new mark for student {student.student_id}')
-                        mark = RMark(student_id=student.id, subject_id=selected_subject.id)
-                        db.session.add(mark)
-                        try:
-                            db.session.commit()
-                            current_app.logger.info(f'Created new mark for student {student.student_id}')
-                        except Exception as e:
-                            current_app.logger.error(f'Error creating mark for missing student {student.student_id}: {e}', exc_info=True)
-                            db.session.rollback()
-                    else:
-                        current_app.logger.info(f'Loaded existing mark for student {student.student_id}: attendance={mark.attendance}, assessment={mark.continuous_assessment}')
-                    marks_data[student.id] = mark
-            
-            current_app.logger.info(f'After final check: {len(marks_data)} marks in marks_data for {len(students)} students')
 
     if request.method == 'POST':
         subject_id = request.form.get('subject_id', type=int)
@@ -3172,12 +2781,7 @@ def add_marks(session_id):
                 existing_mark.part_a = float(part_a) if part_a else None
                 existing_mark.part_b = float(part_b) if part_b else None
                 
-                # Direct addition - don't use filter(None) as it skips 0 values
-                attendance = existing_mark.attendance if existing_mark.attendance is not None else 0
-                ca = existing_mark.continuous_assessment if existing_mark.continuous_assessment is not None else 0
-                part_a = existing_mark.part_a if existing_mark.part_a is not None else 0
-                part_b = existing_mark.part_b if existing_mark.part_b is not None else 0
-                total_marks = attendance + ca + part_a + part_b
+                total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.continuous_assessment, existing_mark.part_a, existing_mark.part_b]))
             
             elif subject.subject_type == 'Sessional':
                 attendance = request.form.get(f'attendance_{student.id}')
@@ -3269,22 +2873,6 @@ def add_marks(session_id):
         flash(f'Marks for {subject.name} saved successfully!', 'success')
         return redirect(url_for('result_management.add_marks', session_id=session_id, subject_id=subject.id))
 
-    # Debug logging before rendering
-    current_app.logger.info(f'Rendering add_marks template: session_id={session_id}, subjects_count={len(subjects)}, students_count={len(students)}')
-    if subjects:
-        current_app.logger.debug(f'Subjects being passed to template: {[s.code for s in subjects[:5]]}...')
-    else:
-        current_app.logger.warning(f'No subjects found for session {session_id} - dropdown will be empty!')
-    
-    # Log marks_data status
-    if selected_subject:
-        current_app.logger.info(f'Marks data status: {len(marks_data)} marks for {len(students)} students')
-        if marks_data:
-            sample_mark = list(marks_data.values())[0]
-            current_app.logger.debug(f'Sample mark: attendance={sample_mark.attendance}, assessment={sample_mark.continuous_assessment}, part_a={sample_mark.part_a}, part_b={sample_mark.part_b}')
-        else:
-            current_app.logger.warning(f'⚠️ marks_data is EMPTY! This will cause no marks to display!')
-    
     return render_template('rm_add_marks.html', 
                            session=session, 
                            subjects=subjects,
@@ -3328,13 +2916,15 @@ def auto_save_marks(session_id):
         if not student_profile_id_to_rstudent_id:
             return jsonify({'success': False, 'message': 'No students found'}), 400
         
-        # Get ALL registrations for this course_code (regardless of year/term)
-        # This ensures students who deregistered and re-registered are still included
         course_filters = [
             StudentCourseRegistration.student_id.in_(student_profile_id_to_rstudent_id.keys()),
             StudentCourseRegistration.course_code == subject.code,
             StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
         ]
+        if session.year:
+            course_filters.append(StudentCourseRegistration.year == session.year)
+        if session.term:
+            course_filters.append(StudentCourseRegistration.term == session.term)
         
         registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
         registered_rstudent_ids = set()
@@ -3377,12 +2967,7 @@ def auto_save_marks(session_id):
                     existing_mark.continuous_assessment = float(student_marks.get('continuous_assessment')) if student_marks.get('continuous_assessment') else None
                     existing_mark.part_a = float(student_marks.get('part_a')) if student_marks.get('part_a') else None
                     existing_mark.part_b = float(student_marks.get('part_b')) if student_marks.get('part_b') else None
-                    # Direct addition - don't use filter(None) as it skips 0 values
-                    attendance = existing_mark.attendance if existing_mark.attendance is not None else 0
-                    ca = existing_mark.continuous_assessment if existing_mark.continuous_assessment is not None else 0
-                    part_a = existing_mark.part_a if existing_mark.part_a is not None else 0
-                    part_b = existing_mark.part_b if existing_mark.part_b is not None else 0
-                    total_marks = attendance + ca + part_a + part_b
+                    total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.continuous_assessment, existing_mark.part_a, existing_mark.part_b]))
                 
                 elif subject.subject_type == 'Sessional':
                     if student_marks.get('attendance'):
@@ -3533,62 +3118,40 @@ def course_wise_result(session_id):
                     .filter(RStudent.session_id == session_id)\
                     .order_by(RStudent.student_id).all()
             
-            # Recalculate ALL total_marks, grade_point, grade_letter to ensure accuracy
-            # This ensures totals are always correct even if marks were updated
+            # Calculate missing total_marks, grade_point, grade_letter on-the-fly
+            # Fetch all marks for this subject to update missing calculations
             marks_to_update = RMark.query.filter_by(subject_id=selected_subject_id).all()
             needs_update = False
             for mark in marks_to_update:
-                # ALWAYS recalculate - don't check if total_marks is None
-                try:
-                    registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=selected_subject_id).first()
-                    is_retake = registration.is_retake if registration else False
-                    mark.is_retake = is_retake
-                    
-                    # Calculate total_marks based on subject type
-                    total_marks = 0
-                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                        # Sum all values (None = 0): attendance + continuous_assessment + part_a + part_b
-                        # Don't use filter(None) because it skips 0 values too
-                        attendance = mark.attendance if mark.attendance is not None else 0
-                        ca = mark.continuous_assessment if mark.continuous_assessment is not None else 0
-                        part_a = mark.part_a if mark.part_a is not None else 0
-                        part_b = mark.part_b if mark.part_b is not None else 0
-                        total_marks = attendance + ca + part_a + part_b
-                    elif selected_subject.subject_type == 'Sessional':
-                        attendance = mark.attendance if mark.attendance is not None else 0
-                        report = mark.sessional_report if mark.sessional_report is not None else 0
-                        viva = mark.sessional_viva if mark.sessional_viva is not None else 0
-                        total_marks = attendance + report + viva
-                    elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
-                        attendance = mark.attendance if mark.attendance is not None else 0
-                        evaluation = mark.thesis_evaluation if mark.thesis_evaluation is not None else 0
-                        presentation = mark.presentation if mark.presentation is not None else 0
-                        total_marks = attendance + evaluation + presentation
-                    elif selected_subject.subject_type == 'Dissertation':
-                        if selected_subject.dissertation_type == 'Type1':
-                            supervisor = mark.supervisor_assessment if mark.supervisor_assessment is not None else 0
-                            proposal = mark.proposal_presentation if mark.proposal_presentation is not None else 0
-                            total_marks = supervisor + proposal
-                        elif selected_subject.dissertation_type == 'Type2':
-                            supervisor = mark.supervisor_assessment if mark.supervisor_assessment is not None else 0
-                            report = mark.project_report if mark.project_report is not None else 0
-                            defense = mark.defense if mark.defense is not None else 0
-                            total_marks = supervisor + report + defense
-                        else:
-                            supervisor = mark.supervisor_assessment if mark.supervisor_assessment is not None else 0
-                            proposal = mark.proposal_presentation if mark.proposal_presentation is not None else 0
-                            report = mark.project_report if mark.project_report is not None else 0
-                            defense = mark.defense if mark.defense is not None else 0
-                            total_marks = supervisor + proposal + report + defense
-                    elif selected_subject.subject_type == 'Viva':
-                        total_marks = mark.viva if mark.viva is not None else 0
-                    
-                    # Update total_marks and grades
-                    mark.total_marks = total_marks
-                    mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
-                    needs_update = True
-                except Exception as e:
-                    current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
+                if mark.total_marks is None:
+                    # Calculate total_marks, grade_point, grade_letter
+                    try:
+                        registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=selected_subject_id).first()
+                        is_retake = registration.is_retake if registration else False
+                        mark.is_retake = is_retake
+                        
+                        total_marks = 0
+                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
+                        elif selected_subject.subject_type == 'Sessional':
+                            total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
+                        elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+                            total_marks = sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
+                        elif selected_subject.subject_type == 'Dissertation':
+                            if selected_subject.dissertation_type == 'Type1':
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
+                            elif selected_subject.dissertation_type == 'Type2':
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
+                            else:
+                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation, mark.project_report, mark.defense]))
+                        elif selected_subject.subject_type == 'Viva':
+                            total_marks = mark.viva or 0
+                        
+                        mark.total_marks = total_marks
+                        mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
+                        needs_update = True
+                    except Exception as e:
+                        current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
             
             if needs_update:
                 db.session.commit()
@@ -3630,20 +3193,8 @@ def student_wise_result(session_id):
     selected_student = None
     results = []
     term_assessment = {}
-    prev_student_id = None
-    next_student_id = None
 
     if selected_student_id:
-        # Find previous and next student IDs for navigation
-        student_ids = [s.id for s in students]
-        try:
-            current_index = student_ids.index(selected_student_id)
-            if current_index > 0:
-                prev_student_id = student_ids[current_index - 1]
-            if current_index < len(student_ids) - 1:
-                next_student_id = student_ids[current_index + 1]
-        except ValueError:
-            pass  # selected_student_id not in list
         selected_student = RStudent.query.get(selected_student_id)
         if not selected_student or selected_student.session_id != session_id:
             flash('Invalid student selected.', 'danger')
@@ -3709,12 +3260,7 @@ def student_wise_result(session_id):
                         
                         total_marks = 0
                         if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                            # Direct addition - don't use filter(None) as it skips 0 values
-                            attendance = mark.attendance if mark.attendance is not None else 0
-                            ca = mark.continuous_assessment if mark.continuous_assessment is not None else 0
-                            part_a = mark.part_a if mark.part_a is not None else 0
-                            part_b = mark.part_b if mark.part_b is not None else 0
-                            total_marks = attendance + ca + part_a + part_b
+                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
                         elif subject.subject_type == 'Sessional':
                             total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
                         elif subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
@@ -3814,9 +3360,7 @@ def student_wise_result(session_id):
                            selected_student_id=selected_student_id,
                            selected_student=selected_student,
                            results=results,
-                           term_assessment=term_assessment,
-                           prev_student_id=prev_student_id,
-                           next_student_id=next_student_id)
+                           term_assessment=term_assessment)
 
 
 @result_management_bp.route('/course_registration/<int:session_id>', methods=['GET', 'POST'])
@@ -4674,267 +4218,139 @@ def download_student_result_docx(session_id, student_id):
 @result_management_bp.route('/download/all_student_results/<int:session_id>')
 @login_required
 def download_all_student_results(session_id):
-    current_app.logger.info(f'🚀 Starting bulk download for all student results, session_id={session_id}')
-    try:
-        session = RSession.query.get_or_404(session_id)
-        current_app.logger.info(f'📋 Session found: {session.name}')
-        
-        students = RStudent.query.filter_by(session_id=session_id).all()
-        current_app.logger.info(f'👥 Found {len(students)} students in session {session_id}')
-        
-        if not students:
-            current_app.logger.warning(f'⚠️ No students found for session {session_id}')
-            flash('No students in this session to generate results for.', 'warning')
-            return redirect(url_for('result_management.student_wise_result', session_id=session_id))
+    session = RSession.query.get_or_404(session_id)
+    students = RStudent.query.filter_by(session_id=session_id).all()
+    
+    if not students:
+        flash('No students in this session to generate results for.', 'warning')
+        return redirect(url_for('result_management.student_wise_result', session_id=session_id))
 
-        zip_buffer = BytesIO()
-        pdf_count = 0
-        error_count = 0
-        
-        try:
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for student in students:
-                    try:
-                        # Check if registrations exist for this student
-                        registrations_count = RCourseRegistration.query.filter_by(student_id=student.id).count()
-                        
-                        # Re-use logic from download_student_result - try with registrations first, then without
-                        if registrations_count > 0:
-                            results_query = db.session.query(
-                                RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
-                                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-                            ).select_from(RMark)
-                            results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
-                            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
-                            results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
-                            results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
-                            results_query = results_query.all()
-                        else:
-                            # No registrations - query marks directly (for backward compatibility)
-                            results_query = db.session.query(
-                                RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
-                                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-                            ).select_from(RMark)
-                            results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
-                            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
-                            results_query = results_query.filter(RStudent.id == student.id)
-                            results_query = results_query.filter(RSubject.session_id == session_id)
-                            results_query = results_query.order_by(RSubject.code)
-                            results_query = results_query.all()
-                        
-                        current_app.logger.info(f'📊 Student {student.student_id}: Found {len(results_query)} result records (registrations: {registrations_count})')
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
+        for student in students:
+            # Re-use logic from download_student_result
+            results_query = db.session.query(
+                RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
+                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
+            ).select_from(RMark)
+            results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
+            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
+            results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
+            results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
+            results_query = results_query.all()
 
-                        if not results_query:
-                            current_app.logger.warning(f'⚠️ No results found for student {student.student_id} (no RMark records)')
-                            continue
+            if not results_query: continue
 
-                        total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
-                        processed_results = []
-                        for res in results_query:
-                            earned_credits = res.registered_credits if (res.grade_letter and res.grade_letter != 'F') else 0
-                            earned_credit_points = (res.grade_point or 0) * res.registered_credits
-                            processed_results.append({
-                                'subject_code': res.subject_code, 'subject_name': res.subject_name, 'registered_credits': res.registered_credits,
-                                'grade_letter': res.grade_letter, 'grade_point': res.grade_point, 'earned_credits': earned_credits,
-                                'earned_credit_points': earned_credit_points, 'remarks': 'Retake' if res.is_retake else ''
-                            })
-                            total_registered_credits += res.registered_credits
-                            total_earned_credits += earned_credits
-                            total_earned_credit_points += earned_credit_points
-                        
-                        tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
-                        term_assessment = {
-                            'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
-                            'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
-                        }
-                        
-                        pdf_buffer = BytesIO()
-                        pdf = StudentTabulationPDF(pdf_buffer, student, session)
-                        elements = pdf.generate_elements(processed_results, term_assessment)
-                        pdf.doc.build(elements)
-                        pdf_buffer.seek(0)
-                        pdf_data = pdf_buffer.read()
-                        
-                        if pdf_data:
-                            zf.writestr(f'Student_{student.student_id}_Tabulation.pdf', pdf_data)
-                            pdf_count += 1
-                            current_app.logger.info(f'✅ Generated PDF for student {student.student_id} ({len(pdf_data)} bytes)')
-                        else:
-                            current_app.logger.error(f'❌ Empty PDF buffer for student {student.student_id}')
-                            error_count += 1
-                        
-                    except Exception as e:
-                        current_app.logger.error(f'❌ Error generating PDF for student {student.student_id}: {e}', exc_info=True)
-                        error_count += 1
-                        continue
-        except Exception as e:
-            current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
-            flash(f'Error creating zip file: {str(e)}', 'danger')
-            return redirect(url_for('result_management.view_results', session_id=session_id))
-        
-        zip_buffer.seek(0)
-        
-        # Enhanced headers for cPanel compatibility
-        zip_data = zip_buffer.getvalue()
-        filename = f'All_Student_Results_{session.name}.zip'
-        
-        current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
-        
-        if pdf_count == 0:
-            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id} (zip size: {len(zip_data)} bytes)')
-            flash(f'No PDFs were generated. Please check the logs for errors. Found {len(students)} students but no results.', 'warning')
-            return redirect(url_for('result_management.view_results', session_id=session_id))
-        
-        if len(zip_data) == 0:
-            current_app.logger.error(f'❌ Zip file is empty even though {pdf_count} PDFs were generated!')
-            flash(f'Error: Zip file is empty. Please check the logs.', 'danger')
-            return redirect(url_for('result_management.view_results', session_id=session_id))
-        
-        current_app.logger.info(f'✅ Creating response for zip file: {filename}, size: {len(zip_data)} bytes, {pdf_count} PDFs')
-        response = Response(
-            zip_data,
-            mimetype='application/zip',
-            headers={
-                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-                'Content-Length': str(len(zip_data)),
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
-                'X-Content-Type-Options': 'nosniff',
-                'X-Frame-Options': 'DENY'
+            total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
+            processed_results = []
+            for res in results_query:
+                earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
+                earned_credit_points = (res.grade_point or 0) * res.registered_credits
+                processed_results.append({
+                    'subject_code': res.subject_code, 'subject_name': res.subject_name, 'registered_credits': res.registered_credits,
+                    'grade_letter': res.grade_letter, 'grade_point': res.grade_point, 'earned_credits': earned_credits,
+                    'earned_credit_points': earned_credit_points, 'remarks': 'Retake' if res.is_retake else ''
+                })
+                total_registered_credits += res.registered_credits
+                total_earned_credits += earned_credits
+                total_earned_credit_points += earned_credit_points
+            
+            tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
+            term_assessment = {
+                'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
+                'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
             }
-        )
-        
-        current_app.logger.info(f'✅ Returning zip file: {filename}, size: {len(zip_data)} bytes')
-        return response
-    except Exception as e:
-        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
-        flash(f'Error: {str(e)}', 'danger')
-        return redirect(url_for('result_management.view_results', session_id=session_id))
+            
+            pdf_buffer = BytesIO()
+            pdf = StudentTabulationPDF(pdf_buffer, student, session)
+            elements = pdf.generate_elements(processed_results, term_assessment)
+            pdf.doc.build(elements)
+            pdf_buffer.seek(0)
+            zf.writestr(f'Student_{student.student_id}_Tabulation.pdf', pdf_buffer.read())
+
+    zip_buffer.seek(0)
+    
+    # Enhanced headers for cPanel compatibility
+    zip_data = zip_buffer.getvalue()
+    filename = f'All_Student_Results_{session.name}.zip'
+    
+    response = Response(
+        zip_data,
+        mimetype='application/zip',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            'Content-Length': str(len(zip_data)),
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY'
+        }
+    )
+    
+    return response
 
 @result_management_bp.route('/download/all_course_results/<int:session_id>')
 @login_required
 def download_all_course_results(session_id):
-    current_app.logger.info(f'🚀 Starting bulk download for all course results, session_id={session_id}')
-    try:
-        session = RSession.query.get_or_404(session_id)
-        current_app.logger.info(f'📋 Session found: {session.name}')
-        
-        subjects = RSubject.query.filter_by(session_id=session_id).all()
-        current_app.logger.info(f'📚 Found {len(subjects)} subjects in session {session_id}')
+    session = RSession.query.get_or_404(session_id)
+    subjects = RSubject.query.filter_by(session_id=session_id).all()
 
-        if not subjects:
-            current_app.logger.warning(f'⚠️ No subjects found for session {session_id}')
-            flash('No subjects in this session to generate results for.', 'warning')
-            return redirect(url_for('result_management.course_wise_result', session_id=session_id))
+    if not subjects:
+        flash('No subjects in this session to generate results for.', 'warning')
+        return redirect(url_for('result_management.course_wise_result', session_id=session_id))
         
-        zip_buffer = BytesIO()
-        pdf_count = 0
-        error_count = 0
-        
-        try:
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for subject in subjects:
-                    try:
-                        base_columns = [
-                            RStudent.student_id, RStudent.name, RMark.total_marks,
-                            RMark.grade_letter, RMark.grade_point, RMark.is_retake
-                        ]
-                        extra_columns = []
-                        if subject.subject_type in ['Theory', 'Theory (UG)', 'Theory (PG)']:
-                            extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
-                        elif subject.subject_type == 'Sessional':
-                            extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
-                        elif subject.subject_type == 'Dissertation':
-                            if subject.dissertation_type == 'Type1':
-                                extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
-                            else:
-                                extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
-                        all_columns = base_columns + extra_columns
-                        
-                        # Check if registrations exist for this subject
-                        registrations_count = RCourseRegistration.query.filter_by(subject_id=subject.id).count()
-                        
-                        if registrations_count > 0:
-                            results = db.session.query(*all_columns)\
-                                .join(RMark, RStudent.id == RMark.student_id)\
-                                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
-                                .filter(RMark.subject_id == subject.id)\
-                                .order_by(RStudent.student_id).all()
-                        else:
-                            # No registrations - query marks directly (for backward compatibility)
-                            results = db.session.query(*all_columns)\
-                                .select_from(RStudent)\
-                                .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == subject.id))\
-                                .filter(RStudent.session_id == session_id)\
-                                .order_by(RStudent.student_id).all()
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
+        for subject in subjects:
+            base_columns = [
+                RStudent.student_id, RStudent.name, RMark.total_marks,
+                RMark.grade_letter, RMark.grade_point, RMark.is_retake
+            ]
+            extra_columns = []
+            if subject.subject_type in ['Theory', 'Theory (UG)']:
+                extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
+            elif subject.subject_type == 'Sessional':
+                extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
+            elif subject.subject_type == 'Dissertation':
+                if subject.dissertation_type == 'Type1':
+                    extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
+                else:
+                    extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
+            all_columns = base_columns + extra_columns
+            results = db.session.query(*all_columns)\
+                .join(RMark, RStudent.id == RMark.student_id)\
+                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
+                .filter(RMark.subject_id == subject.id)\
+                .order_by(RStudent.student_id).all()
 
-                        current_app.logger.info(f'📊 Subject {subject.code}: Found {len(results)} result records (registrations: {registrations_count})')
-                        
-                        if not results:
-                            current_app.logger.warning(f'⚠️ No results found for subject {subject.code} (no RMark records)')
-                            continue
+            if not results: continue
 
-                        pdf_buffer = BytesIO()
-                        pdf = CourseTabulationPDF(pdf_buffer, subject, session)
-                        elements = pdf.generate_elements(results)
-                        pdf.doc.build(elements)
-                        pdf_buffer.seek(0)
-                        pdf_data = pdf_buffer.read()
-                        
-                        if pdf_data:
-                            zf.writestr(f'Course_{subject.code}_Result.pdf', pdf_data)
-                            pdf_count += 1
-                            current_app.logger.info(f'✅ Generated PDF for course {subject.code} ({len(pdf_data)} bytes)')
-                        else:
-                            current_app.logger.error(f'❌ Empty PDF buffer for course {subject.code}')
-                            error_count += 1
-                        
-                    except Exception as e:
-                        current_app.logger.error(f'❌ Error generating PDF for course {subject.code}: {e}', exc_info=True)
-                        error_count += 1
-                        continue
-        except Exception as e:
-            current_app.logger.error(f'❌ Error creating zip file: {e}', exc_info=True)
-            flash(f'Error creating zip file: {str(e)}', 'danger')
-            return redirect(url_for('result_management.view_results', session_id=session_id))
-        
-        zip_buffer.seek(0)
-        
-        # Enhanced headers for cPanel compatibility
-        zip_data = zip_buffer.getvalue()
-        filename = f'All_Course_Results_{session.name}.zip'
-        
-        current_app.logger.info(f'📦 Bulk download: Generated {pdf_count} PDFs, {error_count} errors, zip size: {len(zip_data)} bytes')
-        
-        if pdf_count == 0:
-            current_app.logger.warning(f'⚠️ No PDFs were generated for session {session_id} (zip size: {len(zip_data)} bytes)')
-            flash(f'No PDFs were generated. Please check the logs for errors. Found {len(subjects)} subjects but no results.', 'warning')
-            return redirect(url_for('result_management.view_results', session_id=session_id))
-        
-        if len(zip_data) == 0:
-            current_app.logger.error(f'❌ Zip file is empty even though {pdf_count} PDFs were generated!')
-            flash(f'Error: Zip file is empty. Please check the logs.', 'danger')
-            return redirect(url_for('result_management.view_results', session_id=session_id))
-        
-        current_app.logger.info(f'✅ Creating response for zip file: {filename}, size: {len(zip_data)} bytes, {pdf_count} PDFs')
-        response = Response(
-            zip_data,
-            mimetype='application/zip',
-            headers={
-                'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
-                'Content-Length': str(len(zip_data)),
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
-                'X-Content-Type-Options': 'nosniff',
-                'X-Frame-Options': 'DENY'
-            }
-        )
-        
-        current_app.logger.info(f'✅ Returning zip file: {filename}, size: {len(zip_data)} bytes')
-        return response
-    except Exception as e:
-        current_app.logger.error(f'❌ Error in bulk download route: {e}', exc_info=True)
-        flash(f'Error: {str(e)}', 'danger')
-        return redirect(url_for('result_management.view_results', session_id=session_id))
+            pdf_buffer = BytesIO()
+            pdf = CourseTabulationPDF(pdf_buffer, subject, session)
+            elements = pdf.generate_elements(results)
+            pdf.doc.build(elements)
+            pdf_buffer.seek(0)
+            zf.writestr(f'Course_{subject.code}_Result.pdf', pdf_buffer.read())
+
+    zip_buffer.seek(0)
+    
+    # Enhanced headers for cPanel compatibility
+    zip_data = zip_buffer.getvalue()
+    filename = f'All_Course_Results_{session.name}.zip'
+    
+    response = Response(
+        zip_data,
+        mimetype='application/zip',
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"; filename*=UTF-8\'\'{filename}',
+            'Content-Length': str(len(zip_data)),
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY'
+        }
+    )
+    
+    return response

@@ -88,21 +88,23 @@
                     <label for="searchStudents" class="form-label">Search Students</label>
                     <input type="text" class="form-control" id="searchStudents" placeholder="Search by name or ID...">
                 </div>
-                <div class="col-md-3 d-flex align-items-end gap-2">
-                    <button type="button" class="btn btn-primary flex-fill" onclick="importSelectedToSummary()">
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="button" class="btn btn-primary w-100" onclick="importSelectedToSummary()">
                         <i class="fas fa-arrow-down me-2"></i>Import to Summary
-                    </button>
-                    <button type="button" class="btn btn-danger flex-fill" onclick="deregisterSelectedStudents()">
-                        <i class="fas fa-user-times me-2"></i>Deregister Selected
                     </button>
                 </div>
             </div>
-            <div class="mb-3">
+            <div class="mb-3 d-flex justify-content-between align-items-center">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="selectAllStudents" onchange="toggleSelectAll()">
                     <label class="form-check-label" for="selectAllStudents">
                         <strong>Select All Students</strong>
                     </label>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-sm btn-danger" id="deregisterSelectedBtn" onclick="deregisterSelectedStudents()" style="display: none;">
+                        <i class="fas fa-times-circle me-1"></i>Deregister Selected
+                    </button>
                 </div>
             </div>
             <div id="studentsLoading" class="text-center py-4" style="display: none;">
@@ -464,13 +466,10 @@ function importSelectedToSummary() {
     
     // Check if students are loaded
     const allCheckboxes = document.querySelectorAll('.student-checkbox');
-    // Only import non-registered students (registered students should be deregistered, not imported)
-    const checkedCheckboxes = Array.from(document.querySelectorAll('.student-checkbox:checked')).filter(cb => {
-        return cb.dataset.isRegistered !== 'true';
-    });
+    const checkedCheckboxes = document.querySelectorAll('.student-checkbox:checked:not(:disabled)');
     
     console.log('Total checkboxes found:', allCheckboxes.length);
-    console.log('Checked non-registered checkboxes found:', checkedCheckboxes.length);
+    console.log('Checked checkboxes found:', checkedCheckboxes.length);
     
     if (allCheckboxes.length === 0) {
         alert('Please load students first by selecting a batch');
@@ -478,7 +477,7 @@ function importSelectedToSummary() {
     }
     
     if (checkedCheckboxes.length === 0) {
-        alert('Please select at least one non-registered student to import. Registered students should be deregistered using the "Deregister Selected" button.');
+        alert('Please select at least one student to import');
         return;
     }
     
@@ -490,11 +489,8 @@ function importSelectedToSummary() {
 // Add checked students to Registration Summary
 function addSelectedStudentsToSummary() {
     console.log('=== addSelectedStudentsToSummary START ===');
-    // Only add non-registered students (filter out registered ones)
-    const checkboxes = Array.from(document.querySelectorAll('.student-checkbox:checked')).filter(cb => {
-        return cb.dataset.isRegistered !== 'true';
-    });
-    console.log('Found', checkboxes.length, 'checked non-registered checkboxes');
+    const checkboxes = document.querySelectorAll('.student-checkbox:checked:not(:disabled)');
+    console.log('Found', checkboxes.length, 'checked checkboxes');
     console.log('Current selectedStudents count:', selectedStudents.length);
     console.log('Current selectedStudents:', selectedStudents);
     
@@ -669,6 +665,8 @@ function loadStudents(addToExisting = false, callback = null) {
                         loadedBatches.clear();
                         loadedBatches.add(batch);
                     }
+                    // Update deregister button visibility after loading
+                    updateDeregisterButtonVisibility();
                 } else {
                     if (!addToExisting) {
                         studentsList.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>No students found for the selected batch "' + batch + '".</div>';
@@ -720,18 +718,21 @@ function renderStudentsList(students, batch) {
                            data-student-id="${student.student_id}" 
                            data-name="${student.name}" 
                            data-batch="${student.batch}"
-                           data-is-registered="${isRegistered}"
                            ${isSelected ? 'checked' : ''}
+                           ${isRegistered ? 'disabled' : ''}
                            onchange="toggleStudent(this)">
                 </td>
                 <td><strong>${student.student_id}</strong></td>
                 <td>${student.name}</td>
                 <td>${student.batch || '-'}</td>
-                <td>${isRegistered ? '<span class="badge bg-info">Already Registered</span>' : '<span class="badge bg-success">Available</span>'}</td>
+                <td>${isRegistered ? '<span class="badge bg-warning">Already Registered</span>' : '<span class="badge bg-success">Available</span>'}</td>
                 <td>
-                    ${isRegistered ? `<button type="button" class="btn btn-sm btn-danger" onclick="deregisterStudent(${student.id}, '${student.name.replace(/'/g, "\\'")}')">
-                        <i class="fas fa-user-times me-1"></i>Deregister
-                    </button>` : '-'}
+                    ${isRegistered ? 
+                        `<button class="btn btn-sm btn-danger" onclick="deregisterStudent(${student.id}, '${student.student_id}', '${student.name.replace(/'/g, "\\'")}')">
+                            <i class="fas fa-times me-1"></i>Deregister
+                        </button>` : 
+                        '-'
+                    }
                 </td>
             </tr>
         `;
@@ -774,18 +775,21 @@ function appendStudentsToList(students, batch) {
                        data-student-id="${student.student_id}" 
                        data-name="${student.name}" 
                        data-batch="${student.batch}"
-                       data-is-registered="${isRegistered}"
                        ${isSelected ? 'checked' : ''}
+                       ${isRegistered ? 'disabled' : ''}
                        onchange="toggleStudent(this)">
             </td>
             <td><strong>${student.student_id}</strong></td>
             <td>${student.name}</td>
             <td>${student.batch || '-'}</td>
-            <td>${isRegistered ? '<span class="badge bg-info">Already Registered</span>' : '<span class="badge bg-success">Available</span>'}</td>
+            <td>${isRegistered ? '<span class="badge bg-warning">Already Registered</span>' : '<span class="badge bg-success">Available</span>'}</td>
             <td>
-                ${isRegistered ? `<button type="button" class="btn btn-sm btn-danger" onclick="deregisterStudent(${student.id}, '${student.name.replace(/'/g, "\\'")}')">
-                    <i class="fas fa-user-times me-1"></i>Deregister
-                </button>` : '-'}
+                ${isRegistered ? 
+                    `<button class="btn btn-sm btn-danger" onclick="deregisterStudent(${student.id}, '${student.student_id}', '${student.name.replace(/'/g, "\\'")}')">
+                        <i class="fas fa-times me-1"></i>Deregister
+                    </button>` : 
+                    '-'
+                }
             </td>
         `;
         existingTable.appendChild(row);
@@ -802,8 +806,8 @@ function toggleSelectAll() {
     const selectAllCheckbox = document.getElementById('selectAllStudents');
     const selectAll = selectAllCheckbox.checked;
     
-    // Get all checkboxes (including registered students - they can be selected for deregistration)
-    const checkboxes = Array.from(document.querySelectorAll('.student-checkbox'));
+    // Get all available (non-disabled) checkboxes
+    const checkboxes = Array.from(document.querySelectorAll('.student-checkbox:not(:disabled)'));
     
     console.log('Toggle Select All:', selectAll, 'Total checkboxes:', checkboxes.length);
     
@@ -850,10 +854,11 @@ function toggleSelectAll() {
     // Update UI once after all changes
     updateSelectedTable();
     updateSelectAllCheckboxState();
+    updateDeregisterButtonVisibility();
 }
 
 function updateSelectAllCheckboxState() {
-    const checkboxes = document.querySelectorAll('.student-checkbox');
+    const checkboxes = document.querySelectorAll('.student-checkbox:not(:disabled)');
     const selectAllCheckbox = document.getElementById('selectAllStudents');
     
     if (checkboxes.length === 0) {
@@ -907,13 +912,14 @@ function toggleStudent(checkbox) {
     updateSelectedTable();
     updateSelectAllCheckboxState();
     updateSelectedCount();
+    updateDeregisterButtonVisibility();
 }
 
 function updateSelectedCount() {
     const selectedCount = document.getElementById('selectedCount');
     if (selectedCount) {
-        // Count checked checkboxes in the student list (including registered students)
-        const checkedCount = document.querySelectorAll('.student-checkbox:checked').length;
+        // Count checked checkboxes in the student list
+        const checkedCount = document.querySelectorAll('.student-checkbox:checked:not(:disabled)').length;
         selectedCount.textContent = checkedCount;
     }
 }
@@ -1067,6 +1073,168 @@ function removeStudent(studentId) {
     updateSelectedTable();
 }
 
+function deregisterStudent(studentId, studentIdStr, studentName) {
+    if (!currentCourse || !currentSession || !currentYear || !currentTerm) {
+        alert('Please select course, session, year, and term first.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to deregister ${studentName} (${studentIdStr}) from ${currentCourse.name}?`)) {
+        return;
+    }
+    
+    // Call API to deregister the student
+    const deregisterData = {
+        course_id: currentCourse.id,
+        course_code: currentCourse.code,
+        course_name: currentCourse.name,
+        session: currentSession,
+        year: currentYear,
+        term: currentTerm,
+        remove_student_ids: [studentId]  // Specify which student to remove
+    };
+    
+    fetch('/course-management/coordinator/register-student/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(deregisterData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showStatus(`Successfully deregistered ${studentName} from ${currentCourse.name}.`, 'success');
+            // Reload students list to update status immediately
+            const batch = document.getElementById('batchFilter').value;
+            if (batch) {
+                loadStudents(false);
+            }
+            // Also remove from selectedStudents if present
+            selectedStudents = selectedStudents.filter(s => s.id !== studentId);
+            updateSelectedTable();
+            updateDeregisterButtonVisibility();
+        } else {
+            showStatus(data.message || 'Failed to deregister student.', 'danger');
+        }
+    })
+    .catch(error => {
+        console.error('Error deregistering student:', error);
+        showStatus('Error deregistering student. Please try again.', 'danger');
+    });
+}
+
+function deregisterSelectedStudents() {
+    if (!currentCourse || !currentSession || !currentYear || !currentTerm) {
+        alert('Please select course, session, year, and term first.');
+        return;
+    }
+    
+    // Get all checked checkboxes (only for already registered students)
+    const checkedCheckboxes = document.querySelectorAll('.student-checkbox:checked:not(:disabled)');
+    const studentsToDeregister = [];
+    
+    checkedCheckboxes.forEach(checkbox => {
+        const studentId = parseInt(checkbox.dataset.id);
+        const studentIdStr = checkbox.dataset.studentId;
+        const studentName = checkbox.dataset.name;
+        // Only add if the row has an "Already Registered" status
+        const row = checkbox.closest('tr');
+        if (row) {
+            const statusCell = row.cells[4]; // Status is in 5th column (index 4)
+            if (statusCell && statusCell.querySelector('.badge.bg-warning')) {
+                studentsToDeregister.push({
+                    id: studentId,
+                    student_id: studentIdStr,
+                    name: studentName
+                });
+            }
+        }
+    });
+    
+    if (studentsToDeregister.length === 0) {
+        alert('Please select at least one registered student to deregister.');
+        return;
+    }
+    
+    const studentNames = studentsToDeregister.map(s => s.name).join(', ');
+    if (!confirm(`Are you sure you want to deregister ${studentsToDeregister.length} student(s) from ${currentCourse.name}?\n\nStudents: ${studentNames}`)) {
+        return;
+    }
+    
+    const studentIds = studentsToDeregister.map(s => s.id);
+    const deregisterData = {
+        course_id: currentCourse.id,
+        course_code: currentCourse.code,
+        course_name: currentCourse.name,
+        session: currentSession,
+        year: currentYear,
+        term: currentTerm,
+        remove_student_ids: studentIds
+    };
+    
+    // Show loading state
+    const btn = document.getElementById('deregisterSelectedBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deregistering...';
+    
+    fetch('/course-management/coordinator/register-student/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(deregisterData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        
+        if (data.success) {
+            showStatus(`Successfully deregistered ${studentsToDeregister.length} student(s) from ${currentCourse.name}.`, 'success');
+            // Reload students list to update status immediately
+            const batch = document.getElementById('batchFilter').value;
+            if (batch) {
+                loadStudents(false);
+            }
+            // Remove from selectedStudents if present
+            studentsToDeregister.forEach(s => {
+                selectedStudents = selectedStudents.filter(sel => sel.id !== s.id);
+                const checkbox = document.querySelector(`.student-checkbox[data-id="${s.id}"]`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                }
+            });
+            updateSelectedTable();
+            updateSelectAllCheckboxState();
+            updateDeregisterButtonVisibility();
+        } else {
+            showStatus(data.message || 'Failed to deregister students.', 'danger');
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        console.error('Error deregistering students:', error);
+        showStatus('Error deregistering students. Please try again.', 'danger');
+    });
+}
+
+// Update deregister button visibility based on checked registered students
+function updateDeregisterButtonVisibility() {
+    const checkedCheckboxes = document.querySelectorAll('.student-checkbox:checked:not(:disabled)');
+    const hasRegisteredStudents = Array.from(checkedCheckboxes).some(checkbox => {
+        const row = checkbox.closest('tr');
+        if (row) {
+            const statusCell = row.cells[4];
+            return statusCell && statusCell.querySelector('.badge.bg-warning');
+        }
+        return false;
+    });
+    
+    const btn = document.getElementById('deregisterSelectedBtn');
+    if (btn) {
+        btn.style.display = hasRegisteredStudents ? 'inline-block' : 'none';
+    }
+}
+
 saveBtn.addEventListener('click', function() {
     if (!currentCourse || !currentSession || !currentYear || !currentTerm) {
         alert('Please select course, session, year, and term first.');
@@ -1129,151 +1297,5 @@ saveBtn.addEventListener('click', function() {
         saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Registration';
     });
 });
-
-// Individual student deregistration
-function deregisterStudent(studentId, studentName) {
-    if (!currentCourse || !currentSession || !currentYear || !currentTerm) {
-        alert('Please select course, session, year, and term first.');
-        return;
-    }
-    
-    if (!confirm(`Are you sure you want to deregister ${studentName} (ID: ${studentId}) from ${currentCourse.name}?`)) {
-        return;
-    }
-    
-    const deregisterData = {
-        student_ids: [studentId],
-        course_code: currentCourse.code,
-        session: currentSession,
-        year: currentYear,
-        term: currentTerm
-    };
-    
-    // Show loading state - find the button by student ID
-    const button = document.querySelector(`button[onclick*="deregisterStudent(${studentId}"]`);
-    const originalText = button ? button.innerHTML : '';
-    if (button) {
-        button.disabled = true;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deregistering...';
-    }
-    
-    fetch('/course-management/coordinator/register-student/deregister', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(deregisterData)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showStatus(data.message, 'success');
-            // Remove from selected students if selected
-            selectedStudents = selectedStudents.filter(s => s.id !== studentId);
-            // Uncheck the checkbox
-            const checkbox = document.querySelector(`.student-checkbox[data-id="${studentId}"]`);
-            if (checkbox) {
-                checkbox.checked = false;
-            }
-            // Reload students to refresh the list
-            const batch = document.getElementById('batchFilter').value;
-            if (batch) {
-                loadStudents(batch, false, () => {
-                    updateSelectedTable();
-                    updateSelectAllCheckboxState();
-                    updateSelectedCount();
-                });
-            }
-        } else {
-            showStatus(data.message || 'Failed to deregister student.', 'danger');
-            if (button) {
-                button.disabled = false;
-                button.innerHTML = originalText;
-            }
-        }
-    })
-    .catch(error => {
-        console.error('Error deregistering student:', error);
-        showStatus('Error deregistering student.', 'danger');
-        if (button) {
-            button.disabled = false;
-            button.innerHTML = originalText;
-        }
-    });
-}
-
-// Bulk deregistration for selected students
-function deregisterSelectedStudents() {
-    if (!currentCourse || !currentSession || !currentYear || !currentTerm) {
-        alert('Please select course, session, year, and term first.');
-        return;
-    }
-    
-    // Get all checked checkboxes that are for registered students
-    const checkedCheckboxes = Array.from(document.querySelectorAll('.student-checkbox:checked')).filter(cb => {
-        return cb.dataset.isRegistered === 'true';
-    });
-    
-    if (checkedCheckboxes.length === 0) {
-        alert('Please select at least one registered student to deregister.');
-        return;
-    }
-    
-    const studentIds = checkedCheckboxes.map(cb => parseInt(cb.dataset.id));
-    const studentNames = checkedCheckboxes.map(cb => cb.dataset.name).join(', ');
-    
-    if (!confirm(`Are you sure you want to deregister ${checkedCheckboxes.length} student(s) from ${currentCourse.name}?\n\nStudents: ${studentNames.substring(0, 100)}${studentNames.length > 100 ? '...' : ''}`)) {
-        return;
-    }
-    
-    const deregisterData = {
-        student_ids: studentIds,
-        course_code: currentCourse.code,
-        session: currentSession,
-        year: currentYear,
-        term: currentTerm
-    };
-    
-    // Show loading state
-    const button = event.target;
-    const originalText = button.innerHTML;
-    button.disabled = true;
-    button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Deregistering...';
-    
-    fetch('/course-management/coordinator/register-student/deregister', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(deregisterData)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            showStatus(data.message, 'success');
-            // Remove deregistered students from selected students
-            selectedStudents = selectedStudents.filter(s => !studentIds.includes(s.id));
-            // Uncheck all deregistered checkboxes
-            checkedCheckboxes.forEach(cb => {
-                cb.checked = false;
-            });
-            // Reload students to refresh the list
-            const batch = document.getElementById('batchFilter').value;
-            if (batch) {
-                loadStudents(batch, false, () => {
-                    updateSelectedTable();
-                    updateSelectAllCheckboxState();
-                    updateSelectedCount();
-                });
-            }
-        } else {
-            showStatus(data.message || 'Failed to deregister students.', 'danger');
-            button.disabled = false;
-            button.innerHTML = originalText;
-        }
-    })
-    .catch(error => {
-        console.error('Error deregistering students:', error);
-        showStatus('Error deregistering students.', 'danger');
-        button.disabled = false;
-        button.innerHTML = originalText;
-    });
-}
 </script>
 {% endblock %}

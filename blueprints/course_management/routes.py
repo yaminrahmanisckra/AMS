@@ -19,6 +19,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from PIL import Image as PILImage
 import os
+import hashlib
 from datetime import datetime
 
 
@@ -880,11 +881,19 @@ def student_course_registration():
         flash('Course registration is available only for student accounts.', 'danger')
         return redirect(url_for('index'))
     
-    # Get distinct academic sessions
-    sessions = db.session.query(Session.academic_session).distinct().filter(
-        Session.academic_session.isnot(None)
-    ).order_by(Session.academic_session.desc()).all()
-    academic_sessions = [s[0] for s in sessions if s[0]]
+    # Get current student record
+    student_record = _get_current_student_record()
+    
+    # Get distinct academic sessions ONLY from registrations this student has
+    if student_record:
+        sessions = db.session.query(StudentCourseRegistration.academic_session).distinct().filter(
+            StudentCourseRegistration.student_id == student_record.id,
+            StudentCourseRegistration.academic_session.isnot(None)
+        ).order_by(StudentCourseRegistration.academic_session.desc()).all()
+        academic_sessions = [s[0] for s in sessions if s[0]]
+    else:
+        # If student record not found, show empty list
+        academic_sessions = []
     
     return render_template('course_management/student_registration.html', 
                          academic_sessions=academic_sessions)
@@ -903,6 +912,25 @@ def get_courses_for_registration():
     
     if not year or not term:
         return jsonify({'success': False, 'message': 'Year and Term are required'}), 400
+
+    # If a curriculum's Year/Term config is marked as Not Running (batch is NULL/empty/"None"),
+    # then courses from that curriculum for this year/term should not appear in registration dropdowns.
+    try:
+        not_running_curriculum_ids = {
+            row.curriculum_id
+            for row in CurriculumYearTerm.query.filter(
+                CurriculumYearTerm.year == year,
+                CurriculumYearTerm.term == term,
+                or_(
+                    CurriculumYearTerm.batch.is_(None),
+                    CurriculumYearTerm.batch == '',
+                    CurriculumYearTerm.batch == 'None'
+                )
+            ).all()
+        }
+    except Exception as e:
+        current_app.logger.warning(f'Error checking CurriculumYearTerm not-running filter: {e}', exc_info=True)
+        not_running_curriculum_ids = set()
     
     # Get all offered courses
     query = Course.query.filter_by(offered=True)
@@ -912,6 +940,8 @@ def get_courses_for_registration():
     filtered_courses = []
     for c in courses:
         if c.display_year == year and c.display_term == term:
+            if c.curriculum_id and c.curriculum_id in not_running_curriculum_ids:
+                continue
             filtered_courses.append({
                 'id': c.id,
                 'course_code': c.course_code,
@@ -953,15 +983,20 @@ def get_year_term_by_session():
         year_term_list = [{'year': yt[0], 'term': yt[1]} for yt in sorted(year_term_combinations)]
         
         # Also check CurriculumYearTerm for additional combinations
+        # IMPORTANT: Only include Year/Term combinations where batch is assigned (NOT NULL/empty/'None')
         curriculum_year_terms = CurriculumYearTerm.query.filter_by(
             academic_session=session_name
+        ).filter(
+            CurriculumYearTerm.batch.isnot(None),
+            CurriculumYearTerm.batch != '',
+            CurriculumYearTerm.batch != 'None'
         ).distinct().all()
         
         for cyt in curriculum_year_terms:
             if cyt.year and cyt.term:
                 year_term_combinations.add((cyt.year, cyt.term))
         
-        # Update the list with all combinations
+        # Update the list with all combinations (only those with batch assigned)
         year_term_list = [{'year': yt[0], 'term': yt[1]} for yt in sorted(year_term_combinations)]
         
         return jsonify({
@@ -1015,6 +1050,165 @@ def get_saved_registrations():
     return jsonify({'success': True, 'registrations': data})
 
 
+@course_management_bp.route('/student/registration/remove-course', methods=['POST'])
+@login_required
+def student_remove_course():
+    """Remove a single course from student registration"""
+    roles = parse_roles(current_user.role)
+    if 'student' not in roles and 'teaching_assistant' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    data = request.get_json() or {}
+    session_name = data.get('session', '').strip()
+    year = data.get('year', '').strip()
+    term = data.get('term', '').strip()
+    registration_id = data.get('registration_id')
+    
+    if not session_name or not year or not term or not registration_id:
+        return jsonify({'success': False, 'message': 'Session, Year, Term, and Registration ID are required'}), 400
+    
+    student_record = _get_current_student_record()
+    if not student_record:
+        return jsonify({'success': False, 'message': 'Student profile not found'}), 404
+    
+    try:
+        # Find the registration
+        reg = StudentCourseRegistration.query.filter_by(
+            id=registration_id,
+            student_id=student_record.id,
+            academic_session=session_name,
+            year=year,
+            term=term
+        ).first()
+        
+        if not reg:
+            return jsonify({'success': False, 'message': 'Registration not found'}), 404
+        
+        # Check if can be removed (not finalized by coordinator/head)
+        if reg.status == 'finalized' or (reg.registered_by and reg.registered_by in ['coordinator', 'head']):
+            return jsonify({
+                'success': False,
+                'message': 'Cannot remove finalized registrations or registrations created by coordinator/head.'
+            }), 403
+        
+        course_code = reg.course_code
+        
+        # Remove from Class Management if registration was finalized
+        if reg.status == 'finalized':
+            try:
+                _remove_students_from_class_sessions(
+                    course_code, session_name, year, term, [student_record.id]
+                )
+            except Exception as remove_error:
+                current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
+        
+        # Delete related invites
+        invites_to_delete = CourseRegistrationInvite.query.filter_by(
+            registration_id=reg.id
+        ).all()
+        for invite in invites_to_delete:
+            db.session.delete(invite)
+        
+        # Delete the registration
+        db.session.delete(reg)
+        db.session.commit()
+        
+        current_app.logger.info(f'Student {student_record.student_id} removed course {course_code} from registration')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully removed {course_code} from registration.'
+        })
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to remove course from student registration: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to remove course from registration'}), 500
+
+
+@course_management_bp.route('/student/registration/remove-all-courses', methods=['POST'])
+@login_required
+def student_remove_all_courses():
+    """Remove all removable courses from student registration (bulk deregister)"""
+    roles = parse_roles(current_user.role)
+    if 'student' not in roles and 'teaching_assistant' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    data = request.get_json() or {}
+    session_name = data.get('session', '').strip()
+    year = data.get('year', '').strip()
+    term = data.get('term', '').strip()
+    registration_ids = data.get('registration_ids', [])
+    
+    if not session_name or not year or not term:
+        return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
+    
+    if not registration_ids or len(registration_ids) == 0:
+        return jsonify({'success': False, 'message': 'No registration IDs provided'}), 400
+    
+    student_record = _get_current_student_record()
+    if not student_record:
+        return jsonify({'success': False, 'message': 'Student profile not found'}), 404
+    
+    try:
+        # Find all registrations
+        regs = StudentCourseRegistration.query.filter(
+            StudentCourseRegistration.id.in_(registration_ids),
+            StudentCourseRegistration.student_id == student_record.id,
+            StudentCourseRegistration.academic_session == session_name,
+            StudentCourseRegistration.year == year,
+            StudentCourseRegistration.term == term
+        ).all()
+        
+        if not regs or len(regs) == 0:
+            return jsonify({'success': False, 'message': 'No registrations found'}), 404
+        
+        # Filter out finalized or coordinator/head registrations
+        removable_regs = [reg for reg in regs if reg.status != 'finalized' and (not reg.registered_by or reg.registered_by not in ['coordinator', 'head'])]
+        
+        if not removable_regs:
+            return jsonify({
+                'success': False,
+                'message': 'No courses can be removed. All courses are finalized or created by coordinator/head.'
+            }), 403
+        
+        course_codes = []
+        
+        # Remove from Class Management if registrations were finalized (shouldn't happen, but just in case)
+        for reg in removable_regs:
+            if reg.status == 'finalized':
+                try:
+                    _remove_students_from_class_sessions(
+                        reg.course_code, session_name, year, term, [student_record.id]
+                    )
+                except Exception as remove_error:
+                    current_app.logger.error(f'Error removing student from Class Management for course {reg.course_code}: {remove_error}', exc_info=True)
+            
+            course_codes.append(reg.course_code)
+            
+            # Delete related invites
+            invites_to_delete = CourseRegistrationInvite.query.filter_by(
+                registration_id=reg.id
+            ).all()
+            for invite in invites_to_delete:
+                db.session.delete(invite)
+            
+            # Delete the registration
+            db.session.delete(reg)
+        
+        db.session.commit()
+        
+        current_app.logger.info(f'Student {student_record.student_id} removed {len(removable_regs)} course(s) from registration: {course_codes}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully removed {len(removable_regs)} course(s) from registration.'
+        })
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to remove all courses from student registration: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to remove courses from registration'}), 500
+
+
 @course_management_bp.route('/student/registration/save', methods=['POST'])
 @login_required
 def save_course_registration():
@@ -1039,17 +1233,16 @@ def save_course_registration():
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
 
     try:
-        # Get existing registrations to preserve status and registered_by
+        # Get existing registrations to preserve carry_on flags if needed
         existing_regs = StudentCourseRegistration.query.filter_by(
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
             term=term
         ).all()
-        existing_status = {reg.course_code: reg.status for reg in existing_regs}
-        existing_registered_by = {reg.course_code: reg.registered_by for reg in existing_regs}
+        existing_carry_on = {reg.course_code: getattr(reg, 'carry_on', False) for reg in existing_regs}
         
-        # Check if any registration was created by coordinator/head OR finalized - student cannot edit those
+        # If coordinator/head already created or finalized registrations, student cannot edit those
         coordinator_registrations = [reg for reg in existing_regs if reg.registered_by in ['coordinator', 'head'] or reg.status == 'finalized']
         if coordinator_registrations:
             return jsonify({
@@ -1091,16 +1284,12 @@ def save_course_registration():
                 current_app.logger.error(f'Error removing students from Class Management: {remove_error}', exc_info=True)
 
         for course in courses:
-            # Preserve status if it was finalized, otherwise set to draft
-            status = existing_status.get(course.get('course_code', ''), 'draft')
-            if status not in ['finalized', 'pending']:
-                status = 'draft'
-            
-            # Preserve registered_by if it was coordinator/head, otherwise set to student
-            registered_by = existing_registered_by.get(course.get('course_code', ''), 'student')
-            if registered_by not in ['coordinator', 'head']:
-                registered_by = 'student'
-            
+            # Students' own registrations are FINAL
+            status = 'finalized'
+            registered_by = 'student'
+            # Keep carry_on fallback from any prior draft if not provided
+            carry_on_val = course.get('carry_on', existing_carry_on.get(course.get('course_code', ''), False))
+                        
             reg = StudentCourseRegistration(
                 student_id=student_record.id,
                 course_id=course.get('id'),
@@ -1113,14 +1302,32 @@ def save_course_registration():
                 course_type=course.get('course_type', ''),
                 nature=course.get('nature', 'Core'),
                 remark=course.get('remark', 'Regular'),
-                carry_on=course.get('carry_on', False),
+                carry_on=carry_on_val,
                 status=status,
                 registered_by=registered_by
             )
             db.session.add(reg)
 
         db.session.commit()
-        return jsonify({'success': True, 'message': 'Registration saved successfully.'})
+        
+        # Add this student to Class Management for each finalized registration (fresh set)
+        try:
+            for course in courses:
+                _add_students_to_class_sessions(
+                    course_code=course.get('course_code', ''),
+                    academic_session=session_name,
+                    year=year,
+                    term=term,
+                    students_data=[{
+                        'student_id': student_record.id,
+                        'carry_on': course.get('carry_on', False)
+                    }]
+                )
+        except Exception as session_error:
+            current_app.logger.warning(f'Failed to add student to Class Management (student flow): {session_error}', exc_info=True)
+            # Do not fail the response if session addition fails
+        
+        return jsonify({'success': True, 'message': 'Registration saved and finalized successfully.'})
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to save registration: {exc}', exc_info=True)
@@ -1760,6 +1967,155 @@ def view_student_registration(student_id):
     })
 
 
+@course_management_bp.route('/coordinator/registration/remove-all-courses', methods=['POST'])
+@login_required
+def remove_all_courses_from_registration():
+    """Remove all courses from student registration (bulk deregister)"""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    data = request.get_json() or {}
+    student_id = data.get('student_id')
+    session_name = data.get('session', '').strip()
+    year = data.get('year', '').strip()
+    term = data.get('term', '').strip()
+    registration_ids = data.get('registration_ids', [])
+    
+    if not student_id or not session_name or not year or not term:
+        return jsonify({'success': False, 'message': 'Student ID, Session, Year, and Term are required'}), 400
+    
+    if not registration_ids or len(registration_ids) == 0:
+        return jsonify({'success': False, 'message': 'No registration IDs provided'}), 400
+    
+    try:
+        # Find all registrations
+        regs = StudentCourseRegistration.query.filter(
+            StudentCourseRegistration.id.in_(registration_ids),
+            StudentCourseRegistration.student_id == student_id,
+            StudentCourseRegistration.academic_session == session_name,
+            StudentCourseRegistration.year == year,
+            StudentCourseRegistration.term == term
+        ).all()
+        
+        if not regs or len(regs) == 0:
+            return jsonify({'success': False, 'message': 'No registrations found'}), 404
+        
+        course_codes = []
+        student_ids_to_remove = []
+        
+        # Remove from Class Management if registrations were finalized
+        finalized_regs = [reg for reg in regs if reg.status == 'finalized']
+        if finalized_regs:
+            # Group by course_code
+            courses_to_remove = {}
+            for reg in finalized_regs:
+                if reg.course_code not in courses_to_remove:
+                    courses_to_remove[reg.course_code] = []
+                courses_to_remove[reg.course_code].append(reg.student_id)
+            
+            # Remove from Class Management for each course
+            for course_code, student_id_list in courses_to_remove.items():
+                try:
+                    _remove_students_from_class_sessions(
+                        course_code, session_name, year, term, student_id_list
+                    )
+                except Exception as remove_error:
+                    current_app.logger.error(f'Error removing students from Class Management for course {course_code}: {remove_error}', exc_info=True)
+        
+        # Delete related invites and registrations
+        for reg in regs:
+            course_codes.append(reg.course_code)
+            
+            # Delete related invites
+            invites_to_delete = CourseRegistrationInvite.query.filter_by(
+                registration_id=reg.id
+            ).all()
+            for invite in invites_to_delete:
+                db.session.delete(invite)
+            
+            # Delete the registration
+            db.session.delete(reg)
+        
+        db.session.commit()
+        
+        current_app.logger.info(f'Removed all {len(regs)} course(s) from student {student_id} registration: {course_codes}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deregistered all {len(regs)} course(s) from registration.'
+        })
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to remove all courses from registration: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to remove all courses from registration'}), 500
+
+
+@course_management_bp.route('/coordinator/registration/remove-course', methods=['POST'])
+@login_required
+def remove_course_from_registration():
+    """Remove a single course from student registration (instant deregister)"""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    
+    data = request.get_json() or {}
+    student_id = data.get('student_id')
+    session_name = data.get('session', '').strip()
+    year = data.get('year', '').strip()
+    term = data.get('term', '').strip()
+    registration_id = data.get('registration_id')
+    
+    if not student_id or not session_name or not year or not term or not registration_id:
+        return jsonify({'success': False, 'message': 'Student ID, Session, Year, Term, and Registration ID are required'}), 400
+    
+    try:
+        # Find the registration
+        reg = StudentCourseRegistration.query.filter_by(
+            id=registration_id,
+            student_id=student_id,
+            academic_session=session_name,
+            year=year,
+            term=term
+        ).first()
+        
+        if not reg:
+            return jsonify({'success': False, 'message': 'Registration not found'}), 404
+        
+        course_code = reg.course_code
+        
+        # Remove from Class Management if registration was finalized
+        if reg.status == 'finalized':
+            try:
+                _remove_students_from_class_sessions(
+                    course_code, session_name, year, term, [student_id]
+                )
+            except Exception as remove_error:
+                current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
+        
+        # Delete related invites
+        invites_to_delete = CourseRegistrationInvite.query.filter_by(
+            registration_id=reg.id
+        ).all()
+        for invite in invites_to_delete:
+            db.session.delete(invite)
+        
+        # Delete the registration
+        db.session.delete(reg)
+        db.session.commit()
+        
+        current_app.logger.info(f'Removed course {course_code} from student {student_id} registration')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully removed {course_code} from registration.'
+        })
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to remove course from registration: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to remove course from registration'}), 500
+
+
 @course_management_bp.route('/coordinator/registration/update', methods=['POST'])
 @login_required
 def update_student_registration():
@@ -2130,6 +2486,7 @@ def coordinator_save_student_registration():
     students_data = data.get('students', [])  # New format: [{student_id, remark, carry_on}]
     student_ids = data.get('student_ids', [])  # Old format: list of student IDs
     remark = data.get('remark', 'Regular').strip()  # Old format: single remark for all
+    remove_student_ids = data.get('remove_student_ids', [])  # Student IDs to deregister
     
     if not course_id or not session_name or not year or not term:
         return jsonify({'success': False, 'message': 'Course, Session, Year, and Term are required'}), 400
@@ -2137,6 +2494,50 @@ def coordinator_save_student_registration():
     # Convert old format to new format if needed
     if student_ids and not students_data:
         students_data = [{'student_id': sid, 'remark': remark, 'carry_on': False} for sid in student_ids]
+    
+    # Handle individual deregistration
+    if remove_student_ids and len(remove_student_ids) > 0:
+        try:
+            for student_id_to_remove in remove_student_ids:
+                # Find and delete the registration
+                reg_to_delete = StudentCourseRegistration.query.filter_by(
+                    student_id=student_id_to_remove,
+                    course_code=course_code,
+                    academic_session=session_name,
+                    year=year,
+                    term=term
+                ).first()
+                
+                if reg_to_delete:
+                    # Remove from Class Management if finalized
+                    if reg_to_delete.status == 'finalized':
+                        try:
+                            _remove_students_from_class_sessions(
+                                course_code, session_name, year, term, [student_id_to_remove]
+                            )
+                        except Exception as remove_error:
+                            current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
+                    
+                    # Delete related invites
+                    invites_to_delete = CourseRegistrationInvite.query.filter_by(
+                        registration_id=reg_to_delete.id
+                    ).all()
+                    for invite in invites_to_delete:
+                        db.session.delete(invite)
+                    
+                    # Delete the registration
+                    db.session.delete(reg_to_delete)
+                    current_app.logger.info(f'Deregistered student {student_id_to_remove} from course {course_code}')
+            
+            db.session.commit()
+            return jsonify({
+                'success': True,
+                'message': f'Successfully deregistered {len(remove_student_ids)} student(s) from {course_name}.'
+            })
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.error(f'Failed to deregister students: {exc}', exc_info=True)
+            return jsonify({'success': False, 'message': 'Failed to deregister students'}), 500
     
     if not students_data or len(students_data) == 0:
         return jsonify({'success': False, 'message': 'No students selected'}), 400
@@ -2214,10 +2615,10 @@ def coordinator_save_student_registration():
                 term=term
             ).first()
             
-            # Head registration is automatically finalized
+            # Both Head and Coordinator registrations are FINAL
             is_head = 'head' in roles
-            registration_status = 'finalized' if is_head else 'pending'
-            invite_status = 'finalized' if is_head else 'pending'
+            registration_status = 'finalized'
+            invite_status = 'finalized'
             registered_by = 'head' if is_head else 'coordinator'
             
             if existing_reg:
@@ -2279,7 +2680,7 @@ def coordinator_save_student_registration():
             if existing_invite:
                 # Update existing invite status
                 existing_invite.status = invite_status
-                if is_head:
+                if is_head and not existing_invite.responded_at:
                     existing_invite.responded_at = datetime.utcnow()
             else:
                 invite = CourseRegistrationInvite(
@@ -2366,103 +2767,6 @@ def coordinator_save_student_registration():
         return jsonify({'success': False, 'message': 'Failed to save registration'}), 500
 
 
-@course_management_bp.route('/coordinator/register-student/deregister', methods=['POST'])
-@login_required
-def coordinator_deregister_students():
-    """Deregister students from a course (Head/Coordinator can deregister)"""
-    roles = parse_roles(current_user.role)
-    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
-        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
-    
-    data = request.get_json() or {}
-    student_ids = data.get('student_ids', [])
-    course_code = data.get('course_code', '').strip()
-    session_name = data.get('session', '').strip()
-    year = data.get('year', '').strip()
-    term = data.get('term', '').strip()
-    
-    if not student_ids or len(student_ids) == 0:
-        return jsonify({'success': False, 'message': 'No students selected for deregistration'}), 400
-    
-    if not course_code or not session_name or not year or not term:
-        return jsonify({'success': False, 'message': 'Course, Session, Year, and Term are required'}), 400
-    
-    try:
-        deregistered_count = 0
-        skipped_count = 0
-        errors = []
-        
-        for student_id in student_ids:
-            try:
-                # Find the registration
-                registration = StudentCourseRegistration.query.filter_by(
-                    student_id=student_id,
-                    course_code=course_code,
-                    academic_session=session_name,
-                    year=year,
-                    term=term
-                ).first()
-                
-                if not registration:
-                    skipped_count += 1
-                    continue
-                
-                # Check if registration was finalized - need to remove from Class Management
-                was_finalized = registration.status == 'finalized'
-                
-                # Delete related invites first
-                invites = CourseRegistrationInvite.query.filter_by(
-                    registration_id=registration.id
-                ).all()
-                for invite in invites:
-                    db.session.delete(invite)
-                
-                # Delete the registration
-                db.session.delete(registration)
-                
-                # If registration was finalized, remove from Class Management
-                if was_finalized:
-                    try:
-                        _remove_students_from_class_sessions(
-                            course_code=course_code,
-                            academic_session=session_name,
-                            year=year,
-                            term=term,
-                            student_ids=[student_id]
-                        )
-                    except Exception as remove_error:
-                        current_app.logger.warning(f'Error removing student {student_id} from Class Management: {remove_error}', exc_info=True)
-                        # Continue even if Class Management removal fails
-                
-                deregistered_count += 1
-                
-            except Exception as student_error:
-                current_app.logger.error(f'Error deregistering student {student_id}: {student_error}', exc_info=True)
-                errors.append(f'Student ID {student_id}: {str(student_error)}')
-                skipped_count += 1
-                continue
-        
-        db.session.commit()
-        
-        message = f'Successfully deregistered {deregistered_count} student(s).'
-        if skipped_count > 0:
-            message += f' {skipped_count} student(s) skipped.'
-        if errors:
-            message += f' Errors: {"; ".join(errors[:3])}'  # Show first 3 errors
-        
-        return jsonify({
-            'success': True,
-            'message': message,
-            'deregistered_count': deregistered_count,
-            'skipped_count': skipped_count
-        })
-        
-    except Exception as exc:
-        db.session.rollback()
-        current_app.logger.error(f'Failed to deregister students: {exc}', exc_info=True)
-        return jsonify({'success': False, 'message': 'Failed to deregister students'}), 500
-
-
 @course_management_bp.route('/coordinator/register-student/api/batches', methods=['GET'])
 @login_required
 def get_batches_for_registration():
@@ -2485,10 +2789,15 @@ def get_batches_for_registration():
             CurriculumYearTerm.year == year,
             CurriculumYearTerm.term == term,
             CurriculumYearTerm.batch.isnot(None),
-            CurriculumYearTerm.batch != ''
+            CurriculumYearTerm.batch != '',
+            CurriculumYearTerm.batch != 'None'  # Exclude "Not Running" entries
         ).order_by(CurriculumYearTerm.batch.desc()).all()
         
-        primary_batches = [b[0] for b in primary_batch_query if b[0]]
+        primary_batches = [b[0] for b in primary_batch_query if b[0] and b[0] != 'None']
+        
+        current_app.logger.info(f'[get_batches_for_registration] Session: {session_name}, Year: {year}, Term: {term}')
+        current_app.logger.info(f'[get_batches_for_registration] Primary batch query returned: {primary_batch_query}')
+        current_app.logger.info(f'[get_batches_for_registration] Primary batches (Recommended): {primary_batches}')
         
         # Also get all batches from Student table (for retake students who might be from other batches)
         all_batches_set = set(primary_batches)
@@ -2506,6 +2815,9 @@ def get_batches_for_registration():
         all_batches_list = sorted(all_batches_set, key=lambda x: (x not in primary_batches, x), reverse=False)
         # Reverse the entire list to get descending order within each group
         all_batches_list = [b for b in sorted(primary_batches, reverse=True)] + [b for b in sorted(all_batches_set - set(primary_batches), reverse=True)]
+        
+        current_app.logger.info(f'[get_batches_for_registration] All batches: {all_batches_list}')
+        current_app.logger.info(f'[get_batches_for_registration] Returning primary_batches: {primary_batches}')
         
         return jsonify({
             'success': True,
@@ -2786,7 +3098,11 @@ def assign_teacher_session():
             ]
             if academic_session:
                 split_group_parts.append(academic_session.lower().strip())
-            split_group_id = '_'.join(split_group_parts)
+            
+            # Create a unique string and hash it to ensure it fits in VARCHAR(36)
+            # MD5 hash produces 32 characters, which fits perfectly in VARCHAR(36)
+            unique_string = '_'.join(split_group_parts)
+            split_group_id = hashlib.md5(unique_string.encode('utf-8')).hexdigest()
             
             # Check if there's already a session with this split_group_id
             # If yes, use the same split_group_id to link them

@@ -817,7 +817,10 @@
     <div class="rem-sheet shadow-sm">
         <div class="rem-heading">
             <div class="rem-heading-logo">
-                <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="Khulna University Logo" style="max-height: 55px; width: auto; display: block;">
+                <img id="remuneration-logo" 
+                     src="{{ url_for('static', filename='Images/KU_logo_2.png') }}" 
+                     alt="Khulna University Logo" 
+                     style="max-height: 55px; width: auto; display: block;">
             </div>
             <div class="rem-heading-content">
                 <div class="text-muted small">পরীক্ষা নিয়ন্ত্রকের কার্যালয়</div>
@@ -1443,6 +1446,49 @@
 </div>
 
 <script>
+// Ensure logo loads properly
+(function() {
+    function loadLogo() {
+        const logoImg = document.getElementById('remuneration-logo');
+        if (logoImg) {
+            // Try to load logo with fallback paths
+            logoImg.onerror = function() {
+                // Try lowercase path if uppercase fails
+                if (this.src.includes('Images/')) {
+                    this.src = this.src.replace('Images/', 'images/');
+                } else if (this.src.includes('images/')) {
+                    // If both fail, try alternative path
+                    const baseUrl = window.location.origin;
+                    this.src = baseUrl + '/static/Images/KU_logo_2.png';
+                }
+            };
+            
+            // Preload check - if image failed to load, trigger error handler
+            if (logoImg.complete && logoImg.naturalHeight === 0) {
+                logoImg.onerror();
+            }
+        }
+    }
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadLogo);
+    } else {
+        loadLogo();
+    }
+})();
+
+// Helper function for fetch with timeout
+function fetchWithTimeout(url, options = {}, timeout = 10000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    return fetch(url, {
+        ...options,
+        signal: controller.signal
+    }).finally(() => {
+        clearTimeout(timeoutId);
+    });
+}
 function calculateRow(rowIndex) {
     // For row 4, use the calculated product (student_count × section_multiplier)
     let quantity = 0;
@@ -1881,7 +1927,8 @@ function updateRow4Calculation() {
 }
 
 // Load Remuneration Statement Form data when session/year/term are selected
-async function loadRemunerationStatementData() {
+// With retry mechanism and timeout handling
+async function loadRemunerationStatementDataWithRetry(maxRetries = 3, delay = 1000) {
     const academicYear = document.getElementById('academic_year')?.value;
     const year = document.getElementById('year')?.value;
     const term = document.getElementById('term')?.value;
@@ -1894,20 +1941,79 @@ async function loadRemunerationStatementData() {
     
     console.log('Loading Remuneration Statement data for:', { academicYear, year, term });
     
-    try {
-        const response = await fetch(`/exam-committee-chief/custom-remuneration/get-by-session?session=${encodeURIComponent(academicYear)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
-        const result = await response.json();
-        
-        if (result.success && result.data) {
-            console.log('Remuneration Statement data loaded:', result.data);
-            // Populate Bill Form columns with Remuneration Statement data
-            populateBillFormFromRemunerationStatement(result.data);
-        } else {
-            console.log('No Remuneration Statement Form found for this session/year/term:', result.message);
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            console.log(`Attempt ${i + 1}/${maxRetries} to load Remuneration Statement data...`);
+            
+            // Create AbortController for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
+            const response = await fetch(
+                `/exam-committee-chief/custom-remuneration/get-by-session?session=${encodeURIComponent(academicYear)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`,
+                {
+                    signal: controller.signal
+                }
+            );
+            
+            clearTimeout(timeoutId);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const result = await response.json();
+            
+            if (result.success && result.data) {
+                console.log('✅ Remuneration Statement data loaded successfully:', result.data);
+                // Populate Bill Form columns with Remuneration Statement data
+                populateBillFormFromRemunerationStatement(result.data);
+                return; // Success, exit retry loop
+            } else {
+                console.log('No Remuneration Statement Form found for this session/year/term:', result.message);
+                return; // Not an error, just no data found
+            }
+        } catch (error) {
+            console.error(`❌ Error loading Remuneration Statement data (attempt ${i + 1}/${maxRetries}):`, error);
+            
+            // Check if it's a timeout or abort error
+            if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+                console.error('Request timed out after 10 seconds');
+            }
+            
+            // If this is the last attempt, show error message to user
+            if (i === maxRetries - 1) {
+                console.error('Failed to load Remuneration Statement data after all retries');
+                // Show user-friendly error message
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'alert alert-warning alert-dismissible fade show';
+                errorMsg.setAttribute('role', 'alert');
+                errorMsg.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999; max-width: 400px;';
+                errorMsg.innerHTML = `
+                    <strong>Warning:</strong> Data could not be loaded. Please refresh the page or try again later.
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                `;
+                document.body.insertBefore(errorMsg, document.body.firstChild);
+                
+                // Auto-dismiss after 5 seconds
+                setTimeout(() => {
+                    if (errorMsg.parentNode) {
+                        errorMsg.remove();
+                    }
+                }, 5000);
+            } else {
+                // Wait before retrying with exponential backoff
+                const waitTime = delay * (i + 1);
+                console.log(`Waiting ${waitTime}ms before retry...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
         }
-    } catch (error) {
-        console.error('Error loading Remuneration Statement data:', error);
     }
+}
+
+// Wrapper function for backward compatibility
+async function loadRemunerationStatementData() {
+    return loadRemunerationStatementDataWithRetry();
 }
 
 // Store Remuneration Statement data globally for use in event handlers
@@ -4658,8 +4764,20 @@ function loadStudentCountForRow4(container) {
             
             pendingApiRequests.forEach((request) => {
                 console.log(`Row 4: Fetching student count from API for course ${request.courseValue}...`);
-                fetch(`/remuneration/api/student-count?course_code=${encodeURIComponent(request.courseValue)}&academic_session=${encodeURIComponent(request.academicYear)}&year=${encodeURIComponent(request.year)}&term=${encodeURIComponent(request.term)}`)
-                    .then(response => response.json())
+                fetchWithTimeout(`/remuneration/api/student-count?course_code=${encodeURIComponent(request.courseValue)}&academic_session=${encodeURIComponent(request.academicYear)}&year=${encodeURIComponent(request.year)}&term=${encodeURIComponent(request.term)}`, {}, 10000)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .catch(error => {
+                        if (error.name === 'AbortError') {
+                            console.error('Request timed out after 10 seconds');
+                            throw new Error('Request timed out. Please try again.');
+                        }
+                        throw error;
+                    })
                     .then(data => {
                         console.log(`Row 4: API response for course ${request.courseValue}:`, data);
                         if (data.success && data.student_count !== undefined) {
@@ -4857,8 +4975,20 @@ document.addEventListener('DOMContentLoaded', function() {
             const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCodeParam)}&academic_session=${encodeURIComponent(academicSession)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
             console.log('Fetching student count for course:', courseItem.code, 'Full text:', courseItem.fullText, 'URL:', url);
             
-            return fetch(url)
-                .then(response => response.json())
+            return fetchWithTimeout(url, {}, 10000)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .catch(error => {
+                    if (error.name === 'AbortError') {
+                        console.error('Request timed out after 10 seconds');
+                        throw new Error('Request timed out. Please try again.');
+                    }
+                    throw error;
+                })
                 .then(data => {
                     console.log('Response for course', courseItem.code, ':', data);
                     console.log('Debug info:', data.debug_info);
@@ -4954,8 +5084,20 @@ document.addEventListener('DOMContentLoaded', function() {
             const courseCodeParam = courseItem.fullText || courseItem.code;
             const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCodeParam)}&academic_session=${encodeURIComponent(academicSession)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
             
-            return fetch(url)
-                .then(response => response.json())
+            return fetchWithTimeout(url, {}, 10000)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .catch(error => {
+                    if (error.name === 'AbortError') {
+                        console.error('Request timed out after 10 seconds');
+                        throw new Error('Request timed out. Please try again.');
+                    }
+                    throw error;
+                })
                 .then(data => {
                     if (data.success && data.student_count !== undefined) {
                         return data.student_count;
@@ -5159,12 +5301,16 @@ document.addEventListener('DOMContentLoaded', function() {
         {% endfor %}
     ];
     
-    function loadCourses() {
+    // Course loading with retry mechanism
+    let courseLoadRetryCount = 0;
+    const MAX_COURSE_RETRIES = 3;
+    
+    function loadCourses(retryCount = 0) {
         const academicSession = academicYearSelect?.value;
         const year = yearSelect?.value;
         const term = termSelect?.value;
         
-        console.log('loadCourses called with:', { academicSession, year, term });
+        console.log(`loadCourses called (attempt ${retryCount + 1}/${MAX_COURSE_RETRIES}):`, { academicSession, year, term });
         
         if (!academicSession || !year || !term) {
             console.log('Missing values - academicSession:', academicSession, 'year:', year, 'term:', term);
@@ -5176,15 +5322,29 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Show loading state
+        document.querySelectorAll('.course-select').forEach(select => {
+            if (select.innerHTML === '<option value="">Error loading courses</option>') {
+                select.innerHTML = '<option value="">Loading courses...</option>';
+            }
+        });
+        
         console.log('Fetching courses from API...');
         // Fetch courses from API
-        fetch(`/remuneration/api/courses?academic_session=${encodeURIComponent(academicSession)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`)
+        fetchWithTimeout(`/remuneration/api/courses?academic_session=${encodeURIComponent(academicSession)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`, {}, 10000)
             .then(response => {
                 console.log('API response status:', response.status);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 return response.json();
+            })
+            .catch(error => {
+                if (error.name === 'AbortError') {
+                    console.error('Request timed out after 10 seconds');
+                    throw new Error('Request timed out. Please try again.');
+                }
+                throw error;
             })
             .then(data => {
                 console.log('API response data:', data);
@@ -5273,11 +5433,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
-                console.error('Error loading courses:', error);
-                document.querySelectorAll('.course-select').forEach(select => {
-                    select.innerHTML = '<option value="">Error loading courses</option>';
-                    select.disabled = false;
-                });
+                console.error(`Error loading courses (attempt ${retryCount + 1}/${MAX_COURSE_RETRIES}):`, error);
+                
+                // Retry if we haven't exceeded max retries
+                if (retryCount < MAX_COURSE_RETRIES - 1) {
+                    const delay = (retryCount + 1) * 1000; // 1s, 2s, 3s
+                    console.log(`Retrying course load in ${delay}ms...`);
+                    setTimeout(() => {
+                        loadCourses(retryCount + 1);
+                    }, delay);
+                } else {
+                    // All retries failed - show error
+                    console.error('Failed to load courses after all retries');
+                    document.querySelectorAll('.course-select').forEach(select => {
+                        select.innerHTML = '<option value="">Error loading courses - Please refresh page</option>';
+                        select.disabled = false;
+                    });
+                }
             });
     }
     
@@ -5935,14 +6107,28 @@ function saveFormData() {
         formData.title = generateFormTitle(formData);
     }
     
-    fetch('/remuneration/api/save', {
+    fetchWithTimeout('/remuneration/api/save', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(formData)
+    }, 30000)
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
     })
-    .then(response => response.json())
+    .catch(error => {
+        if (error.name === 'AbortError') {
+            console.error('Request timed out after 30 seconds');
+            alert('Save request timed out. Please try again.');
+            throw new Error('Request timed out. Please try again.');
+        }
+        throw error;
+    })
+    .then(response => response)
     .then(data => {
         if (data.success) {
             if (data.form_id && !formId) {

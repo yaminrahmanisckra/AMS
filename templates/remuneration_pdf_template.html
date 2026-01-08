@@ -237,8 +237,8 @@
         .revenue-ticket {
             display: inline-block;
             border: 1px solid #000;
-            width: 18mm;
-            height: 18mm;
+            width: 25mm;
+            height: 25mm;
             margin-left: 0.5rem;
             margin-top: 0.3rem;
             vertical-align: top;
@@ -410,7 +410,11 @@
     <div class="pdf-container">
         <div class="rem-heading">
             <div class="rem-heading-logo">
-                <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="Khulna University Logo" style="max-height: 113.75px; width: auto;">
+                {% if logo_data_uri %}
+                <img src="{{ logo_data_uri }}" alt="Khulna University Logo" style="max-height: 113.75px; width: auto;">
+                {% else %}
+                <img src="{{ url_for('static', filename='Images/KU_logo_2.png') }}" alt="Khulna University Logo" style="max-height: 113.75px; width: auto;">
+                {% endif %}
             </div>
             <div class="rem-heading-content">
                 <div class="office">পরীক্ষা নিয়ন্ত্রকের কার্যালয়</div>

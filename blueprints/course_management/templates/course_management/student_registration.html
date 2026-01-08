@@ -62,8 +62,11 @@
 
     <!-- Available Courses -->
     <div class="card shadow-sm mb-4" id="coursesCard" style="display: none;">
-        <div class="card-header bg-success text-white">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="fas fa-book me-2"></i>Available Courses</h5>
+            <button type="button" class="btn btn-light btn-sm" id="hideAvailableBtn" style="display:none;">
+                <i class="fas fa-times me-1"></i>Close
+            </button>
         </div>
         <div class="card-body">
             <div id="coursesLoading" class="text-center py-4" style="display: none;">
@@ -74,6 +77,16 @@
             <div id="coursesList" class="table-responsive">
                 <!-- Courses will be loaded here -->
             </div>
+
+            <!-- Actions (requested: show inside Available Courses) -->
+            <div class="mt-3 text-end" id="availableActions" style="display:none;">
+                <button type="button" class="btn btn-primary me-2" id="saveRegistrationBtn" disabled>
+                    <i class="fas fa-save me-2"></i>Save Registration
+                </button>
+                <button type="button" class="btn btn-warning me-2" id="sendToCoordinatorBtn" disabled>
+                    <i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator
+                </button>
+            </div>
         </div>
     </div>
 
@@ -83,8 +96,11 @@
     <div class="card shadow-sm" id="selectedCard" style="display: none;">
         <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
             <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>Selected Courses</h5>
-            <div>
+            <div class="d-flex align-items-center gap-2">
                 <strong>Total Credits: <span id="totalCredits">0</span></strong>
+                <button type="button" class="btn btn-light btn-sm" id="editSelectionBtn" style="display:none;">
+                    <i class="fas fa-edit me-1"></i>Edit
+                </button>
             </div>
         </div>
         <div class="card-body">
@@ -108,16 +124,23 @@
                     </tbody>
                 </table>
             </div>
-            <div class="mt-3 text-end">
-                <button type="button" class="btn btn-primary me-2" id="saveRegistrationBtn" disabled>
-                    <i class="fas fa-save me-2"></i>Save Registration
-                </button>
-                <button type="button" class="btn btn-warning me-2" id="sendToCoordinatorBtn" disabled>
-                    <i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator
-                </button>
-                <button type="button" class="btn btn-success" id="downloadPdfBtn" disabled>
-                    <i class="fas fa-file-pdf me-2"></i>Download Registration PDF
-                </button>
+            <div class="mt-3 d-flex justify-content-between align-items-center">
+                <div>
+                    <button type="button" class="btn btn-sm btn-danger" id="removeAllBtn" onclick="removeAllCourses()" style="display: none;">
+                        <i class="fas fa-times-circle me-1"></i>Remove All Courses
+                    </button>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-primary me-2" id="saveRegistrationBtn" disabled>
+                        <i class="fas fa-save me-2"></i>Save Registration
+                    </button>
+                    <button type="button" class="btn btn-warning me-2" id="sendToCoordinatorBtn" disabled>
+                        <i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator
+                    </button>
+                    <button type="button" class="btn btn-success" id="downloadPdfBtn" disabled>
+                        <i class="fas fa-file-pdf me-2"></i>Download Registration PDF
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -132,6 +155,20 @@ const statusBox = document.getElementById('registrationStatus');
 const saveBtn = document.getElementById('saveRegistrationBtn');
 const downloadBtn = document.getElementById('downloadPdfBtn');
 const sendToCoordinatorBtn = document.getElementById('sendToCoordinatorBtn');
+const editSelectionBtn = document.getElementById('editSelectionBtn');
+const hideAvailableBtn = document.getElementById('hideAvailableBtn');
+const availableActions = document.getElementById('availableActions');
+const coursesCardEl = document.getElementById('coursesCard');
+
+let showAvailableCourses = true;
+
+function setAvailableCoursesVisible(visible) {
+    showAvailableCourses = !!visible;
+    if (!coursesCardEl) return;
+    coursesCardEl.style.display = showAvailableCourses ? 'block' : 'none';
+    if (availableActions) availableActions.style.display = showAvailableCourses ? 'block' : 'none';
+    if (hideAvailableBtn) hideAvailableBtn.style.display = showAvailableCourses ? 'inline-block' : 'none';
+}
 
 function showStatus(message, type = 'info') {
     if (!statusBox) return;
@@ -267,7 +304,12 @@ document.getElementById('filterForm').addEventListener('submit', function(e) {
     selectedCourses = [];
     updateSelectedTable();
     loadSavedRegistrations(session, year, term)
-        .finally(() => loadCourses(year, term));
+        .finally(() => {
+            // If there are saved/selected courses, default to hiding Available Courses until Edit is clicked
+            const shouldShow = (selectedCourses.length === 0);
+            setAvailableCoursesVisible(shouldShow);
+            return loadCourses(year, term);
+        });
 });
 
 function loadSavedRegistrations(session, year, term) {
@@ -327,7 +369,9 @@ function loadCourses(year, term) {
     const coursesList = document.getElementById('coursesList');
     const coursesLoading = document.getElementById('coursesLoading');
     
-    coursesCard.style.display = 'block';
+    // Keep visibility controlled by setAvailableCoursesVisible()
+    coursesCard.style.display = showAvailableCourses ? 'block' : 'none';
+    if (availableActions) availableActions.style.display = showAvailableCourses ? 'block' : 'none';
     coursesLoading.style.display = 'block';
     coursesList.innerHTML = '';
     
@@ -448,14 +492,156 @@ function updateSelectedCourseCarryOn(courseIdOrIndex, carryOn) {
 }
 
 function removeCourse(id, code) {
-    selectedCourses = selectedCourses.filter(c => {
+    // Find the course to remove
+    const courseToRemove = selectedCourses.find(c => {
         if (c.id && id) {
-            return c.id !== id;
+            return c.id === id;
         }
-        return c.course_code !== code;
+        return c.course_code === code;
     });
-    updateSelectedTable();
-    loadCourses(currentYear, currentTerm); // Refresh to update "Add" buttons
+    
+    if (!courseToRemove) {
+        return;
+    }
+    
+    // Check if it's a coordinator/head registration or finalized - cannot remove
+    if ((courseToRemove.registered_by && (courseToRemove.registered_by === 'coordinator' || courseToRemove.registered_by === 'head')) || courseToRemove.status === 'finalized') {
+        alert('Cannot remove this course: It is finalized or created by coordinator/head.');
+        return;
+    }
+    
+    // If course has registration ID (saved in backend), need to deregister from backend
+    if (courseToRemove.id && currentSession && currentYear && currentTerm) {
+        if (!confirm(`Are you sure you want to remove ${courseToRemove.course_code} - ${courseToRemove.course_name}?`)) {
+            return;
+        }
+        
+        // Call backend to deregister
+        fetch('/course-management/student/registration/remove-course', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session: currentSession,
+                year: currentYear,
+                term: currentTerm,
+                registration_id: courseToRemove.id
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove from selectedCourses array
+                selectedCourses = selectedCourses.filter(c => {
+                    if (c.id && id) {
+                        return c.id !== id;
+                    }
+                    return c.course_code !== code;
+                });
+                updateSelectedTable();
+                // Reload courses list to update "Add" buttons immediately
+                loadCourses(currentYear, currentTerm);
+                // Reload saved registrations to get fresh data
+                loadSavedRegistrations(currentSession, currentYear, currentTerm)
+                    .then(() => loadCourses(currentYear, currentTerm));
+                showStatus(`Successfully removed ${courseToRemove.course_code} from registration.`, 'success');
+            } else {
+                showStatus(data.message || 'Failed to remove course.', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error removing course:', error);
+            showStatus('Error removing course. Please try again.', 'error');
+        });
+    } else {
+        // If not saved yet, just remove from array
+        selectedCourses = selectedCourses.filter(c => {
+            if (c.id && id) {
+                return c.id !== id;
+            }
+            return c.course_code !== code;
+        });
+        updateSelectedTable();
+        loadCourses(currentYear, currentTerm);
+    }
+}
+
+function removeAllCourses() {
+    // Filter out coordinator/head registrations and finalized courses
+    const removableCourses = selectedCourses.filter(c => {
+        if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+            return false;
+        }
+        if (c.status === 'finalized') {
+            return false;
+        }
+        return true;
+    });
+    
+    if (removableCourses.length === 0) {
+        alert('No courses can be removed. All courses are finalized or created by coordinator/head.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to remove all ${removableCourses.length} course(s)? This action cannot be undone.`)) {
+        return;
+    }
+    
+    // Get registration IDs for courses that are saved in backend
+    const registrationIds = removableCourses.filter(c => c.id).map(c => c.id);
+    
+    if (registrationIds.length > 0 && currentSession && currentYear && currentTerm) {
+        // Call backend to bulk deregister
+        fetch('/course-management/student/registration/remove-all-courses', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session: currentSession,
+                year: currentYear,
+                term: currentTerm,
+                registration_ids: registrationIds
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Remove all removable courses from selectedCourses array
+                selectedCourses = selectedCourses.filter(c => {
+                    if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+                        return true; // Keep coordinator/head registrations
+                    }
+                    if (c.status === 'finalized') {
+                        return true; // Keep finalized registrations
+                    }
+                    return false; // Remove others
+                });
+                updateSelectedTable();
+                // Reload courses list and registrations
+                loadSavedRegistrations(currentSession, currentYear, currentTerm)
+                    .then(() => loadCourses(currentYear, currentTerm));
+                showStatus(`Successfully removed ${removableCourses.length} course(s) from registration.`, 'success');
+            } else {
+                showStatus(data.message || 'Failed to remove courses.', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error removing courses:', error);
+            showStatus('Error removing courses. Please try again.', 'error');
+        });
+    } else {
+        // If no saved courses, just remove from array
+        selectedCourses = selectedCourses.filter(c => {
+            if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+                return true;
+            }
+            if (c.status === 'finalized') {
+                return true;
+            }
+            return false;
+        });
+        updateSelectedTable();
+        loadCourses(currentYear, currentTerm);
+        showStatus(`Successfully removed ${removableCourses.length} course(s) from registration.`, 'success');
+    }
 }
 
 function updateSelectedTable() {
@@ -465,6 +651,7 @@ function updateSelectedTable() {
     
     if (selectedCourses.length === 0) {
         selectedCard.style.display = 'none';
+        if (editSelectionBtn) editSelectionBtn.style.display = 'none';
         saveBtn.disabled = true;
         downloadBtn.disabled = true;
         sendToCoordinatorBtn.disabled = true;
@@ -485,6 +672,7 @@ function updateSelectedTable() {
     });
     
     selectedCard.style.display = 'block';
+    if (editSelectionBtn) editSelectionBtn.style.display = 'inline-block';
     // Disable save and send buttons if coordinator/head registered any course OR if finalized
     saveBtn.disabled = hasCoordinatorReg;
     sendToCoordinatorBtn.disabled = hasCoordinatorReg;
@@ -550,6 +738,37 @@ function updateSelectedTable() {
     
     selectedTable.innerHTML = html;
     totalCreditsSpan.textContent = totalCredits.toFixed(1);
+    
+    // Update "Remove All" button visibility
+    const removableCourses = selectedCourses.filter(c => {
+        if (c.registered_by && (c.registered_by === 'coordinator' || c.registered_by === 'head')) {
+            return false;
+        }
+        if (c.status === 'finalized') {
+            return false;
+        }
+        return true;
+    });
+    const removeAllBtn = document.getElementById('removeAllBtn');
+    if (removeAllBtn) {
+        removeAllBtn.style.display = removableCourses.length > 0 ? 'inline-block' : 'none';
+    }
+}
+
+// UI toggle: Edit shows Available Courses + actions inside it
+if (editSelectionBtn) {
+    editSelectionBtn.addEventListener('click', function() {
+        setAvailableCoursesVisible(true);
+        const el = document.getElementById('coursesCard');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+}
+if (hideAvailableBtn) {
+    hideAvailableBtn.addEventListener('click', function() {
+        setAvailableCoursesVisible(false);
+        const el = document.getElementById('selectedCard');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 }
 
 saveBtn.addEventListener('click', function() {

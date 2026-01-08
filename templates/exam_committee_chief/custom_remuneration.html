@@ -395,7 +395,7 @@
                                 <option value="">Select Course</option>
                             </select>
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this); updateTableCounts();"></td>
                         <td>
                             <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                                 <option value="">Select Teacher</option>
@@ -1091,15 +1091,32 @@ async function fetchCourses() {
     }
     
     try {
-        // Use the existing remuneration API endpoint
-        const response = await fetch(`/remuneration/api/courses?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        // Use the existing remuneration API endpoint with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const response = await fetch(`/remuneration/api/courses?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         if (data.success) {
+            console.log(`✅ Fetched ${data.courses?.length || 0} courses`);
             return data.courses || [];
         }
+        console.warn('⚠️ API returned success=false:', data.message);
         return [];
     } catch (error) {
-        console.error('Error fetching courses:', error);
+        if (error.name === 'AbortError') {
+            console.error('❌ Course fetch timed out after 10 seconds');
+        } else {
+            console.error('❌ Error fetching courses:', error);
+        }
         return [];
     }
 }
@@ -1115,8 +1132,19 @@ async function fetchSessionalCourses() {
     }
     
     try {
-        // Use the existing remuneration API endpoint
-        const response = await fetch(`/remuneration/api/courses?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        // Use the existing remuneration API endpoint with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const response = await fetch(`/remuneration/api/courses?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         if (data.success) {
             // Filter for sessional courses (course_type contains 'Sessional' or category is 'Sessional')
@@ -1125,28 +1153,64 @@ async function fetchSessionalCourses() {
                 const category = (c.category || '').toLowerCase();
                 return courseType.includes('sessional') || category.includes('sessional');
             });
+            console.log(`✅ Fetched ${sessionalCourses.length} sessional courses`);
             return sessionalCourses;
         }
+        console.warn('⚠️ API returned success=false for sessional courses:', data.message);
         return [];
     } catch (error) {
-        console.error('Error fetching sessional courses:', error);
+        if (error.name === 'AbortError') {
+            console.error('❌ Sessional course fetch timed out after 10 seconds');
+        } else {
+            console.error('❌ Error fetching sessional courses:', error);
+        }
         return [];
     }
 }
 
 // Load courses into select element
 function loadCoursesIntoSelect(selectElement, courses, selectedValue = '') {
+    if (!selectElement) {
+        console.warn('⚠️ Select element not found');
+        return;
+    }
+    
+    if (!courses || courses.length === 0) {
+        console.warn('⚠️ No courses provided to load');
+        selectElement.innerHTML = '<option value="">No courses available</option>';
+        selectElement.disabled = false;
+        return;
+    }
+    
+    // Store current selection
+    const currentValue = selectedValue || selectElement.value;
+    
     selectElement.innerHTML = '<option value="">Select Course</option>';
     courses.forEach(course => {
         const option = document.createElement('option');
         const courseText = `${course.course_code} - ${course.course_name}`;
         option.value = courseText;
         option.textContent = courseText;
-        if (selectedValue === courseText || selectedValue === course.course_code) {
+        if (currentValue === courseText || currentValue === course.course_code) {
             option.selected = true;
         }
         selectElement.appendChild(option);
     });
+    
+    // Enable the select element
+    selectElement.disabled = false;
+    
+    // If no match found, try to restore original value
+    if (currentValue && !selectElement.value && currentValue !== '') {
+        // Try to find by course code only
+        const courseCodeOnly = currentValue.split(' - ')[0];
+        const matchingOption = Array.from(selectElement.options).find(opt => 
+            opt.value.startsWith(courseCodeOnly + ' -') || opt.value === currentValue
+        );
+        if (matchingOption) {
+            selectElement.value = matchingOption.value;
+        }
+    }
 }
 
 // Auto-load courses when session/year/term changes
@@ -1253,32 +1317,56 @@ async function handleSessionYearTermChange() {
     if (isEditMode) {
         console.log('⏭️ Edit mode active, skipping auto-load on session/year/term change');
         // Only update course dropdowns, don't auto-load theory courses
-        await updateCourseDropdownsOnly();
+        try {
+            await updateCourseDropdownsOnly();
+        } catch (err) {
+            console.error('❌ Error updating course dropdowns:', err);
+        }
         return;
     }
     
-    await autoLoadCoursesForTables();
-    
-    // Auto-load tabulators when session/year/term changes
-    if (session && year && term) {
-        autoLoadTabulators().catch(err => {
-            console.error('❌ Error loading tabulators (non-blocking):', err);
-        });
+    // Sequential execution to avoid race conditions
+    try {
+        await autoLoadCoursesForTables();
+        console.log('✅ Courses loaded successfully');
+        
+        // Auto-load tabulators when session/year/term changes
+        if (session && year && term) {
+            // Wait a bit before loading tabulators
+            setTimeout(async () => {
+                try {
+                    await autoLoadTabulators();
+                    console.log('✅ Tabulators loaded successfully');
+                } catch (err) {
+                    console.error('❌ Error loading tabulators (non-blocking):', err);
+                }
+            }, 500);
+        }
+    } catch (err) {
+        console.error('❌ Error in auto-load sequence:', err);
     }
     
-    // Also auto-load theory courses for Tables 2, 3, 4
-    if (session && year && term) {
-        console.log('🔄 Session/Year/Term changed, fetching theory courses...');
-        const courses = await fetchCourses();
-        const theoryCourses = courses.filter(c => {
-            const courseType = (c.course_type || '').toLowerCase();
-            if (!courseType || courseType === '') {
-                return true; // Assume Theory if not specified
+    // Also auto-load theory courses for Tables 2, 3, 4 (only if not in edit mode)
+    if (!isEditMode && session && year && term) {
+        console.log('🔄 Session/Year/Term changed, fetching theory courses for auto-population...');
+        try {
+            const courses = await fetchCourses();
+            if (courses.length > 0) {
+                const theoryCourses = courses.filter(c => {
+                    const courseType = (c.course_type || '').toLowerCase();
+                    if (!courseType || courseType === '') {
+                        return true; // Assume Theory if not specified
+                    }
+                    return courseType === 'theory';
+                });
+                console.log('📖 Theory courses found:', theoryCourses.length);
+                if (theoryCourses.length > 0) {
+                    await autoLoadTheoryCoursesForTables(theoryCourses);
+                }
             }
-            return courseType === 'theory';
-        });
-        console.log('📖 Theory courses found:', theoryCourses.length);
-        await autoLoadTheoryCoursesForTables(theoryCourses);
+        } catch (err) {
+            console.error('❌ Error loading theory courses:', err);
+        }
     }
 }
 
@@ -1331,52 +1419,68 @@ document.getElementById('term')?.addEventListener('change', handleSessionYearTer
 
 // Auto-load courses for all course select elements
 async function autoLoadCoursesForTables() {
-    // Skip auto-load if in edit mode
-    if (isEditMode) {
-        console.log('⏭️ Edit mode active, skipping auto-load');
-        // Only update course dropdowns
-        await updateCourseDropdownsOnly();
-        return;
-    }
-    
     console.log('🔄 autoLoadCoursesForTables called');
-    const courses = await fetchCourses();
-    console.log('📚 Fetched courses:', courses.length);
-    const sessionalCourses = await fetchSessionalCourses();
     
-    // Filter Theory courses (if course_type is not provided, assume all are Theory for Table 2 & 3)
-    const theoryCourses = courses.filter(c => {
-        const courseType = (c.course_type || '').toLowerCase();
-        // If course_type is empty or not provided, assume it's Theory (for backward compatibility)
-        if (!courseType || courseType === '') {
-            return true; // Assume all courses are Theory if type is not specified
+    try {
+        // Fetch all courses first
+        const courses = await fetchCourses();
+        console.log('📚 Fetched courses:', courses.length);
+        
+        if (courses.length === 0) {
+            console.warn('⚠️ No courses fetched, cannot load dropdowns');
+            return;
         }
-        return courseType === 'theory';
-    });
-    
-    console.log('📖 Theory courses found:', theoryCourses.length);
-    console.log('📖 Theory courses:', theoryCourses.map(c => c.course_code));
-    
-    // Auto-load Theory courses for Table 2 (Question Preparation) and Table 3 (Script Examination)
-    await autoLoadTheoryCoursesForTables(theoryCourses);
-    
-    // Load regular courses into dropdowns (including empty ones)
-    document.querySelectorAll('.course-select').forEach(select => {
-        // Only load if dropdown is empty (only has "Select Course" option)
-        if (select.options.length <= 1 || select.value === '') {
-        loadCoursesIntoSelect(select, courses);
+        
+        const sessionalCourses = await fetchSessionalCourses();
+        console.log('📚 Fetched sessional courses:', sessionalCourses.length);
+        
+        // ALWAYS load courses into ALL course dropdowns (Table 2, 3, 4, etc.)
+        const courseSelects = document.querySelectorAll('.course-select');
+        console.log(`📋 Found ${courseSelects.length} course dropdowns to populate`);
+        
+        courseSelects.forEach((select, index) => {
+            const currentValue = select.value; // Preserve current selection
+            loadCoursesIntoSelect(select, courses, currentValue);
+            console.log(`✅ Loaded courses into dropdown ${index + 1}`);
+        });
+        
+        // ALWAYS load sessional courses into ALL sessional dropdowns (Table 6, 7)
+        const sessionalSelects = document.querySelectorAll('.sessional-course-select');
+        console.log(`📋 Found ${sessionalSelects.length} sessional dropdowns to populate`);
+        
+        sessionalSelects.forEach((select, index) => {
+            const currentValue = select.value; // Preserve current selection
+            loadCoursesIntoSelect(select, sessionalCourses, currentValue);
+            console.log(`✅ Loaded sessional courses into dropdown ${index + 1}`);
+        });
+        
+        console.log(`✅ Loaded courses into ${courseSelects.length} course dropdowns and ${sessionalSelects.length} sessional dropdowns`);
+        
+        // Skip auto-load if in edit mode
+        if (isEditMode) {
+            console.log('⏭️ Edit mode active, skipping auto-population');
+            return;
         }
-    });
-    
-    // Load sessional courses (including empty ones)
-    document.querySelectorAll('.sessional-course-select').forEach(select => {
-        // Only load if dropdown is empty (only has "Select Course" option)
-        if (select.options.length <= 1 || select.value === '') {
-        loadCoursesIntoSelect(select, sessionalCourses);
+        
+        // Filter Theory courses for auto-population
+        const theoryCourses = courses.filter(c => {
+            const courseType = (c.course_type || '').toLowerCase();
+            if (!courseType || courseType === '') {
+                return true; // Assume all courses are Theory if type is not specified
+            }
+            return courseType === 'theory';
+        });
+        
+        console.log('📖 Theory courses found:', theoryCourses.length);
+        
+        // Auto-load Theory courses for Table 2 (Question Preparation) and Table 3 (Script Examination)
+        if (theoryCourses.length > 0) {
+            await autoLoadTheoryCoursesForTables(theoryCourses);
         }
-    });
-    
-    console.log(`✅ Loaded courses into ${document.querySelectorAll('.course-select').length} course dropdowns and ${document.querySelectorAll('.sessional-course-select').length} sessional dropdowns`);
+        
+    } catch (error) {
+        console.error('❌ Error in autoLoadCoursesForTables:', error);
+    }
 }
 
 // Auto-load Theory courses for Table 2, 3, 4 - Only Course and Section columns
@@ -1706,7 +1810,7 @@ async function autoLoadClassTestTableWithAssignments() {
                         ${courseOptions}
                     </select>
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
+                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
                 <td>
                     <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                         <option value="">Select Teacher</option>
@@ -1722,24 +1826,32 @@ async function autoLoadClassTestTableWithAssignments() {
             `;
             table4Tbody.appendChild(row);
             
-            // Trigger fetch for auto-loaded rows
-            if (courseSelect && courseSelect.value) {
-                setTimeout(() => {
-                    fetchClassTestInfo(
-                        courseSelect,
-                        row.querySelector('input[name="class_test_section[]"]'),
-                        row.querySelector('input[name="class_test_no[]"]'),
-                        row.querySelector('input[name="class_test_students[]"]')
-                    );
-                }, 100);
-            }
+            // Trigger updateClassTestCount and fetchStudentCount after row is added
+            setTimeout(() => {
+                const sectionInput = row.querySelector('input[name="class_test_section[]"]');
+                const courseSelect = row.querySelector('select[name="class_test_course[]"]');
+                const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+                
+                // Update class test count based on section
+                if (sectionInput) {
+                    updateClassTestCount(sectionInput);
+                }
+                
+                // Fetch student count if course is selected
+                if (courseSelect && courseSelect.value && studentsInput) {
+                    fetchStudentCountForClassTest(courseSelect, studentsInput);
+                }
+            }, 100);
         });
         
         // Count unique courses (split courses A and B count as 1)
         const uniqueCourses = new Set(data.assignments.map(a => a.course_id));
         console.log(`✅ Table 4 loaded with ${data.assignments.length} rows (${uniqueCourses.size} unique courses)`);
         
-        updateTableCounts();
+        // Wait a bit for all async operations to complete
+        setTimeout(() => {
+            updateTableCounts();
+        }, 500);
         
     } catch (error) {
         console.error('❌ Error loading course assignments for Table 4:', error);
@@ -1849,13 +1961,27 @@ async function loadSessionalAssignmentsToTable(tbody, tablePrefix, session, year
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
             `;
             tbody.appendChild(row);
+            
+            // Trigger student count fetch after row is added
+            setTimeout(() => {
+                const courseSelect = row.querySelector(`select[name="${tablePrefix}_course[]"]`);
+                const studentsInput = row.querySelector(`input[name="${tablePrefix}_students[]"]`);
+                
+                // Fetch student count if course is selected
+                if (courseSelect && courseSelect.value && studentsInput) {
+                    onSessionalCourseChange(courseSelect, tablePrefix);
+                }
+            }, 100);
         });
         
         // Count unique courses (split courses A and B count as 1)
         const uniqueCourses = new Set(data.assignments.map(a => a.course_id));
         console.log(`✅ ${tablePrefix} loaded with ${data.assignments.length} rows (${uniqueCourses.size} unique courses)`);
         
-        updateTableCounts();
+        // Wait a bit for all async operations to complete
+        setTimeout(() => {
+            updateTableCounts();
+        }, 500);
         
     } catch (error) {
         console.error(`❌ Error loading sessional course assignments for ${tablePrefix}:`, error);
@@ -2481,7 +2607,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="${courseText}" selected>${courseText}</option>
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="A" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="A" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
                     <td>
                         <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher[]" onchange="onTeacherNameChange(this, 'class_test')">
                             <option value="">Select Teacher</option>
@@ -2496,19 +2622,6 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                 `;
                 table4Tbody.appendChild(rowA);
                 
-                // Trigger fetch for auto-loaded row A
-                setTimeout(() => {
-                    const courseSelectA = rowA.querySelector('select[name="class_test_course[]"]');
-                    if (courseSelectA && courseSelectA.value) {
-                        fetchClassTestInfo(
-                            courseSelectA,
-                            rowA.querySelector('input[name="class_test_section[]"]'),
-                            rowA.querySelector('input[name="class_test_no[]"]'),
-                            rowA.querySelector('input[name="class_test_students[]"]')
-                        );
-                    }
-                }, 100);
-                
                 // Add row for Section B
                 const rowB = document.createElement('tr');
                 rowB.innerHTML = `
@@ -2517,7 +2630,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="${courseText}" selected>${courseText}</option>
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="B" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="B" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
                     <td>
                         <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher[]" onchange="onTeacherNameChange(this, 'class_test')">
                             <option value="">Select Teacher</option>
@@ -2705,28 +2818,32 @@ function onCourseChange(selectElement) {
 
 // On class test course change
 async function onClassTestCourseChange(selectElement) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2682',message:'onClassTestCourseChange called',data:{courseValue:selectElement?.value||'empty',hasValue:!!selectElement?.value},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     const row = selectElement.closest('tr');
+    if (!row) return;
+    
     const sectionInput = row.querySelector('input[name="class_test_section[]"]');
     const classTestInput = row.querySelector('input[name="class_test_no[]"]');
     const studentsInput = row.querySelector('input[name="class_test_students[]"]');
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2690',message:'Elements found',data:{hasRow:!!row,hasSectionInput:!!sectionInput,hasClassTestInput:!!classTestInput,hasStudentsInput:!!studentsInput,sectionValue:sectionInput?.value||''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-    
-    // Update class test count based on section (fallback)
-    updateClassTestCount(sectionInput);
-    
-    // Fetch class test count and student count from API
-    if (selectElement.value) {
-        await fetchClassTestInfo(selectElement, sectionInput, classTestInput, studentsInput);
-    } else {
-        classTestInput.value = '0';
-        studentsInput.value = '0';
+    // Update class test count based on section (if section is already filled)
+    if (sectionInput && classTestInput) {
+        const section = sectionInput.value.trim().toUpperCase();
+        if (section) {
+            updateClassTestCount(sectionInput);
+        }
     }
+    
+    // Fetch student count if course is selected
+    if (selectElement.value && studentsInput) {
+        await fetchStudentCountForClassTest(selectElement, studentsInput);
+    } else if (studentsInput) {
+        // Clear if no course selected
+        if (!studentsInput.value || studentsInput.value.trim() === '') {
+            studentsInput.value = '0';
+        }
+    }
+    
+    updateTableCounts();
 }
 
 // Update table counts (courses, questions, scripts)
@@ -2871,143 +2988,107 @@ function updateTableCounts() {
 // Update class test count based on section
 function updateClassTestCount(sectionInput) {
     const row = sectionInput.closest('tr');
-    const classTestInput = row.querySelector('input[name="class_test_no[]"]');
-    const section = sectionInput.value.trim().toUpperCase();
-    
-    // Only auto-fill if field is empty
-    if (!classTestInput.value || classTestInput.value.trim() === '') {
-        if (section === 'A' || section === 'B') {
-            classTestInput.value = '2';
-        } else if (section === 'FULL' || section === '') {
-            classTestInput.value = '4';
-        }
-    }
-}
-
-// Helper function to handle section change and fetch class test info
-function onClassTestSectionChange(sectionInput) {
-    updateClassTestCount(sectionInput);
-    const row = sectionInput.closest('tr');
     if (!row) return;
     
-    const courseSelect = row.querySelector('select[name="class_test_course[]"]');
     const classTestInput = row.querySelector('input[name="class_test_no[]"]');
-    const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+    if (!classTestInput) return;
     
-    if (courseSelect && courseSelect.value && classTestInput && studentsInput) {
-        fetchClassTestInfo(courseSelect, sectionInput, classTestInput, studentsInput);
+    const section = sectionInput.value.trim().toUpperCase();
+    
+    // Always update to ensure correct value (not just if empty)
+    if (section === 'A' || section === 'B') {
+        classTestInput.value = '2';
+    } else if (section === 'FULL' || section === '') {
+        classTestInput.value = '4';
+    } else {
+        classTestInput.value = '0';
     }
-    updateTableCounts();
+    
+    // Also trigger student count fetch if course is selected
+    const courseSelect = row.querySelector('select[name="class_test_course[]"]');
+    const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+    if (courseSelect && courseSelect.value && studentsInput) {
+        fetchStudentCountForClassTest(courseSelect, studentsInput);
+    }
 }
 
-// Fetch class test count and student count for class test
-async function fetchClassTestInfo(courseSelect, sectionInput, classTestInput, studentsInput) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2856',message:'fetchClassTestInfo called',data:{courseValue:courseSelect?.value||'empty',sectionValue:sectionInput?.value||''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-    const session = document.getElementById('session').value;
-    const year = document.getElementById('year').value;
-    const term = document.getElementById('term').value;
+// Fetch student count for class test with retry mechanism
+async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryCount = 0) {
+    const MAX_RETRIES = 3;
+    const session = document.getElementById('session')?.value || document.getElementById('session_hidden')?.value;
+    const year = document.getElementById('year')?.value || document.getElementById('year_hidden')?.value;
+    const term = document.getElementById('term')?.value || document.getElementById('term_hidden')?.value;
     const courseCode = courseSelect.value.split(' - ')[0];
-    const section = (sectionInput?.value || '').trim().toUpperCase();
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2863',message:'Parameters extracted',data:{session:session||'empty',year:year||'empty',term:term||'empty',courseCode:courseCode||'empty',section:section||'empty'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
+    const section = courseSelect.closest('tr')?.querySelector('input[name="class_test_section[]"]')?.value || '';
     
     if (!session || !year || !term || !courseCode) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2866',message:'Missing parameters - early return',data:{hasSession:!!session,hasYear:!!year,hasTerm:!!term,hasCourseCode:!!courseCode},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-        // #endregion
-        if (!classTestInput.value || classTestInput.value.trim() === '') {
-            classTestInput.value = '0';
-        }
         if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = '0';
+            studentsInput.value = '';
         }
         return;
     }
     
     try {
-        const url = `/remuneration/api/class-test-info?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&section=${encodeURIComponent(section)}`;
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2874',message:'API call starting',data:{url:url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
-        const response = await fetch(url);
+        console.log(`Fetching student count for Class Test (attempt ${retryCount + 1}/${MAX_RETRIES}):`, { courseCode, session, year, term });
+        
+        // Use AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2876',message:'API response received',data:{success:data?.success,classTestCount:data?.class_test_count,studentCount:data?.student_count,message:data?.message||'',status:response?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-        // #endregion
-        
-        // Only auto-fill if field is empty
-        if (data.success) {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2879',message:'Setting values',data:{classTestInputValue:classTestInput?.value||'',studentsInputValue:studentsInput?.value||'',willSetClassTest:!classTestInput.value||classTestInput.value.trim()==='',willSetStudents:!studentsInput.value||studentsInput.value.trim()===''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
-            // #endregion
-            if (!classTestInput.value || classTestInput.value.trim() === '') {
-                classTestInput.value = data.class_test_count || '0';
-            }
+        if (data.success && data.student_count !== undefined) {
+            // Only auto-fill if field is empty
             if (!studentsInput.value || studentsInput.value.trim() === '') {
-                studentsInput.value = data.student_count || '0';
+                studentsInput.value = data.student_count || '';
+                console.log(`✅ Class Test: Fetched ${data.student_count} students for ${courseCode}`);
             }
         } else {
-            if (!classTestInput.value || classTestInput.value.trim() === '') {
-                classTestInput.value = '0';
-            }
-            if (!studentsInput.value || studentsInput.value.trim() === '') {
-                studentsInput.value = '0';
-            }
+            throw new Error(data.message || 'No student count returned');
         }
     } catch (error) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'custom_remuneration.html:2894',message:'Error in fetchClassTestInfo',data:{error:error?.message||String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
-        // #endregion
-        console.error('Error fetching class test info:', error);
-        if (!classTestInput.value || classTestInput.value.trim() === '') {
-            classTestInput.value = '0';
+        console.error(`Error fetching student count (attempt ${retryCount + 1}/${MAX_RETRIES}):`, error);
+        
+        // Check if it's a timeout error
+        if (error.name === 'AbortError') {
+            console.error('Request timed out after 10 seconds');
         }
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = '0';
+        
+        // Retry if not exceeded max retries
+        if (retryCount < MAX_RETRIES - 1) {
+            const delay = (retryCount + 1) * 1000; // 1s, 2s, 3s
+            console.log(`Retrying in ${delay}ms...`);
+            setTimeout(() => {
+                fetchStudentCountForClassTest(courseSelect, studentsInput, retryCount + 1);
+            }, delay);
+        } else {
+            // All retries failed
+            console.error('Failed to fetch student count after all retries');
+            if (!studentsInput.value || studentsInput.value.trim() === '') {
+                studentsInput.value = '';
+            }
         }
     }
 }
 
-// Fetch student count for class test (kept for backward compatibility)
-async function fetchStudentCountForClassTest(courseSelect, studentsInput) {
-    const session = document.getElementById('session').value;
-    const year = document.getElementById('year').value;
-    const term = document.getElementById('term').value;
-    const courseCode = courseSelect.value.split(' - ')[0];
-    const section = courseSelect.closest('tr').querySelector('input[name="class_test_section[]"]').value;
+// On sessional course change with retry mechanism
+async function onSessionalCourseChange(selectElement, tableType, retryCount = 0) {
+    const MAX_RETRIES = 3;
+    const row = selectElement.closest('tr');
+    if (!row) return;
     
-    if (!session || !year || !term || !courseCode) {
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = '';
-        }
+    const studentsInput = row.querySelector('input[type="number"]');
+    if (!studentsInput) {
+        updateTableCounts();
         return;
     }
-    
-    try {
-        const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
-        const response = await fetch(url);
-        const data = await response.json();
-        // Only auto-fill if field is empty
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = data.success ? (data.student_count || '') : '';
-        }
-    } catch (error) {
-        console.error('Error fetching student count:', error);
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = '';
-        }
-    }
-}
-
-// On sessional course change
-async function onSessionalCourseChange(selectElement, tableType) {
-    const row = selectElement.closest('tr');
-    const studentsInput = row.querySelector('input[type="number"]');
     
     if (!selectElement.value) {
         if (!studentsInput.value || studentsInput.value.trim() === '') {
@@ -3017,9 +3098,9 @@ async function onSessionalCourseChange(selectElement, tableType) {
         return;
     }
     
-    const session = document.getElementById('session').value;
-    const year = document.getElementById('year').value;
-    const term = document.getElementById('term').value;
+    const session = document.getElementById('session')?.value || document.getElementById('session_hidden')?.value;
+    const year = document.getElementById('year')?.value || document.getElementById('year_hidden')?.value;
+    const term = document.getElementById('term')?.value || document.getElementById('term_hidden')?.value;
     const courseCode = selectElement.value.split(' - ')[0];
     
     if (!session || !year || !term || !courseCode) {
@@ -3031,17 +3112,51 @@ async function onSessionalCourseChange(selectElement, tableType) {
     }
     
     try {
+        console.log(`Fetching student count for ${tableType} (attempt ${retryCount + 1}/${MAX_RETRIES}):`, { courseCode, session, year, term });
+        
+        // Use AbortController for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
         const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
         const data = await response.json();
-        // Only auto-fill if field is empty, don't overwrite user input
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = data.success ? (data.student_count || '') : '';
+        if (data.success && data.student_count !== undefined) {
+            // Only auto-fill if field is empty, don't overwrite user input
+            if (!studentsInput.value || studentsInput.value.trim() === '') {
+                studentsInput.value = data.student_count || '';
+                console.log(`✅ ${tableType}: Fetched ${data.student_count} students for ${courseCode}`);
+            }
+        } else {
+            throw new Error(data.message || 'No student count returned');
         }
     } catch (error) {
-        console.error('Error fetching student count:', error);
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = '';
+        console.error(`Error fetching student count for ${tableType} (attempt ${retryCount + 1}/${MAX_RETRIES}):`, error);
+        
+        // Check if it's a timeout error
+        if (error.name === 'AbortError') {
+            console.error('Request timed out after 10 seconds');
+        }
+        
+        // Retry if not exceeded max retries
+        if (retryCount < MAX_RETRIES - 1) {
+            const delay = (retryCount + 1) * 1000; // 1s, 2s, 3s
+            console.log(`Retrying in ${delay}ms...`);
+            setTimeout(() => {
+                onSessionalCourseChange(selectElement, tableType, retryCount + 1);
+            }, delay);
+        } else {
+            // All retries failed
+            console.error(`Failed to fetch student count for ${tableType} after all retries`);
+            if (!studentsInput.value || studentsInput.value.trim() === '') {
+                studentsInput.value = '';
+            }
         }
     }
     
@@ -3426,7 +3541,7 @@ function addClassTestRow() {
                 <option value="">Select Course</option>
             </select>
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
+        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this); updateTableCounts();"></td>
         <td>
             <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                 <option value="">Select Teacher</option>
@@ -4853,22 +4968,46 @@ function saveForm() {
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
     
-    // Get form_id if exists
-    const formId = document.getElementById('form_id')?.value || '';
+    // Get form_id from multiple sources to ensure it's captured
+    const formIdInput = document.getElementById('form_id');
+    const formIdFromInput = formIdInput?.value || '';
+    const formIdFromUrl = window.location.pathname.match(/\/(\d+)$/)?.[1] || '';
+    const formId = formIdFromInput || formIdFromUrl || '';
+    
     if (formId) {
         formData.form_id = formId;
-        console.log('📌 Updating existing form:', formId);
+        console.log('📌 Updating existing form. Form ID:', formId, '(from input:', formIdFromInput, ', from URL:', formIdFromUrl, ')');
+        
+        // Ensure form_id is stored in hidden input
+        if (formIdInput) {
+            formIdInput.value = formId;
+        } else {
+            // Create hidden input if it doesn't exist
+            const hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.id = 'form_id';
+            hiddenInput.name = 'form_id';
+            hiddenInput.value = formId;
+            const container = document.querySelector('.remuneration-form-container') || document.body;
+            container.appendChild(hiddenInput);
+        }
     } else {
         console.log('📌 Creating new form');
+        // Remove form_id from data if it exists
+        delete formData.form_id;
     }
     
-    // Submit using fetch with proper error handling
+    // Submit using fetch with timeout and proper error handling
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
     fetch('/exam-committee-chief/custom-remuneration/save-simple', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(formData),
+        signal: controller.signal
     })
     .then(response => {
         console.log('📡 Response status:', response.status);
@@ -4884,6 +5023,7 @@ function saveForm() {
         return response.json();
     })
     .then(data => {
+        clearTimeout(timeoutId);
         console.log('📥 Response data:', data);
         
         if (data.success && data.form_id) {
@@ -4915,10 +5055,23 @@ function saveForm() {
         }
     })
     .catch(error => {
+        clearTimeout(timeoutId);
         saveBtn.disabled = false;
         saveBtn.innerHTML = originalText;
         console.error('❌ Error saving form:', error);
-        const errorMsg = error.message || (typeof error === 'string' ? error : 'Unknown error');
+        
+        let errorMsg = error.message || (typeof error === 'string' ? error : 'Unknown error');
+        
+        // Handle timeout errors
+        if (error.name === 'AbortError') {
+            errorMsg = 'Request timed out. Please check your connection and try again.';
+        }
+        
+        // Handle network errors
+        if (error.message && error.message.includes('Failed to fetch')) {
+            errorMsg = 'Network error. Please check your connection and try again.';
+        }
+        
         alert('❌ Error saving form:\n\n' + errorMsg + '\n\nPlease check console for details.');
     });
 }
@@ -4966,24 +5119,48 @@ function exportPDF() {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🔄 DOMContentLoaded - Starting form load process');
     
-    // Load evaluator assignments for auto-population
-    loadEvaluatorAssignments();
-    
-    // Initialize year/term dropdowns based on allowed combinations
-    updateYearTermDropdowns();
-    
-    // First priority: Check for form_id in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const pathParts = window.location.pathname.split('/');
-    const formIdFromUrl = urlParams.get('form_id') || (pathParts[pathParts.length - 1] && /^\d+$/.test(pathParts[pathParts.length - 1]) ? pathParts[pathParts.length - 1] : null);
+    try {
+        // Reset isEditMode flag properly based on URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const pathParts = window.location.pathname.split('/');
+        const formIdFromUrl = urlParams.get('form_id') || (pathParts[pathParts.length - 1] && /^\d+$/.test(pathParts[pathParts.length - 1]) ? pathParts[pathParts.length - 1] : null);
+        
+        // Only set edit mode if form_id exists in URL
+        if (formIdFromUrl && /^\d+$/.test(formIdFromUrl)) {
+            isEditMode = true;
+            console.log('🔒 Edit mode enabled for form:', formIdFromUrl);
+        } else {
+            isEditMode = false;
+            console.log('🆕 New form mode - auto-load enabled');
+        }
+        
+        // Load evaluator assignments for auto-population (non-blocking)
+        try {
+            loadEvaluatorAssignments();
+        } catch (err) {
+            console.error('Error loading evaluator assignments:', err);
+        }
+        
+        // Initialize year/term dropdowns based on allowed combinations
+        try {
+            updateYearTermDropdowns();
+        } catch (err) {
+            console.error('Error updating year/term dropdowns:', err);
+        }
     
     console.log('🔍 Form ID from URL:', formIdFromUrl);
     
     // If form_id in URL, load from server
     if (formIdFromUrl && /^\d+$/.test(formIdFromUrl)) {
         console.log('📡 Loading form data from server for form_id:', formIdFromUrl);
-        fetch(`/exam-committee-chief/custom-remuneration/load/${formIdFromUrl}`)
+        
+        // Use fetch with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        fetch(`/exam-committee-chief/custom-remuneration/load/${formIdFromUrl}`, { signal: controller.signal })
             .then(response => {
+                clearTimeout(timeoutId);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -4995,6 +5172,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Enable edit mode when loading saved form
                     isEditMode = true;
                     console.log('🔒 Edit mode enabled - auto-load disabled');
+                    
+                    // Store form_id in hidden input
+                    let formIdElement = document.getElementById('form_id');
+                    if (!formIdElement) {
+                        formIdElement = document.createElement('input');
+                        formIdElement.type = 'hidden';
+                        formIdElement.id = 'form_id';
+                        formIdElement.name = 'form_id';
+                        const container = document.querySelector('.remuneration-form-container') || document.body;
+                        container.appendChild(formIdElement);
+                    }
+                    formIdElement.value = formIdFromUrl;
+                    
                     populateFormData(data.data);
                     
                     // Also save to localStorage as backup
@@ -5008,7 +5198,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             })
             .catch(error => {
+                clearTimeout(timeoutId);
                 console.error('❌ Error loading form data from server:', error);
+                if (error.name === 'AbortError') {
+                    console.error('Request timed out');
+                }
                 // Try loading from localStorage backup
                 loadFromLocalStorageBackup();
             });
@@ -5022,6 +5216,15 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('📊 Saved data keys:', Object.keys({{ saved_data|tojson }}));
         console.log('📝 Question Preparation:', {{ saved_data.question_preparation|tojson if saved_data.question_preparation else '[]' }});
         console.log('📝 Script Examination:', {{ saved_data.script_examination|tojson if saved_data.script_examination else '[]' }});
+        
+        // Store form_id if it exists
+        {% if saved_data.form_id %}
+        let formIdElement = document.getElementById('form_id');
+        if (formIdElement) {
+            formIdElement.value = '{{ saved_data.form_id }}';
+        }
+        {% endif %}
+        
         populateFormData({{ saved_data|tojson }});
         {% else %}
         // No saved data from backend, form is empty
@@ -5101,68 +5304,70 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Sync hidden fields immediately
-    syncHiddenFields();
-    
-    // Auto-load courses on initial page load (only if not in edit mode)
-    setTimeout(async () => {
-        // Sync again before loading courses
-        syncHiddenFields();
-        
-        if (!isEditMode) {
-            console.log('🔄 Starting auto-load for new form...');
-            const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
-            const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
-            const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
-            
-            console.log('📋 Session/Year/Term for auto-load:', { session, year, term });
-            
-            if (session && year && term) {
-            await autoLoadCoursesForTables();
-            } else {
-                console.warn('⚠️ Cannot auto-load courses: session/year/term not all set');
-                console.log('Session:', session, 'Year:', year, 'Term:', term);
-            }
-        } else {
-            console.log('⏭️ Edit mode active, skipping initial auto-load');
-            // Only update course dropdowns
-            await updateCourseDropdownsOnly();
+        // Sync hidden fields immediately
+        try {
+            syncHiddenFields();
+        } catch (err) {
+            console.error('Error syncing hidden fields:', err);
         }
-    }, 1000);
-    
-    // Auto-load Theory courses for Table 2 and 3 on initial load (if session/year/term are selected)
-    setTimeout(async () => {
-        // Sync hidden fields again
-        syncHiddenFields();
         
+        // Auto-load courses on initial page load (only if not in edit mode)
+        // Use longer delay to ensure DOM and other initializations are complete
+        setTimeout(async () => {
+            try {
+                // Sync again before loading courses
+                syncHiddenFields();
+                
+                // Double-check isEditMode status
+                const formIdCheck = document.getElementById('form_id')?.value || window.location.pathname.match(/\/(\d+)$/)?.[1];
+                if (formIdCheck) {
+                    isEditMode = true;
+                    console.log('🔒 Edit mode confirmed from form_id:', formIdCheck);
+                }
+                
+        // ALWAYS load courses into dropdowns first (both edit and new form mode)
         const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
         const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
         const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
         
+        console.log('📋 Session/Year/Term for course loading:', { session, year, term });
+        
         if (session && year && term) {
-            console.log('🔄 Initial theory courses auto-load triggered for session/year/term:', session, year, term);
-            const courses = await fetchCourses();
-            console.log('📚 Initial courses fetched:', courses.length);
-            if (courses.length > 0) {
-            const theoryCourses = courses.filter(c => {
-                const courseType = (c.course_type || '').toLowerCase();
-                // If course_type is empty or not provided, assume it's Theory
-                if (!courseType || courseType === '') {
-                    return true;
-                }
-                return courseType === 'theory';
-            });
-            console.log('📖 Initial theory courses:', theoryCourses.length);
+            try {
+                // ALWAYS load courses into dropdowns first
+                await autoLoadCoursesForTables();
+                console.log('✅ Courses loaded into all dropdowns');
+                
+                // Only auto-populate if NOT in edit mode
                 if (!isEditMode) {
-            await autoLoadTheoryCoursesForTables(theoryCourses);
+                    console.log('🔄 Starting auto-population for new form...');
+                    
+                    // Wait a bit before loading tabulators
+                    setTimeout(async () => {
+                        try {
+                            await autoLoadTabulators();
+                            console.log('✅ Auto-load completed successfully');
+                        } catch (err) {
+                            console.error('❌ Error loading tabulators:', err);
+                        }
+                    }, 1000);
+                } else {
+                    console.log('⏭️ Edit mode active, skipping auto-population');
                 }
-        } else {
-                console.warn('⚠️ No courses fetched for session/year/term:', session, year, term);
+            } catch (err) {
+                console.error('❌ Error in course loading sequence:', err);
             }
         } else {
-            console.log('⏸️ Initial theory courses auto-load skipped - session/year/term not all selected:', { session, year, term });
+            console.warn('⚠️ Cannot load courses: session/year/term not all set');
+            console.log('Session:', session, 'Year:', year, 'Term:', term);
         }
-    }, 1500);
+            } catch (err) {
+                console.error('❌ Error in auto-load timeout:', err);
+            }
+        }, 2000); // Increased delay to 2 seconds to ensure everything is ready
+    } catch (err) {
+        console.error('❌ Critical error in DOMContentLoaded:', err);
+    }
 });
 
 </script>

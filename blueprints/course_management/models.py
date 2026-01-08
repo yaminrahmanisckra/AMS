@@ -1,7 +1,12 @@
 from extensions import db
 from datetime import datetime
 import json
-from blueprints.student_management.models import Student
+"""
+NOTE:
+Do NOT import Student model here; it creates a circular import:
+course_management.models -> student_management.models/routes -> course_management.models
+Relationships use string model names (e.g. 'Student'), which is sufficient for SQLAlchemy.
+"""
 
 
 class Curriculum(db.Model):
@@ -56,7 +61,7 @@ class Course(db.Model):
     course_code = db.Column(db.String(20), nullable=False)
     course_name = db.Column(db.String(100), nullable=False)
     credit = db.Column(db.Float, nullable=False)
-    course_type = db.Column(db.String(50), nullable=False)  # Theory/Sessional/Viva/Dissertation Proposal (PG), etc.
+    course_type = db.Column(db.String(20), nullable=False)  # Theory/Sessional/Viva
     category = db.Column(db.String(20), nullable=False, default='ug') # UG/PG
     core_optional = db.Column(db.String(20), nullable=True)  # Core/Optional
     syllabus_year = db.Column(db.String(20), nullable=True)  # Syllabus Year
