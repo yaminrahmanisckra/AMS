@@ -94,8 +94,8 @@
                         <label for="academic_session" class="form-label">Academic Session <span class="text-danger">*</span></label>
                         <select class="form-select" id="academic_session" name="academic_session" required>
                             <option value="">Select Session</option>
-                            {% for session in available_sessions %}
-                                <option value="{{ session.academic_session }}">{{ session.academic_session }}</option>
+                            {% for session_name in unique_academic_sessions %}
+                                <option value="{{ session_name }}">{{ session_name }}</option>
                             {% endfor %}
                         </select>
                     </div>

@@ -2059,6 +2059,9 @@ def create_app():
         
         available_sessions = list(sessions_dict.values())
         
+        # Get unique academic sessions for dropdown (to avoid duplicates)
+        unique_academic_sessions = sorted(set(s['academic_session'] for s in available_sessions if s['academic_session']))
+        
         # Get all active semester configs (including history)
         all_configs = ActiveSemesterConfig.query.order_by(
             ActiveSemesterConfig.activated_at.desc()
@@ -2067,6 +2070,7 @@ def create_app():
         return render_template('admin/active_semester.html',
                              active_semesters=active_semesters,
                              available_sessions=available_sessions,
+                             unique_academic_sessions=unique_academic_sessions,
                              history=all_configs)
 
     @app.route('/admin/active-semester/set', methods=['POST'])
