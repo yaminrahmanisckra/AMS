@@ -740,21 +740,26 @@ def index():
     
     # Apply active semester filtering (if not admin and filter function available)
     if filter_by_active_semester and not is_admin(current_user):
-        # Get batch from CourseSessionAssignment for the teacher's sessions if available
-        batch = None
-        if CourseSessionAssignment:
-            try:
-                # Try to get batch from any recent assignment for this teacher
-                recent_assignment = CourseSessionAssignment.query.filter_by(
-                    teacher_id=teacher.id
-                ).order_by(CourseSessionAssignment.created_at.desc()).first()
-                if recent_assignment and recent_assignment.batch:
-                    batch = recent_assignment.batch
-            except Exception:
-                pass
-        
-        # Apply active semester filter
-        query = filter_by_active_semester(query, Session, batch=batch, admin_override=False)
+        try:
+            # Get batch from CourseSessionAssignment for the teacher's sessions if available
+            batch = None
+            if CourseSessionAssignment:
+                try:
+                    # Try to get batch from any recent assignment for this teacher
+                    recent_assignment = CourseSessionAssignment.query.filter_by(
+                        teacher_id=teacher.id
+                    ).order_by(CourseSessionAssignment.created_at.desc()).first()
+                    if recent_assignment and recent_assignment.batch:
+                        batch = recent_assignment.batch
+                except Exception:
+                    pass
+            
+            # Apply active semester filter
+            query = filter_by_active_semester(query, Session, batch=batch, admin_override=False)
+            current_app.logger.info(f'Applied active semester filtering for teacher {teacher.id}. Batch parameter: {batch}')
+        except Exception as filter_error:
+            current_app.logger.error(f'Error applying active semester filter: {filter_error}', exc_info=True)
+            # Don't fail the request, but log the error
     
     sessions = query.order_by(Session.created_at.desc()).all()
 

@@ -106,11 +106,11 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
     Args:
         query: SQLAlchemy query object
         model: SQLAlchemy model class
-        batch: Optional batch to filter by
+        batch: Optional batch to filter by (used for getting active semesters, not for filtering model)
         admin_override: If True, returns query without filtering (for admin users)
     
     Returns:
-        Filtered query object (or filtered list if Python filtering is used)
+        Filtered query object
     """
     if admin_override:
         return query
@@ -122,57 +122,65 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
         # This prevents showing all data when no semester is marked active
         return query.filter(False)
     
-    # Normalize active semester values for comparison
-    active_semester_keys = []
-    for sem in active_semesters:
-        active_year_norm = _normalize_year_term(sem.year)
-        active_term_norm = _normalize_year_term(sem.term)
-        active_session = sem.academic_session or None
-        active_batch = sem.batch if sem.batch else None
-        active_semester_keys.append((active_session, active_year_norm, active_term_norm, active_batch))
+    # Log active semesters for debugging
+    try:
+        from flask import current_app
+        active_sem_info = [f"{s.academic_session}-{s.year}-{s.term}-{s.batch or 'ALL'}" for s in active_semesters]
+        current_app.logger.info(f'Active semesters for filtering: {active_sem_info}')
+    except:
+        pass
     
-    # Build SQL filter conditions
-    # For academic_session: match if equal OR if NULL (to handle sessions not yet updated)
+    # Build SQL filter conditions with strict matching
+    # Academic session: exact match required (no NULL allowance)
+    # Year/Term: normalized matching for format variations
     conditions = []
     for sem in active_semesters:
         active_year_norm = _normalize_year_term(sem.year)
         active_term_norm = _normalize_year_term(sem.term)
         
-        # Academic session condition: match exact OR allow NULL
+        # Academic session condition: STRICT matching
+        # If active semester has academic_session, require exact match (no NULL allowance)
+        # If active semester has no academic_session, allow NULL but require year/term match
         if sem.academic_session:
-            academic_session_condition = or_(
-                getattr(model, 'academic_session') == sem.academic_session,
-                getattr(model, 'academic_session').is_(None)
-            )
+            # Require exact academic_session match - no NULL allowance
+            # This is the key fix: don't allow NULL to match
+            academic_session_condition = getattr(model, 'academic_session') == sem.academic_session
         else:
-            academic_session_condition = True
+            # If active semester has no academic_session, allow NULL
+            academic_session_condition = getattr(model, 'academic_session').is_(None)
         
-        # Year and term: use case-insensitive LIKE for flexible matching
-        # This will match "First", "first", "FIRST", "1st", "1", etc.
+        # Year and term: normalize and match format variations
         from sqlalchemy import func
         model_year_lower = func.lower(func.trim(func.cast(getattr(model, 'year'), db.String)))
         model_term_lower = func.lower(func.trim(func.cast(getattr(model, 'term'), db.String)))
         
-        # Build year condition: match normalized value or common variations
+        # Build year condition: match normalized value and all common variations
         year_variations = [active_year_norm]
         if active_year_norm == 'first':
-            year_variations.extend(['1', '1st'])
+            year_variations.extend(['1', '1st', 'first'])
         elif active_year_norm == 'second':
-            year_variations.extend(['2', '2nd'])
+            year_variations.extend(['2', '2nd', 'second'])
         elif active_year_norm == 'third':
-            year_variations.extend(['3', '3rd'])
+            year_variations.extend(['3', '3rd', 'third'])
         elif active_year_norm == 'fourth':
-            year_variations.extend(['4', '4th'])
+            year_variations.extend(['4', '4th', 'fourth'])
+        elif active_year_norm == 'fifth':
+            year_variations.extend(['5', '5th', 'fifth'])
+        elif active_year_norm == 'llm':
+            year_variations.extend(['llm'])
         
+        # Build term condition: match normalized value and all common variations
         term_variations = [active_term_norm]
         if active_term_norm == 'first':
-            term_variations.extend(['1', '1st'])
+            term_variations.extend(['1', '1st', 'first'])
         elif active_term_norm == 'second':
-            term_variations.extend(['2', '2nd'])
+            term_variations.extend(['2', '2nd', 'second'])
         
+        # Use OR to match any of the variations
         year_condition = model_year_lower.in_(year_variations)
         term_condition = model_term_lower.in_(term_variations)
         
+        # Combine all conditions with AND - ALL must match
         condition = and_(
             academic_session_condition,
             year_condition,
@@ -180,14 +188,25 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
         )
         
         # If semester config has a specific batch, filter by batch too
+        # Note: Only apply batch filter if model has batch field
         if sem.batch and hasattr(model, 'batch'):
             condition = and_(condition, getattr(model, 'batch') == sem.batch)
         
         conditions.append(condition)
     
     if conditions:
-        # Combine conditions with OR
-        return query.filter(or_(*conditions))
+        # Combine conditions with OR (if multiple active semesters, match any of them)
+        # But each condition requires ALL fields to match (academic_session AND year AND term)
+        filtered_query = query.filter(or_(*conditions))
+        
+        # Log filtering for debugging
+        try:
+            from flask import current_app
+            current_app.logger.info(f'Applied active semester filter with {len(conditions)} condition(s)')
+        except:
+            pass
+        
+        return filtered_query
     
     return query.filter(False)
 
