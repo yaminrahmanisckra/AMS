@@ -56,6 +56,10 @@ from reportlab.pdfbase.ttfonts import TTFont
 # from docx.enum.text import WD_ALIGN_PARAGRAPH
 from uuid import uuid4
 from role_utils import has_teacher_privileges, is_admin, parse_roles
+try:
+    from utils.semester_utils import filter_by_active_semester
+except ImportError:
+    filter_by_active_semester = None
 
 # WeasyPrint lazy import - only import when needed to prevent startup hang
 # Module-level import removed because it causes startup hang on macOS
@@ -659,14 +663,16 @@ if not os.path.exists(UPLOAD_FOLDER):
 def index():
     """Main dashboard for class management"""
     teacher = _ensure_current_teacher()
-    sessions = Session.query.filter_by(
+    
+    # Start with base query
+    query = Session.query.filter_by(
         teacher_id=teacher.id,
         archived=False
-    ).order_by(Session.created_at.desc()).all()
-
-    current_app.logger.info(f'Loading index for teacher {teacher.id} ({teacher.name}). Found {len(sessions)} sessions.')
-    for s in sessions:
-        current_app.logger.debug(f'Session: ID={s.id}, Name={s.course_name}, Archived={s.archived}, Teacher={s.teacher_id}')
+    )
+    
+    # IMPORTANT: Update sessions with academic_session BEFORE filtering
+    # This ensures all sessions have academic_session set for proper filtering
+    sessions_before_update = query.all()
     
     # Update sessions with academic_session and batch from CourseSessionAssignment if available
     # Also sync all assignments with curriculum year-term config if missing
@@ -703,7 +709,7 @@ def index():
             
             # Now update sessions with academic_session from assignments
             updated_count = 0
-            for session in sessions:
+            for session in sessions_before_update:
                 # Find CourseSessionAssignment for this session
                 assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
                 if assignment:
@@ -724,6 +730,37 @@ def index():
         except Exception as e:
             current_app.logger.error(f'Error updating sessions from CourseSessionAssignment: {str(e)}', exc_info=True)
             db.session.rollback()
+    
+    # Now apply active semester filtering AFTER updating academic_session
+    # Re-query to get updated sessions
+    query = Session.query.filter_by(
+        teacher_id=teacher.id,
+        archived=False
+    )
+    
+    # Apply active semester filtering (if not admin and filter function available)
+    if filter_by_active_semester and not is_admin(current_user):
+        # Get batch from CourseSessionAssignment for the teacher's sessions if available
+        batch = None
+        if CourseSessionAssignment:
+            try:
+                # Try to get batch from any recent assignment for this teacher
+                recent_assignment = CourseSessionAssignment.query.filter_by(
+                    teacher_id=teacher.id
+                ).order_by(CourseSessionAssignment.created_at.desc()).first()
+                if recent_assignment and recent_assignment.batch:
+                    batch = recent_assignment.batch
+            except Exception:
+                pass
+        
+        # Apply active semester filter
+        query = filter_by_active_semester(query, Session, batch=batch, admin_override=False)
+    
+    sessions = query.order_by(Session.created_at.desc()).all()
+
+    current_app.logger.info(f'Loading index for teacher {teacher.id} ({teacher.name}). Found {len(sessions)} sessions after filtering.')
+    for s in sessions:
+        current_app.logger.debug(f'Session: ID={s.id}, Name={s.course_name}, Session={s.academic_session}, Year={s.year}, Term={s.term}, Archived={s.archived}, Teacher={s.teacher_id}')
 
     split_context_map = {session.id: _build_split_context(session) for session in sessions if session.split_group_id}
     # Get teachers excluding Head of the Discipline
