@@ -915,7 +915,7 @@ def create_app():
         # Evaluators (owners) should not see scrutinizer info, but scrutinizers and admins should
         hide_scrutinizer_info = False
         if current_teacher:
-            from role_utils import is_admin
+            # is_admin is already imported at the top of the file
             is_admin_user = is_admin(current_user)
             is_head = hasattr(current_user, 'active_role') and current_user.active_role == 'head'
             
@@ -10105,7 +10105,22 @@ def create_app():
             return restriction
         
         try:
-            from weasyprint import HTML, CSS
+            # Check if WeasyPrint is available
+            try:
+                from weasyprint import HTML, CSS
+            except ImportError as import_err:
+                current_app.logger.error(f'WeasyPrint import error: {str(import_err)}', exc_info=True)
+                return jsonify({
+                    'error': 'PDF generation not available',
+                    'message': f'WeasyPrint is not installed or dependencies are missing: {str(import_err)}'
+                }), 500
+            except Exception as weasy_err:
+                current_app.logger.error(f'WeasyPrint initialization error: {str(weasy_err)}', exc_info=True)
+                return jsonify({
+                    'error': 'PDF generation failed',
+                    'message': f'WeasyPrint initialization error: {str(weasy_err)}'
+                }), 500
+            
             import os
             
             # Get form data
@@ -10814,8 +10829,25 @@ def create_app():
             return response
             
         except Exception as e:
-            current_app.logger.error(f'Error generating PDF: {str(e)}', exc_info=True)
-            return jsonify({'error': 'Failed to generate PDF document'}), 500
+            error_msg = str(e)
+            error_type = type(e).__name__
+            current_app.logger.error(f'Error generating PDF: {error_type}: {error_msg}', exc_info=True)
+            
+            # Provide more helpful error message for debugging
+            if 'WeasyPrint' in error_msg or 'weasyprint' in error_msg.lower():
+                detailed_msg = f'WeasyPrint error: {error_msg}. Please ensure WeasyPrint and its dependencies (cairo, pango, etc.) are installed.'
+            elif 'Template' in error_msg or 'template' in error_msg.lower():
+                detailed_msg = f'Template error: {error_msg}. Please check if remuneration_pdf_template.html exists.'
+            elif 'Permission' in error_msg or 'permission' in error_msg.lower():
+                detailed_msg = f'Permission error: {error_msg}. Please check file permissions and paths.'
+            else:
+                detailed_msg = f'PDF generation failed: {error_msg}'
+            
+            return jsonify({
+                'error': 'Failed to generate PDF document',
+                'message': detailed_msg,
+                'type': error_type
+            }), 500
         finally:
             # Clean up memory after PDF generation to prevent memory accumulation
             import gc
