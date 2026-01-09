@@ -1,0 +1,64 @@
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
+PassengerEnabled On
+PassengerAppRoot "/home/gronthon/kulawams.xyz"
+PassengerBaseURI "/"
+PassengerAppType wsgi
+PassengerStartupFile passenger_wsgi.py
+PassengerPython "/home/gronthon/virtualenv/kulawams.xyz/3.12/bin/python"
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
+
+SetEnv CPANEL 1
+SetEnv FLASK_ENV production
+
+# URL Rewriting - Route ALL requests to Flask application
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Don't rewrite if file exists
+    RewriteCond %{REQUEST_FILENAME} !-f
+    # Don't rewrite if directory exists
+    RewriteCond %{REQUEST_FILENAME} !-d
+    # Route everything else to Flask app
+    RewriteRule ^(.*)$ passenger_wsgi.py/$1 [QSA,L]
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options nosniff
+    Header always set X-Frame-Options SAMEORIGIN
+    Header always set X-XSS-Protection "1; mode=block"
+</IfModule>
+
+# Prevent access to sensitive files
+<FilesMatch "\.(env|pyc|log|sqlite|db|ini|cfg|conf)$">
+    Require all denied
+</FilesMatch>
+
+Options -Indexes
+AddDefaultCharset UTF-8
+
+# Disable caching for CSS/JS during development
+<FilesMatch "\.(css|js)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires 0
+</FilesMatch>
+
+# DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION BEGIN
+<IfModule Litespeed>
+SetEnv MAIL_SERVER recovery@kulawams.xyz
+SetEnv MAIL_PORT 25
+SetEnv MAIL_USE_TLS False
+SetEnv MAIL_USE_SSL False
+SetEnv MAIL_USERNAME recovery@kulawams.xyz
+SetEnv MAIL_PASSWORD @24010905i
+SetEnv MAIL_DEFAULT_SENDER recovery@kulawams.xyz
+</IfModule>
+# DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION END
+
+# php -- BEGIN cPanel-generated handler, do not edit
+# Set the "ea-php72" package as the default "PHP" programming language.
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php72 .php .php7 .phtml
+</IfModule>
+# php -- END cPanel-generated handler, do not edit

@@ -2173,6 +2173,536 @@ def create_app():
             current_app.logger.error(f'Error deactivating semester: {e}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
+    @app.route('/admin/active-semester/preview-deletion', methods=['POST'])
+    @login_required
+    def admin_preview_deletion():
+        """API endpoint to preview what will be deleted (counts only, no actual deletion)"""
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        data = request.get_json() or {}
+        academic_session = data.get('academic_session', '').strip()
+        year = data.get('year', '').strip()
+        term = data.get('term', '').strip()
+        batch = data.get('batch', '').strip() or None
+        
+        if not academic_session or not year or not term:
+            return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+        
+        try:
+            # Check if semester is active
+            active_check = ActiveSemesterConfig.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                batch=batch,
+                is_active=True
+            ).first()
+            
+            if active_check:
+                return jsonify({
+                    'success': False,
+                    'message': 'Cannot delete data for an active semester. Please deactivate it first.'
+                }), 400
+            
+            # Import all necessary models
+            from blueprints.class_management.models import (
+                Session, ClassAttendance, ClassStudent, CourseReview,
+                EvaluationInvite, EvaluationSubmission, StudentFeedbackLink,
+                StudentFeedbackResponse, CourseOutline, ClassSplitInvite,
+                ExamPaperEvaluation
+            )
+            from blueprints.result_management.models import (
+                RSession, RMark, RCourseRegistration, RSubject, RStudent
+            )
+            from blueprints.course_management.models import (
+                StudentCourseRegistration, CourseRegistrationInvite,
+                CourseSessionAssignment, DutyAssignment
+            )
+            
+            # Try to import BatchCustomEvent (may not exist)
+            try:
+                from blueprints.academic_calendar.models import BatchCustomEvent
+            except ImportError:
+                BatchCustomEvent = None
+            
+            # Count records that will be deleted
+            counts = {}
+            
+            # Class Management: Get sessions matching criteria
+            session_query = Session.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            )
+            if batch:
+                # If batch is specified, we need to check CourseSessionAssignment
+                from blueprints.course_management.models import CourseSessionAssignment
+                assignment_ids = [a.session_id for a in CourseSessionAssignment.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term,
+                    batch=batch
+                ).all() if a.session_id]
+                if assignment_ids:
+                    session_query = session_query.filter(Session.id.in_(assignment_ids))
+                else:
+                    session_query = session_query.filter(False)  # No matching sessions
+            
+            matching_sessions = session_query.all()
+            session_ids = [s.id for s in matching_sessions]
+            
+            counts['sessions'] = len(session_ids)
+            
+            if session_ids:
+                # Count child records
+                counts['class_attendance'] = ClassAttendance.query.filter(
+                    ClassAttendance.session_id.in_(session_ids)
+                ).count()
+                
+                counts['class_students'] = ClassStudent.query.filter(
+                    ClassStudent.session_id.in_(session_ids)
+                ).count()
+                
+                counts['course_reviews'] = CourseReview.query.filter(
+                    CourseReview.session_id.in_(session_ids)
+                ).count()
+                
+                counts['evaluation_invites'] = EvaluationInvite.query.filter(
+                    EvaluationInvite.session_id.in_(session_ids)
+                ).count()
+                
+                counts['evaluation_submissions'] = EvaluationSubmission.query.filter(
+                    EvaluationSubmission.session_id.in_(session_ids)
+                ).count()
+                
+                feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter(
+                    StudentFeedbackLink.session_id.in_(session_ids)
+                ).all()]
+                counts['student_feedback_links'] = len(feedback_link_ids)
+                
+                if feedback_link_ids:
+                    counts['student_feedback_responses'] = StudentFeedbackResponse.query.filter(
+                        StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
+                    ).count()
+                else:
+                    counts['student_feedback_responses'] = 0
+                
+                counts['course_outlines'] = CourseOutline.query.filter(
+                    CourseOutline.session_id.in_(session_ids)
+                ).count()
+                
+                counts['class_split_invites'] = ClassSplitInvite.query.filter(
+                    ClassSplitInvite.inviter_session_id.in_(session_ids)
+                ).count()
+                
+                if BatchCustomEvent:
+                    counts['batch_custom_events'] = BatchCustomEvent.query.filter(
+                        BatchCustomEvent.session_id.in_(session_ids)
+                    ).count()
+                else:
+                    counts['batch_custom_events'] = 0
+            else:
+                counts['class_attendance'] = 0
+                counts['class_students'] = 0
+                counts['course_reviews'] = 0
+                counts['evaluation_invites'] = 0
+                counts['evaluation_submissions'] = 0
+                counts['student_feedback_links'] = 0
+                counts['student_feedback_responses'] = 0
+                counts['course_outlines'] = 0
+                counts['class_split_invites'] = 0
+                counts['batch_custom_events'] = 0
+            
+            # Exam Paper Evaluation
+            exam_query = ExamPaperEvaluation.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            )
+            if batch:
+                exam_query = exam_query.filter_by(batch=batch)
+            counts['exam_paper_evaluations'] = exam_query.count()
+            
+            # Result Management: RSession uses 'name' field for academic_session
+            result_session_query = RSession.query.filter_by(
+                name=academic_session,
+                year=year,
+                term=term
+            )
+            if batch:
+                result_session_query = result_session_query.filter_by(batch=batch)
+            
+            matching_result_sessions = result_session_query.all()
+            result_session_ids = [rs.id for rs in matching_result_sessions]
+            counts['result_sessions'] = len(result_session_ids)
+            
+            if result_session_ids:
+                counts['r_marks'] = RMark.query.filter(
+                    RMark.student_id.in_(
+                        db.session.query(RStudent.id).filter(
+                            RStudent.session_id.in_(result_session_ids)
+                        )
+                    )
+                ).count()
+                
+                counts['r_course_registrations'] = RCourseRegistration.query.filter(
+                    RCourseRegistration.student_id.in_(
+                        db.session.query(RStudent.id).filter(
+                            RStudent.session_id.in_(result_session_ids)
+                        )
+                    )
+                ).count()
+                
+                counts['r_subjects'] = RSubject.query.filter(
+                    RSubject.session_id.in_(result_session_ids)
+                ).count()
+            else:
+                counts['r_marks'] = 0
+                counts['r_course_registrations'] = 0
+                counts['r_subjects'] = 0
+            
+            # Course Management
+            registration_query = StudentCourseRegistration.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            )
+            if batch:
+                # Batch filtering for registrations would need to check student batch
+                # For now, count all for the session/year/term
+                pass
+            counts['student_course_registrations'] = registration_query.count()
+            
+            counts['course_registration_invites'] = CourseRegistrationInvite.query.filter(
+                CourseRegistrationInvite.registration_id.in_(
+                    db.session.query(StudentCourseRegistration.id).filter_by(
+                        academic_session=academic_session,
+                        year=year,
+                        term=term
+                    )
+                )
+            ).count()
+            
+            assignment_query = CourseSessionAssignment.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            )
+            if batch:
+                assignment_query = assignment_query.filter_by(batch=batch)
+            counts['course_session_assignments'] = assignment_query.count()
+            
+            duty_query = DutyAssignment.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            )
+            if batch:
+                duty_query = duty_query.filter_by(batch=batch)
+            counts['duty_assignments'] = duty_query.count()
+            
+            # Calculate total
+            total = sum(counts.values())
+            
+            return jsonify({
+                'success': True,
+                'counts': counts,
+                'total': total
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error previewing deletion: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+    @app.route('/admin/active-semester/delete-old-data', methods=['POST'])
+    @login_required
+    def admin_delete_old_data():
+        """API endpoint to delete all data from old/inactive semesters"""
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        
+        data = request.get_json() or {}
+        academic_session = data.get('academic_session', '').strip()
+        year = data.get('year', '').strip()
+        term = data.get('term', '').strip()
+        batch = data.get('batch', '').strip() or None
+        confirmation = data.get('confirmation', '').strip()
+        
+        if not academic_session or not year or not term:
+            return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+        
+        if confirmation != 'DELETE':
+            return jsonify({'success': False, 'message': 'Confirmation text "DELETE" is required'}), 400
+        
+        try:
+            # Check if semester is active
+            active_check = ActiveSemesterConfig.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term,
+                batch=batch,
+                is_active=True
+            ).first()
+            
+            if active_check:
+                return jsonify({
+                    'success': False,
+                    'message': 'Cannot delete data for an active semester. Please deactivate it first.'
+                }), 400
+            
+            # Import all necessary models
+            from blueprints.class_management.models import (
+                Session, ClassAttendance, ClassStudent, CourseReview,
+                EvaluationInvite, EvaluationSubmission, StudentFeedbackLink,
+                StudentFeedbackResponse, CourseOutline, ClassSplitInvite,
+                ExamPaperEvaluation
+            )
+            from blueprints.result_management.models import (
+                RSession, RMark, RCourseRegistration, RSubject, RStudent
+            )
+            from blueprints.course_management.models import (
+                StudentCourseRegistration, CourseRegistrationInvite,
+                CourseSessionAssignment, DutyAssignment
+            )
+            
+            # Try to import BatchCustomEvent (may not exist)
+            try:
+                from blueprints.academic_calendar.models import BatchCustomEvent
+            except ImportError:
+                BatchCustomEvent = None
+            
+            deletion_counts = {}
+            
+            try:
+                # ===== CLASS MANAGEMENT DATA =====
+                
+                # Get sessions matching criteria
+                session_query = Session.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                )
+                if batch:
+                    # If batch is specified, check CourseSessionAssignment
+                    assignment_ids = [a.session_id for a in CourseSessionAssignment.query.filter_by(
+                        academic_session=academic_session,
+                        year=year,
+                        term=term,
+                        batch=batch
+                    ).all() if a.session_id]
+                    if assignment_ids:
+                        session_query = session_query.filter(Session.id.in_(assignment_ids))
+                    else:
+                        session_query = session_query.filter(False)  # No matching sessions
+                
+                matching_sessions = session_query.all()
+                session_ids = [s.id for s in matching_sessions]
+                
+                if session_ids:
+                    # Delete child records first (respecting foreign key constraints)
+                    
+                    # 1. Delete student feedback responses (via feedback links)
+                    feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter(
+                        StudentFeedbackLink.session_id.in_(session_ids)
+                    ).all()]
+                    if feedback_link_ids:
+                        deleted = StudentFeedbackResponse.query.filter(
+                            StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
+                        ).delete(synchronize_session=False)
+                        deletion_counts['student_feedback_responses'] = deleted
+                    
+                    # 2. Delete student feedback links
+                    deleted = StudentFeedbackLink.query.filter(
+                        StudentFeedbackLink.session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['student_feedback_links'] = deleted
+                    
+                    # 3. Delete batch custom events (if exists)
+                    if BatchCustomEvent:
+                        deleted = BatchCustomEvent.query.filter(
+                            BatchCustomEvent.session_id.in_(session_ids)
+                        ).delete(synchronize_session=False)
+                        deletion_counts['batch_custom_events'] = deleted
+                    
+                    # 4. Delete course outlines
+                    deleted = CourseOutline.query.filter(
+                        CourseOutline.session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['course_outlines'] = deleted
+                    
+                    # 5. Delete evaluation submissions
+                    deleted = EvaluationSubmission.query.filter(
+                        EvaluationSubmission.session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['evaluation_submissions'] = deleted
+                    
+                    # 6. Delete evaluation invites
+                    deleted = EvaluationInvite.query.filter(
+                        EvaluationInvite.session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['evaluation_invites'] = deleted
+                    
+                    # 7. Delete course reviews
+                    deleted = CourseReview.query.filter(
+                        CourseReview.session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['course_reviews'] = deleted
+                    
+                    # 8. Delete split course invites
+                    deleted = ClassSplitInvite.query.filter(
+                        ClassSplitInvite.inviter_session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['class_split_invites'] = deleted
+                    
+                    # 9. Delete class attendance
+                    deleted = ClassAttendance.query.filter(
+                        ClassAttendance.session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['class_attendance'] = deleted
+                    
+                    # 10. Delete class students
+                    deleted = ClassStudent.query.filter(
+                        ClassStudent.session_id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['class_students'] = deleted
+                    
+                    # 11. Delete sessions
+                    deleted = Session.query.filter(
+                        Session.id.in_(session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['sessions'] = deleted
+                
+                # ===== EXAM PAPER EVALUATION =====
+                exam_query = ExamPaperEvaluation.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                )
+                if batch:
+                    exam_query = exam_query.filter_by(batch=batch)
+                deleted = exam_query.delete(synchronize_session=False)
+                deletion_counts['exam_paper_evaluations'] = deleted
+                
+                # ===== RESULT MANAGEMENT DATA =====
+                # RSession uses 'name' field for academic_session
+                result_session_query = RSession.query.filter_by(
+                    name=academic_session,
+                    year=year,
+                    term=term
+                )
+                if batch:
+                    result_session_query = result_session_query.filter_by(batch=batch)
+                
+                matching_result_sessions = result_session_query.all()
+                result_session_ids = [rs.id for rs in matching_result_sessions]
+                
+                if result_session_ids:
+                    # Get RStudent IDs for these sessions
+                    r_student_ids = [s.id for s in RStudent.query.filter(
+                        RStudent.session_id.in_(result_session_ids)
+                    ).all()]
+                    
+                    if r_student_ids:
+                        # Delete RMark (via student_id)
+                        deleted = RMark.query.filter(
+                            RMark.student_id.in_(r_student_ids)
+                        ).delete(synchronize_session=False)
+                        deletion_counts['r_marks'] = deleted
+                        
+                        # Delete RCourseRegistration (via student_id)
+                        deleted = RCourseRegistration.query.filter(
+                            RCourseRegistration.student_id.in_(r_student_ids)
+                        ).delete(synchronize_session=False)
+                        deletion_counts['r_course_registrations'] = deleted
+                    
+                    # Delete RSubject
+                    deleted = RSubject.query.filter(
+                        RSubject.session_id.in_(result_session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['r_subjects'] = deleted
+                    
+                    # Delete RStudent (cascade will handle marks/registrations, but we already deleted them)
+                    deleted = RStudent.query.filter(
+                        RStudent.session_id.in_(result_session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['r_students'] = deleted
+                    
+                    # Delete RSession
+                    deleted = RSession.query.filter(
+                        RSession.id.in_(result_session_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['result_sessions'] = deleted
+                
+                # ===== COURSE MANAGEMENT DATA =====
+                
+                # Delete student course registrations
+                registration_query = StudentCourseRegistration.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                )
+                # Note: Batch filtering for registrations is complex (would need student batch check)
+                # For now, delete all for the session/year/term
+                registration_ids = [r.id for r in registration_query.all()]
+                
+                if registration_ids:
+                    # Delete course registration invites
+                    deleted = CourseRegistrationInvite.query.filter(
+                        CourseRegistrationInvite.registration_id.in_(registration_ids)
+                    ).delete(synchronize_session=False)
+                    deletion_counts['course_registration_invites'] = deleted
+                
+                deleted = registration_query.delete(synchronize_session=False)
+                deletion_counts['student_course_registrations'] = deleted
+                
+                # Delete course session assignments
+                assignment_query = CourseSessionAssignment.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                )
+                if batch:
+                    assignment_query = assignment_query.filter_by(batch=batch)
+                deleted = assignment_query.delete(synchronize_session=False)
+                deletion_counts['course_session_assignments'] = deleted
+                
+                # Delete duty assignments
+                duty_query = DutyAssignment.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                )
+                if batch:
+                    duty_query = duty_query.filter_by(batch=batch)
+                deleted = duty_query.delete(synchronize_session=False)
+                deletion_counts['duty_assignments'] = deleted
+                
+                # Commit transaction
+                db.session.commit()
+                
+                # Log deletion
+                total_deleted = sum(deletion_counts.values())
+                current_app.logger.info(
+                    f'Admin {current_user.username} deleted old semester data: '
+                    f'{academic_session} - {year} - {term} (Batch: {batch or "All"}). '
+                    f'Total records deleted: {total_deleted}. Details: {deletion_counts}'
+                )
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Successfully deleted {total_deleted} records for {academic_session} - {year} - {term}' + (f' (Batch: {batch})' if batch else ''),
+                    'deletion_counts': deletion_counts,
+                    'total': total_deleted
+                })
+                
+            except Exception as e:
+                db.session.rollback()
+                raise e
+                
+        except Exception as e:
+            current_app.logger.error(f'Error deleting old semester data: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
     @app.route('/student/dashboard')
     @login_required
     def student_dashboard():

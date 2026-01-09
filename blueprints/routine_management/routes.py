@@ -191,10 +191,10 @@ def manage_rooms():
 def delete_room(id):
     """Delete a room"""
     try:
-    room = Room.query.get_or_404(id)
+        room = Room.query.get_or_404(id)
         room_number = room.room_number
-    db.session.delete(room)
-    db.session.commit()
+        db.session.delete(room)
+        db.session.commit()
         flash(f'Room {room_number} deleted successfully!', 'success')
     except Exception as e:
         db.session.rollback()
@@ -328,11 +328,11 @@ def edit_assignment(id):
 def delete_assignment(id):
     """Delete a course assignment"""
     try:
-    assignment = AssignedCourse.query.get_or_404(id)
+        assignment = AssignedCourse.query.get_or_404(id)
         course_code = assignment.course.course_code if assignment.course else 'Unknown'
         teacher_name = assignment.teacher.name if assignment.teacher else 'Unknown'
-    db.session.delete(assignment)
-    db.session.commit()
+        db.session.delete(assignment)
+        db.session.commit()
         flash(f'Course assignment ({course_code} - {teacher_name}) deleted successfully!', 'success')
     except Exception as e:
         db.session.rollback()

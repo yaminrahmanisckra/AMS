@@ -140,6 +140,114 @@
         </div>
     </div>
 
+    <!-- Delete Old Semester Data -->
+    <div class="card shadow-sm mb-4 border-danger">
+        <div class="card-header bg-danger text-white">
+            <h5 class="mb-0"><i class="fas fa-trash-alt me-2"></i>Delete Old Semester Data</h5>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-warning" role="alert">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                <strong>Warning:</strong> This will permanently delete all data for the selected semester (except students and curriculum). 
+                This action cannot be undone. Make sure the semester is inactive before proceeding.
+            </div>
+            
+            <form id="deleteOldDataForm">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="delete_academic_session" class="form-label">Academic Session <span class="text-danger">*</span></label>
+                        <select class="form-select" id="delete_academic_session" name="delete_academic_session" required>
+                            <option value="">Select Session</option>
+                            {% for session_name in unique_academic_sessions %}
+                                <option value="{{ session_name }}">{{ session_name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="delete_year" class="form-label">Year <span class="text-danger">*</span></label>
+                        <select class="form-select" id="delete_year" name="delete_year" required>
+                            <option value="">Select Year</option>
+                            {% for session in available_sessions %}
+                                <option value="{{ session.year }}" 
+                                        data-session="{{ session.academic_session }}" 
+                                        style="display: none;">{{ session.year }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="delete_term" class="form-label">Term <span class="text-danger">*</span></label>
+                        <select class="form-select" id="delete_term" name="delete_term" required>
+                            <option value="">Select Term</option>
+                            {% for session in available_sessions %}
+                                <option value="{{ session.term }}" 
+                                        data-session="{{ session.academic_session }}" 
+                                        data-year="{{ session.year }}" 
+                                        style="display: none;">{{ session.term }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label for="delete_batch" class="form-label">Batch (Optional)</label>
+                        <select class="form-select" id="delete_batch" name="delete_batch">
+                            <option value="">All Batches</option>
+                            {% for session in available_sessions %}
+                                {% if session.batches %}
+                                    {% for batch in session.batches %}
+                                        <option value="{{ batch }}" 
+                                                data-session="{{ session.academic_session }}" 
+                                                data-year="{{ session.year }}" 
+                                                data-term="{{ session.term }}" 
+                                                style="display: none;">{{ batch }}</option>
+                                    {% endfor %}
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Leave empty to delete all batches</small>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">&nbsp;</label>
+                        <button type="button" class="btn btn-outline-info w-100" id="previewDeleteBtn">
+                            <i class="fas fa-eye me-2"></i>Preview Deletion
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Preview Section -->
+                <div id="deletionPreview" class="mt-4" style="display: none;">
+                    <div class="card border-warning">
+                        <div class="card-header bg-warning">
+                            <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>Deletion Preview</h6>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-2"><strong>Total records to be deleted: <span id="totalRecords" class="text-danger">0</span></strong></p>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered">
+                                    <thead>
+                                        <tr>
+                                            <th>Data Type</th>
+                                            <th>Count</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="deletionCountsTable">
+                                        <!-- Populated by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-danger" id="confirmDeleteBtn">
+                                    <i class="fas fa-trash-alt me-2"></i>Delete All Data
+                                </button>
+                                <button type="button" class="btn btn-secondary ms-2" id="cancelDeleteBtn">
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- History -->
     {% if history %}
     <div class="card shadow-sm">
@@ -370,6 +478,250 @@ document.addEventListener('DOMContentLoaded', function() {
                 this.disabled = false;
                 this.innerHTML = originalText;
             });
+        });
+    });
+
+    // Delete Old Semester Data Form
+    const deleteSessionSelect = document.getElementById('delete_academic_session');
+    const deleteYearSelect = document.getElementById('delete_year');
+    const deleteTermSelect = document.getElementById('delete_term');
+    const deleteBatchSelect = document.getElementById('delete_batch');
+    const previewDeleteBtn = document.getElementById('previewDeleteBtn');
+    const deletionPreview = document.getElementById('deletionPreview');
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
+
+    // Filter dropdowns for delete form (same logic as set active form)
+    deleteSessionSelect.addEventListener('change', function() {
+        const selectedSession = this.value;
+        
+        const yearOptions = deleteYearSelect.querySelectorAll('option');
+        yearOptions.forEach(option => {
+            if (option.value === '') {
+                option.style.display = 'block';
+            } else {
+                option.style.display = option.dataset.session === selectedSession ? 'block' : 'none';
+            }
+        });
+        
+        deleteYearSelect.value = '';
+        deleteTermSelect.value = '';
+        deleteBatchSelect.value = '';
+        deletionPreview.style.display = 'none';
+        filterDeleteTerms();
+        filterDeleteBatches();
+    });
+
+    deleteYearSelect.addEventListener('change', function() {
+        filterDeleteTerms();
+        deleteBatchSelect.value = '';
+        deletionPreview.style.display = 'none';
+        filterDeleteBatches();
+    });
+
+    deleteTermSelect.addEventListener('change', function() {
+        filterDeleteBatches();
+        deletionPreview.style.display = 'none';
+    });
+
+    function filterDeleteTerms() {
+        const selectedSession = deleteSessionSelect.value;
+        const selectedYear = deleteYearSelect.value;
+        
+        const termOptions = deleteTermSelect.querySelectorAll('option');
+        termOptions.forEach(option => {
+            if (option.value === '') {
+                option.style.display = 'block';
+            } else {
+                option.style.display = (option.dataset.session === selectedSession && 
+                                       option.dataset.year === selectedYear) ? 'block' : 'none';
+            }
+        });
+    }
+
+    function filterDeleteBatches() {
+        const selectedSession = deleteSessionSelect.value;
+        const selectedYear = deleteYearSelect.value;
+        const selectedTerm = deleteTermSelect.value;
+        
+        const batchOptions = deleteBatchSelect.querySelectorAll('option');
+        batchOptions.forEach(option => {
+            if (option.value === '') {
+                option.style.display = 'block';
+            } else {
+                option.style.display = (option.dataset.session === selectedSession && 
+                                       option.dataset.year === selectedYear &&
+                                       option.dataset.term === selectedTerm) ? 'block' : 'none';
+            }
+        });
+    }
+
+    // Preview deletion
+    previewDeleteBtn.addEventListener('click', function() {
+        const academic_session = deleteSessionSelect.value;
+        const year = deleteYearSelect.value;
+        const term = deleteTermSelect.value;
+        const batch = deleteBatchSelect.value || null;
+
+        if (!academic_session || !year || !term) {
+            alert('Please select Academic Session, Year, and Term.');
+            return;
+        }
+
+        // Show loading
+        const originalText = this.innerHTML;
+        this.disabled = true;
+        this.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Loading...';
+
+        fetch('{{ url_for("admin_preview_deletion") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ academic_session, year, term, batch })
+        })
+        .then(response => response.json())
+        .then(data => {
+            this.disabled = false;
+            this.innerHTML = originalText;
+
+            if (data.success) {
+                // Show preview
+                document.getElementById('totalRecords').textContent = data.total;
+                
+                // Build counts table
+                const countsTable = document.getElementById('deletionCountsTable');
+                countsTable.innerHTML = '';
+                
+                const labels = {
+                    'sessions': 'Class Sessions',
+                    'class_attendance': 'Class Attendance Records',
+                    'class_students': 'Class Students',
+                    'course_reviews': 'Course Reviews',
+                    'evaluation_invites': 'Evaluation Invites',
+                    'evaluation_submissions': 'Evaluation Submissions',
+                    'student_feedback_links': 'Student Feedback Links',
+                    'student_feedback_responses': 'Student Feedback Responses',
+                    'course_outlines': 'Course Outlines',
+                    'class_split_invites': 'Class Split Invites',
+                    'batch_custom_events': 'Batch Custom Events',
+                    'exam_paper_evaluations': 'Exam Paper Evaluations',
+                    'result_sessions': 'Result Sessions',
+                    'r_marks': 'Result Marks',
+                    'r_course_registrations': 'Result Course Registrations',
+                    'r_subjects': 'Result Subjects',
+                    'student_course_registrations': 'Student Course Registrations',
+                    'course_registration_invites': 'Course Registration Invites',
+                    'course_session_assignments': 'Course Session Assignments',
+                    'duty_assignments': 'Duty Assignments'
+                };
+
+                for (const [key, value] of Object.entries(data.counts)) {
+                    if (value > 0) {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${labels[key] || key}</td>
+                            <td class="text-end">${value}</td>
+                        `;
+                        countsTable.appendChild(row);
+                    }
+                }
+
+                if (data.total === 0) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = '<td colspan="2" class="text-center text-muted">No records found to delete.</td>';
+                    countsTable.appendChild(row);
+                    confirmDeleteBtn.disabled = true;
+                } else {
+                    confirmDeleteBtn.disabled = false;
+                }
+
+                deletionPreview.style.display = 'block';
+            } else {
+                alert('Error: ' + (data.message || 'Failed to preview deletion.'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            this.disabled = false;
+            this.innerHTML = originalText;
+            alert('An error occurred while previewing deletion.');
+        });
+    });
+
+    // Cancel preview
+    cancelDeleteBtn.addEventListener('click', function() {
+        deletionPreview.style.display = 'none';
+    });
+
+    // Delete form submission with 3-step confirmation
+    document.getElementById('deleteOldDataForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const academic_session = deleteSessionSelect.value;
+        const year = deleteYearSelect.value;
+        const term = deleteTermSelect.value;
+        const batch = deleteBatchSelect.value || null;
+        const totalRecords = parseInt(document.getElementById('totalRecords').textContent) || 0;
+
+        if (!academic_session || !year || !term) {
+            alert('Please select Academic Session, Year, and Term.');
+            return;
+        }
+
+        if (totalRecords === 0) {
+            alert('No records to delete.');
+            return;
+        }
+
+        const batchStr = batch ? ` (Batch: ${batch})` : '';
+
+        // Step 1: First confirmation
+        if (!confirm(`Are you sure you want to delete all data for ${academic_session} - ${year} - ${term}${batchStr}?`)) {
+            return;
+        }
+
+        // Step 2: Second confirmation with details
+        if (!confirm(`This action cannot be undone. All class sessions, attendance, results, registrations, and evaluations will be permanently deleted. Students and curriculum will NOT be deleted. Continue?`)) {
+            return;
+        }
+
+        // Step 3: Final confirmation with type "DELETE"
+        const confirmation = prompt(`FINAL WARNING: This will delete ${totalRecords} records permanently. Type 'DELETE' to confirm:`);
+        
+        if (confirmation !== 'DELETE') {
+            alert('Deletion cancelled. You must type "DELETE" to confirm.');
+            return;
+        }
+
+        // Show loading
+        const originalText = confirmDeleteBtn.innerHTML;
+        confirmDeleteBtn.disabled = true;
+        confirmDeleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Deleting...';
+
+        fetch('{{ url_for("admin_delete_old_data") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ academic_session, year, term, batch, confirmation: 'DELETE' })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message || 'Data deleted successfully!');
+                window.location.reload();
+            } else {
+                alert('Error: ' + (data.message || 'Failed to delete data.'));
+                confirmDeleteBtn.disabled = false;
+                confirmDeleteBtn.innerHTML = originalText;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while deleting data.');
+            confirmDeleteBtn.disabled = false;
+            confirmDeleteBtn.innerHTML = originalText;
         });
     });
 });

@@ -6,7 +6,11 @@ from .models import Curriculum, Course, StudentCourseRegistration, CourseRegistr
 from .forms import CurriculumForm, CourseForm, CourseInfoForm
 from blueprints.student_management.models import Student
 from blueprints.class_management.models import Session, Teacher, ClassStudent
-from role_utils import parse_roles
+from role_utils import parse_roles, is_admin
+try:
+    from utils.semester_utils import filter_by_active_semester
+except ImportError:
+    filter_by_active_semester = None
 from user_models import User
 from sqlalchemy import or_, text
 from io import BytesIO
@@ -1026,13 +1030,23 @@ def get_saved_registrations():
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
 
     # Get finalized registrations (Head registrations are automatically finalized)
-    registrations = StudentCourseRegistration.query.filter_by(
+    reg_query = StudentCourseRegistration.query.filter_by(
         student_id=student_record.id,
         academic_session=session_name,
         year=year,
         term=term,
         status='finalized'
-    ).order_by(StudentCourseRegistration.course_code.asc()).all()
+    )
+    
+    # Apply active semester filtering (if not admin and filter function available)
+    if filter_by_active_semester and not is_admin(current_user):
+        # Get batch from student record if available
+        batch = None
+        if hasattr(student_record, 'batch') and student_record.batch:
+            batch = student_record.batch
+        reg_query = filter_by_active_semester(reg_query, StudentCourseRegistration, batch=batch, admin_override=False)
+    
+    registrations = reg_query.order_by(StudentCourseRegistration.course_code.asc()).all()
 
     data = [{
         'id': reg.course_id,
@@ -1814,6 +1828,11 @@ def coordinator_registrations():
         reg_query = StudentCourseRegistration.query.filter_by(
             status='finalized'
         )
+        
+        # Apply active semester filtering (if not admin and filter function available)
+        if filter_by_active_semester and not is_admin(current_user):
+            batch_for_filter = batch_filter if batch_filter else None
+            reg_query = filter_by_active_semester(reg_query, StudentCourseRegistration, batch=batch_for_filter, admin_override=False)
         
         # Apply filters to registrations
         if session_filter:

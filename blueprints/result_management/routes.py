@@ -8,6 +8,10 @@ from reportlab.lib.units import inch
 from io import BytesIO
 from .models import db, RSession, RStudent, RSubject, RMark, RCourseRegistration
 from role_utils import parse_roles, is_admin
+try:
+    from utils.semester_utils import filter_by_active_semester
+except ImportError:
+    filter_by_active_semester = None
 from blueprints.class_management.models import Teacher, Session as ClassSession, ExamPaperEvaluation
 from blueprints.course_management.models import StudentCourseRegistration, Course
 from blueprints.student_management.models import Student as StudentProfile
@@ -205,7 +209,16 @@ def _footer(canvas, doc):
 @result_management_bp.route('/')
 @login_required
 def index():
-    all_sessions = RSession.query.filter_by(is_archived=False).order_by(RSession.created_at.desc()).all()
+    # Start with base query
+    query = RSession.query.filter_by(is_archived=False)
+    
+    # Apply active semester filtering (if not admin and filter function available)
+    if filter_by_active_semester and not is_admin(current_user):
+        # Get batch from RSession if available (RSession has batch field)
+        # For now, apply filter without batch since RSession batch might be different
+        query = filter_by_active_semester(query, RSession, batch=None, admin_override=False)
+    
+    all_sessions = query.order_by(RSession.created_at.desc()).all()
     
     # Filter sessions based on user access
     if is_admin(current_user) or _is_head_user():

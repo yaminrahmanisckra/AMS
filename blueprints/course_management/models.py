@@ -316,3 +316,40 @@ class SessionArchive(db.Model):
             'description': self.description
         }
 
+
+class ActiveSemesterConfig(db.Model):
+    """Model to manage active semester configuration"""
+    __tablename__ = 'active_semester_config'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    academic_session = db.Column(db.String(50), nullable=False)
+    year = db.Column(db.String(50), nullable=False)
+    term = db.Column(db.String(50), nullable=False)
+    batch = db.Column(db.String(50), nullable=True)  # NULL = All batches, or specific batch
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    activated_by = db.Column(db.String(100), nullable=True)  # User who activated
+    activated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    deactivated_at = db.Column(db.DateTime, nullable=True)
+    
+    __table_args__ = (
+        db.Index('idx_active_semester', 'academic_session', 'year', 'term', 'batch', 'is_active'),
+    )
+    
+    def __repr__(self):
+        batch_str = f" - Batch: {self.batch}" if self.batch else ""
+        return f'<ActiveSemesterConfig {self.academic_session} - {self.year} - {self.term}{batch_str}>'
+    
+    def to_dict(self):
+        """Convert to dictionary"""
+        return {
+            'id': self.id,
+            'academic_session': self.academic_session,
+            'year': self.year,
+            'term': self.term,
+            'batch': self.batch,
+            'is_active': self.is_active,
+            'activated_by': self.activated_by,
+            'activated_at': self.activated_at.isoformat() if self.activated_at else None,
+            'deactivated_at': self.deactivated_at.isoformat() if self.deactivated_at else None
+        }
+
