@@ -1,8 +1,8 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file, current_app
 from flask_login import login_required, current_user
 from extensions import db
 from sqlalchemy import func
-from .models import Teacher, Room, AssignedCourse, Routine
+from .models import Teacher, Room, AssignedCourse, Routine, SavedRoutine
 from blueprints.course_management.models import Course, DutyAssignment
 from .forms import TeacherForm, RoomForm, AssignCourseForm
 from role_utils import parse_roles
@@ -30,7 +30,56 @@ def index():
     # If user doesn't have Routine Maker assignment, redirect to view routine
     if not can_edit:
         return redirect(url_for('routine_management.view_routine'))
-    return render_template('routine_management/index.html', can_edit=can_edit)
+    
+    # Use raw SQL to avoid ORM relationship issues
+    from sqlalchemy import text
+    try:
+        result = db.session.execute(text("""
+            SELECT id, year, name, is_revealed, created_at, updated_at 
+            FROM saved_routine 
+            ORDER BY year DESC
+        """))
+        rows = result.fetchall()
+        
+        # Convert to objects for template compatibility
+        saved_routines = []
+        for row in rows:
+            # Format dates for display (handle string dates from SQLite)
+            updated_at_display = 'N/A'
+            if row[5]:
+                try:
+                    if isinstance(row[5], str):
+                        updated_at_display = row[5][:16].replace('T', ' ')
+                    else:
+                        updated_at_display = row[5].strftime('%Y-%m-%d %H:%M')
+                except:
+                    updated_at_display = str(row[5])[:16]
+            elif row[4]:
+                try:
+                    if isinstance(row[4], str):
+                        updated_at_display = row[4][:16].replace('T', ' ')
+                    else:
+                        updated_at_display = row[4].strftime('%Y-%m-%d %H:%M')
+                except:
+                    updated_at_display = str(row[4])[:16]
+            
+            sr = type('SavedRoutine', (), {
+                'id': row[0],
+                'year': row[1],
+                'name': row[2] or row[1],
+                'is_revealed': row[3] if row[3] is not None else False,
+                'created_at': row[4],
+                'updated_at': row[5],
+                'updated_at_display': updated_at_display
+            })()
+            saved_routines.append(sr)
+    except Exception as e:
+        current_app.logger.error(f'Error loading saved routines: {e}', exc_info=True)
+        saved_routines = []
+    
+    return render_template('routine_management/index.html', 
+                          saved_routines=saved_routines,
+                          can_edit=can_edit)
 
 # Teacher Management
 @routine_management_bp.route('/teachers', methods=['GET', 'POST'])
@@ -437,6 +486,17 @@ def view_routine():
     from role_utils import get_teachers_excluding_head
     from blueprints.course_management.models import CourseSessionAssignment, Curriculum
     
+    # Get saved_routine_id from URL query params
+    saved_routine_id = request.args.get('saved_routine_id', type=int)
+    
+    # Load saved routine if ID provided
+    current_saved_routine = None
+    if saved_routine_id:
+        current_saved_routine = SavedRoutine.query.get(saved_routine_id)
+        if not current_saved_routine:
+            flash('Routine not found', 'error')
+            return redirect(url_for('routine_management.index'))
+    
     # Get all teachers (for display purposes)
     teachers_list = get_teachers_excluding_head()
     teachers = [{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list]
@@ -455,7 +515,9 @@ def view_routine():
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
-                           can_edit=can_edit)
+                           can_edit=can_edit,
+                           saved_routine_id=saved_routine_id,
+                           current_saved_routine=current_saved_routine)
 
 # Generate Routine
 @routine_management_bp.route('/generate_routine')
@@ -463,6 +525,17 @@ def view_routine():
 def generate_routine():
     from role_utils import get_teachers_excluding_head
     from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    
+    # Get saved_routine_id from URL query params
+    saved_routine_id = request.args.get('saved_routine_id', type=int)
+    
+    # Load saved routine if ID provided
+    current_saved_routine = None
+    if saved_routine_id:
+        current_saved_routine = SavedRoutine.query.get(saved_routine_id)
+        if not current_saved_routine:
+            flash('Routine not found', 'error')
+            return redirect(url_for('routine_management.index'))
     
     # Get all teachers
     teachers_list = get_teachers_excluding_head()
@@ -482,7 +555,9 @@ def generate_routine():
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
-                           can_edit=can_edit)
+                           can_edit=can_edit,
+                           saved_routine_id=saved_routine_id,
+                           current_saved_routine=current_saved_routine)
 
 # --- API Endpoints for Routine ---
 
@@ -535,8 +610,10 @@ def teacher_courses(teacher_id):
             else:
                 total_classes = int(course_credit)
             
+            # FIXED: Use floor division for individual parts
+            # For odd credit courses, remaining class goes to shared slot
             if section in ['A', 'B']:
-                classes_per_week = (total_classes + 1) // 2
+                classes_per_week = total_classes // 2
             else:
                 classes_per_week = total_classes
             
@@ -566,8 +643,8 @@ def teacher_courses(teacher_id):
             
             courses_data.append(course_entry)
 
-            # Handle shared courses (3-credit courses with Part A and Part B)
-            if course_credit == 3.0 and section == 'A':
+            # Handle shared courses (odd-credit courses with Part A and Part B)
+            if total_classes % 2 == 1 and section == 'A':
                 # Check if there's a Part B assignment for the same course
                 other_assignment = CourseSessionAssignment.query.filter(
                     CourseSessionAssignment.course_id == assignment.course_id,
@@ -632,46 +709,525 @@ def get_teachers():
     teachers_list = get_teachers_excluding_head()
     return jsonify([{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list])
 
+@routine_management_bp.route('/api/batches')
+@login_required
+def get_batches():
+    """Get all unique batches (years like 2021, 2022, 2023)"""
+    try:
+        from blueprints.course_management.models import CourseSessionAssignment, Curriculum, CurriculumYearTerm
+        from sqlalchemy import distinct
+        
+        batches = set()
+        
+        # Method 1: Get from CourseSessionAssignment.batch field
+        try:
+            results = db.session.query(distinct(CourseSessionAssignment.batch)).filter(
+                CourseSessionAssignment.batch.isnot(None),
+                CourseSessionAssignment.batch != ''
+            ).all()
+            for r in results:
+                if r[0] and r[0].strip():
+                    batches.add(r[0].strip())
+        except Exception as e:
+            current_app.logger.warning(f'Error getting batches from CourseSessionAssignment: {e}')
+        
+        # Method 2: Get from CurriculumYearTerm.batch field
+        try:
+            results = db.session.query(distinct(CurriculumYearTerm.batch)).filter(
+                CurriculumYearTerm.batch.isnot(None),
+                CurriculumYearTerm.batch != ''
+            ).all()
+            for r in results:
+                if r[0] and r[0].strip():
+                    batches.add(r[0].strip())
+        except Exception as e:
+            current_app.logger.warning(f'Error getting batches from CurriculumYearTerm: {e}')
+        
+        # Method 3: Get from Curriculum.applicable_batches
+        try:
+            curricula = Curriculum.query.all()
+            for curriculum in curricula:
+                batch_list = curriculum.get_batches_list()
+                for b in batch_list:
+                    if b and b.strip():
+                        batches.add(b.strip())
+        except Exception as e:
+            current_app.logger.warning(f'Error getting batches from Curriculum: {e}')
+        
+        # Filter out "None" and empty values
+        batches = {b for b in batches if b and b.strip() and b.lower() != 'none'}
+        
+        # If still no batches, generate default years
+        if not batches:
+            current_year = datetime.now().year
+            batches = {str(y) for y in range(current_year, current_year - 6, -1)}
+        
+        # Sort batches (descending - newest first)
+        sorted_batches = sorted(list(batches), reverse=True)
+        
+        current_app.logger.info(f'Loaded batches: {sorted_batches}')
+        
+        return jsonify({
+            'success': True,
+            'batches': sorted_batches
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting batches: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error getting batches: {str(e)}',
+            'batches': []
+        }), 500
+
+@routine_management_bp.route('/api/courses/batch-wise')
+@login_required
+def get_courses_batch_wise():
+    """Get courses grouped by batch (year like 2021, 2022)"""
+    try:
+        from blueprints.course_management.models import CourseSessionAssignment, Course
+        from blueprints.class_management.models import Teacher
+        
+        batch = request.args.get('batch', '')
+        
+        if not batch:
+            return jsonify({
+                'success': False,
+                'message': 'Batch parameter is required'
+            }), 400
+        
+        # Get courses for this batch (filter by batch field, not academic_session)
+        assignments = CourseSessionAssignment.query.filter_by(batch=batch).all()
+        
+        current_app.logger.info(f'Found {len(assignments)} assignments for batch {batch}')
+        
+        courses_by_batch = {batch: []}
+        
+        # Track Part A assignments for shared course creation
+        part_a_assignments = {}
+        
+        for assignment in assignments:
+            if not assignment.course:
+                continue
+            
+            course = assignment.course
+            teacher = assignment.teacher
+            
+            # Calculate classes per week based on credit and type
+            credit = float(course.credit or 0)
+            course_type = course.course_type or 'Theory'
+            section = assignment.section or 'Full'
+            
+            if course_type == 'Sessional':
+                total_classes = int(credit * 2)
+            else:
+                total_classes = int(credit)
+            
+            # Adjust for part A/B - Use floor division for individual parts
+            if section in ['A', 'B']:
+                # For odd credit courses, individual parts get floor(total/2) classes
+                # The remaining class goes to shared slot
+                classes_per_week = total_classes // 2
+            else:
+                classes_per_week = total_classes
+            
+            course_data = {
+                'assigned_id': str(assignment.id),
+                'course_code': course.course_code or '',
+                'course_name': course.course_name or '',
+                'course_type': course_type,
+                'credit': credit,
+                'part': f'Part {section}' if section in ['A', 'B'] else 'Full',
+                'classes_per_week': classes_per_week,
+                'is_shared_slot': False,
+                'teacher_id': teacher.id if teacher else None,
+                'year': assignment.year or '',
+                'term': assignment.term or '',
+                'batch': batch,
+                'teachers': [{
+                    'id': teacher.id,
+                    'name': teacher.name,
+                    'short_name': teacher.call_sign or getattr(teacher, 'short_name', '')
+                }] if teacher else []
+            }
+            
+            courses_by_batch[batch].append(course_data)
+            
+            # Track Part A for shared course creation
+            if section == 'A' and total_classes % 2 == 1:  # Odd credit course
+                part_a_assignments[assignment.course_id] = {
+                    'assignment': assignment,
+                    'course': course,
+                    'teacher': teacher,
+                    'course_data': course_data
+                }
+        
+        # Create shared entries for odd-credit courses with Part A and Part B
+        for assignment in assignments:
+            if not assignment.course:
+                continue
+            
+            section = assignment.section or 'Full'
+            if section != 'B':
+                continue
+            
+            course_id = assignment.course_id
+            if course_id not in part_a_assignments:
+                continue
+            
+            part_a_data = part_a_assignments[course_id]
+            course = part_a_data['course']
+            teacher_a = part_a_data['teacher']
+            teacher_b = assignment.teacher
+            
+            # Create shared course entry
+            shared_entry = {
+                'assigned_id': f"shared_{part_a_data['assignment'].id}_{assignment.id}",
+                'course_code': course.course_code or '',
+                'course_name': f"{course.course_name or ''} (Shared)",
+                'course_type': course.course_type or 'Theory',
+                'credit': float(course.credit or 0),
+                'part': 'Shared',
+                'classes_per_week': 1,
+                'is_shared_slot': True,
+                'teacher_id': teacher_a.id if teacher_a else None,
+                'year': assignment.year or '',
+                'term': assignment.term or '',
+                'batch': batch,
+                'teachers': []
+            }
+            
+            if teacher_a:
+                shared_entry['teachers'].append({
+                    'id': teacher_a.id,
+                    'name': teacher_a.name,
+                    'short_name': teacher_a.call_sign or getattr(teacher_a, 'short_name', '')
+                })
+            if teacher_b:
+                shared_entry['teachers'].append({
+                    'id': teacher_b.id,
+                    'name': teacher_b.name,
+                    'short_name': teacher_b.call_sign or getattr(teacher_b, 'short_name', '')
+                })
+            
+            courses_by_batch[batch].append(shared_entry)
+        
+        current_app.logger.info(f'Returning {len(courses_by_batch[batch])} courses for batch {batch}')
+        
+        return jsonify({
+            'success': True,
+            'courses_by_batch': courses_by_batch
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting batch courses: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error getting courses: {str(e)}',
+            'courses_by_batch': {}
+        }), 500
+
+@routine_management_bp.route('/api/courses-by-batch')
+@login_required
+def get_courses_by_batch():
+    """Alternative endpoint for batch courses"""
+    return get_courses_batch_wise()
+
 @routine_management_bp.route('/api/routine/save', methods=['POST'])
 @login_required
 def save_routine():
-    if not can_edit_routine():
-        return jsonify({'message': 'You do not have permission to edit routine.'}), 403
-    
-    data = request.get_json()
-    
-    Routine.query.delete()
-    
-    routine_entries = data.get('routine', [])
-    for entry in routine_entries:
-        # Find room number from room_id
-        room = Room.query.get(entry.get('room_id'))
-        if not room:
-            continue # Or handle error
-
-        new_entry = Routine(
-            day=entry.get('day'),
-            time_slot=entry.get('slot'), # Corrected: slot -> time_slot
-            room_number=room.room_number, # Save room_number, not id
-            course_code=entry.get('course_code'),
-            teacher_short_name=entry.get('teacher_short_name'),
-            part=entry.get('part'),
-            is_shared=entry.get('is_shared', False),
-            shared_with=entry.get('shared_with'),
-            teacher_id=entry.get('teacher_id'),
-            year=entry.get('year', '') or '',  # Save year for color coding
-            term=entry.get('term', '') or ''   # Save term for color coding
-        )
-        db.session.add(new_entry)
-    
-    db.session.commit()
-    # Emit WebSocket event for live update
+    """
+    SMART & RELIABLE ROUTINE SAVE FUNCTION
+    - Handles all edge cases
+    - Uses ORM with fallback to raw SQL
+    - Comprehensive error handling
+    - Detailed logging
+    """
     try:
-        from utils.websocket_events import emit_routine_updated
-        emit_routine_updated({'updated_at': datetime.utcnow().isoformat()})
+        # 1. Permission check
+        if not can_edit_routine():
+            current_app.logger.warning(f'User {current_user.id} attempted to save routine without permission')
+            return jsonify({
+                'success': False,
+                'message': 'You do not have permission to edit routine.',
+                'error_type': 'permission_denied'
+            }), 403
+        
+        # 2. Get and validate JSON data
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({
+                    'success': False,
+                    'message': 'No data provided',
+                    'error_type': 'no_data'
+                }), 400
+        except Exception as json_error:
+            current_app.logger.error(f'JSON parse error: {json_error}')
+            return jsonify({
+                'success': False,
+                'message': 'Invalid JSON data',
+                'error_type': 'json_error',
+                'details': str(json_error)
+            }), 400
+        
+        saved_routine_id = data.get('saved_routine_id')
+        routine_entries = data.get('routine', [])
+        
+        current_app.logger.info(f'Saving routine: saved_routine_id={saved_routine_id}, entries={len(routine_entries)}')
+        
+        # 3. Validate saved_routine_id if provided
+        if saved_routine_id:
+            saved_routine = SavedRoutine.query.get(saved_routine_id)
+            if not saved_routine:
+                return jsonify({
+                    'success': False,
+                    'message': f'Saved routine with ID {saved_routine_id} does not exist.',
+                    'error_type': 'not_found'
+                }), 404
+        
+        # 4. Check database schema dynamically
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        try:
+            columns_info = inspector.get_columns('routine')
+            available_columns = [col['name'] for col in columns_info]
+            has_saved_routine_id = 'saved_routine_id' in available_columns
+            current_app.logger.info(f'Database columns: {available_columns}')
+        except Exception as schema_error:
+            current_app.logger.error(f'Schema check error: {schema_error}', exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': 'Database schema error. Please contact administrator.',
+                'error_type': 'schema_error',
+                'details': str(schema_error)
+            }), 500
+        
+        # 5. Validate and prepare entries
+        validated_entries = []
+        validation_errors = []
+        
+        for idx, entry in enumerate(routine_entries):
+            # Required fields
+            day = entry.get('day', '').strip() if entry.get('day') else ''
+            slot = entry.get('slot', '').strip() if entry.get('slot') else ''
+            room_id = entry.get('room_id')
+            
+            if not day or not slot or not room_id:
+                validation_errors.append(f'Entry {idx+1}: Missing required fields (day, slot, or room_id)')
+                continue
+            
+            # Validate room exists
+            try:
+                room = Room.query.get(int(room_id))
+                if not room:
+                    validation_errors.append(f'Entry {idx+1}: Room ID {room_id} not found')
+                    continue
+            except (ValueError, TypeError):
+                validation_errors.append(f'Entry {idx+1}: Invalid room_id {room_id}')
+                continue
+            
+            # Prepare entry data
+            validated_entries.append({
+                'day': day,
+                'slot': slot,
+                'room': room,
+                'course_code': entry.get('course_code', '').strip() or None,
+                'teacher_short_name': entry.get('teacher_short_name', '').strip() or None,
+                'part': entry.get('part', 'Full').strip() or None,
+                'teacher_id': entry.get('teacher_id'),
+                'is_shared': entry.get('is_shared', False),
+                'shared_with': entry.get('shared_with', '').strip() or None,
+                'year': entry.get('year', '').strip() or None,
+                'term': entry.get('term', '').strip() or None,
+                'batch': entry.get('batch', '').strip() or None,
+                'color_code': entry.get('color_code', '').strip() or None,
+                'is_custom': entry.get('is_custom', False),
+                'custom_course_name': entry.get('custom_course_name', '').strip() or None,
+                'placement_order': entry.get('placement_order')
+            })
+        
+        if validation_errors:
+            current_app.logger.warning(f'Validation errors: {validation_errors}')
+        
+        # 6. Delete existing entries (use raw SQL for reliability)
+        try:
+            if saved_routine_id and has_saved_routine_id:
+                # Delete by saved_routine_id
+                db.session.execute(
+                    text("DELETE FROM routine WHERE saved_routine_id = :saved_routine_id"),
+                    {'saved_routine_id': saved_routine_id}
+                )
+                current_app.logger.info(f'Deleted existing routines for saved_routine_id={saved_routine_id}')
+            elif saved_routine_id:
+                # saved_routine_id column doesn't exist, delete all
+                db.session.execute(text("DELETE FROM routine"))
+                current_app.logger.warning('saved_routine_id column missing, deleted all routines')
+            else:
+                # No saved_routine_id provided, delete routines without saved_routine_id
+                if has_saved_routine_id:
+                    db.session.execute(
+                        text("DELETE FROM routine WHERE saved_routine_id IS NULL")
+                    )
+                else:
+                    db.session.execute(text("DELETE FROM routine"))
+                current_app.logger.info('Deleted existing routines (no saved_routine_id)')
+        except Exception as delete_error:
+            db.session.rollback()
+            current_app.logger.error(f'Error deleting existing routines: {delete_error}', exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': f'Failed to clear existing routine: {str(delete_error)}',
+                'error_type': 'delete_error',
+                'details': str(delete_error)
+            }), 500
+        
+        # 7. If no entries to save, commit deletion and return
+        if not validated_entries:
+            try:
+                db.session.commit()
+                current_app.logger.info('Routine cleared successfully (no entries to save)')
+                return jsonify({
+                    'success': True,
+                    'message': 'Routine cleared successfully!',
+                    'entries_saved': 0
+                }), 200
+            except Exception as commit_error:
+                db.session.rollback()
+                current_app.logger.error(f'Error committing clear: {commit_error}', exc_info=True)
+                return jsonify({
+                    'success': False,
+                    'message': f'Failed to clear routine: {str(commit_error)}',
+                    'error_type': 'commit_error'
+                }), 500
+        
+        # 8. Insert new entries using RAW SQL (bypass ORM schema mismatch)
+        saved_count = 0
+        errors = []
+        
+        # Build column list based on what's in database
+        base_columns = ['day', 'time_slot', 'room_number', 'course_code', 'teacher_short_name', 
+                       'part', 'is_shared', 'shared_with', 'teacher_id', 'year', 'term']
+        
+        # Check for additional columns
+        optional_columns = ['batch', 'color_code', 'is_custom', 'custom_course_name', 'placement_order']
+        for col in optional_columns:
+            if col in available_columns:
+                base_columns.append(col)
+        
+        # Add saved_routine_id only if it exists in database
+        if has_saved_routine_id:
+            base_columns.append('saved_routine_id')
+        
+        # Build INSERT SQL
+        column_names = ', '.join(base_columns)
+        placeholders = ', '.join([f':{col}' for col in base_columns])
+        insert_sql = f"INSERT INTO routine ({column_names}) VALUES ({placeholders})"
+        
+        current_app.logger.info(f'Insert SQL: {insert_sql}')
+        
+        for entry_data in validated_entries:
+            try:
+                # Build parameters dict
+                params = {
+                    'day': entry_data['day'],
+                    'time_slot': entry_data['slot'],
+                    'room_number': entry_data['room'].room_number,
+                    'course_code': entry_data['course_code'],
+                    'teacher_short_name': entry_data['teacher_short_name'],
+                    'part': entry_data['part'],
+                    'is_shared': 1 if entry_data['is_shared'] else 0,
+                    'shared_with': entry_data['shared_with'],
+                    'teacher_id': entry_data['teacher_id'],
+                    'year': entry_data['year'],
+                    'term': entry_data['term']
+                }
+                
+                # Add optional columns if they exist
+                if 'batch' in base_columns:
+                    params['batch'] = entry_data['batch']
+                if 'color_code' in base_columns:
+                    params['color_code'] = entry_data['color_code']
+                if 'is_custom' in base_columns:
+                    params['is_custom'] = 1 if entry_data['is_custom'] else 0
+                if 'custom_course_name' in base_columns:
+                    params['custom_course_name'] = entry_data['custom_course_name']
+                if 'placement_order' in base_columns:
+                    params['placement_order'] = entry_data['placement_order']
+                
+                # Add saved_routine_id if column exists
+                if has_saved_routine_id:
+                    params['saved_routine_id'] = saved_routine_id
+                
+                # Execute raw SQL INSERT
+                db.session.execute(text(insert_sql), params)
+                saved_count += 1
+                
+            except Exception as entry_error:
+                error_msg = f"Error creating entry for {entry_data['day']} {entry_data['slot']}: {str(entry_error)}"
+                errors.append(error_msg)
+                current_app.logger.error(error_msg, exc_info=True)
+                # Continue with other entries
+        
+        # 9. Commit transaction
+        try:
+            db.session.commit()
+            current_app.logger.info(f'Successfully saved {saved_count} routine entries')
+            
+            # Emit WebSocket event if available
+            try:
+                from utils.websocket_events import emit_routine_updated
+                emit_routine_updated({'updated_at': datetime.utcnow().isoformat()})
+            except Exception as ws_error:
+                current_app.logger.warning(f'WebSocket error (non-critical): {ws_error}')
+            
+            # Build success message
+            message = f'Routine saved successfully! {saved_count} entries saved.'
+            if errors:
+                message += f' {len(errors)} entries had errors.'
+            if validation_errors:
+                message += f' {len(validation_errors)} entries were skipped due to validation errors.'
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'entries_saved': saved_count,
+                'entries_total': len(validated_entries),
+                'errors': errors if errors else None,
+                'validation_errors': validation_errors if validation_errors else None
+            }), 200
+            
+        except Exception as commit_error:
+            db.session.rollback()
+            current_app.logger.error(f'Error committing routine save: {commit_error}', exc_info=True)
+            
+            # Provide helpful error message
+            error_msg = str(commit_error)
+            if 'no such column' in error_msg.lower() or 'Unknown column' in error_msg:
+                error_msg = 'Database schema mismatch. Please run database migrations.'
+            elif 'UNIQUE constraint' in error_msg or 'unique constraint' in error_msg:
+                error_msg = 'Duplicate entry detected. Please check for conflicts.'
+            elif 'NOT NULL constraint' in error_msg or 'NOT NULL' in error_msg:
+                error_msg = 'Required field missing. Please check your data.'
+            
+            return jsonify({
+                'success': False,
+                'message': f'Failed to save routine: {error_msg}',
+                'error_type': 'commit_error',
+                'details': str(commit_error),
+                'entries_saved': saved_count
+            }), 500
+    
     except Exception as e:
-        current_app.logger.warning(f'Failed to emit routine update event: {e}')
-    return jsonify({'message': 'Routine saved successfully!'}), 200
+        # Catch-all for any unexpected errors
+        db.session.rollback()
+        current_app.logger.error(f'Unexpected error in save_routine: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'An unexpected error occurred: {str(e)}',
+            'error_type': 'unexpected_error',
+            'details': str(e)
+        }), 500
 
 @routine_management_bp.route('/api/routine/clear', methods=['POST'])
 @login_required
@@ -686,6 +1242,338 @@ def clear_routine():
     except Exception as e:
         db.session.rollback()
         return jsonify({'message': str(e)}), 500
+
+# Saved Routines API Endpoints
+@routine_management_bp.route('/api/saved-routines', methods=['GET'])
+@login_required
+def get_saved_routines():
+    """Get all saved routines using raw SQL"""
+    from sqlalchemy import text
+    try:
+        result = db.session.execute(text("""
+            SELECT id, year, name, is_revealed, created_at, updated_at 
+            FROM saved_routine 
+            ORDER BY year DESC
+        """))
+        rows = result.fetchall()
+        
+        routines_data = []
+        for row in rows:
+            routines_data.append({
+                'id': row[0],
+                'year': row[1],
+                'name': row[2] or row[1],
+                'is_revealed': row[3] if row[3] is not None else False,
+                'created_at': row[4].isoformat() if row[4] else None,
+                'updated_at': row[5].isoformat() if row[5] else None
+            })
+        return jsonify(routines_data), 200
+    except Exception as e:
+        current_app.logger.error(f'Error getting saved routines: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error fetching saved routines: {str(e)}'
+        }), 500
+
+@routine_management_bp.route('/api/saved-routines', methods=['POST'])
+@login_required
+def create_saved_routine():
+    """Create a new saved routine using raw SQL"""
+    from sqlalchemy import text
+    
+    try:
+        if not can_edit_routine():
+            return jsonify({
+                'success': False,
+                'message': 'You do not have permission to create saved routines.'
+            }), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+        
+        year = data.get('year', '').strip()
+        name = data.get('name', '').strip()
+        
+        if not year:
+            return jsonify({
+                'success': False,
+                'message': 'Year is required'
+            }), 400
+        
+        # Check if year already exists using raw SQL
+        result = db.session.execute(
+            text("SELECT id FROM saved_routine WHERE year = :year"),
+            {'year': year}
+        )
+        existing = result.fetchone()
+        
+        if existing:
+            return jsonify({
+                'success': False,
+                'message': f'A routine for year {year} already exists.'
+            }), 400
+        
+        # Create new saved routine using raw SQL
+        user_id = current_user.id if current_user.is_authenticated else None
+        
+        result = db.session.execute(
+            text("""
+                INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at)
+                VALUES (:year, :name, 0, :created_by_id, datetime('now'), datetime('now'))
+            """),
+            {
+                'year': year,
+                'name': name if name else None,
+                'created_by_id': user_id
+            }
+        )
+        db.session.commit()
+        
+        # Get the inserted ID
+        result = db.session.execute(
+            text("SELECT id FROM saved_routine WHERE year = :year"),
+            {'year': year}
+        )
+        row = result.fetchone()
+        new_id = row[0] if row else None
+        
+        current_app.logger.info(f'Created saved routine: year={year}, id={new_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Saved routine created successfully!',
+            'id': new_id,
+            'year': year,
+            'name': name or year
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error creating saved routine: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error creating saved routine: {str(e)}'
+        }), 500
+
+@routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>', methods=['GET'])
+@login_required
+def get_saved_routine(saved_routine_id):
+    """Get a specific saved routine with its entries using raw SQL"""
+    from sqlalchemy import text, inspect
+    
+    try:
+        # Get saved routine using raw SQL
+        result = db.session.execute(
+            text("SELECT id, year, name, is_revealed FROM saved_routine WHERE id = :id"),
+            {'id': saved_routine_id}
+        )
+        sr_row = result.fetchone()
+        
+        if not sr_row:
+            return jsonify({
+                'success': False,
+                'message': f'Saved routine with ID {saved_routine_id} not found.'
+            }), 404
+        
+        # Get all rooms
+        all_rooms = {r.room_number: r.id for r in Room.query.all()}
+        
+        # Check if saved_routine_id column exists in routine table
+        inspector = inspect(db.engine)
+        routine_columns = [col['name'] for col in inspector.get_columns('routine')]
+        has_saved_routine_id = 'saved_routine_id' in routine_columns
+        
+        routine_data = []
+        if has_saved_routine_id:
+            # Get routine entries using raw SQL
+            result = db.session.execute(
+                text("""
+                    SELECT day, time_slot, room_number, course_code, teacher_short_name, 
+                           part, is_shared, shared_with, teacher_id, year, term,
+                           batch, color_code, is_custom, custom_course_name
+                    FROM routine WHERE saved_routine_id = :id
+                """),
+                {'id': saved_routine_id}
+            )
+            rows = result.fetchall()
+            
+            for row in rows:
+                routine_data.append({
+                    "day": row[0] or '',
+                    "slot": row[1] or '',
+                    "room_id": all_rooms.get(row[2]),
+                    "course_code": row[3] or '',
+                    "teacher_short_name": row[4] or '',
+                    "part": row[5] or '',
+                    "is_shared": row[6] or False,
+                    "shared_with": row[7] or '',
+                    "teacher_id": row[8],
+                    "year": row[9] or '',
+                    "term": row[10] or '',
+                    "batch": row[11] or '',
+                    "color_code": row[12] or '',
+                    "is_custom": row[13] or False,
+                    "custom_course_name": row[14] or ''
+                })
+        
+        return jsonify({
+            'id': sr_row[0],
+            'year': sr_row[1],
+            'name': sr_row[2] or sr_row[1],
+            'is_revealed': sr_row[3] if sr_row[3] is not None else False,
+            'routine': routine_data
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f'Error getting saved routine {saved_routine_id}: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error fetching saved routine: {str(e)}'
+        }), 500
+
+@routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>', methods=['DELETE'])
+@login_required
+def delete_saved_routine(saved_routine_id):
+    """
+    100% RAW SQL DELETE - NO ORM
+    ORM causes 'no such column' errors, so we use pure SQL
+    """
+    from sqlalchemy import text, inspect
+    
+    try:
+        if not can_edit_routine():
+            return jsonify({
+                'success': False,
+                'message': 'You do not have permission to delete saved routines.'
+            }), 403
+        
+        # Step 1: Check if saved routine exists using RAW SQL
+        result = db.session.execute(
+            text("SELECT id, year, name FROM saved_routine WHERE id = :id"),
+            {'id': saved_routine_id}
+        )
+        row = result.fetchone()
+        
+        if not row:
+            return jsonify({
+                'success': False,
+                'message': f'Saved routine with ID {saved_routine_id} does not exist.'
+            }), 404
+        
+        saved_year = row[1] if row else 'Unknown'
+        current_app.logger.info(f'Deleting saved routine: id={saved_routine_id}, year={saved_year}')
+        
+        # Step 2: Check if routine table has saved_routine_id column
+        inspector = inspect(db.engine)
+        routine_columns = [col['name'] for col in inspector.get_columns('routine')]
+        has_saved_routine_id = 'saved_routine_id' in routine_columns
+        
+        current_app.logger.info(f'routine table columns: {routine_columns}')
+        current_app.logger.info(f'has_saved_routine_id: {has_saved_routine_id}')
+        
+        # Step 3: Delete routine entries using RAW SQL
+        deleted_routines = 0
+        if has_saved_routine_id:
+            result = db.session.execute(
+                text("DELETE FROM routine WHERE saved_routine_id = :id"),
+                {'id': saved_routine_id}
+            )
+            deleted_routines = result.rowcount
+            current_app.logger.info(f'Deleted {deleted_routines} routine entries')
+        else:
+            # No saved_routine_id column - just skip routine deletion
+            current_app.logger.warning('saved_routine_id column missing in routine table, skipping routine entries deletion')
+        
+        # Step 4: Delete saved_routine using RAW SQL
+        result = db.session.execute(
+            text("DELETE FROM saved_routine WHERE id = :id"),
+            {'id': saved_routine_id}
+        )
+        
+        # Step 5: Commit
+        db.session.commit()
+        
+        current_app.logger.info(f'Successfully deleted saved routine: id={saved_routine_id}')
+        
+        return jsonify({
+            'success': True,
+            'message': f'Saved routine deleted successfully! ({deleted_routines} routine entries removed)'
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error deleting saved routine {saved_routine_id}: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error deleting saved routine: {str(e)}',
+            'details': str(e)
+        }), 500
+
+@routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>/toggle-reveal', methods=['POST'])
+@login_required
+def toggle_reveal_saved_routine(saved_routine_id):
+    """Toggle reveal status of a saved routine using raw SQL"""
+    from sqlalchemy import text, inspect
+    
+    try:
+        if not can_edit_routine():
+            return jsonify({
+                'success': False,
+                'message': 'You do not have permission to toggle reveal status.'
+            }), 403
+        
+        # Check if is_revealed column exists
+        inspector = inspect(db.engine)
+        columns = [col['name'] for col in inspector.get_columns('saved_routine')]
+        
+        if 'is_revealed' not in columns:
+            return jsonify({
+                'success': False,
+                'message': 'Reveal feature is not available. Please run database migrations.'
+            }), 400
+        
+        # Get current is_revealed value using raw SQL
+        result = db.session.execute(
+            text("SELECT id, is_revealed FROM saved_routine WHERE id = :id"),
+            {'id': saved_routine_id}
+        )
+        row = result.fetchone()
+        
+        if not row:
+            return jsonify({
+                'success': False,
+                'message': f'Saved routine with ID {saved_routine_id} not found.'
+            }), 404
+        
+        current_is_revealed = row[1] if row[1] is not None else False
+        new_is_revealed = not current_is_revealed
+        
+        # Update using raw SQL
+        db.session.execute(
+            text("UPDATE saved_routine SET is_revealed = :is_revealed WHERE id = :id"),
+            {'is_revealed': 1 if new_is_revealed else 0, 'id': saved_routine_id}
+        )
+        db.session.commit()
+        
+        current_app.logger.info(f'Toggled reveal for saved routine: id={saved_routine_id}, is_revealed={new_is_revealed}')
+        
+        return jsonify({
+            'success': True,
+            'message': 'Reveal status updated successfully!',
+            'is_revealed': new_is_revealed
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error toggling reveal for saved routine {saved_routine_id}: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error updating reveal status: {str(e)}'
+        }), 500
 
 @routine_management_bp.route('/api/routine/load')
 def load_routine():
@@ -782,16 +1670,20 @@ def download_pdf():
             routine_map[key] = item
 
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
-                                leftMargin=0.3*inch, rightMargin=0.3*inch,
-                                topMargin=0.2*inch, bottomMargin=0.2*inch)
+        # Use A4 landscape for compact single-page output
+        from reportlab.lib.pagesizes import A4
+        doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
+                                leftMargin=0.25*inch, rightMargin=0.25*inch,
+                                topMargin=0.15*inch, bottomMargin=0.15*inch)
         
         styles = getSampleStyleSheet()
-        h1_centered = ParagraphStyle(name='h1_centered', parent=styles['h1'], alignment=TA_CENTER, fontSize=14)
-        h2_centered = ParagraphStyle(name='h2_centered', parent=styles['h2'], alignment=TA_CENTER, fontSize=12)
-        h3_centered = ParagraphStyle(name='h3_centered', parent=styles['h3'], alignment=TA_CENTER, fontSize=11)
+        # Compact header styles
+        h1_centered = ParagraphStyle(name='h1_centered', parent=styles['h1'], alignment=TA_CENTER, fontSize=11, spaceAfter=2)
+        h2_centered = ParagraphStyle(name='h2_centered', parent=styles['h2'], alignment=TA_CENTER, fontSize=9, spaceAfter=1)
+        h3_centered = ParagraphStyle(name='h3_centered', parent=styles['h3'], alignment=TA_CENTER, fontSize=8, spaceAfter=1)
         
-        body_text_style = ParagraphStyle(name='BodyText', parent=styles['Normal'], alignment=TA_CENTER, fontSize=7.5, leading=8.5)
+        # Compact body text style
+        body_text_style = ParagraphStyle(name='BodyText', parent=styles['Normal'], alignment=TA_CENTER, fontSize=6, leading=7)
 
         elements = []
         
@@ -808,7 +1700,7 @@ def download_pdf():
         elements.append(Paragraph(title_text, h3_centered))
         if formatted_date:
             elements.append(Paragraph(f"Effective from {formatted_date}", h3_centered))
-        elements.append(Spacer(1, 0.08*inch))
+        elements.append(Spacer(1, 0.04*inch))
 
         days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
         
@@ -827,6 +1719,16 @@ def download_pdf():
         lunch_time = "01:00 PM - 01:50 PM"
         rooms_db = Room.query.order_by('room_number').all()
         
+        # Helper function to convert time to compact format (9:10-10:00)
+        def compact_time(time_str):
+            import re
+            # Extract times like "09:10 AM - 10:00 AM" or "9:10 AM-10:00 AM"
+            match = re.match(r'(\d{1,2}):(\d{2})\s*(AM|PM)?\s*[-–]\s*(\d{1,2}):(\d{2})\s*(AM|PM)?', time_str, re.IGNORECASE)
+            if match:
+                h1, m1, ap1, h2, m2, ap2 = match.groups()
+                return f"{int(h1)}:{m1}-{int(h2)}:{m2}"
+            return time_str.replace(' - ', '-').replace(' AM', '').replace(' PM', '')
+        
         # Prepare header: Day, Room, then time slots with lunch inserted
         header = ['Day', 'Room']
         
@@ -835,13 +1737,13 @@ def download_pdf():
         for idx, slot in enumerate(time_slots):
             # Insert lunch before slot containing "01:00" or "12:10 PM - 01:00 PM"
             if not lunch_inserted and ('01:00' in slot or '12:10 PM - 01:00 PM' in slot):
-                header.append(lunch_time.replace(' - ', '\n') + '\nLunch')
+                header.append("Lunch\n1:00-1:50")
                 lunch_inserted = True
-            header.append(slot.replace(' - ', '\n'))
+            header.append(compact_time(slot))
         
         # If lunch wasn't inserted, add it after 4th slot (default behavior)
         if not lunch_inserted and len(header) > 6:
-            header.insert(6, lunch_time.replace(' - ', '\n') + '\nLunch')
+            header.insert(6, "Lunch\n1:00-1:50")
         
         table_data = [header]
 
@@ -878,26 +1780,36 @@ def download_pdf():
                 
                 table_data.append(row)
 
-        # Calculate column widths (now 15% wider than previous)
-        col_widths = [0.72*1.3*1.15*inch, 0.72*1.3*1.15*inch]
-        for idx in range(len(time_slots) + 1):  # +1 for lunch
-            col_widths.append(0.9*1.3*1.15*inch)
+        # Compact column widths for A4 landscape
+        num_time_cols = len(time_slots) + 1  # +1 for lunch
+        # A4 landscape width ~11.69", minus margins ~0.5" = ~11.19" usable
+        # Day=0.55", Room=0.45", remaining for time slots
+        day_width = 0.55 * inch
+        room_width = 0.45 * inch
+        remaining_width = 11.0 * inch - day_width - room_width
+        time_slot_width = remaining_width / num_time_cols
+        
+        col_widths = [day_width, room_width]
+        for idx in range(num_time_cols):
+            col_widths.append(time_slot_width)
 
         table = Table(table_data, colWidths=col_widths)
         
         style = TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.white),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-            ('BACKGROUND', (0, 1), (0, -1), colors.white),
+            ('BACKGROUND', (0, 1), (0, -1), colors.Color(0.95, 0.95, 0.95)),
             ('TEXTCOLOR', (0, 1), (0, -1), colors.black),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 7.5),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
-            ('TOPPADDING', (0, 0), (-1, -1), 2.2),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 2.2),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('FONTSIZE', (0, 0), (-1, 0), 6),
+            ('FONTSIZE', (0, 1), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 2),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.black),
         ])
 
         # Row span for Day column
@@ -908,12 +1820,73 @@ def download_pdf():
             if num_rooms > 1:
                 style.add('SPAN', (0, start_row), (0, end_row))
                 style.add('VALIGN', (0, start_row), (0, end_row), 'MIDDLE')
-            # Thick border above each day's first row
+            # Slightly thicker border above each day's first row for visual separation
             if start_row > 1:
-                style.add('LINEABOVE', (0, start_row), (-1, start_row), 2, colors.black)
+                style.add('LINEABOVE', (0, start_row), (-1, start_row), 1, colors.black)
 
         table.setStyle(style)
         elements.append(table)
+        
+        # ========== PAGE 2: Teacher List and Year/Term-wise Course Summary ==========
+        from blueprints.class_management.models import Teacher
+        
+        elements.append(PageBreak())
+        
+        # Title for second page
+        elements.append(Paragraph("Teacher Information & Course Summary", h1_centered))
+        elements.append(Spacer(1, 0.1*inch))
+        
+        # Collect unique teachers from routine
+        teacher_short_names = set()
+        
+        for item in routine_list:
+            teacher_short = item.get('teacher_short_name', '')
+            if teacher_short:
+                # Handle shared teachers (e.g., "YR/PC")
+                for name in teacher_short.split('/'):
+                    teacher_short_names.add(name.strip())
+        
+        # Section 1: Teacher List with Call Signs
+        elements.append(Paragraph("<b>Teachers</b>", h3_centered))
+        elements.append(Spacer(1, 0.05*inch))
+        
+        # Fetch teacher details from database
+        teacher_data = [["SL", "Name", "Designation", "Call Sign"]]
+        teachers_found = []
+        
+        for short_name in sorted(teacher_short_names):
+            teacher = Teacher.query.filter(
+                (Teacher.short_name == short_name) | (Teacher.call_sign == short_name)
+            ).first()
+            if teacher:
+                teachers_found.append(teacher)
+        
+        # Sort by name
+        teachers_found.sort(key=lambda t: t.name)
+        
+        for idx, teacher in enumerate(teachers_found, 1):
+            teacher_data.append([
+                str(idx),
+                teacher.name or '',
+                teacher.designation or '',
+                teacher.call_sign or teacher.short_name or ''
+            ])
+        
+        if len(teacher_data) > 1:
+            teacher_table = Table(teacher_data, colWidths=[0.4*inch, 3*inch, 2*inch, 1*inch])
+            teacher_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 8),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ]))
+            elements.append(teacher_table)
+        else:
+            elements.append(Paragraph("No teacher information available.", body_text_style))
         
         doc.build(elements)
         

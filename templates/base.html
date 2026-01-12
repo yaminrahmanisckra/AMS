@@ -93,6 +93,7 @@
                                     {% if show_routine_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
                                     {% endif %}
+                                    <li><a class="dropdown-item" href="{{ url_for('routine_management.view_routine') }}"><i class="fas fa-calendar-check me-2"></i>View Routine</a></li>
                                     {% if show_exam_evaluation %}
                                     <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
                                     {% endif %}
@@ -172,6 +173,7 @@
                                 {% if show_routine_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
                                 {% endif %}
+                                <li><a class="dropdown-item" href="{{ url_for('routine_management.view_routine') }}"><i class="fas fa-calendar-check me-2"></i>View Routine</a></li>
                                 {% if show_exam_evaluation %}
                                 <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
                                 {% endif %}

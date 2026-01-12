@@ -40,6 +40,19 @@
     z-index: 1;
 }
 
+/* Ensure modal appears above backdrop */
+.modal-backdrop {
+    z-index: 1040;
+}
+
+.modal {
+    z-index: 1055;
+}
+
+.modal.show {
+    z-index: 1055;
+}
+
 .dashboard-header {
     text-align: center;
     margin-bottom: 2rem;
@@ -357,21 +370,15 @@ html {
         <p>Manage all aspects of the academic routine from here.</p>
     </div>
 
-    <div class="row g-3 g-md-4">
+    <div class="row g-3 g-md-4 mb-3">
         {% if can_edit %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3">
-            <a href="{{ url_for('routine_management.manage_rooms') }}" class="text-decoration-none" aria-label="Manage Rooms">
-                    <div class="dashboard-card text-center h-100 card-yellow">
-                    <div class="icon-circle">
-                        <i class="fas fa-door-open"></i>
-                    </div>
-                    <h5 class="mb-1">Manage Rooms</h5>
-                    <p class="text-muted small mb-0">Add, view, and manage classrooms and labs.</p>
-                </div>
+        <div class="col-12">
+            <a href="{{ url_for('routine_management.manage_rooms') }}" class="btn btn-warning btn-lg" aria-label="Manage Rooms">
+                <i class="fas fa-door-open me-2"></i>Manage Rooms
             </a>
         </div>
         {% endif %}
-        <div class="{% if can_edit %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% else %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% endif %}">
+        <div class="{% if can_edit %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% else %}col-6 col-sm-6 col-md-4 col-lg-3 col-xl-3{% endif %}" style="display: none;">
             <a href="{{ url_for('routine_management.generate_routine') }}" class="text-decoration-none" aria-label="Generate Routine">
                     <div class="dashboard-card text-center h-100 card-cyan">
                     <div class="icon-circle">
@@ -383,6 +390,284 @@ html {
             </a>
         </div>
     </div>
+    
+    {% if can_edit %}
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="fas fa-archive me-2"></i>Saved Routines</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <p class="text-muted mb-0">Manage routines by year. Each year's routine is saved separately.</p>
+                        <button class="btn btn-primary btn-sm" id="btn-create-saved-routine">
+                            <i class="fas fa-plus me-1"></i>Create New Routine
+                        </button>
+                    </div>
+                    <div id="saved-routines-list">
+                        {% if saved_routines %}
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Year</th>
+                                        <th>Name</th>
+                                        <th>Status</th>
+                                        <th>Last Updated</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for sr in saved_routines %}
+                                    <tr data-saved-routine-id="{{ sr.id }}">
+                                        <td><strong>{{ sr.year }}</strong></td>
+                                        <td>{{ sr.name or sr.year }}</td>
+                                        <td>
+                                            {% if sr.is_revealed %}
+                                            <span class="badge bg-success">
+                                                <i class="fas fa-eye me-1"></i>Revealed
+                                            </span>
+                                            {% else %}
+                                            <span class="badge bg-secondary">
+                                                <i class="fas fa-eye-slash me-1"></i>Hidden
+                                            </span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ sr.updated_at_display if sr.updated_at_display else 'N/A' }}</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary load-routine-btn" data-saved-routine-id="{{ sr.id }}" title="Load and Edit">
+                                                <i class="fas fa-edit"></i> Edit
+                                            </button>
+                                            <button class="btn btn-sm {% if sr.is_revealed %}btn-success{% else %}btn-outline-success{% endif %} toggle-reveal-btn" data-saved-routine-id="{{ sr.id }}" data-is-revealed="{{ 'true' if sr.is_revealed else 'false' }}" title="{% if sr.is_revealed %}Hide from public{% else %}Reveal to all{% endif %}">
+                                                <i class="fas {% if sr.is_revealed %}fa-eye-slash{% else %}fa-eye{% endif %}"></i> {% if sr.is_revealed %}Hide{% else %}Reveal{% endif %}
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-danger delete-routine-btn" data-saved-routine-id="{{ sr.id }}" data-year="{{ sr.year }}" title="Delete">
+                                                <i class="fas fa-trash"></i> Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted text-center py-4">No saved routines yet. Click "Create New Routine" to get started.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const createBtn = document.getElementById('btn-create-saved-routine');
+        const modal = new bootstrap.Modal(document.getElementById('createSavedRoutineModal'));
+        const saveBtn = document.getElementById('btn-save-new-routine');
+        const form = document.getElementById('createSavedRoutineForm');
+        const yearInput = document.getElementById('routine-year');
+        const nameInput = document.getElementById('routine-name');
+        
+        createBtn.addEventListener('click', function() {
+            // Reset form when modal opens
+            form.reset();
+            modal.show();
+            // Focus on year field when modal opens
+            setTimeout(() => {
+                yearInput.focus();
+            }, 300);
+        });
+        
+        // Prevent form submission on Enter key
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        });
+        
+        // Prevent Enter key from submitting form in input fields
+        [yearInput, nameInput].forEach(input => {
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // If Enter is pressed in year field and it has value, trigger save
+                    if (input === yearInput && input.value.trim()) {
+                        saveBtn.click();
+                    }
+                    return false;
+                }
+            });
+        });
+        
+        saveBtn.addEventListener('click', function() {
+            const year = yearInput.value.trim();
+            const name = nameInput.value.trim();
+            
+            if (!year) {
+                alert('Year is required');
+                yearInput.focus();
+                return;
+            }
+            
+            fetch('/routine-management/api/saved-routines', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({year: year, name: name})
+            })
+            .then(response => {
+                return response.text().then(text => {
+                    if (!response.ok) {
+                        try {
+                            const errData = JSON.parse(text);
+                            throw new Error(errData.message || `Server error: ${response.status} ${response.statusText}`);
+                        } catch (e) {
+                            throw new Error(`Server error: ${response.status} ${response.statusText}\n${text.substring(0, 200)}`);
+                        }
+                    }
+                    try {
+                        return JSON.parse(text);
+                    } catch (e) {
+                        throw new Error('Invalid response from server');
+                    }
+                });
+            })
+            .then(data => {
+                alert('Saved routine created successfully!');
+                modal.hide();
+                form.reset();
+                location.reload();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to create saved routine: ' + error.message);
+            });
+        });
+        
+        // Load routine buttons
+        document.querySelectorAll('.load-routine-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const savedRoutineId = this.dataset.savedRoutineId;
+                window.location.href = '/routine-management/generate_routine?saved_routine_id=' + savedRoutineId;
+            });
+        });
+        
+        // Toggle reveal buttons
+        document.querySelectorAll('.toggle-reveal-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const savedRoutineId = this.dataset.savedRoutineId;
+                const isCurrentlyRevealed = this.dataset.isRevealed === 'true';
+                const actionText = isCurrentlyRevealed ? 'hide' : 'reveal';
+                
+                if (!confirm(`Are you sure you want to ${actionText} this routine? ${isCurrentlyRevealed ? 'It will no longer be visible to teachers and students.' : 'It will be visible to all teachers and students.'}`)) {
+                    return;
+                }
+                
+                fetch(`/routine-management/api/saved-routines/${savedRoutineId}/toggle-reveal`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                })
+                .then(response => {
+                    return response.text().then(text => {
+                        if (!response.ok) {
+                            try {
+                                const errData = JSON.parse(text);
+                                throw new Error(errData.message || `Server error: ${response.status}`);
+                            } catch (e) {
+                                throw new Error(`Server error: ${response.status}\n${text.substring(0, 200)}`);
+                            }
+                        }
+                        try {
+                            return JSON.parse(text);
+                        } catch (e) {
+                            throw new Error('Invalid response from server');
+                        }
+                    });
+                })
+                .then(data => {
+                    alert(data.message || `Routine ${actionText}ed successfully!`);
+                    location.reload();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to toggle reveal status: ' + error.message);
+                });
+            });
+        });
+        
+        // Delete routine buttons
+        document.querySelectorAll('.delete-routine-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const savedRoutineId = this.dataset.savedRoutineId;
+                const year = this.dataset.year;
+                
+                if (!confirm(`Are you sure you want to delete the routine for year ${year}? This cannot be undone.`)) {
+                    return;
+                }
+                
+                fetch('/routine-management/api/saved-routines/' + savedRoutineId, {
+                    method: 'DELETE'
+                })
+                .then(response => {
+                    return response.text().then(text => {
+                        if (!response.ok) {
+                            try {
+                                const errData = JSON.parse(text);
+                                throw new Error(errData.message || `Server error: ${response.status}`);
+                            } catch (e) {
+                                throw new Error(`Server error: ${response.status} ${response.statusText}\n${text.substring(0, 200)}`);
+                            }
+                        }
+                        try {
+                            return JSON.parse(text);
+                        } catch (e) {
+                            throw new Error('Invalid response from server');
+                        }
+                    });
+                })
+                .then(data => {
+                    alert(data.message || 'Saved routine deleted successfully!');
+                    location.reload();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Failed to delete saved routine: ' + error.message);
+                });
+            });
+        });
+    });
+    </script>
+    {% endif %}
 </div>
+</div>
+
+<!-- Create Saved Routine Modal -->
+<div class="modal fade" id="createSavedRoutineModal" tabindex="-1" aria-labelledby="createSavedRoutineModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New Routine</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createSavedRoutineForm" novalidate>
+                    <div class="mb-3">
+                        <label for="routine-year" class="form-label">Year <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="routine-year" placeholder="e.g., 2026" autocomplete="off">
+                        <small class="text-muted">The year for this routine (e.g., 2026)</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="routine-name" class="form-label">Name (Optional)</label>
+                        <input type="text" class="form-control" id="routine-name" placeholder="Leave empty to use year as name" autocomplete="off">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-save-new-routine">Create</button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %} 

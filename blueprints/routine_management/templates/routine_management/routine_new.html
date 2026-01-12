@@ -11,586 +11,1149 @@
 {% if is_student %}
 <div class="container my-4">
 {% endif %}
+
 <style>
-    .routine-container {
-        background: #f8f9fa;
-        min-height: 100vh;
-        padding: 20px 0;
-    }
-    
-    .routine-header {
-        background: white;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    
-    .routine-grid {
-        background: white;
-        border-radius: 10px;
-        padding: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        position: relative;
-        max-height: calc(100vh - 250px);
-        overflow-y: auto;
-        overflow-x: auto;
-    }
-    
-    .routine-grid::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    
-    .routine-grid::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 4px;
-    }
-    
-    .routine-grid::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 4px;
-    }
-    
-    .routine-grid::-webkit-scrollbar-thumb:hover {
-        background: #555;
-    }
-    
-    .time-table {
-        width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        font-size: 0.85rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-radius: 6px;
-    }
-    
-    .time-table thead {
-        position: sticky;
-        top: 0;
-        z-index: 100;
-        background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
-    }
-    
-    .time-table thead th {
-        background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+/* ============================================
+   MODERN ROUTINE MANAGEMENT - COMPLETE REDESIGN
+   ============================================ */
+
+:root {
+    --primary: #2563eb;
+    --primary-dark: #1e40af;
+    --primary-light: #3b82f6;
+    --bg: #f8fafc;
+    --bg-card: #ffffff;
+    --text: #1e293b;
+    --text-light: #64748b;
+    --text-muted: #94a3b8;
+    --border: #e2e8f0;
+    --border-light: #f1f5f9;
+    --success: #10b981;
+    --error: #ef4444;
+    --warning: #f59e0b;
+    --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+    --radius: 8px;
+    --radius-sm: 4px;
+    --radius-lg: 12px;
+    --transition: all 0.2s ease;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    margin: 0;
+    padding: 0;
+}
+
+/* ============================================
+   MAIN LAYOUT
+   ============================================ */
+
+.routine-app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg);
+}
+
+/* ============================================
+   TOP NAVIGATION BAR
+   ============================================ */
+
+.routine-topbar {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    box-shadow: var(--shadow);
+    z-index: 1000;
+    position: sticky;
+    top: 0;
+}
+
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 1;
+    min-width: 0;
+}
+
+.topbar-logo {
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+.topbar-routine-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.routine-name-input {
+    border: none;
+    background: transparent;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    min-width: 200px;
+    max-width: 300px;
+}
+
+.routine-name-input:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    background: var(--bg);
+}
+
+.topbar-badge {
+    background: var(--primary-light);
         color: white;
-        padding: 10px 6px;
-        font-weight: 700;
-        text-align: center;
-        position: sticky;
-        top: 0;
-        z-index: 101;
-        border-right: 1px solid rgba(255,255,255,0.2);
-        text-transform: uppercase;
-        letter-spacing: 0.2px;
-        font-size: 0.75rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        line-height: 1.2;
-    }
-    
-    .time-table thead th.day-header,
-    .time-table thead th.room-header {
-        position: sticky;
-        top: 0;
-        z-index: 102;
-    }
-    
-    .time-table thead th:last-child {
-        border-right: none;
-    }
-    
-    .time-header-cell {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.topbar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    white-space: nowrap;
+}
+
+.topbar-btn:hover {
+    background: var(--bg);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.topbar-btn-primary {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.topbar-btn-primary:hover {
+    background: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
+
+.topbar-btn-icon {
+    font-size: 16px;
+}
+
+/* Progress Indicator */
+.progress-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    background: var(--bg);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-light);
+}
+
+.progress-bar {
+    width: 100px;
+    height: 6px;
+    background: var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary) 0%, var(--primary-light) 100%);
+    transition: width 0.3s ease;
+}
+
+/* ============================================
+   MAIN CONTENT AREA
+   ============================================ */
+
+.routine-main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
         position: relative;
-    }
-    
-    .time-header-cell[contenteditable="true"] {
-        cursor: text;
-        outline: none;
-        transition: background-color 0.2s;
-    }
-    
-    .time-header-cell[contenteditable="true"]:hover {
-        background-color: #0b5ed7 !important;
-    }
-    
-    .time-header-cell[contenteditable="true"]:focus {
-        background-color: #0a58ca !important;
-        outline: 2px solid #fff;
-        outline-offset: -2px;
-    }
-    
-    .time-header-cell .fa-edit {
-        opacity: 0.6;
-        transition: opacity 0.2s;
-    }
-    
-    .time-header-cell:hover .fa-edit {
-        opacity: 1;
-    }
-    
-    .time-table tbody td {
-        padding: 6px 4px;
-        border: 1px solid #dee2e6;
-        text-align: center;
-        vertical-align: middle;
-        min-height: 45px;
-        height: 45px;
-        position: relative;
-        background: white;
-        transition: background-color 0.2s ease;
-    }
-    
-    .time-table tbody tr:nth-child(even) td:not(.day-label):not(.room-label):not(.has-class) {
-        background: #f8f9fa;
-    }
-    
-    .time-table tbody tr:hover td:not(.day-label):not(.room-label):not(.has-class) {
-        background: #f0f7ff;
-    }
-    
-    /* Ensure color classes override hover and nth-child */
-    .time-table tbody tr:nth-child(even) td.slot-cell.has-class,
-    .time-table tbody tr:hover td.slot-cell.has-class {
-        background: inherit !important;
-    }
-    
-    .time-table tbody td.slot-cell {
+}
+
+/* ============================================
+   COURSE PANEL (SIDEBAR)
+   ============================================ */
+
+.course-panel {
+    width: 320px;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s ease;
+    z-index: 100;
+    box-shadow: var(--shadow-md);
+}
+
+.course-panel.collapsed {
+    transform: translateX(-100%);
+    position: absolute;
+    height: 100%;
+}
+
+.course-panel-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg);
+}
+
+.course-panel-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.course-panel-toggle {
+    background: none;
+    border: none;
+    color: var(--text-light);
         cursor: pointer;
-        transition: background-color 0.2s;
-    }
-    
-    .time-table tbody td.slot-cell:hover:not(.has-class) {
-        background-color: #f0f0f0;
-    }
-    
-    .time-table tbody td.slot-cell.has-class {
-        color: white;
-        cursor: move;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    transition: var(--transition);
+}
+
+.course-panel-toggle:hover {
+    background: var(--border-light);
+    color: var(--text);
+}
+
+.course-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Tab Navigation */
+.view-tabs {
+    display: flex;
+    background: var(--bg);
+    border-radius: var(--radius);
+    padding: 4px;
+    gap: 4px;
+}
+
+.view-tab {
+    flex: 1;
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-light);
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.view-tab.active {
+    background: var(--bg-card);
+    color: var(--primary);
+    box-shadow: var(--shadow);
+}
+
+.view-tab:hover:not(.active) {
+    color: var(--text);
+    background: var(--border-light);
+}
+
+/* Search */
+.course-search {
         position: relative;
     }
     
-    .time-table tbody td.slot-cell.has-class:hover {
-        opacity: 0.9;
-    }
-    
-    .time-table tbody td.slot-cell.has-class .slot-content {
-        cursor: grab;
-    }
-    
-    .time-table tbody td.slot-cell.has-class .slot-content:active {
-        cursor: grabbing;
-    }
-    
-    /* Color coding by year and term */
-    .slot-cell.has-class.year-first.term-first {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        background-color: #667eea !important;
-    }
-    
-    .slot-cell.has-class.year-first.term-second {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
-        background-color: #f093fb !important;
-    }
-    
-    .slot-cell.has-class.year-second.term-first {
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%) !important;
-        background-color: #4facfe !important;
-    }
-    
-    .slot-cell.has-class.year-second.term-second {
-        background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%) !important;
-        background-color: #43e97b !important;
-    }
-    
-    .slot-cell.has-class.year-third.term-first {
-        background: linear-gradient(135deg, #fa709a 0%, #fee140 100%) !important;
-        background-color: #fa709a !important;
-    }
-    
-    .slot-cell.has-class.year-third.term-second {
-        background: linear-gradient(135deg, #30cfd0 0%, #330867 100%) !important;
-        background-color: #30cfd0 !important;
-    }
-    
-    .slot-cell.has-class.year-fourth.term-first {
-        background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%) !important;
-        background-color: #a8edea !important;
-    }
-    
-    .slot-cell.has-class.year-fourth.term-second {
-        background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%) !important;
-        background-color: #ff9a9e !important;
-    }
-    
-    .slot-cell.has-class.year-fifth.term-first,
-    .slot-cell.has-class.year-llm.term-first {
-        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%) !important;
-        background-color: #ffecd2 !important;
-    }
-    
-    .slot-cell.has-class.year-fifth.term-second,
-    .slot-cell.has-class.year-llm.term-second {
-        background: linear-gradient(135deg, #ff8a80 0%, #ea4c89 100%) !important;
-        background-color: #ff8a80 !important;
-    }
-    
-    /* Default color for unknown year/term */
-    .slot-cell.has-class:not([class*="year-"]):not([class*="term-"]) {
-        background-color: #0d6efd !important;
-        background: #0d6efd !important;
-    }
-    
-    
-    .day-header {
-        background: #495057;
-        color: white;
+.course-search-input {
+    width: 100%;
+    padding: 10px 12px 10px 36px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+    background: var(--bg-card);
+    color: var(--text);
+    transition: var(--transition);
+}
+
+.course-search-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.course-search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+/* Filter Section */
+.filter-section {
+    display: none;
+}
+
+.filter-section.active {
+    display: block;
+}
+
+.filter-select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+    background: var(--bg-card);
+    color: var(--text);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.filter-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Course List */
+.course-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+}
+
+.course-list-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+/* Course Card */
+.course-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    cursor: grab;
+    transition: var(--transition);
+    position: relative;
+    user-select: none;
+}
+
+.course-card:hover {
+    border-color: var(--primary);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.course-card:active {
+    cursor: grabbing;
+    transform: scale(0.98);
+}
+
+.course-card.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+/* Drag preview styling */
+.drag-preview {
+    font-family: inherit;
+}
+.drag-preview-code {
+    font-weight: 600;
+    font-size: 10px;
+    line-height: 1.2;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.drag-preview-teacher {
+    font-size: 9px;
+    opacity: 0.9;
+}
+
+.course-card.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.course-card-color-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.course-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.course-code {
         font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+    font-size: 15px;
+    color: var(--text);
+    font-family: 'Courier New', monospace;
     }
     
-    .room-header {
-        background: #6c757d;
+.course-badge {
+    background: var(--primary-light);
         color: white;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    
-    .day-label {
-        background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
-        color: white;
-        font-weight: 700;
-        padding: 8px 6px;
-        text-align: center;
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.3px;
-        border-right: 1px solid #495057;
-        min-width: 90px;
-        width: 90px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
         white-space: nowrap;
-        vertical-align: middle;
-        display: table-cell !important;
-        visibility: visible !important;
-        opacity: 1 !important;
-    }
-    
-    .room-label {
-        background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%);
-        font-weight: 700;
-        padding: 6px 4px;
-        text-align: center;
-        font-size: 0.8rem;
-        color: #495057;
-        border-right: 1px solid #dee2e6;
-        min-width: 70px;
-        width: 70px;
-    }
-    
-    .lunch-cell {
-        background: #fff3cd;
-        font-weight: 600;
-        color: #856404;
-    }
-    
-    .course-badge {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        margin: 2px;
-    }
-    
-    .course-badge.theory {
-        background: #0d6efd;
-        color: white;
-    }
-    
-    .course-badge.sessional {
-        background: #198754;
-        color: white;
-    }
-    
-    .sidebar {
-        background: white;
-        border-radius: 10px;
-        padding: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        height: calc(100vh - 250px);
-        position: sticky;
-        top: 20px;
+}
+
+.course-name {
+    font-size: 13px;
+    color: var(--text-light);
+    margin-bottom: 6px;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.course-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.course-teacher {
+    font-weight: 500;
+    color: var(--text);
+}
+
+.course-count {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.course-batch {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* ============================================
+   ROUTINE TABLE AREA
+   ============================================ */
+
+.routine-table-area {
+    flex: 1;
         display: flex;
         flex-direction: column;
         overflow: hidden;
-    }
-    
-    .sidebar-header {
-        background: #0d6efd;
-        color: white;
-        padding: 10px 12px;
-        border-radius: 6px;
-        margin: -12px -12px 12px -12px;
+    background: var(--bg);
+    position: relative;
+    /* Ensure proper stacking context */
+    isolation: isolate;
+}
+
+.routine-table-wrapper {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    padding: 16px;
+    /* Ensure proper scrolling context */
+    -webkit-overflow-scrolling: touch;
+    /* Create stacking context for sticky elements */
+    isolation: isolate;
+}
+
+.routine-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    /* Remove overflow hidden - it breaks sticky positioning */
+    box-shadow: var(--shadow);
+    /* Ensure table doesn't shrink */
+    min-width: max-content;
+    /* Ensure table is properly contained for sticky positioning */
+    display: table;
+    table-layout: auto;
+}
+
+.routine-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg-card);
+    /* Ensure header stays on top */
+    will-change: transform;
+}
+
+.routine-table thead th {
+    background: var(--bg-card);
+    color: var(--text);
         font-weight: 600;
-        font-size: 0.9rem;
-        flex-shrink: 0;
-    }
-    
-    #courses-list {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
-        padding-right: 4px;
-    }
-    
-    #courses-list::-webkit-scrollbar {
-        width: 6px;
-    }
-    
-    #courses-list::-webkit-scrollbar-track {
-        background: #f1f1f1;
-        border-radius: 3px;
-    }
-    
-    #courses-list::-webkit-scrollbar-thumb {
-        background: #888;
-        border-radius: 3px;
-    }
-    
-    #courses-list::-webkit-scrollbar-thumb:hover {
-        background: #555;
-    }
-    
-    .course-card {
-        background: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 6px;
-        padding: 8px 10px;
-        margin-bottom: 6px;
-        cursor: grab;
-        transition: all 0.2s;
-        font-size: 0.8rem;
-    }
-    
-    .course-card:hover {
-        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-        transform: translateY(-1px);
-        border-color: #0d6efd;
-    }
-    
-    .course-card:active {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 12px 8px;
+    text-align: center;
+    border-bottom: 2px solid var(--border);
+    border-right: 1px solid var(--border-light);
+    position: sticky;
+    top: 0;
+    z-index: 101;
+    /* Ensure background covers content when scrolling */
+    background-clip: padding-box;
+}
+
+.routine-table thead th.day-col {
+    background: var(--primary);
+    color: white;
+    min-width: 100px;
+    width: 100px;
+    position: sticky;
+    left: 0;
+    z-index: 103;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+    /* Corner cell - highest z-index */
+}
+
+.routine-table thead th.room-col {
+    background: var(--bg);
+    min-width: 80px;
+    width: 80px;
+    position: sticky;
+    left: 100px;
+    z-index: 102;
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+}
+
+.routine-table thead th.time-col {
+    min-width: 120px;
+    white-space: nowrap;
+    background: var(--bg-card);
+    z-index: 101;
+    /* Ensure background is solid */
+    background-color: var(--bg-card) !important;
+}
+
+.routine-table tbody td {
+    padding: 0;
+    border: 1px solid var(--border-light);
+    text-align: center;
+    vertical-align: middle;
+    position: relative;
+    background: var(--bg-card);
+    transition: var(--transition);
+    /* Ensure cells don't interfere with sticky positioning */
+    background-clip: padding-box;
+}
+
+.routine-table tbody td.day-col {
+    background: var(--primary);
+    color: white;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 16px 12px;
+    text-align: center;
+    position: sticky;
+    left: 0;
+    z-index: 50;
+    border-right: 2px solid var(--primary-dark);
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+    /* Ensure background covers content */
+    background-color: var(--primary) !important;
+}
+
+.routine-table tbody td.room-col {
+    background: var(--bg);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 12px 8px;
+    position: sticky;
+    left: 100px;
+    z-index: 49;
+    border-right: 2px solid var(--border);
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+    /* Ensure background covers content */
+    background-color: var(--bg) !important;
+}
+
+.routine-table tbody td.slot-cell {
+    min-height: 60px;
+    height: 60px;
+    padding: 4px;
+    cursor: pointer;
+}
+
+.routine-table tbody td.slot-cell:hover:not(.has-class):not(.lunch-cell) {
+    background: var(--bg);
+    border-color: var(--primary);
+}
+
+.routine-table tbody td.slot-cell.has-class {
+    cursor: grab;
+    padding: 6px;
+}
+
+.routine-table tbody td.slot-cell.has-class:active {
         cursor: grabbing;
     }
     
-    .course-card.dragging {
-        opacity: 0.5;
-    }
-    
-    /* Custom drag image to match cell size */
-    .drag-ghost {
-        position: absolute;
-        top: -1000px;
-        left: -1000px;
-        width: 100px;
-        height: 60px;
-        background: #0d6efd;
-        color: white;
-        border-radius: 4px;
+.routine-table tbody td.slot-cell.lunch-cell {
+    background: var(--bg);
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.routine-table tbody td.slot-cell.drag-over {
+    background: rgba(37, 99, 235, 0.1);
+    border: 2px dashed var(--primary);
+}
+
+.routine-table tbody td.slot-cell.has-conflict {
+    border: 2px solid var(--error);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.slot-content {
+    width: 100%;
+    height: 100%;
         display: flex;
         flex-direction: column;
-        justify-content: center;
         align-items: center;
-        padding: 4px;
-        font-size: 0.75rem;
-        pointer-events: none;
-        z-index: 10000;
-    }
-    
-    .drag-ghost .drag-code {
-        font-weight: 600;
-        font-size: 0.85rem;
+    justify-content: center;
+    gap: 2px;
+}
+
+.slot-course-code {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text);
+    font-family: 'Courier New', monospace;
         line-height: 1.2;
     }
     
-    .drag-ghost .drag-teacher {
-        font-size: 0.7rem;
-        opacity: 0.9;
+.slot-teacher {
+    font-size: 11px;
+    color: var(--text-light);
+    line-height: 1.2;
+}
+
+.slot-batch {
+    font-size: 10px;
+    color: var(--text-muted);
         margin-top: 2px;
     }
+
+/* Batch color ribbon at bottom of cell */
+.batch-color-ribbon {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    border-radius: 0 0 6px 6px;
+}
     
-    .course-code {
-        font-weight: 700;
-        color: #0d6efd;
-        font-size: 1rem;
-    }
-    
-    .course-name {
-        font-size: 0.85rem;
-        color: #6c757d;
-        margin: 4px 0;
-    }
-    
-    .course-meta {
+.slot-empty {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.slot-delete-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: var(--transition);
+    font-size: 10px;
+    z-index: 5;
+}
+
+.slot-cell.has-class:hover .slot-delete-btn {
+    opacity: 1;
+}
+
+.slot-delete-btn:hover {
+    background: var(--error);
+    transform: scale(1.1);
+}
+
+/* Delete Zone */
+.delete-zone {
+    margin: 16px;
+    padding: 40px;
+    border: 2px dashed var(--error);
+    border-radius: var(--radius-lg);
+    background: rgba(239, 68, 68, 0.05);
+    text-align: center;
+    color: var(--error);
+    display: none;
+    transition: var(--transition);
+}
+
+.delete-zone.active {
+    display: block;
+}
+
+.delete-zone.drag-over {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: var(--error);
+    border-style: solid;
+}
+
+/* ============================================
+   MODALS
+   ============================================ */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-overlay.active {
         display: flex;
-        justify-content: space-between;
+}
+
+.modal {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
         align-items: center;
-        margin-top: 4px;
-        font-size: 0.7rem;
+    justify-content: space-between;
     }
     
-    .course-teacher {
-        font-size: 0.7rem;
-        color: #495057;
+.modal-title {
+    font-size: 20px;
         font-weight: 600;
-    }
-    
-    .course-count {
-        background: #0d6efd;
-        color: white;
-        padding: 1px 6px;
-        border-radius: 10px;
-        font-size: 0.65rem;
-        font-weight: 600;
-    }
-    
-    .action-buttons {
+    color: var(--text);
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: var(--transition);
+}
+
+.modal-close:hover {
+    background: var(--bg);
+    color: var(--text);
+}
+
+.modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
         display: flex;
-        gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    }
+    
+.modal-btn {
+        padding: 10px 20px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+        cursor: pointer;
+    transition: var(--transition);
+}
+
+.modal-btn:hover {
+    background: var(--bg);
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.modal-btn-primary {
+    background: var(--primary);
+        color: white;
+    border-color: var(--primary);
+}
+
+.modal-btn-primary:hover {
+    background: var(--primary-dark);
+}
+
+/* Form Elements */
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 8px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 14px;
+    background: var(--bg-card);
+    color: var(--text);
+    transition: var(--transition);
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* ============================================
+   RESPONSIVE DESIGN
+   ============================================ */
+
+@media (max-width: 1024px) {
+    .course-panel {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 200;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        box-shadow: var(--shadow-lg);
+    }
+    
+    .course-panel:not(.collapsed) {
+        transform: translateX(0);
+    }
+    
+    .routine-table-area {
+        width: 100%;
+    }
+    
+    .course-panel-toggle {
+        display: block !important;
+        position: fixed;
+        left: 16px;
+        top: 80px;
+        z-index: 150;
+        background: var(--primary);
+        color: white;
+        border: none;
+        box-shadow: var(--shadow-md);
+    }
+    
+    .routine-topbar {
+        padding: 8px 12px;
+    }
+    
+    .topbar-left {
         flex-wrap: wrap;
     }
     
-    .btn-action {
-        padding: 10px 20px;
-        border-radius: 6px;
-        font-weight: 600;
-        border: none;
-        cursor: pointer;
-        transition: all 0.2s;
+    .routine-name-input {
+        min-width: 150px;
+        max-width: 200px;
+        font-size: 14px;
+    }
+}
+
+@media (max-width: 768px) {
+    .routine-topbar {
+        padding: 8px 12px;
+        flex-wrap: wrap;
     }
     
-    .btn-save {
-        background: #198754;
-        color: white;
+    .topbar-left {
+        flex-wrap: wrap;
     }
     
-    .btn-save:hover {
-        background: #157347;
+    .topbar-right {
+        flex-wrap: wrap;
     }
     
-    .btn-clear {
-        background: #dc3545;
-        color: white;
+    .topbar-btn {
+        padding: 6px 12px;
+        font-size: 12px;
     }
     
-    .btn-clear:hover {
-        background: #bb2d3b;
+    .routine-table-wrapper {
+        padding: 8px;
     }
     
-    .btn-export {
-        background: #6c757d;
-        color: white;
+    .routine-table {
+        font-size: 11px;
     }
     
-    .btn-export:hover {
-        background: #5c636a;
+    .routine-table tbody td.slot-cell {
+        min-height: 50px;
+        height: 50px;
     }
-    
-    .btn-pdf {
-        background: #0d6efd;
-        color: white;
-    }
-    
-    .btn-pdf:hover {
-        background: #0b5ed7;
-    }
-    
-    .empty-slot {
-        color: #adb5bd;
-        font-size: 0.8rem;
-    }
-    
-    .delete-zone {
-        border: 2px dashed #dc3545;
-        border-radius: 8px;
-        padding: 20px;
+}
+
+/* ============================================
+   UTILITIES
+   ============================================ */
+
+.hidden {
+    display: none !important;
+}
+
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.text-center {
         text-align: center;
-        color: #dc3545;
-        margin-top: 20px;
-        background: #fff5f5;
-    }
-    
-    .delete-zone.drag-over {
-        background: #ffe0e0;
-        border-color: #dc3545;
+}
+
+.mt-1 { margin-top: 8px; }
+.mt-2 { margin-top: 16px; }
+.mb-1 { margin-bottom: 8px; }
+.mb-2 { margin-bottom: 16px; }
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
     }
 </style>
 
-<div class="routine-container">
-    <div class="container-fluid">
-        <!-- Header Section -->
-        <div class="routine-header">
-            <div class="row align-items-center">
-                <div class="{% if is_student %}col-12{% else %}col-md-6{% endif %}">
-                    <h4 class="mb-0">Law Discipline, Khulna University</h4>
-                    {% if not is_student %}
-                    <p class="text-muted mb-0">Class Routine Generator</p>
-                    {% endif %}
-                </div>
-                {% if not is_student %}
-                <div class="col-md-6 text-end">
-                    <div class="d-flex gap-2 justify-content-end flex-wrap align-items-center">
-                        <a href="{{ url_for('routine_management.index') }}" class="btn btn-outline-secondary btn-sm">
-                            <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
-                        </a>
-                        <input type="text" id="routine-title" class="form-control form-control-sm" style="width: 200px;" placeholder="Routine Title" value="Class Routine">
-                        <input type="date" id="effective-date" class="form-control form-control-sm" style="width: 180px;">
+<div class="routine-app">
+    <!-- Top Navigation Bar -->
+    <div class="routine-topbar">
+        <div class="topbar-left">
+            <div class="topbar-logo">KU Law</div>
+            <div class="topbar-routine-name">
+                        {% if current_saved_routine %}
+                <div class="topbar-badge">
+                    <i class="fas fa-calendar-alt"></i> {{ current_saved_routine.year }}{% if current_saved_routine.name and current_saved_routine.name != current_saved_routine.year %} - {{ current_saved_routine.name }}{% endif %}
+                        </div>
+                        {% endif %}
+                <input type="text" id="routine-title" class="routine-name-input" placeholder="Routine Title" value="Class Routine">
+            </div>
+            <input type="date" id="effective-date" class="form-control" style="width: 160px; padding: 6px 12px;">
+        </div>
+        <div class="topbar-right">
                         {% if can_edit %}
-                        <button class="btn btn-action btn-save" id="btn-save">
-                            <i class="fas fa-save me-1"></i>Save
+            <div class="progress-indicator" id="progress-indicator" style="display: none;">
+                <span id="progress-text">0%</span>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            <button class="topbar-btn topbar-btn-primary" id="btn-save">
+                <i class="fas fa-save topbar-btn-icon"></i> Save
                         </button>
-                        <button class="btn btn-action btn-clear" id="btn-clear">
-                            <i class="fas fa-trash me-1"></i>Clear
+            <button class="topbar-btn" id="btn-time-slots" title="Manage Time Slots">
+                <i class="fas fa-clock topbar-btn-icon"></i>
                         </button>
-                        <button class="btn btn-action btn-export" id="btn-export">
-                            <i class="fas fa-download me-1"></i>Export
+            <button class="topbar-btn" id="btn-custom-entry" title="Add Custom Entry">
+                <i class="fas fa-plus topbar-btn-icon"></i>
                         </button>
                         {% endif %}
-                        <button class="btn btn-action btn-pdf" id="btn-pdf">
-                            <i class="fas fa-file-pdf me-1"></i>PDF
+            <button class="topbar-btn" id="btn-pdf">
+                <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
+            <a href="{{ url_for('routine_management.index') }}" class="topbar-btn">
+                <i class="fas fa-arrow-left topbar-btn-icon"></i> Back
+            </a>
                     </div>
                 </div>
-                {% else %}
-                <div class="col-12 text-end mt-2">
-                    <button class="btn btn-action btn-pdf" id="btn-pdf">
-                        <i class="fas fa-file-pdf me-1"></i>Download PDF
+
+    <!-- Main Content Area -->
+    <div class="routine-main">
+        <!-- Course Panel (Sidebar) -->
+        {% if can_edit %}
+        <div class="course-panel" id="course-panel">
+            <div class="course-panel-header">
+                <div class="course-panel-title">
+                    <i class="fas fa-book"></i> Courses
+                </div>
+                <button class="course-panel-toggle" id="course-panel-close" title="Close Panel">
+                    <i class="fas fa-times"></i>
                     </button>
                 </div>
-                {% endif %}
+            <div class="course-panel-body">
+                <!-- Search -->
+                <div class="course-search">
+                    <i class="fas fa-search course-search-icon"></i>
+                    <input type="text" id="course-search-input" class="course-search-input" placeholder="Search courses...">
+                </div>
+
+                <!-- Batch Filter -->
+                <div class="filter-section active" id="batch-filter-section">
+                    <select class="filter-select" id="batch-select">
+                        <option value="">-- Select Batch --</option>
+                    </select>
+                </div>
+
+                <!-- Course List -->
+                <div class="course-list" id="courses-list">
+                    <div class="course-list-empty">Select a batch to view courses</div>
+                </div>
             </div>
         </div>
+        <button class="topbar-btn topbar-btn-primary" id="course-panel-toggle" style="position: fixed; left: 16px; top: 80px; z-index: 150; display: none; box-shadow: var(--shadow-md);">
+            <i class="fas fa-book"></i> Courses
+        </button>
+        {% endif %}
 
-        <div class="row">
-            <!-- Main Routine Grid -->
-            <div class="{% if can_edit %}col-lg-9{% else %}col-lg-12{% endif %}">
-                <div class="routine-grid">
-                    <table class="time-table">
+        <!-- Routine Table Area -->
+        <div class="routine-table-area">
+            <div class="routine-table-wrapper">
+                <table class="routine-table" id="routine-table">
                         <thead>
                             <tr>
-                                <th class="day-header" style="width: 90px; min-width: 90px;">Day</th>
-                                <th class="room-header" style="width: 70px; min-width: 70px;">Room</th>
+                            <th class="day-col">Day</th>
+                            <th class="room-col">Room</th>
                                 {% for slot in time_slots %}
-                                <th class="time-header-cell{% if 'Lunch' in slot or '01:00' in slot %} lunch-cell{% endif %}" 
-                                    data-slot="{{ slot }}" 
-                                    data-original-slot="{{ slot }}"
-                                    contenteditable="{{ 'true' if can_edit else 'false' }}"
-                                    style="{% if can_edit %}cursor: pointer; position: relative;{% endif %}">
+                            <th class="time-col" data-slot="{{ slot }}" contenteditable="{{ 'true' if can_edit else 'false' }}">
                                     {{ slot }}
-                                    {% if can_edit and not ('Lunch' in slot or '01:00' in slot) %}
-                                    <i class="fas fa-edit" style="font-size: 0.7rem; opacity: 0.7; margin-left: 4px;"></i>
-                                    {% endif %}
                                 </th>
                                 {% endfor %}
                             </tr>
@@ -600,17 +1163,22 @@
                                 {% for room in rooms %}
                                 <tr data-day="{{ day }}" data-room="{{ room.id }}">
                                     {% if loop.first %}
-                                    <td class="day-label" rowspan="{{ rooms|length }}" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); color: white; font-weight: 700; padding: 15px 12px; text-align: center; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.5px; border-right: 2px solid #495057; min-width: 120px; width: 120px; white-space: nowrap; vertical-align: middle; display: table-cell !important; visibility: visible !important; opacity: 1 !important;">{{ day }}</td>
+                                <td class="day-col" rowspan="{{ rooms|length }}">{{ day }}</td>
                                     {% endif %}
-                                    <td class="room-label" style="background: linear-gradient(135deg, #e9ecef 0%, #dee2e6 100%); font-weight: 700; padding: 12px 8px; text-align: center; font-size: 0.9rem; color: #495057; border-right: 2px solid #dee2e6;">{{ room.room_number }}</td>
+                                <td class="room-col">{{ room.room_number }}</td>
                                     {% for slot in time_slots %}
                                     <td class="slot-cell{% if 'Lunch' in slot or '01:00' in slot %} lunch-cell{% endif %}" 
                                         data-day="{{ day }}" 
                                         data-room="{{ room.id }}" 
                                         data-room-name="{{ room.room_number }}"
-                                        data-slot="{{ slot }}"
-                                        data-time="{{ loop.index }}">
-                                        <div class="slot-content">{% if 'Lunch' in slot or '01:00' in slot %}<strong>LUNCH</strong>{% else %}<span class="empty-slot">-</span>{% endif %}</div>
+                                    data-slot="{{ slot }}">
+                                    <div class="slot-content">
+                                        {% if 'Lunch' in slot or '01:00' in slot %}
+                                        <strong>LUNCH</strong>
+                                        {% else %}
+                                        <span class="slot-empty">-</span>
+                                        {% endif %}
+                                    </div>
                                     </td>
                                     {% endfor %}
                                 </tr>
@@ -618,1067 +1186,1681 @@
                             {% endfor %}
                         </tbody>
                     </table>
-                    
+            </div>
                     {% if can_edit %}
                     <div class="delete-zone" id="delete-zone">
-                        <i class="fas fa-trash-alt fa-2x mb-2"></i>
-                        <p class="mb-0">Drag here to remove from routine</p>
+                <i class="fas fa-trash-alt" style="font-size: 32px; margin-bottom: 8px;"></i>
+                <p style="margin: 0; font-weight: 500;">Drag here to remove from routine</p>
                     </div>
                     {% endif %}
                 </div>
             </div>
-
-            <!-- Sidebar - Only show for Routine Maker assignment holders -->
-            {% if can_edit %}
-            <div class="col-lg-3">
-                <div class="sidebar">
-                    <div class="sidebar-header">
-                        <i class="fas fa-book me-2"></i>Courses
                     </div>
                     
-                    <div class="mb-2">
-                        <label class="form-label fw-bold" style="font-size: 0.85rem; margin-bottom: 4px;">Select Teacher:</label>
-                        <select class="form-select form-select-sm" id="teacher-select" style="font-size: 0.85rem;">
-                            <option value="">-- Choose Teacher --</option>
+<!-- Time Slot Manager Modal -->
+<div class="modal-overlay" id="time-slot-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Manage Time Slots</div>
+            <button class="modal-close" id="time-slot-modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Time Slots</label>
+                <div id="time-slots-list" style="margin-bottom: 16px;"></div>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" class="form-control" id="new-time-slot-input" placeholder="e.g., 9:10-10:00">
+                    <button class="modal-btn modal-btn-primary" id="add-time-slot-btn">Add</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn" id="time-slot-modal-cancel">Cancel</button>
+            <button class="modal-btn modal-btn-primary" id="time-slot-modal-save">Save</button>
+        </div>
+                        </div>
+                    </div>
+                    
+<!-- Custom Entry Modal -->
+<div class="modal-overlay" id="custom-entry-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Add Custom Entry</div>
+            <button class="modal-close" id="custom-entry-modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Course Code/Name *</label>
+                <input type="text" class="form-control" id="custom-course-code" placeholder="e.g., ACAD001 or Academic Meeting" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Teacher (Optional)</label>
+                <select class="form-control" id="custom-teacher-select">
+                    <option value="">-- None --</option>
                             {% for teacher in teachers %}
                             <option value="{{ teacher.id }}">{{ teacher.name }} ({{ teacher.short_name }})</option>
                             {% endfor %}
                         </select>
                     </div>
-                    
-                    <div id="courses-list">
-                        <p class="text-muted text-center">Select a teacher to view courses</p>
-                    </div>
-                </div>
+            <div class="form-group">
+                <label class="form-label">Batch (Optional)</label>
+                <input type="text" class="form-control" id="custom-batch" placeholder="e.g., 2024">
             </div>
-            {% endif %}
+            <div class="form-group">
+                <label class="form-label">Day *</label>
+                <select class="form-control" id="custom-day" required>
+                    <option value="Sunday">Sunday</option>
+                    <option value="Monday">Monday</option>
+                    <option value="Tuesday">Tuesday</option>
+                    <option value="Wednesday">Wednesday</option>
+                    <option value="Thursday">Thursday</option>
+                        </select>
+                    </div>
+            <div class="form-group">
+                <label class="form-label">Time Slot *</label>
+                <select class="form-control" id="custom-time-slot" required>
+                    {% for slot in time_slots %}
+                    {% if 'Lunch' not in slot and '01:00' not in slot %}
+                    <option value="{{ slot }}">{{ slot }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+                    </div>
+            <div class="form-group">
+                <label class="form-label">Room *</label>
+                <select class="form-control" id="custom-room" required>
+                    {% for room in rooms %}
+                    <option value="{{ room.id }}">{{ room.room_number }}</option>
+                    {% endfor %}
+                </select>
+                        </div>
+                    </div>
+        <div class="modal-footer">
+            <button class="modal-btn" id="custom-entry-modal-cancel">Cancel</button>
+            <button class="modal-btn modal-btn-primary" id="custom-entry-modal-save">Add Entry</button>
         </div>
     </div>
 </div>
 
 <script>
-(function() {
-    'use strict';
+// ============================================
+// MODERN ROUTINE MANAGER - MODULAR ARCHITECTURE
+// ============================================
     
+const RoutineManager = {
     // Configuration
-    const config = {
+    config: {
         canEdit: {{ 'true' if can_edit else 'false' }},
         days: {{ days | tojson }},
         timeSlots: {{ time_slots | tojson }},
-        rooms: {{ rooms | map(attribute='id') | list | tojson }}
-    };
+        rooms: {{ rooms | map(attribute='id') | list | tojson }},
+        savedRoutineId: {{ saved_routine_id if saved_routine_id else 'null' }},
+        teachers: {{ teachers | tojson }}
+    },
     
     // State
-    const state = {
+    state: {
         routine: {},
+        placedCourses: {},
         draggedCourse: null,
-        draggedCourseFromCell: null, // For dragging courses between cells
-        placedCourses: {}
-    };
-    
-    // DOM Elements (will be initialized on DOMContentLoaded)
-    let teacherSelect, coursesList, routineTbody, deleteZone, slotCells;
+        draggedFromCell: null,
+        currentView: 'batch',
+        searchQuery: '',
+        conflicts: [],
+        hasUnsavedChanges: false,
+        batchColorMap: {}  // Cache for batch colors
+    },
+
+    // Batch color palette - vibrant colors for ribbon
+    batchColors: [
+        '#3B82F6', // Blue
+        '#10B981', // Green
+        '#F59E0B', // Amber
+        '#EF4444', // Red
+        '#8B5CF6', // Purple
+        '#EC4899', // Pink
+        '#06B6D4', // Cyan
+        '#F97316', // Orange
+        '#6366F1', // Indigo
+        '#14B8A6', // Teal
+        '#84CC16', // Lime
+        '#A855F7', // Violet
+    ],
+
+    // Get consistent color for a batch
+    getBatchColor: function(batch) {
+        if (!batch) return null;
+        
+        // Return cached color if exists
+        if (this.state.batchColorMap[batch]) {
+            return this.state.batchColorMap[batch];
+        }
+        
+        // Generate consistent color based on batch string hash
+        let hash = 0;
+        for (let i = 0; i < batch.length; i++) {
+            hash = batch.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const colorIndex = Math.abs(hash) % this.batchColors.length;
+        const color = this.batchColors[colorIndex];
+        
+        // Cache it
+        this.state.batchColorMap[batch] = color;
+        return color;
+    },
+
+    // DOM Elements
+    elements: {},
     
     // Initialize
-    document.addEventListener('DOMContentLoaded', function() {
-        // Get DOM elements
-        teacherSelect = document.getElementById('teacher-select');
-        coursesList = document.getElementById('courses-list');
-        routineTbody = document.getElementById('routine-tbody');
-        deleteZone = document.getElementById('delete-zone');
-        slotCells = document.querySelectorAll('.slot-cell');
+    init: function() {
+        this.cacheElements();
+        this.setupEventListeners();
         
-        // Only setup teacher selection and drag-drop for non-students
-        {% if not is_student %}
-        if (teacherSelect) {
-            teacherSelect.addEventListener('change', loadTeacherCourses);
+        // Setup responsive panel toggle
+        this.setupResponsive();
+        
+        // Setup sticky headers
+        this.setupStickyHeaders();
+        
+        // Load batches for course panel (if user can edit)
+        if (this.config.canEdit) {
+            this.loadBatches();
         }
         
-        if (config.canEdit && slotCells.length > 0) {
-            setupDragAndDrop();
+        // Load routine data based on context:
+        // 1. If saved_routine_id exists, ALWAYS load from database (editing existing routine)
+        // 2. If no saved_routine_id, try auto-save (for unsaved work-in-progress)
+        if (this.config.savedRoutineId) {
+            // Clear any auto-save when loading a specific saved routine
+            localStorage.removeItem('routine_autosave');
+            console.log('Loading saved routine from database:', this.config.savedRoutineId);
+            this.loadSavedRoutine();
+        } else {
+            // No saved_routine_id - check for auto-save (new unsaved routine)
+            const hasAutoSave = this.loadAutoSave();
+            if (hasAutoSave) {
+                console.log('Loaded from auto-save (unsaved work)');
+            }
         }
-        {% endif %}
         
-        loadSavedRoutine();
-        setTodayDate();
+        this.setupEditableHeaders();
+        this.updateProgress();
+        this.checkConflicts();
         
-        // Setup editable headers after DOM is ready
-        if (config.canEdit) {
-            setTimeout(function() {
-                setupEditableHeaders();
-            }, 200);
+        // Auto-save every 30 seconds
+        if (this.config.canEdit) {
+            setInterval(() => this.autoSave(), 30000);
         }
-    });
+        
+        // Warn before leaving if unsaved changes
+        window.addEventListener('beforeunload', (e) => {
+            if (this.state.hasUnsavedChanges) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        });
+    },
+
+    // Setup sticky headers
+    setupStickyHeaders: function() {
+        // Force browser to recalculate sticky positions after table is rendered
+        setTimeout(() => {
+            const table = this.elements.routineTable;
+            if (table) {
+                // Trigger reflow to ensure sticky positioning is calculated
+                void table.offsetHeight;
+                
+                // Ensure all sticky elements have proper background
+                const stickyElements = table.querySelectorAll('thead th, .day-col, .room-col');
+                stickyElements.forEach(el => {
+                    const computedStyle = window.getComputedStyle(el);
+                    if (computedStyle.position === 'sticky') {
+                        // Ensure background is set
+                        if (!el.style.backgroundColor) {
+                            const bg = computedStyle.backgroundColor;
+                            if (bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') {
+                                el.style.backgroundColor = el.classList.contains('day-col') 
+                                    ? 'var(--primary)' 
+                                    : el.classList.contains('room-col')
+                                    ? 'var(--bg)'
+                                    : 'var(--bg-card)';
+                            }
+                        }
+                }
+            });
+        }
+        }, 200);
+    },
+
+    // Setup responsive behavior
+    setupResponsive: function() {
+        const handleResize = () => {
+            if (window.innerWidth <= 1024) {
+                // Mobile/Tablet: Panel starts collapsed
+                if (this.elements.coursePanel && !this.elements.coursePanel.classList.contains('collapsed')) {
+                    this.elements.coursePanel.classList.add('collapsed');
+                }
+                if (this.elements.coursePanelToggle) {
+                    this.elements.coursePanelToggle.style.display = 'block';
+                }
+            } else {
+                // Desktop: Panel visible
+                if (this.elements.coursePanel) {
+                    this.elements.coursePanel.classList.remove('collapsed');
+                }
+                if (this.elements.coursePanelToggle) {
+                    this.elements.coursePanelToggle.style.display = 'none';
+                }
+            }
+        };
+
+        handleResize();
+        window.addEventListener('resize', handleResize);
+    },
+
+    // Cache DOM elements
+    cacheElements: function() {
+        this.elements = {
+            // Top bar
+            routineTitle: document.getElementById('routine-title'),
+            effectiveDate: document.getElementById('effective-date'),
+            btnSave: document.getElementById('btn-save'),
+            btnPdf: document.getElementById('btn-pdf'),
+            btnTimeSlots: document.getElementById('btn-time-slots'),
+            btnCustomEntry: document.getElementById('btn-custom-entry'),
+            progressIndicator: document.getElementById('progress-indicator'),
+            progressText: document.getElementById('progress-text'),
+            progressFill: document.getElementById('progress-fill'),
+            
+            // Course panel
+            coursePanel: document.getElementById('course-panel'),
+            coursePanelToggle: document.getElementById('course-panel-toggle'),
+            coursePanelClose: document.getElementById('course-panel-close'),
+            courseSearch: document.getElementById('course-search-input'),
+            batchSelect: document.getElementById('batch-select'),
+            batchFilterSection: document.getElementById('batch-filter-section'),
+            coursesList: document.getElementById('courses-list'),
+            
+            // Routine table
+            routineTable: document.getElementById('routine-table'),
+            routineTbody: document.getElementById('routine-tbody'),
+            slotCells: document.querySelectorAll('.slot-cell'),
+            deleteZone: document.getElementById('delete-zone'),
+            
+            // Modals
+            timeSlotModal: document.getElementById('time-slot-modal'),
+            customEntryModal: document.getElementById('custom-entry-modal')
+        };
+    },
+
+    // Setup event listeners
+    setupEventListeners: function() {
+        // Top bar
+        if (this.elements.btnSave) {
+            this.elements.btnSave.addEventListener('click', () => this.saveRoutine());
+        }
+        if (this.elements.btnPdf) {
+            this.elements.btnPdf.addEventListener('click', () => this.downloadPDF());
+        }
+        if (this.elements.btnTimeSlots) {
+            this.elements.btnTimeSlots.addEventListener('click', () => this.showTimeSlotManager());
+        }
+        if (this.elements.btnCustomEntry) {
+            this.elements.btnCustomEntry.addEventListener('click', () => this.showCustomEntryModal());
+        }
+
+        // Course panel
+        if (this.elements.coursePanelToggle) {
+            this.elements.coursePanelToggle.addEventListener('click', () => this.toggleCoursePanel());
+        }
+        if (this.elements.coursePanelClose) {
+            this.elements.coursePanelClose.addEventListener('click', () => this.toggleCoursePanel());
+        }
+
+        // Search (debounced)
+        if (this.elements.courseSearch) {
+            let searchTimeout;
+            this.elements.courseSearch.addEventListener('input', (e) => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    this.state.searchQuery = e.target.value.toLowerCase();
+                    this.filterCourses();
+                }, 300);
+            });
+        }
+
+        // Filters
+        if (this.elements.batchSelect) {
+            this.elements.batchSelect.addEventListener('change', () => {
+                const batch = this.elements.batchSelect.value;
+                if (batch) {
+                    this.loadBatchCourses(batch);
+                } else {
+                    this.showEmptyState();
+                }
+            });
+        }
+
+        // Drag and drop (throttled for performance)
+        if (this.config.canEdit) {
+            this.setupDragAndDrop();
+        }
+
+        // Throttle scroll events
+        let scrollTimeout;
+        if (this.elements.routineTable) {
+            const tableWrapper = this.elements.routineTable.closest('.routine-table-wrapper');
+            if (tableWrapper) {
+                tableWrapper.addEventListener('scroll', () => {
+                    clearTimeout(scrollTimeout);
+                    scrollTimeout = setTimeout(() => {
+                        // Handle scroll if needed
+                    }, 100);
+                }, { passive: true });
+            }
+        }
+
+        // Modal close buttons
+        document.querySelectorAll('.modal-close, [id$="-modal-cancel"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const modalId = e.target.closest('.modal-overlay').id;
+                this.closeModal(modalId);
+            });
+        });
+
+        // Set today's date
+        if (this.elements.effectiveDate) {
+            const today = new Date().toISOString().split('T')[0];
+            this.elements.effectiveDate.value = today;
+        }
+    },
+
+    // Toggle course panel
+    toggleCoursePanel: function() {
+        if (this.elements.coursePanel) {
+            const isCollapsed = this.elements.coursePanel.classList.contains('collapsed');
+            if (isCollapsed) {
+                this.elements.coursePanel.classList.remove('collapsed');
+            } else {
+                this.elements.coursePanel.classList.add('collapsed');
+            }
+            
+            // Show/hide toggle button on mobile
+            if (window.innerWidth <= 1024) {
+                if (this.elements.coursePanelToggle) {
+                    this.elements.coursePanelToggle.style.display = 
+                        this.elements.coursePanel.classList.contains('collapsed') ? 'block' : 'none';
+                }
+            }
+        }
+    },
     
-    // Set today's date as default
-    function setTodayDate() {
-        const dateInput = document.getElementById('effective-date');
-        if (dateInput) {
-            const today = new Date();
-            dateInput.value = today.toISOString().split('T')[0];
-        }
-    }
-    
-    // Load teacher courses
-    function loadTeacherCourses() {
-        const teacherId = teacherSelect.value;
+    // Load batches
+    loadBatches: function() {
+        if (!this.elements.batchSelect) return;
         
-        if (!teacherId) {
-            coursesList.innerHTML = '<p class="text-muted text-center">Select a teacher to view courses</p>';
-            return;
-        }
+        this.elements.batchSelect.innerHTML = '<option value="">Loading...</option>';
+        this.elements.batchSelect.disabled = true;
         
-        coursesList.innerHTML = '<p class="text-center"><i class="fas fa-spinner fa-spin"></i> Loading...</p>';
+        fetch('/routine-management/api/batches')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success && data.batches && data.batches.length > 0) {
+                    this.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
+                    data.batches.forEach(batch => {
+                        const option = document.createElement('option');
+                        option.value = batch;
+                        option.textContent = batch;
+                        this.elements.batchSelect.appendChild(option);
+                    });
+                    console.log('Loaded batches:', data.batches);
+                } else {
+                    // No batches found - show helpful message
+                    this.elements.batchSelect.innerHTML = '<option value="">No batches found</option>';
+                    console.warn('No batches returned from API:', data);
+                }
+                this.elements.batchSelect.disabled = false;
+            })
+            .catch(error => {
+                console.error('Error loading batches:', error);
+                this.elements.batchSelect.innerHTML = '<option value="">Error loading batches</option>';
+                this.elements.batchSelect.disabled = false;
+            });
+    },
+
+    // Load batch courses
+    loadBatchCourses: function(batch) {
+        this.elements.coursesList.innerHTML = '<div class="course-list-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
         
-        fetch('/routine-management/api/teacher_courses/' + teacherId)
+        fetch(`/routine-management/api/courses/batch-wise?batch=${encodeURIComponent(batch)}`)
             .then(response => response.json())
             .then(data => {
-                displayCourses(data);
+                if (data.success && data.courses_by_batch && data.courses_by_batch[batch]) {
+                    this.displayCourses(data.courses_by_batch[batch] || []);
+                } else {
+                    // Fallback to old API
+        fetch(`/routine-management/api/courses-by-batch?batch=${encodeURIComponent(batch)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                                this.displayCourses(data.courses || []);
+                } else {
+                                this.showError('Error loading courses');
+                }
+            })
+            .catch(error => {
+                            console.error('Error:', error);
+                            this.showError('Error loading courses');
+                        });
+                }
             })
             .catch(error => {
                 console.error('Error:', error);
-                coursesList.innerHTML = '<p class="text-danger text-center">Error loading courses</p>';
+                this.showError('Error loading courses');
             });
-    }
-    
-    // Display courses in sidebar
-    function displayCourses(courses) {
+    },
+
+    // Display courses
+    displayCourses: function(courses) {
         if (!courses || courses.length === 0) {
-            coursesList.innerHTML = '<p class="text-muted text-center">No courses assigned to this teacher.</p>';
+            this.elements.coursesList.innerHTML = '<div class="course-list-empty">No courses found</div>';
             return;
         }
         
-        coursesList.innerHTML = '';
+        this.elements.coursesList.innerHTML = '';
         
         courses.forEach(course => {
-            const card = createCourseCard(course);
+            const card = this.createCourseCard(course);
             if (card) {
-                coursesList.appendChild(card);
+                this.elements.coursesList.appendChild(card);
             }
         });
-        
-        // Update counts after displaying
-        updateCourseCards();
-    }
-    
-    // Create course card element
-    function createCourseCard(course) {
+
+        this.filterCourses();
+        this.updateCourseCards();
+    },
+
+    // Create course card
+    createCourseCard: function(course) {
         if (!course || !course.assigned_id || !course.course_code) {
             return null;
         }
         
         const card = document.createElement('div');
         card.className = 'course-card';
-        card.draggable = config.canEdit;
+        card.draggable = this.config.canEdit;
         
-        // Store all course data
-        card.dataset.courseId = course.assigned_id || '';
+        // Store course data
+        const courseId = String(course.assigned_id || '').trim();
+        card.dataset.courseId = courseId;
         card.dataset.courseCode = course.course_code || '';
         card.dataset.courseName = course.course_name || '';
         card.dataset.courseType = course.course_type || 'Theory';
         card.dataset.credit = course.credit || 0;
         card.dataset.part = course.part || 'Full';
         card.dataset.classesPerWeek = course.classes_per_week || 0;
-        const year = String(course.year || '').trim();
-        const term = String(course.term || '').trim();
-        card.dataset.year = year;
-        card.dataset.term = term;
+        // Composite key for matching with loaded routines (which don't have assigned_id)
+        // Use course_code + teacher_short + batch for unique identification
+        const teacherKey = course.teachers && course.teachers.length > 0 
+            ? course.teachers.map(t => t.short_name || '').sort().join('/')
+            : '';
+        card.dataset.compositeKey = `${course.course_code}|${teacherKey}|${course.batch || ''}`;
+        card.dataset.year = String(course.year || '').trim();
+        card.dataset.term = String(course.term || '').trim();
+        card.dataset.batch = course.batch || '';
+        card.dataset.colorCode = course.color_code || '';
+        card.dataset.isSharedSlot = course.is_shared_slot || false;
         
         // Get teacher info
         let teacherShort = '';
         let teacherId = '';
+        let teachersArray = [];
         if (course.teachers && course.teachers.length > 0) {
+            teachersArray = course.teachers;
             teacherShort = course.teachers[0].short_name || '';
             teacherId = course.teachers[0].id || '';
+            if (course.teachers.length > 1) {
+                teacherShort = course.teachers.map(t => t.short_name || '').join('/');
+            }
         } else if (course.teacher_id) {
             teacherId = course.teacher_id;
         }
         
         card.dataset.teacherShort = teacherShort;
         card.dataset.teacherId = teacherId;
+        card.dataset.teachers = JSON.stringify(teachersArray);
         
-        const remaining = (course.classes_per_week || 0) - (state.placedCourses[course.assigned_id] || 0);
+        // Calculate remaining - check both courseId (new) and compositeKey (loaded)
+        const totalClasses = parseInt(course.classes_per_week || 0);
+        const compositeKey = card.dataset.compositeKey;
+        const placedById = this.state.placedCourses[courseId] || 0;
+        const placedByKey = this.state.placedCourses[compositeKey] || 0;
+        const placed = placedById + placedByKey;
+        const remaining = totalClasses - placed;
+
+        // Apply batch color
+        const borderColor = course.color_code || '';
+        const colorBarStyle = borderColor ? `style="background: ${borderColor};"` : '';
         
         card.innerHTML = `
+            ${borderColor ? `<div class="course-card-color-bar" ${colorBarStyle}></div>` : ''}
+            <div class="course-card-header">
             <div class="course-code">${course.course_code}</div>
+                ${remaining > 0 ? `<div class="course-badge">${remaining} left</div>` : ''}
+            </div>
             <div class="course-name">${course.course_name || ''}</div>
             <div class="course-meta">
-                <span class="course-teacher">${teacherShort}</span>
-                <span class="course-count">${remaining} left</span>
+                <span class="course-teacher">${teacherShort || 'N/A'}</span>
+                ${course.batch ? `<span class="course-batch">${course.batch}</span>` : ''}
             </div>
         `;
         
+        // Disable if no remaining classes
+        if (remaining <= 0) {
+            card.classList.add('disabled');
+            card.draggable = false;
+        }
+
         return card;
-    }
-    
-    // Setup drag and drop
-    function setupDragAndDrop() {
-        if (!slotCells || slotCells.length === 0) {
+    },
+
+    // Filter courses by search query
+    filterCourses: function() {
+        const query = this.state.searchQuery;
+        if (!query) {
+            // Show all
+            this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
+                card.style.display = '';
+            });
             return;
         }
         
-        // Create drag ghost element (hidden, used for custom drag image)
-        const dragGhost = document.createElement('div');
-        dragGhost.className = 'drag-ghost';
-        dragGhost.style.position = 'absolute';
-        dragGhost.style.top = '-1000px';
-        dragGhost.style.left = '-1000px';
-        document.body.appendChild(dragGhost);
-        
+        this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
+            const code = (card.dataset.courseCode || '').toLowerCase();
+            const name = (card.dataset.courseName || '').toLowerCase();
+            const matches = code.includes(query) || name.includes(query);
+            card.style.display = matches ? '' : 'none';
+        });
+    },
+
+    // Update course cards (remaining counts)
+    updateCourseCards: function() {
+        this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
+            const courseId = card.dataset.courseId;
+            const compositeKey = card.dataset.compositeKey;
+            const totalClasses = parseInt(card.dataset.classesPerWeek || 0);
+            
+            // Check placements by courseId (for new placements) AND compositeKey (for loaded routines)
+            const placedById = this.state.placedCourses[courseId] || 0;
+            const placedByKey = this.state.placedCourses[compositeKey] || 0;
+            const placed = placedById + placedByKey;
+            const remaining = totalClasses - placed;
+
+            let badge = card.querySelector('.course-badge');
+            
+            if (remaining > 0) {
+                // Create badge if it doesn't exist
+                if (!badge) {
+                    badge = document.createElement('div');
+                    badge.className = 'course-badge';
+                    const header = card.querySelector('.course-card-header');
+                    if (header) {
+                        header.appendChild(badge);
+                    }
+                }
+                badge.textContent = `${remaining} left`;
+                card.classList.remove('disabled');
+                card.draggable = this.config.canEdit;
+            } else {
+                // Remove badge or show "Done"
+                if (badge) {
+                    badge.textContent = 'Done';
+                }
+                card.classList.add('disabled');
+                card.draggable = false;
+            }
+        });
+    },
+
+    // Show empty state
+    showEmptyState: function() {
+        this.elements.coursesList.innerHTML = '<div class="course-list-empty">Select a filter to view courses</div>';
+    },
+
+    // Show error
+    showError: function(message) {
+        this.elements.coursesList.innerHTML = `<div class="course-list-empty" style="color: var(--error);">${message}</div>`;
+    },
+    
+    // Setup drag and drop
+    setupDragAndDrop: function() {
         // Course card drag start
-        document.addEventListener('dragstart', function(e) {
-            if (e.target.classList.contains('course-card')) {
-                state.draggedCourse = e.target;
+        this.elements.coursesList.addEventListener('dragstart', (e) => {
+            if (e.target.classList.contains('course-card') && !e.target.classList.contains('disabled')) {
+                this.state.draggedCourse = e.target;
                 e.target.classList.add('dragging');
                 e.dataTransfer.effectAllowed = 'move';
                 
-                // Create custom drag image matching cell size
+                // Create custom drag preview matching table cell size
                 const courseCode = e.target.dataset.courseCode || '';
                 const teacherShort = e.target.dataset.teacherShort || '';
                 
-                dragGhost.innerHTML = `
-                    <div class="drag-code">${courseCode}</div>
-                    <div class="drag-teacher">${teacherShort}</div>
+                const dragPreview = document.createElement('div');
+                dragPreview.className = 'drag-preview';
+                dragPreview.innerHTML = `
+                    <div class="drag-preview-code">${courseCode}</div>
+                    <div class="drag-preview-teacher">${teacherShort}</div>
                 `;
+                dragPreview.style.cssText = `
+                    position: absolute;
+                    top: -1000px;
+                    left: -1000px;
+                    width: 100px;
+                    padding: 8px 6px;
+                    background: var(--primary);
+                    color: white;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    text-align: center;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    pointer-events: none;
+                    z-index: 9999;
+                `;
+                document.body.appendChild(dragPreview);
+                e.dataTransfer.setDragImage(dragPreview, 50, 25);
                 
-                // Get a sample cell to match dimensions
-                const sampleCell = slotCells[0];
-                let cellWidth = 100;
-                let cellHeight = 60;
-                
-                if (sampleCell) {
-                    const cellRect = sampleCell.getBoundingClientRect();
-                    cellWidth = cellRect.width;
-                    cellHeight = cellRect.height;
-                    dragGhost.style.width = cellWidth + 'px';
-                    dragGhost.style.height = cellHeight + 'px';
-                }
-                
-                // Set custom drag image (centered)
-                e.dataTransfer.setDragImage(dragGhost, cellWidth / 2, cellHeight / 2);
+                // Remove preview after drag starts
+                setTimeout(() => dragPreview.remove(), 0);
             }
         });
         
         // Course card drag end
-        document.addEventListener('dragend', function(e) {
+        this.elements.coursesList.addEventListener('dragend', (e) => {
             if (e.target.classList.contains('course-card')) {
                 e.target.classList.remove('dragging');
-                state.draggedCourse = null;
+                this.state.draggedCourse = null;
             }
-            
-            // Reset all cell backgrounds
-            slotCells.forEach(cell => {
-                if (!cell.classList.contains('has-class') && !cell.classList.contains('lunch-cell')) {
-                    cell.style.backgroundColor = '';
-                }
-            });
-            
-            // Hide drag ghost
-            dragGhost.style.top = '-1000px';
-            dragGhost.style.left = '-1000px';
         });
-        
-        // Use event delegation for cell drag events (works even after re-rendering)
-        const routineTable = document.querySelector('.time-table');
-        if (routineTable) {
-            // Drag start for cells with classes (event delegation)
-            routineTable.addEventListener('dragstart', function(e) {
+
+        // Cell drag start (for moving existing courses)
+        this.elements.routineTbody.addEventListener('dragstart', (e) => {
                 const cell = e.target.closest('.slot-cell');
-                if (!cell || cell.classList.contains('lunch-cell')) {
-                    return;
-                }
-                
-                if (cell.classList.contains('has-class')) {
-                    const key = getSlotKey(cell);
-                    const routineItem = state.routine[key];
+            if (cell && cell.classList.contains('has-class')) {
+                const key = this.getSlotKey(cell);
+                const routineItem = this.state.routine[key];
                     if (routineItem) {
-                        // Create a temporary dragged course object
-                        state.draggedCourseFromCell = {
+                    this.state.draggedFromCell = {
                             key: key,
-                            routineItem: routineItem,
-                            sourceCell: cell
+                        item: routineItem,
+                        cell: cell
                         };
                         e.dataTransfer.effectAllowed = 'move';
                         cell.style.opacity = '0.5';
+                        
+                        // Create custom drag preview matching table cell size
+                        const dragPreview = document.createElement('div');
+                        dragPreview.className = 'drag-preview';
+                        dragPreview.innerHTML = `
+                            <div class="drag-preview-code">${routineItem.courseCode || ''}</div>
+                            <div class="drag-preview-teacher">${routineItem.teacherShort || ''}</div>
+                        `;
+                        dragPreview.style.cssText = `
+                            position: absolute;
+                            top: -1000px;
+                            left: -1000px;
+                            width: 100px;
+                            padding: 8px 6px;
+                            background: var(--primary);
+                            color: white;
+                            border-radius: 6px;
+                            font-size: 11px;
+                            text-align: center;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                            pointer-events: none;
+                            z-index: 9999;
+                        `;
+                        document.body.appendChild(dragPreview);
+                        e.dataTransfer.setDragImage(dragPreview, 50, 25);
+                        setTimeout(() => dragPreview.remove(), 0);
                     }
                 }
             });
             
-            // Drag end for cells (event delegation)
-            routineTable.addEventListener('dragend', function(e) {
+        // Cell drag end
+        this.elements.routineTbody.addEventListener('dragend', (e) => {
                 const cell = e.target.closest('.slot-cell');
-                if (cell && cell.classList.contains('has-class')) {
+            if (cell) {
                     cell.style.opacity = '';
-                    state.draggedCourseFromCell = null;
-                }
-            });
-            
-            // Allow dropping on all cells (event delegation)
-            routineTable.addEventListener('dragover', function(e) {
-                const cell = e.target.closest('.slot-cell');
-                if (!cell || cell.classList.contains('lunch-cell')) {
-                    return;
-                }
-                
+                this.state.draggedFromCell = null;
+            }
+        });
+
+        // Drag over cells (throttled for performance)
+        let dragOverTimeout;
+        this.elements.routineTbody.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
                 
-                // Highlight this cell specifically
-                if (!cell.classList.contains('has-class')) {
-                    cell.style.backgroundColor = '#e7f3ff';
-                    cell.style.border = '2px solid #0d6efd';
-                }
-                
-                // Remove highlight from other cells
-                if (!slotCells) {
-                    slotCells = document.querySelectorAll('.slot-cell');
-                }
-                slotCells.forEach(otherCell => {
-                    if (otherCell !== cell && 
-                        !otherCell.classList.contains('has-class') && 
-                        !otherCell.classList.contains('lunch-cell')) {
-                        otherCell.style.backgroundColor = '';
-                        otherCell.style.border = '';
-                    }
-                });
-            });
-            
-            routineTable.addEventListener('dragleave', function(e) {
+            clearTimeout(dragOverTimeout);
+            dragOverTimeout = setTimeout(() => {
                 const cell = e.target.closest('.slot-cell');
-                if (!cell || cell.classList.contains('lunch-cell')) {
-                    return;
-                }
-                
-                // Only remove highlight if we're actually leaving the cell
-                const rect = cell.getBoundingClientRect();
-                const x = e.clientX;
-                const y = e.clientY;
-                
-                if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+                if (!cell || cell.classList.contains('lunch-cell')) return;
+
+                if (this.state.draggedCourse || this.state.draggedFromCell) {
+                    // Remove drag-over from other cells
+                    this.elements.slotCells.forEach(c => {
+                        if (c !== cell) {
+                            c.classList.remove('drag-over');
+                        }
+                    });
+
                     if (!cell.classList.contains('has-class')) {
-                        cell.style.backgroundColor = '';
-                        cell.style.border = '';
+                        cell.classList.add('drag-over');
                     }
                 }
+            }, 50); // Throttle to 50ms
             });
             
-            routineTable.addEventListener('drop', function(e) {
+        // Drag leave cells
+        this.elements.routineTbody.addEventListener('dragleave', (e) => {
                 const cell = e.target.closest('.slot-cell');
-                if (!cell || cell.classList.contains('lunch-cell')) {
-                    return;
-                }
+            if (cell) {
+                cell.classList.remove('drag-over');
+            }
+        });
+
+        // Drop on cells
+        this.elements.routineTbody.addEventListener('drop', (e) => {
+            const cell = e.target.closest('.slot-cell');
+            if (!cell || cell.classList.contains('lunch-cell')) return;
                 
                 e.preventDefault();
-                cell.style.border = '';
-                
-                // Check if dropping a course from sidebar or from another cell
-                if (state.draggedCourse) {
-                    // Dropping from sidebar
-                    handleDrop(cell);
-                } else if (state.draggedCourseFromCell) {
-                    // Dropping from another cell
-                    handleMoveCourse(cell);
-                }
-            });
-        }
-        
-        // Delete zone - also handle drag from cells
-        if (deleteZone) {
-            deleteZone.addEventListener('dragover', function(e) {
+            cell.classList.remove('drag-over');
+
+            if (this.state.draggedCourse) {
+                this.handleDropCourse(cell);
+            } else if (this.state.draggedFromCell) {
+                this.handleMoveCourse(cell);
+            }
+        });
+
+        // Delete zone
+        if (this.elements.deleteZone) {
+            this.elements.deleteZone.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                // Only show delete zone if dragging a course (from sidebar or cell)
-                if (state.draggedCourse || state.draggedCourseFromCell) {
-                    deleteZone.classList.add('drag-over');
+                if (this.state.draggedCourse || this.state.draggedFromCell) {
+                    this.elements.deleteZone.classList.add('drag-over', 'active');
                 }
             });
             
-            deleteZone.addEventListener('dragleave', function() {
-                deleteZone.classList.remove('drag-over');
+            this.elements.deleteZone.addEventListener('dragleave', () => {
+                this.elements.deleteZone.classList.remove('drag-over');
             });
             
-            deleteZone.addEventListener('drop', function(e) {
+            this.elements.deleteZone.addEventListener('drop', (e) => {
                 e.preventDefault();
-                deleteZone.classList.remove('drag-over');
-                handleDelete();
+                this.elements.deleteZone.classList.remove('drag-over', 'active');
+                this.handleDelete();
             });
         }
-    }
-    
-    // Handle drop on slot
-    function handleDrop(cell) {
-        if (!state.draggedCourse || !config.canEdit) {
-            return;
-        }
+    },
+
+    // Handle drop course from sidebar
+    handleDropCourse: function(cell) {
+        if (!this.state.draggedCourse || !this.config.canEdit) return;
+        if (cell.classList.contains('lunch-cell')) return;
+
+        const key = this.getSlotKey(cell);
         
-        // Skip lunch cells
-        if (cell.classList.contains('lunch-cell')) {
-            return;
-        }
-        
-        const courseId = state.draggedCourse.dataset.courseId;
-        const key = getSlotKey(cell);
-        
-        // Check if slot already has a class
-        if (state.routine[key]) {
-            alert('This slot is already occupied');
-            cell.style.backgroundColor = '';
-            return;
+        // Check if slot is occupied - allow swap
+        const existingItem = this.state.routine[key];
+        if (existingItem) {
+            // Swap functionality
+            if (confirm('This slot is occupied. Do you want to swap the courses?')) {
+                // Remove existing
+                if (existingItem.courseId) {
+                    this.state.placedCourses[existingItem.courseId] = 
+                        Math.max(0, (this.state.placedCourses[existingItem.courseId] || 0) - 1);
+                }
+                
+                // Add new course (continue with normal flow)
+            } else {
+                return; // User cancelled
+            }
         }
         
         // Check remaining classes
-        const totalClasses = parseInt(state.draggedCourse.dataset.classesPerWeek) || 0;
-        const placed = state.placedCourses[courseId] || 0;
+        const courseId = String(this.state.draggedCourse.dataset.courseId || '').trim();
+        const totalClasses = parseInt(this.state.draggedCourse.dataset.classesPerWeek || 0);
+        const placed = this.state.placedCourses[courseId] || 0;
         const remaining = totalClasses - placed;
         
         if (remaining <= 0) {
             alert('No more classes available for this course');
-            cell.style.backgroundColor = '';
             return;
         }
         
-        // Get year and term from course card
-        const year = String(state.draggedCourse.dataset.year || '').trim();
-        const term = String(state.draggedCourse.dataset.term || '').trim();
-        
-        // Add to routine
-        state.routine[key] = {
+        // Create routine item
+        const teachersArray = [];
+        try {
+            const teachersData = this.state.draggedCourse.dataset.teachers;
+            if (teachersData) {
+                teachersArray.push(...JSON.parse(teachersData));
+            }
+        } catch (e) {}
+
+        this.state.routine[key] = {
             courseId: courseId,
-            courseCode: state.draggedCourse.dataset.courseCode || '',
-            courseName: state.draggedCourse.dataset.courseName || '',
-            teacherShort: state.draggedCourse.dataset.teacherShort || '',
-            part: state.draggedCourse.dataset.part || 'Full',
-            year: year,
-            term: term
+            courseCode: this.state.draggedCourse.dataset.courseCode || '',
+            courseName: this.state.draggedCourse.dataset.courseName || '',
+            teacherShort: this.state.draggedCourse.dataset.teacherShort || '',
+            teacherId: this.state.draggedCourse.dataset.teacherId || '',
+            teachers: teachersArray,
+            part: this.state.draggedCourse.dataset.part || 'Full',
+            year: this.state.draggedCourse.dataset.year || '',
+            term: this.state.draggedCourse.dataset.term || '',
+            batch: this.state.draggedCourse.dataset.batch || '',
+            colorCode: this.state.draggedCourse.dataset.colorCode || '',
+            isSharedSlot: this.state.draggedCourse.dataset.isSharedSlot === 'true'
         };
         
         // Update placed count
-        state.placedCourses[courseId] = placed + 1;
-        
-        // Force re-render to apply colors
-        renderSlot(cell);
-        updateCourseCards();
-    }
-    
-    // Handle moving course from one cell to another
-    function handleMoveCourse(targetCell) {
-        if (!state.draggedCourseFromCell || !config.canEdit) {
-            return;
+        this.state.placedCourses[courseId] = placed + 1;
+
+        // Render
+        this.renderSlot(cell);
+        this.updateCourseCards();
+        this.updateProgress();
+        this.checkConflicts();
+        this.autoSave(); // Auto-save after change
+    },
+
+    // Handle move course between cells
+    handleMoveCourse: function(targetCell) {
+        if (!this.state.draggedFromCell || !this.config.canEdit) return;
+        if (targetCell.classList.contains('lunch-cell')) return;
+
+        const sourceKey = this.state.draggedFromCell.key;
+        const targetKey = this.getSlotKey(targetCell);
+        const routineItem = this.state.draggedFromCell.item;
+
+        if (sourceKey === targetKey) return;
+
+        // Check if target is occupied - swap
+        const targetItem = this.state.routine[targetKey];
+        if (targetItem) {
+            // Swap
+            this.state.routine[sourceKey] = targetItem;
+            this.state.routine[targetKey] = routineItem;
+            
+            // Update counts if needed
+            if (routineItem.courseId && targetItem.courseId) {
+                // Both are regular courses, counts stay the same
+            }
+        } else {
+            // Move
+            delete this.state.routine[sourceKey];
+            this.state.routine[targetKey] = routineItem;
         }
-        
-        // Skip lunch cells
-        if (targetCell.classList.contains('lunch-cell')) {
-            return;
-        }
-        
-        const sourceKey = state.draggedCourseFromCell.key;
-        const targetKey = getSlotKey(targetCell);
-        const routineItem = state.draggedCourseFromCell.routineItem;
-        
-        // Don't move if dropping on the same cell
-        if (sourceKey === targetKey) {
-            return;
-        }
-        
-        // Check if target slot is already occupied
-        if (state.routine[targetKey]) {
-            alert('This slot is already occupied');
-            return;
-        }
-        
-        // Move routine item from source to target
-        delete state.routine[sourceKey];
-        state.routine[targetKey] = routineItem;
-        
-        // Update UI
-        updateRoutineDisplay();
-        
-        // Clear dragged state
-        state.draggedCourseFromCell = null;
-    }
+
+        // Render
+        this.updateRoutineDisplay();
+        this.updateCourseCards();
+        this.updateProgress();
+        this.checkConflicts();
+        this.autoSave(); // Auto-save after change
+    },
     
     // Handle delete
-    function handleDelete() {
-        if (!state.draggedCourse && !state.draggedCourseFromCell || !config.canEdit) return;
-        
-        if (state.draggedCourse) {
-            // Deleting from sidebar
-            const courseId = state.draggedCourse.dataset.courseId;
-            for (let key in state.routine) {
-                if (state.routine[key].courseId === courseId) {
-                    delete state.routine[key];
-                    state.placedCourses[courseId] = Math.max(0, (state.placedCourses[courseId] || 0) - 1);
-                    break;
-                }
-            }
-        } else if (state.draggedCourseFromCell) {
-            // Deleting from cell
-            const key = state.draggedCourseFromCell.key;
-            const routineItem = state.draggedCourseFromCell.routineItem;
-            if (state.routine[key]) {
-                delete state.routine[key];
+    handleDelete: function() {
+        if (!this.config.canEdit) return;
+
+        if (this.state.draggedCourse) {
+            // Delete from sidebar (not implemented - would need to track all instances)
+            return;
+        } else if (this.state.draggedFromCell) {
+            const key = this.state.draggedFromCell.key;
+            const routineItem = this.state.draggedFromCell.item;
+            
+            if (this.state.routine[key]) {
+                delete this.state.routine[key];
+                
+                // Decrement placement count - check both courseId and compositeKey
                 if (routineItem.courseId) {
-                    state.placedCourses[routineItem.courseId] = Math.max(0, (state.placedCourses[routineItem.courseId] || 0) - 1);
+                    this.state.placedCourses[routineItem.courseId] = 
+                        Math.max(0, (this.state.placedCourses[routineItem.courseId] || 0) - 1);
+                }
+                // Also check composite key (for entries loaded from saved routines)
+                // Use course_code + teacher_short + batch (matches course cards)
+                if (routineItem.courseCode) {
+                    const teacherShort = routineItem.teacherShort || '';
+                    const compositeKey = `${routineItem.courseCode}|${teacherShort}|${routineItem.batch || ''}`;
+                    this.state.placedCourses[compositeKey] = 
+                        Math.max(0, (this.state.placedCourses[compositeKey] || 0) - 1);
                 }
             }
         }
-        
-        // Update UI
-        updateRoutineDisplay();
-        updateCourseCards();
-    }
+
+        this.updateRoutineDisplay();
+        this.updateCourseCards();
+        this.updateProgress();
+        this.checkConflicts();
+        this.autoSave(); // Auto-save after change
+    },
     
     // Get slot key
-    function getSlotKey(cell) {
-        return cell.dataset.day + '|' + cell.dataset.slot + '|' + cell.dataset.room;
-    }
-    
-    // Get color class based on year and term
-    function getColorClass(year, term) {
-        if (!year || !term) {
-            return '';
-        }
-        
-        // Normalize year values - handle various formats
-        const yearStr = String(year).toLowerCase().trim();
-        let yearClass = '';
-        
-        // Remove common suffixes
-        const yearClean = yearStr.replace(/\s*(year|yr)\s*$/i, '').trim();
-        
-        if (yearClean.includes('first') || yearClean === '1' || yearClean === '1st' || yearStr.includes('first')) {
-            yearClass = 'year-first';
-        } else if (yearClean.includes('second') || yearClean === '2' || yearClean === '2nd' || yearStr.includes('second')) {
-            yearClass = 'year-second';
-        } else if (yearClean.includes('third') || yearClean === '3' || yearClean === '3rd' || yearStr.includes('third')) {
-            yearClass = 'year-third';
-        } else if (yearClean.includes('fourth') || yearClean === '4' || yearClean === '4th' || yearStr.includes('fourth')) {
-            yearClass = 'year-fourth';
-        } else if (yearClean.includes('fifth') || yearClean === '5' || yearClean === '5th' || yearStr.includes('fifth')) {
-            yearClass = 'year-fifth';
-        } else if (yearClean.includes('llm') || yearStr.includes('llm')) {
-            yearClass = 'year-llm';
-        }
-        
-        // Normalize term values
-        const termStr = String(term).toLowerCase().trim();
-        let termClass = '';
-        
-        // Remove common suffixes
-        const termClean = termStr.replace(/\s*(term)\s*$/i, '').trim();
-        
-        if (termClean.includes('first') || termClean === '1' || termClean === '1st' || termStr.includes('first')) {
-            termClass = 'term-first';
-        } else if (termClean.includes('second') || termClean === '2' || termClean === '2nd' || termStr.includes('second')) {
-            termClass = 'term-second';
-        } else if (termClean.includes('thesis') || termStr.includes('thesis')) {
-            termClass = 'term-second'; // Thesis term uses second term colors
-        }
-        
-        return yearClass && termClass ? `${yearClass} ${termClass}` : '';
-    }
-    
-    // Render slot content
-    function renderSlot(cell) {
-        // Skip lunch cells
-        if (cell.classList.contains('lunch-cell')) {
-            return;
-        }
-        
-        const key = getSlotKey(cell);
-        const routineItem = state.routine[key];
+    getSlotKey: function(cell) {
+        return `${cell.dataset.day}|${cell.dataset.slot}|${cell.dataset.room}`;
+    },
+
+    // Render slot
+    renderSlot: function(cell) {
+        if (cell.classList.contains('lunch-cell')) return;
+
+        const key = this.getSlotKey(cell);
+        const item = this.state.routine[key];
         const content = cell.querySelector('.slot-content');
-        
-        if (!content) {
-            return;
-        }
-        
-        if (routineItem) {
-            // Remove all year/term classes first
-            cell.classList.remove('year-first', 'year-second', 'year-third', 'year-fourth', 'year-fifth', 'year-llm', 
-                                  'term-first', 'term-second');
+
+        if (!content) return;
+
+        if (item) {
             cell.classList.add('has-class');
+            cell.draggable = this.config.canEdit;
+
+            // Get batch color for ribbon
+            const batchColor = this.getBatchColor(item.batch);
             
-            // Make cell draggable if user can edit
-            if (config.canEdit && !cell.classList.contains('lunch-cell')) {
-                cell.draggable = true;
-            }
-            
-            // Add color classes based on year and term
-            const year = String(routineItem.year || '').trim();
-            const term = String(routineItem.term || '').trim();
-            
-            // Remove all existing year/term classes first
-            cell.classList.remove('year-first', 'year-second', 'year-third', 'year-fourth', 'year-fifth', 'year-llm', 
-                                  'term-first', 'term-second');
-            
-            // Remove any inline background styles
-            cell.style.removeProperty('background');
-            cell.style.removeProperty('background-color');
+            // Reset any previous color styles
             cell.style.backgroundColor = '';
-            cell.style.background = '';
-            
-            const colorClass = getColorClass(year, term);
-            
-            if (colorClass && colorClass.trim()) {
-                const classes = colorClass.split(' ').filter(c => c.trim());
-                classes.forEach(cls => {
-                    if (cls && cls.trim()) {
-                        cell.classList.add(cls.trim());
+            cell.style.borderLeft = '';
+
+            // Format teacher display
+            let teacherDisplay = item.teacherShort || '';
+            if (item.teachers && Array.isArray(item.teachers) && item.teachers.length > 1) {
+                teacherDisplay = item.teachers.map(t => t.short_name || '').filter(n => n).join('/');
+            }
+
+            content.innerHTML = `
+                <div class="slot-course-code">${item.courseCode || ''}</div>
+                <div class="slot-teacher">${teacherDisplay}</div>
+                ${batchColor ? `<div class="batch-color-ribbon" style="background-color: ${batchColor};"></div>` : ''}
+                ${this.config.canEdit ? `<button class="slot-delete-btn" data-key="${key}" title="Delete">
+                    <i class="fas fa-times"></i>
+                </button>` : ''}
+            `;
+
+            // Delete button handler
+            const deleteBtn = content.querySelector('.slot-delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (confirm('Remove this course from routine?')) {
+                        const key = deleteBtn.dataset.key;
+                        const routineItem = this.state.routine[key];
+                        delete this.state.routine[key];
+                        
+                        // Decrement placement count - check both courseId and compositeKey
+                        if (routineItem && routineItem.courseId) {
+                            this.state.placedCourses[routineItem.courseId] = 
+                                Math.max(0, (this.state.placedCourses[routineItem.courseId] || 0) - 1);
+                        }
+                        // Also check composite key (for entries loaded from saved routines)
+                        // Use course_code + teacher_short + batch (matches course cards)
+                        if (routineItem && routineItem.courseCode) {
+                            const teacherShort = routineItem.teacherShort || '';
+                            const compositeKey = `${routineItem.courseCode}|${teacherShort}|${routineItem.batch || ''}`;
+                            this.state.placedCourses[compositeKey] = 
+                                Math.max(0, (this.state.placedCourses[compositeKey] || 0) - 1);
+                        }
+                        
+                        this.updateRoutineDisplay();
+                        this.updateCourseCards();
+                        this.updateProgress();
+                        this.checkConflicts();
+                        this.autoSave(); // Mark as changed
                     }
                 });
-                
-                // Apply color directly via inline style as fallback to ensure it shows
-                const colorMap = {
-                    'year-first term-first': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    'year-first term-second': 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                    'year-second term-first': 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                    'year-second term-second': 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-                    'year-third term-first': 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-                    'year-third term-second': 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
-                    'year-fourth term-first': 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
-                    'year-fourth term-second': 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)',
-                    'year-fifth term-first': 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
-                    'year-llm term-first': 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)',
-                    'year-fifth term-second': 'linear-gradient(135deg, #ff8a80 0%, #ea4c89 100%)',
-                    'year-llm term-second': 'linear-gradient(135deg, #ff8a80 0%, #ea4c89 100%)'
-                };
-                
-                const gradient = colorMap[colorClass.trim()];
-                if (gradient) {
-                    // Apply gradient directly as inline style
-                    cell.style.setProperty('background', gradient, 'important');
-                    cell.style.setProperty('background-color', '', 'important');
-                } else {
-                    // If gradient not found in map, try to construct from classes
-                    const yearClass = classes.find(c => c.startsWith('year-'));
-                    const termClass = classes.find(c => c.startsWith('term-'));
-                    if (yearClass && termClass) {
-                        const lookupKey = `${yearClass} ${termClass}`;
-                        const fallbackGradient = colorMap[lookupKey];
-                        if (fallbackGradient) {
-                            cell.style.setProperty('background', fallbackGradient, 'important');
-                        }
-                    }
-                }
-            } else {
-                // Default blue if no color class found
-                cell.style.setProperty('background-color', '#0d6efd', 'important');
-                cell.style.setProperty('background', '#0d6efd', 'important');
             }
-            
-            content.innerHTML = `
-                <div style="font-weight: 600; font-size: 0.75rem; line-height: 1.1;">${routineItem.courseCode || ''}</div>
-                <div style="font-size: 0.65rem; opacity: 0.9; margin-top: 1px;">${routineItem.teacherShort || ''}</div>
-            `;
-            
-            // Store time slot in data attribute
-            cell.dataset.currentTime = cell.dataset.slot;
-        } else {
+            } else {
             cell.classList.remove('has-class');
             cell.draggable = false;
-            content.innerHTML = '<span class="empty-slot">-</span>';
-            cell.dataset.currentTime = '';
+                cell.style.backgroundColor = '';
+            cell.style.borderLeft = '';
+            content.innerHTML = '<span class="slot-empty">-</span>';
         }
-    }
-    
-    // Get current time slots from table headers
-    function getCurrentTimeSlots() {
-        const headerCells = document.querySelectorAll('.time-header-cell:not(.lunch-cell)');
-        const timeSlots = [];
-        headerCells.forEach(header => {
-            let timeText = header.textContent.trim();
-            // Remove edit icon if present
-            timeText = timeText.replace(/\s*✎\s*/g, '').trim();
-            // Get from dataset or text content
-            const timeSlot = header.dataset.slot || timeText;
-            if (timeSlot && !timeSlot.includes('Lunch') && !timeSlot.includes('LUNC')) {
-                timeSlots.push(timeSlot);
+    },
+
+    // Update routine display (optimized - batch DOM updates)
+    updateRoutineDisplay: function() {
+        // Re-cache slot cells
+        this.elements.slotCells = document.querySelectorAll('.slot-cell');
+        
+        // Use requestAnimationFrame for smooth updates
+        requestAnimationFrame(() => {
+            this.elements.slotCells.forEach(cell => {
+                this.renderSlot(cell);
+            });
+        });
+    },
+
+    // Update progress
+    updateProgress: function() {
+        if (!this.elements.progressIndicator) return;
+
+        // Calculate total courses and placed
+        let totalCourses = 0;
+        let placedCourses = 0;
+
+        this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
+            const total = parseInt(card.dataset.classesPerWeek || 0);
+            if (total > 0) {
+                totalCourses += total;
+                const courseId = card.dataset.courseId;
+                const compositeKey = card.dataset.compositeKey;
+                // Check both courseId (new placements) and compositeKey (loaded routines)
+                const placedById = this.state.placedCourses[courseId] || 0;
+                const placedByKey = this.state.placedCourses[compositeKey] || 0;
+                placedCourses += (placedById + placedByKey);
             }
         });
-        // If no time slots found, use default from config
-        if (timeSlots.length === 0 && config.timeSlots) {
-            return config.timeSlots.filter(slot => !slot.includes('Lunch') && !slot.includes('LUNC'));
-        }
-        return timeSlots;
-    }
-    
-    // Make table header times editable
-    function setupEditableHeaders() {
-        if (!config.canEdit) return;
+
+        const percentage = totalCourses > 0 ? Math.round((placedCourses / totalCourses) * 100) : 0;
         
-        const headerCells = document.querySelectorAll('.time-header-cell');
-        headerCells.forEach(headerCell => {
-            // Skip lunch cells
-            if (headerCell.classList.contains('lunch-cell')) {
-                return;
+        if (percentage > 0) {
+            this.elements.progressIndicator.style.display = 'flex';
+            this.elements.progressText.textContent = `${percentage}%`;
+            this.elements.progressFill.style.width = `${percentage}%`;
+        } else {
+            this.elements.progressIndicator.style.display = 'none';
+        }
+    },
+
+    // Check conflicts
+    checkConflicts: function() {
+        if (!this.config.canEdit) return;
+
+        // Clear existing conflicts
+        this.elements.slotCells.forEach(cell => {
+            cell.classList.remove('has-conflict');
+            cell.title = '';
+        });
+
+        const conflicts = [];
+        const slotMap = {};
+        const roomMap = {};
+        const teacherTimeMap = {};
+
+        // Build conflict maps
+        Object.keys(this.state.routine).forEach(key => {
+            const item = this.state.routine[key];
+            if (!item.courseCode) return;
+
+            const [day, slot, room] = key.split('|');
+            const timeKey = `${day}|${slot}`;
+            const roomKey = `${day}|${slot}|${room}`;
+            const teacherTimeKey = `${day}|${slot}|${item.teacherId}`;
+
+            // Time slot map (same time, different rooms)
+            if (!slotMap[timeKey]) {
+                slotMap[timeKey] = [];
             }
-            
-            // Store original time
-            const originalTime = headerCell.dataset.slot || headerCell.textContent.trim();
-            headerCell.dataset.originalTime = originalTime;
-            
-            headerCell.addEventListener('blur', function() {
-                const newTime = this.textContent.trim();
-                const oldTime = this.dataset.slot || this.dataset.originalTime;
-                
-                if (!newTime) {
-                    // Restore original if empty
-                    this.textContent = oldTime;
-                    return;
+            slotMap[timeKey].push({ key, room, item });
+
+            // Room map (same room, same time - should not happen)
+            if (!roomMap[roomKey]) {
+                roomMap[roomKey] = [];
+            }
+            roomMap[roomKey].push({ key, item });
+
+            // Teacher time map (same teacher, same time)
+            if (item.teacherId) {
+                if (!teacherTimeMap[teacherTimeKey]) {
+                    teacherTimeMap[teacherTimeKey] = [];
                 }
+                teacherTimeMap[teacherTimeKey].push({ key, room, item });
+            }
+        });
+
+        // Detect room conflicts (same room, same time - impossible)
+        Object.keys(roomMap).forEach(roomKey => {
+            const entries = roomMap[roomKey];
+            if (entries.length > 1) {
+                entries.forEach(entry => {
+                    const cell = this.getCellByKey(entry.key);
+                    if (cell) {
+                        cell.classList.add('has-conflict');
+                        cell.title = 'Room conflict: Multiple courses in same room at same time';
+                        conflicts.push({
+                            type: 'room',
+                            key: entry.key,
+                            message: 'Room conflict'
+                        });
+                    }
+                });
+            }
+        });
+
+        // Detect teacher conflicts (same teacher, same time, different rooms)
+        Object.keys(teacherTimeMap).forEach(teacherTimeKey => {
+            const entries = teacherTimeMap[teacherTimeKey];
+            if (entries.length > 1) {
+                const rooms = new Set(entries.map(e => e.room));
+                if (rooms.size > 1) {
+                    entries.forEach(entry => {
+                        const cell = this.getCellByKey(entry.key);
+                        if (cell) {
+                            cell.classList.add('has-conflict');
+                            cell.title = 'Teacher conflict: Same teacher at same time in different rooms';
+                            conflicts.push({
+                                type: 'teacher',
+                                key: entry.key,
+                                message: 'Teacher conflict'
+                            });
+                        }
+                    });
+                }
+            }
+        });
+
+        // Detect batch conflicts (same batch, same time, different rooms)
+        const batchTimeMap = {};
+        Object.keys(this.state.routine).forEach(key => {
+            const item = this.state.routine[key];
+            if (!item.courseCode || !item.batch) return;
+
+            const [day, slot] = key.split('|');
+            const batchTimeKey = `${day}|${slot}|${item.batch}`;
+
+            if (!batchTimeMap[batchTimeKey]) {
+                batchTimeMap[batchTimeKey] = [];
+            }
+            batchTimeMap[batchTimeKey].push({ key, item });
+        });
+
+        Object.keys(batchTimeMap).forEach(batchTimeKey => {
+            const entries = batchTimeMap[batchTimeKey];
+            if (entries.length > 1) {
+                const rooms = new Set(entries.map(e => {
+                    const [day, slot, room] = e.key.split('|');
+                    return room;
+                }));
+                if (rooms.size > 1) {
+                    entries.forEach(entry => {
+                        const cell = this.getCellByKey(entry.key);
+                        if (cell && !cell.classList.contains('has-conflict')) {
+                            cell.classList.add('has-conflict');
+                            cell.title = 'Batch conflict: Same batch at same time in different rooms';
+                            conflicts.push({
+                                type: 'batch',
+                                key: entry.key,
+                                message: 'Batch conflict'
+                            });
+            }
+        });
+    }
+            }
+        });
+
+        this.state.conflicts = conflicts;
+    },
+
+    // Get cell by key
+    getCellByKey: function(key) {
+        const [day, slot, room] = key.split('|');
+        return document.querySelector(`.slot-cell[data-day="${day}"][data-slot="${slot}"][data-room="${room}"]`);
+    },
+
+    // Setup editable headers
+    setupEditableHeaders: function() {
+        if (!this.config.canEdit) return;
+
+        const headers = this.elements.routineTable.querySelectorAll('thead th.time-col');
+        headers.forEach(header => {
+            header.addEventListener('blur', () => {
+                const newValue = header.textContent.trim();
+                const originalSlot = header.dataset.slot;
                 
-                if (newTime !== oldTime) {
-                    // Update all cells with this time slot
-                    const cells = document.querySelectorAll('.slot-cell');
-                    let updated = false;
+                // Update all cells with this slot
+                this.elements.slotCells.forEach(cell => {
+                    if (cell.dataset.slot === originalSlot) {
+                        cell.dataset.slot = newValue;
+                    }
+                });
+            });
+        });
+    },
+    
+    // Load saved routine
+    loadSavedRoutine: function() {
+        if (!this.config.savedRoutineId) return;
+
+        console.log('Loading saved routine:', this.config.savedRoutineId);
+
+        // Use the dedicated saved-routines API endpoint
+        fetch(`/routine-management/api/saved-routines/${this.config.savedRoutineId}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Loaded routine data:', data);
+                
+                // Clear existing state before loading new data
+                this.state.routine = {};
+                this.state.placedCourses = {};
+                
+                // Clear all cells first
+                this.updateRoutineDisplay();
+                
+                if (data.routine && Array.isArray(data.routine) && data.routine.length > 0) {
+                    console.log(`Processing ${data.routine.length} routine entries`);
                     
-                    cells.forEach(cell => {
-                        const cellTime = cell.dataset.slot || cell.dataset.currentTime;
-                        if (cellTime === oldTime) {
-                            cell.dataset.slot = newTime;
-                            cell.dataset.currentTime = newTime;
+                    data.routine.forEach(item => {
+                        const key = `${item.day}|${item.slot}|${item.room_id}`;
+                        const cell = document.querySelector(`.slot-cell[data-day="${item.day}"][data-slot="${item.slot}"][data-room="${item.room_id}"]`);
+                        
+                        if (cell) {
+                            const assignedId = item.assigned_id ? String(item.assigned_id).trim() : '';
                             
-                            // Update routine state keys
-                            const oldKey = cell.dataset.day + '|' + oldTime + '|' + cell.dataset.room;
-                            if (state.routine[oldKey]) {
-                                const routineItem = state.routine[oldKey];
-                                delete state.routine[oldKey];
-                                const newKey = cell.dataset.day + '|' + newTime + '|' + cell.dataset.room;
-                                state.routine[newKey] = routineItem;
-                                updated = true;
+                            let teachersArray = [];
+                            if (item.teachers && Array.isArray(item.teachers)) {
+                                teachersArray = item.teachers;
+                            }
+
+                            const part = item.part || 'Full';
+                            const batch = item.batch || '';
+                            const courseCode = item.course_code || '';
+                            
+                            this.state.routine[key] = {
+                                courseId: assignedId,
+                                courseCode: courseCode,
+                                courseName: '',
+                                teacherShort: item.teacher_short_name || '',
+                                teacherId: item.teacher_id || '',
+                                teachers: teachersArray,
+                                part: part,
+                                year: item.year || '',
+                                term: item.term || '',
+                                batch: batch,
+                                colorCode: item.color_code || '',
+                                isSharedSlot: item.is_shared_slot || false,
+                                isCustom: item.is_custom || false
+                            };
+
+                            // Track placed courses - use composite key since saved routines don't have assigned_id
+                            // Use course_code + teacher_short + batch for unique identification (matches course cards)
+                            if (courseCode) {
+                                const teacherShort = item.teacher_short_name || '';
+                                const compositeKey = `${courseCode}|${teacherShort}|${batch}`;
+                                this.state.placedCourses[compositeKey] = 
+                                    (this.state.placedCourses[compositeKey] || 0) + 1;
                             }
                         }
                     });
                     
-                    // Update header data attribute
-                    this.dataset.slot = newTime;
-                    this.dataset.originalTime = newTime;
-                    
-                    // Re-render all affected cells if any were updated
-                    if (updated) {
-                        updateRoutineDisplay();
-                    }
-                }
-            });
-            
-            headerCell.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    this.blur();
-                } else if (e.key === 'Escape') {
-                    e.preventDefault();
-                    const original = this.dataset.originalTime || this.dataset.slot;
-                    this.textContent = original;
-                    this.blur();
-                }
-            });
-        });
-    }
-    
-    // Update routine display
-    function updateRoutineDisplay() {
-        if (!slotCells) {
-            slotCells = document.querySelectorAll('.slot-cell');
-        }
-        slotCells.forEach(cell => {
-            renderSlot(cell);
-            
-            // Update draggable state for cells with classes
-            if (config.canEdit) {
-                if (cell.classList.contains('has-class') && !cell.classList.contains('lunch-cell')) {
-                    cell.draggable = true;
+                    console.log('Routine state after loading:', Object.keys(this.state.routine).length, 'entries');
                 } else {
-                    cell.draggable = false;
+                    console.log('No routine entries found for this saved routine');
                 }
-            }
-        });
-    }
-    
-    // Update course cards
-    function updateCourseCards() {
-        const cards = document.querySelectorAll('.course-card');
-        cards.forEach(card => {
-            const courseId = card.dataset.courseId;
-            const total = parseInt(card.dataset.classesPerWeek);
-            const placed = state.placedCourses[courseId] || 0;
-            const remaining = total - placed;
-            
-            const countBadge = card.querySelector('.course-count');
-            if (countBadge) {
-                countBadge.textContent = remaining + ' left';
-            }
-            
-            if (remaining <= 0) {
-                card.style.opacity = '0.5';
-                card.draggable = false;
-            } else {
-                card.style.opacity = '1';
-                card.draggable = true;
-            }
-        });
-    }
-    
-    // Load saved routine
-    function loadSavedRoutine() {
-        fetch('/routine-management/api/routine/load')
-            .then(response => response.json())
-            .then(data => {
-                if (data && data.routine && Array.isArray(data.routine)) {
-                    // Get all rooms mapping
-                    const roomsMap = {};
-                    {% for room in rooms %}
-                    roomsMap[{{ room.id }}] = '{{ room.room_number }}';
-                    {% endfor %}
-                    
-                    data.routine.forEach(item => {
-                        // Find matching cell
-                        const cells = document.querySelectorAll('.slot-cell');
-                        cells.forEach(cell => {
-                            if (cell.dataset.day === item.day && 
-                                cell.dataset.slot === item.slot) {
-                                // Match by room_id or room_number
-                                const itemRoomId = item.room_id;
-                                const itemRoomName = item.room_number || roomsMap[itemRoomId];
-                                
-                                if (cell.dataset.room == itemRoomId || 
-                                    cell.dataset.roomName === itemRoomName) {
-                                    const key = getSlotKey(cell);
-                                    state.routine[key] = {
-                                        courseId: item.assigned_id || '',
-                                        courseCode: item.course_code || '',
-                                        courseName: item.course_name || '',
-                                        teacherShort: item.teacher_short_name || '',
-                                        part: item.part || '',
-                                        year: item.year || '',
-                                        term: item.term || ''
-                                    };
-                                    
-                                    if (item.assigned_id) {
-                                        state.placedCourses[item.assigned_id] = (state.placedCourses[item.assigned_id] || 0) + 1;
-                                    }
-                                }
-                            }
-                        });
-                    });
-                    updateRoutineDisplay();
+
+                // Update display after loading (or clearing)
+                this.updateRoutineDisplay();
+                this.updateProgress();
+                this.checkConflicts();
+
+                // Reload courses if filter is active
+                if (this.elements.batchSelect && this.elements.batchSelect.value) {
+                    this.loadBatchCourses(this.elements.batchSelect.value);
                 }
             })
             .catch(error => {
                 console.error('Error loading routine:', error);
             });
-    }
+    },
+
+    // Auto-save to localStorage (debounced)
+    // Note: Auto-save is only for NEW unsaved routines. 
+    // When editing a saved routine (savedRoutineId exists), we skip auto-save
+    // because the user should use the Save button to persist changes.
+    autoSave: function() {
+        if (!this.config.canEdit) return;
+        
+        // Mark as having unsaved changes
+        this.state.hasUnsavedChanges = true;
+        
+        // Don't auto-save if we're editing a saved routine - use explicit save instead
+        if (this.config.savedRoutineId) {
+            return;
+        }
+        
+        clearTimeout(this.autoSaveTimeout);
+        this.autoSaveTimeout = setTimeout(() => {
+            try {
+                const autoSaveData = {
+                    routine: this.state.routine,
+                    placedCourses: this.state.placedCourses,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem('routine_autosave', JSON.stringify(autoSaveData));
+                console.log('Auto-saved unsaved routine to localStorage');
+            } catch (e) {
+                console.warn('Auto-save failed:', e);
+            }
+        }, 1000); // Debounce by 1 second
+    },
+
+    // Load auto-save from localStorage
+    loadAutoSave: function() {
+        if (!this.config.canEdit) return false;
+        
+        try {
+            const saved = localStorage.getItem('routine_autosave');
+            if (saved) {
+                const data = JSON.parse(saved);
+                // Only load if less than 1 hour old
+                if (Date.now() - data.timestamp < 3600000) {
+                    this.state.routine = data.routine || {};
+                    this.state.placedCourses = data.placedCourses || {};
+                    this.updateRoutineDisplay();
+                    this.updateCourseCards();
+                    this.updateProgress();
+                    return true;
+                }
+            }
+        } catch (e) {
+            console.warn('Auto-load failed:', e);
+        }
+        return false;
+    },
     
     // Save routine
-    function saveRoutine() {
-        if (!config.canEdit) {
+    saveRoutine: function() {
+        if (!this.config.canEdit) {
             alert('You do not have permission to save');
             return;
         }
         
-        if (!slotCells) {
-            slotCells = document.querySelectorAll('.slot-cell');
-        }
+        // Re-cache slot cells
+        this.elements.slotCells = document.querySelectorAll('.slot-cell');
         
         const routineData = [];
-        slotCells.forEach(cell => {
-            // Skip lunch cells
-            if (cell.classList.contains('lunch-cell')) {
+        const validationErrors = [];
+        
+        this.elements.slotCells.forEach((cell, index) => {
+            if (cell.classList.contains('lunch-cell')) return;
+
+            const key = this.getSlotKey(cell);
+            const item = this.state.routine[key];
+            
+            if (item) {
+                // Validate required fields
+                const day = cell.dataset.day;
+                const slot = cell.dataset.slot;
+                const roomId = parseInt(cell.dataset.room);
+                
+                if (!day || !slot || !roomId || isNaN(roomId)) {
+                    validationErrors.push(`Entry ${index + 1}: Missing required fields (day, slot, or room)`);
                 return;
             }
             
-            const key = getSlotKey(cell);
-            const item = state.routine[key];
-            if (item) {
+                if (!item.courseCode && !item.isCustom) {
+                    validationErrors.push(`Entry ${index + 1}: Missing course code`);
+                    return;
+                }
+                
                 routineData.push({
-                    day: cell.dataset.day,
-                    slot: cell.dataset.slot || cell.dataset.currentTime,
-                    room_id: parseInt(cell.dataset.room),
-                    course_code: item.courseCode,
-                    teacher_short_name: item.teacherShort,
-                    part: item.part,
-                    assigned_id: item.courseId,
+                    day: day,
+                    slot: slot,
+                    room_id: roomId,
+                    course_code: item.courseCode || '',
+                    teacher_short_name: item.teacherShort || '',
+                    part: item.part || 'Full',
+                    assigned_id: item.courseId || '',
+                    teacher_id: item.teacherId || '',
                     year: item.year || '',
-                    term: item.term || ''
+                    term: item.term || '',
+                    batch: item.batch || '',
+                    color_code: item.colorCode || '',
+                    is_custom: item.isCustom || false,
+                    custom_course_name: item.isCustom ? item.courseCode : ''
                 });
             }
         });
+        
+        // Show validation errors if any
+        if (validationErrors.length > 0) {
+            console.warn('Validation errors:', validationErrors);
+            if (confirm(`${validationErrors.length} entries have validation errors. Continue saving anyway?`)) {
+                // User wants to proceed
+            } else {
+                return; // User cancelled
+            }
+        }
+        
+        // Check if there's any data to save
+        if (routineData.length === 0) {
+            if (confirm('No routine entries to save. Clear all existing entries?')) {
+                // Will be handled by backend
+            } else {
+                return;
+            }
+        }
+
+        const btnSave = this.elements.btnSave;
+        const originalText = btnSave.innerHTML;
+        btnSave.disabled = true;
+        btnSave.classList.add('loading');
+        btnSave.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+        // Save with retry mechanism - pass original text to restore later
+        this.saveRoutineWithRetry(routineData, 3, originalText);
+    },
+
+    // Save routine with retry mechanism
+    saveRoutineWithRetry: function(routineData, maxRetries = 3, originalText = '<i class="fas fa-save"></i> Save') {
+        const btnSave = this.elements.btnSave;
+        let retryCount = 0;
+
+        const attemptSave = () => {
+            // Show retry message if retrying
+            if (retryCount > 0) {
+                btnSave.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Retrying... (${retryCount}/${maxRetries})`;
+            }
+
+            // Create abort controller for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
         
         fetch('/routine-management/api/routine/save', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({routine: routineData})
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.message) {
-                alert(data.message);
-            } else {
-                alert('Routine saved successfully!');
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Failed to save routine');
-        });
-    }
-    
-    // Clear routine
-    function clearRoutine() {
-        if (!config.canEdit) {
-            alert('You do not have permission to clear');
-            return;
-        }
-        
-        if (!confirm('Are you sure you want to clear the entire routine?')) {
-            return;
-        }
-        
-        state.routine = {};
-        state.placedCourses = {};
-        updateRoutineDisplay();
-        updateCourseCards();
-        
-        fetch('/routine-management/api/routine/clear', {method: 'POST'})
-            .then(() => {
-                alert('Routine cleared');
+                body: JSON.stringify({
+                    routine: routineData,
+                    saved_routine_id: this.config.savedRoutineId
+                }),
+                signal: controller.signal
             })
-            .catch(error => {
-                console.error('Error:', error);
-            });
-    }
-    
-    // Export routine
-    function exportRoutine() {
-        if (!config.canEdit) {
-            alert('You do not have permission to export');
-            return;
-        }
-        
-        const exportData = {
-            title: document.getElementById('routine-title').value,
-            date: document.getElementById('effective-date').value,
-            routine: []
-        };
-        
-        slotCells.forEach(cell => {
-            const key = getSlotKey(cell);
-            const item = state.routine[key];
-            if (item) {
-                exportData.routine.push({
-                    day: cell.dataset.day,
-                    slot: cell.dataset.slot,
-                    room: cell.dataset.roomName,
-                    course_code: item.courseCode,
-                    teacher: item.teacherShort
-                });
-            }
-        });
-        
-        const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'routine_export.json';
-        a.click();
-        URL.revokeObjectURL(url);
-    }
-    
-    // Download PDF
-    function downloadPDF() {
-        try {
-            const titleEl = document.getElementById('routine-title');
-            const dateEl = document.getElementById('effective-date');
-            const title = titleEl ? titleEl.value : 'Class Routine';
-            const date = dateEl ? dateEl.value : '';
-            
-            if (!slotCells) {
-                slotCells = document.querySelectorAll('.slot-cell');
-            }
-            
-            // Get current time slots from edited headers
-            const currentTimeSlots = getCurrentTimeSlots();
-            
-            const routineData = [];
-            slotCells.forEach(cell => {
-                // Skip lunch cells
-                if (cell.classList.contains('lunch-cell')) {
-                    return;
+            .then(async response => {
+                clearTimeout(timeoutId);
+                
+                // Get response text first to handle both JSON and non-JSON responses
+                const responseText = await response.text();
+                let data;
+                
+                try {
+                    // Try to parse as JSON
+                    data = JSON.parse(responseText);
+                } catch (parseError) {
+                    // Not JSON - check if it's an error response
+                    if (!response.ok) {
+                        // Try to extract error message from HTML/text
+                        let errorMsg = responseText.substring(0, 500);
+                        // Remove HTML tags if present
+                        errorMsg = errorMsg.replace(/<[^>]*>/g, '').trim();
+                        if (!errorMsg) {
+                            errorMsg = `Server error (${response.status} ${response.statusText})`;
+                        }
+                        throw new Error(errorMsg);
+                    } else {
+                        // Success but not JSON - create structured response
+                        data = {
+                            message: responseText.substring(0, 200) || 'Save completed',
+                            success: true
+                        };
+                    }
                 }
                 
-                const key = getSlotKey(cell);
-                const item = state.routine[key];
+                // Check response status after parsing
+                if (!response.ok) {
+                    // Check if it's a retryable error
+                    const isRetryable = response.status >= 500 || response.status === 408 || response.status === 429;
+                    if (isRetryable && retryCount < maxRetries) {
+                        throw new Error('RETRYABLE_ERROR: ' + (data.message || 'Server error'));
+                    }
+                    throw new Error(data.message || `Save failed with status ${response.status}`);
+                }
+                
+                return data;
+        })
+        .then(data => {
+                btnSave.disabled = false;
+                btnSave.classList.remove('loading');
+                btnSave.innerHTML = originalText;
+                
+                // Clear auto-save and unsaved changes flag after successful save
+                localStorage.removeItem('routine_autosave');
+                RoutineManager.state.hasUnsavedChanges = false;
+                
+                // Show success message with details
+                const successMsg = document.createElement('div');
+                successMsg.style.cssText = 'position: fixed; top: 80px; right: 20px; background: var(--success); color: white; padding: 12px 20px; border-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 3000; max-width: 400px;';
+                let message = data.message || 'Routine saved successfully!';
+                if (data.entries_saved !== undefined) {
+                    message += ` (${data.entries_saved} entries)`;
+                }
+                if (data.errors && data.errors.length > 0) {
+                    message += `\n${data.errors.length} entries had errors.`;
+                }
+                successMsg.textContent = message;
+                document.body.appendChild(successMsg);
+                setTimeout(() => {
+                    successMsg.style.opacity = '0';
+                    setTimeout(() => successMsg.remove(), 300);
+                }, 3000);
+        })
+        .catch(error => {
+                clearTimeout(timeoutId);
+                console.error('Error saving routine:', error);
+                
+                // Check if retryable
+                const isRetryable = error.message.includes('RETRYABLE_ERROR') || 
+                                 error.name === 'AbortError' ||
+                                 error.message.includes('network') ||
+                                 error.message.includes('timeout') ||
+                                 error.message.includes('Failed to fetch');
+                
+                if (isRetryable && retryCount < maxRetries) {
+                    retryCount++;
+                    // Wait before retrying (exponential backoff)
+                    const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 5000);
+                    setTimeout(() => attemptSave(), delay);
+            return;
+        }
+        
+                // Final failure
+                btnSave.disabled = false;
+                btnSave.classList.remove('loading');
+                btnSave.innerHTML = originalText;
+                
+                // Show error message with retry option
+                const errorMsg = document.createElement('div');
+                errorMsg.style.cssText = 'position: fixed; top: 80px; right: 20px; background: var(--error); color: white; padding: 12px 20px; border-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 3000; max-width: 400px;';
+                
+                let errorText = 'Error: ' + error.message;
+                if (retryCount >= maxRetries) {
+                    errorText += '\n\nAll retry attempts failed.';
+                }
+                
+                errorMsg.innerHTML = errorText.replace(/\n/g, '<br>') + 
+                    '<br><br><button style="background: white; color: var(--error); border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 600; margin-top: 8px;" onclick="RoutineManager.saveRoutine()">Try Again</button>';
+                
+                document.body.appendChild(errorMsg);
+                setTimeout(() => {
+                    errorMsg.style.opacity = '0';
+                    setTimeout(() => errorMsg.remove(), 5000);
+                }, 5000);
+            });
+        };
+
+        // Start first attempt
+        attemptSave();
+    },
+    
+    // Download PDF
+    downloadPDF: function() {
+        // Re-cache slot cells
+        this.elements.slotCells = document.querySelectorAll('.slot-cell');
+
+        const title = this.elements.routineTitle.value || 'Class Routine';
+        const date = this.elements.effectiveDate.value || '';
+        const currentTimeSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+            
+            const routineData = [];
+        this.elements.slotCells.forEach(cell => {
+            if (cell.classList.contains('lunch-cell')) return;
+
+            const key = this.getSlotKey(cell);
+            const item = this.state.routine[key];
                 if (item) {
-                    // Use the current slot time (which may have been edited)
-                    const currentSlot = cell.dataset.slot || cell.dataset.currentTime;
                     routineData.push({
                         day: cell.dataset.day,
-                        slot: currentSlot,
+                    slot: cell.dataset.slot,
                         room_id: parseInt(cell.dataset.room),
                         course_code: item.courseCode,
-                        teacher_short_name: item.teacherShort
+                    teacher_short_name: item.teacherShort,
+                    batch: item.batch || '',
+                    color_code: item.colorCode || ''
                     });
                 }
             });
             
-            // Send time slots to backend
             const params = new URLSearchParams({
                 title: title,
                 date: date
             });
-            currentTimeSlots.forEach((slot, index) => {
+        if (this.config.savedRoutineId) {
+            params.append('saved_routine_id', this.config.savedRoutineId);
+        }
+        currentTimeSlots.forEach(slot => {
                 params.append('time_slots', slot);
             });
             
-            // Show loading indicator
-            const btnPdf = document.getElementById('btn-pdf');
-            const originalText = btnPdf ? btnPdf.innerHTML : '';
-            if (btnPdf) {
+        const btnPdf = this.elements.btnPdf;
+        const originalText = btnPdf.innerHTML;
                 btnPdf.disabled = true;
-                btnPdf.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Generating...';
-            }
-            
-            const url = '/routine-management/download_pdf?' + params.toString();
-            console.log('PDF Request URL:', url);
-            console.log('PDF Request Data:', routineData);
-            
-            fetch(url, {
+        btnPdf.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+
+        fetch('/routine-management/download_pdf?' + params.toString(), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/pdf'
-                },
+            headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({routine: routineData})
             })
             .then(response => {
-                console.log('PDF Response Status:', response.status);
-                console.log('PDF Response Headers:', response.headers);
-                
                 if (!response.ok) {
-                    return response.text().then(text => {
-                        console.error('PDF Error Response:', text);
-                        throw new Error(`PDF generation failed (${response.status}): ${text.substring(0, 500)}`);
-                    });
-                }
-                
-                // Check if response is actually a PDF
-                const contentType = response.headers.get('content-type') || '';
-                console.log('PDF Content-Type:', contentType);
-                
-                if (contentType.includes('application/pdf')) {
+                throw new Error('PDF generation failed');
+            }
                     return response.blob();
-                } else {
-                    return response.text().then(text => {
-                        console.error('PDF Invalid Content-Type Response:', text);
-                        throw new Error(`Expected PDF but got: ${contentType}. Response: ${text.substring(0, 500)}`);
-                    });
-                }
             })
             .then(blob => {
-                console.log('PDF Blob Size:', blob.size);
-                if (blob.size === 0) {
-                    throw new Error('PDF file is empty');
-                }
-                
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -1689,42 +2871,292 @@
                     document.body.removeChild(a);
                     window.URL.revokeObjectURL(url);
                 }, 100);
-                
-                // Restore button
-                if (btnPdf) {
                     btnPdf.disabled = false;
                     btnPdf.innerHTML = originalText;
-                }
             })
             .catch(error => {
                 console.error('PDF Download Error:', error);
-                alert('Failed to generate PDF:\n' + error.message + '\n\nCheck browser console for details.');
-                
-                // Restore button
-                if (btnPdf) {
+            alert('Failed to generate PDF: ' + error.message);
                     btnPdf.disabled = false;
                     btnPdf.innerHTML = originalText;
+        });
+    },
+
+    // Show time slot manager
+    showTimeSlotManager: function() {
+        const modal = this.elements.timeSlotModal;
+        if (!modal) return;
+
+        // Load current time slots
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        
+        const list = document.getElementById('time-slots-list');
+        list.innerHTML = '';
+
+        currentSlots.forEach((slot, index) => {
+            const item = document.createElement('div');
+            item.className = 'course-card';
+            item.style.marginBottom = '8px';
+            item.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span>${slot}</span>
+                    <div style="display: flex; gap: 4px;">
+                        <button class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.moveTimeSlot(${index}, 'up')" ${index === 0 ? 'disabled' : ''}>
+                            <i class="fas fa-arrow-up"></i>
+                        </button>
+                        <button class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.moveTimeSlot(${index}, 'down')" ${index === currentSlots.length - 1 ? 'disabled' : ''}>
+                            <i class="fas fa-arrow-down"></i>
+                        </button>
+                        <button class="topbar-btn" style="padding: 4px 8px; background: var(--error); color: white;" onclick="RoutineManager.removeTimeSlot(${index})">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            list.appendChild(item);
+        });
+
+        modal.classList.add('active');
+    },
+
+    // Move time slot
+    moveTimeSlot: function(index, direction) {
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => ({ text: th.textContent.trim(), original: th.dataset.slot }));
+        
+        if (direction === 'up' && index > 0) {
+            [currentSlots[index], currentSlots[index - 1]] = [currentSlots[index - 1], currentSlots[index]];
+        } else if (direction === 'down' && index < currentSlots.length - 1) {
+            [currentSlots[index], currentSlots[index + 1]] = [currentSlots[index + 1], currentSlots[index]];
+        } else {
+            return;
+        }
+
+        this.updateTimeSlotsInTable(currentSlots.map(s => s.text));
+        this.showTimeSlotManager(); // Refresh modal
+    },
+
+    // Remove time slot
+    removeTimeSlot: function(index) {
+        if (!confirm('Remove this time slot? All courses in this slot will be removed.')) {
+            return;
+        }
+
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        
+        const slotToRemove = currentSlots[index];
+        currentSlots.splice(index, 1);
+
+        // Remove routine entries for this slot
+        Object.keys(this.state.routine).forEach(key => {
+            const [day, slot, room] = key.split('|');
+            if (slot === slotToRemove) {
+                const item = this.state.routine[key];
+                if (item && item.courseId) {
+                    this.state.placedCourses[item.courseId] = 
+                        Math.max(0, (this.state.placedCourses[item.courseId] || 0) - 1);
                 }
+                delete this.state.routine[key];
+            }
+        });
+
+        this.updateTimeSlotsInTable(currentSlots);
+        this.updateRoutineDisplay();
+        this.updateCourseCards();
+        this.updateProgress();
+        this.autoSave(); // Mark as changed
+        this.showTimeSlotManager(); // Refresh modal
+    },
+
+    // Update time slots in table
+    updateTimeSlotsInTable: function(newSlots) {
+        // Update headers
+        const headerRow = this.elements.routineTable.querySelector('thead tr');
+        const timeHeaders = headerRow.querySelectorAll('th.time-col');
+        timeHeaders.forEach(th => th.remove());
+
+        newSlots.forEach(slot => {
+            const th = document.createElement('th');
+            th.className = 'time-col';
+            th.dataset.slot = slot;
+            th.contentEditable = this.config.canEdit ? 'true' : 'false';
+            th.textContent = slot;
+            headerRow.appendChild(th);
+        });
+
+        // Update cells
+        const rows = this.elements.routineTbody.querySelectorAll('tr');
+        rows.forEach(row => {
+            const timeCells = row.querySelectorAll('td.slot-cell:not(.lunch-cell)');
+            timeCells.forEach(cell => cell.remove());
+
+            newSlots.forEach(slot => {
+                const td = document.createElement('td');
+                td.className = 'slot-cell';
+                if (slot.includes('Lunch') || slot.includes('01:00')) {
+                    td.classList.add('lunch-cell');
+                }
+                td.dataset.day = row.dataset.day;
+                td.dataset.room = row.dataset.room;
+                td.dataset.roomName = row.querySelector('.room-col')?.textContent.trim() || '';
+                td.dataset.slot = slot;
+                td.innerHTML = `<div class="slot-content">${slot.includes('Lunch') || slot.includes('01:00') ? '<strong>LUNCH</strong>' : '<span class="slot-empty">-</span>'}</div>`;
+                row.appendChild(td);
             });
-        } catch (error) {
-            console.error('PDF Download Exception:', error);
-            alert('Failed to generate PDF: ' + error.message);
+        });
+
+        // Re-cache and re-render
+        this.elements.slotCells = document.querySelectorAll('.slot-cell');
+        this.setupEditableHeaders();
+        this.setupDragAndDrop();
+        this.updateRoutineDisplay();
+    },
+
+    // Show custom entry modal
+    showCustomEntryModal: function() {
+        const modal = this.elements.customEntryModal;
+        if (!modal) return;
+
+        // Reset form
+        document.getElementById('custom-course-code').value = '';
+        document.getElementById('custom-teacher-select').value = '';
+        document.getElementById('custom-batch').value = '';
+        document.getElementById('custom-day').value = 'Sunday';
+        document.getElementById('custom-time-slot').value = '';
+        document.getElementById('custom-room').value = '';
+
+        modal.classList.add('active');
+    },
+
+    // Close modal
+    closeModal: function(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.classList.remove('active');
         }
     }
+};
+
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+    RoutineManager.init();
+});
+
+// Make RoutineManager available globally for onclick handlers
+window.RoutineManager = RoutineManager;
+
+// Custom entry modal save handler
+document.getElementById('custom-entry-modal-save')?.addEventListener('click', function() {
+    const courseCode = document.getElementById('custom-course-code').value.trim();
+    const day = document.getElementById('custom-day').value;
+    const timeSlot = document.getElementById('custom-time-slot').value;
+    const roomId = parseInt(document.getElementById('custom-room').value);
+    const teacherId = document.getElementById('custom-teacher-select').value;
+    const batch = document.getElementById('custom-batch').value.trim();
+
+    if (!courseCode || !day || !timeSlot || !roomId) {
+        alert('Please fill in all required fields');
+        return;
+    }
+
+    const cell = document.querySelector(`.slot-cell[data-day="${day}"][data-slot="${timeSlot}"][data-room="${roomId}"]`);
+    if (!cell) {
+        alert('Cell not found');
+        return;
+    }
+
+    if (cell.classList.contains('has-class')) {
+        alert('This slot is already occupied');
+        return;
+    }
+
+    const key = RoutineManager.getSlotKey(cell);
+    const teacherName = teacherId ? 
+        document.getElementById('custom-teacher-select').selectedOptions[0].textContent.split('(')[1]?.replace(')', '').trim() || '' : '';
+
+    RoutineManager.state.routine[key] = {
+        courseId: '',
+        courseCode: courseCode,
+        courseName: '',
+        teacherShort: teacherName,
+        teacherId: teacherId || '',
+        part: 'Full',
+        year: '',
+        term: '',
+        batch: batch,
+        colorCode: '',
+        isCustom: true
+    };
+
+    RoutineManager.renderSlot(cell);
+    RoutineManager.updateProgress();
+    RoutineManager.closeModal('custom-entry-modal');
+});
+
+// Time slot modal save handler
+document.getElementById('time-slot-modal-save')?.addEventListener('click', function() {
+    const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
+        .map(th => th.textContent.trim());
     
-    // Event listeners
-    const btnSave = document.getElementById('btn-save');
-    const btnClear = document.getElementById('btn-clear');
-    const btnExport = document.getElementById('btn-export');
-    const btnPdf = document.getElementById('btn-pdf');
+    if (!RoutineManager.config.savedRoutineId) {
+        alert('Please save the routine first before managing time slots');
+        return;
+    }
+
+    fetch('/routine-management/api/time-slots', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            saved_routine_id: RoutineManager.config.savedRoutineId,
+            time_slots: currentSlots
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.message) {
+            alert(data.message);
+            RoutineManager.closeModal('time-slot-modal');
+        }
+    })
+    .catch(error => {
+        console.error('Error saving time slots:', error);
+        alert('Error saving time slots');
+    });
+});
+
+// Time slot modal add handler
+document.getElementById('add-time-slot-btn')?.addEventListener('click', function() {
+    const input = document.getElementById('new-time-slot-input');
+    const value = input.value.trim();
+    if (!value) {
+        alert('Please enter a time slot');
+        return;
+    }
+
+    const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
+        .map(th => th.textContent.trim());
     
-    if (btnSave) btnSave.addEventListener('click', saveRoutine);
-    if (btnClear) btnClear.addEventListener('click', clearRoutine);
-    if (btnExport) btnExport.addEventListener('click', exportRoutine);
-    if (btnPdf) btnPdf.addEventListener('click', downloadPDF);
-    
-})();
+    if (currentSlots.includes(value)) {
+        alert('This time slot already exists');
+        return;
+    }
+
+    currentSlots.push(value);
+    RoutineManager.updateTimeSlotsInTable(currentSlots);
+    input.value = '';
+    RoutineManager.showTimeSlotManager(); // Refresh modal
+});
+
+// Time slot input enter key
+document.getElementById('new-time-slot-input')?.addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        document.getElementById('add-time-slot-btn').click();
+    }
+});
 </script>
+
 {% if is_student %}
 </div>
 {% endif %}

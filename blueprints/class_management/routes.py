@@ -676,6 +676,7 @@ def index():
     
     # Update sessions with academic_session and batch from CourseSessionAssignment if available
     # Also sync all assignments with curriculum year-term config if missing
+    # IMPORTANT: Do this BEFORE auto-creating sessions so assignments have correct academic_session
     if CourseSessionAssignment and Curriculum and CurriculumYearTerm:
         try:
             # First, update all assignments that are missing batch/academic_session from curriculum year-term config
@@ -731,39 +732,137 @@ def index():
             current_app.logger.error(f'Error updating sessions from CourseSessionAssignment: {str(e)}', exc_info=True)
             db.session.rollback()
     
-    # Now apply active semester filtering AFTER updating academic_session
-    # Re-query to get updated sessions
+    # Auto-create missing Sessions from CourseSessionAssignment
+    # This ensures all assigned courses appear in Class Management
+    # IMPORTANT: Do this AFTER updating assignments with academic_session from curriculum config
+    if CourseSessionAssignment and Course:
+        try:
+            # Find all assignments for this teacher that don't have sessions yet
+            missing_assignments = CourseSessionAssignment.query.filter_by(
+                teacher_id=teacher.id
+            ).filter(
+                or_(
+                    CourseSessionAssignment.session_created == False,
+                    CourseSessionAssignment.session_id.is_(None)
+                )
+            ).all()
+            
+            current_app.logger.info(f'[DEBUG] Teacher {teacher.id} ({teacher.name}): Found {len(missing_assignments)} assignments without sessions')
+            
+            # Log assignment details for debugging
+            for idx, assignment in enumerate(missing_assignments, 1):
+                course = Course.query.get(assignment.course_id) if assignment.course_id else None
+                course_code = course.course_code if course else f'course_id={assignment.course_id}'
+                current_app.logger.info(f'[DEBUG] Missing assignment #{idx}: ID={assignment.id}, Course={course_code}, Year={assignment.year}, Term={assignment.term}, AcademicSession={assignment.academic_session}, Batch={assignment.batch}, Section={assignment.section}')
+            
+            created_count = 0
+            for assignment in missing_assignments:
+                try:
+                    # Get course details
+                    course = Course.query.get(assignment.course_id)
+                    if not course:
+                        current_app.logger.warning(f'Course {assignment.course_id} not found for assignment {assignment.id}')
+                        continue
+                    
+                    # Determine course_scope based on section
+                    if assignment.section == 'A':
+                        course_scope = SCOPE_PART_A
+                    elif assignment.section == 'B':
+                        course_scope = SCOPE_PART_B
+                    else:
+                        course_scope = SCOPE_FULL
+                    
+                    # Check if a session with similar parameters already exists
+                    existing_session = Session.query.filter_by(
+                        course_code=course.course_code,
+                        teacher_id=teacher.id,
+                        year=assignment.year,
+                        term=assignment.term,
+                        archived=False
+                    ).first()
+                    
+                    if existing_session:
+                        # Link the assignment to the existing session
+                        assignment.session_id = existing_session.id
+                        assignment.session_created = True
+                        current_app.logger.info(f'Linked assignment {assignment.id} to existing session {existing_session.id}')
+                    else:
+                        # Create new Session with academic_session from assignment
+                        session_obj = Session(
+                            year=assignment.year,
+                            term=assignment.term,
+                            academic_session=assignment.academic_session,  # Use assignment's academic_session (should be set by now)
+                            course_code=course.course_code,
+                            course_name=course.course_name,
+                            teacher_id=teacher.id,
+                            course_type=course.course_type.lower() if course.course_type else 'theory',
+                            category=course.category if course.category else 'ug',
+                            course_scope=course_scope
+                        )
+                        db.session.add(session_obj)
+                        db.session.flush()  # Get session ID
+                        
+                        # Link assignment to session
+                        assignment.session_id = session_obj.id
+                        assignment.session_created = True
+                        
+                        created_count += 1
+                        current_app.logger.info(f'Auto-created session {session_obj.id} from assignment {assignment.id} for course {course.course_code} (academic_session: {assignment.academic_session})')
+                
+                except Exception as create_error:
+                    current_app.logger.error(f'Error auto-creating session for assignment {assignment.id}: {create_error}', exc_info=True)
+                    continue
+            
+            if created_count > 0:
+                db.session.commit()
+                current_app.logger.info(f'[DEBUG] Auto-created {created_count} sessions from CourseSessionAssignment for teacher {teacher.id}')
+            else:
+                current_app.logger.info(f'[DEBUG] No new sessions created for teacher {teacher.id} (all assignments already have sessions or no valid assignments)')
+        except Exception as e:
+            current_app.logger.error(f'[DEBUG] Error auto-creating sessions from CourseSessionAssignment: {str(e)}', exc_info=True)
+            db.session.rollback()
+    
+    # Now apply active semester filtering AFTER updating academic_session and creating sessions
+    # Re-query to get updated sessions including newly created ones
     query = Session.query.filter_by(
         teacher_id=teacher.id,
         archived=False
     )
     
+    # Log sessions before filtering
+    sessions_before_filter = query.all()
+    current_app.logger.info(f'[DEBUG] Teacher {teacher.id}: Found {len(sessions_before_filter)} sessions BEFORE active semester filtering')
+    for s in sessions_before_filter:
+        current_app.logger.info(f'[DEBUG] Session before filter: ID={s.id}, Course={s.course_code} ({s.course_name}), Year={s.year}, Term={s.term}, AcademicSession={s.academic_session}')
+    
     # Apply active semester filtering (if not admin and filter function available)
     if filter_by_active_semester and not is_admin(current_user):
         try:
-            # Get batch from CourseSessionAssignment for the teacher's sessions if available
+            # Don't filter by batch - get ALL active semesters
+            # This ensures courses from all active semesters are shown, not just from a specific batch
             batch = None
-            if CourseSessionAssignment:
-                try:
-                    # Try to get batch from any recent assignment for this teacher
-                    recent_assignment = CourseSessionAssignment.query.filter_by(
-                        teacher_id=teacher.id
-                    ).order_by(CourseSessionAssignment.created_at.desc()).first()
-                    if recent_assignment and recent_assignment.batch:
-                        batch = recent_assignment.batch
-                except Exception:
-                    pass
             
-            # Apply active semester filter
-            query = filter_by_active_semester(query, Session, batch=batch, admin_override=False)
-            current_app.logger.info(f'Applied active semester filtering for teacher {teacher.id}. Batch parameter: {batch}')
+            # Log active semester configuration
+            try:
+                from utils.semester_utils import get_active_semesters
+                active_semesters = get_active_semesters(batch=None)  # Get ALL active semesters
+                active_sem_info = [f"{s.academic_session}-{s.year}-{s.term}-{s.batch or 'ALL'}" for s in active_semesters]
+                current_app.logger.info(f'[DEBUG] Active semesters for filtering (all batches): {active_sem_info}')
+            except Exception as sem_error:
+                current_app.logger.warning(f'[DEBUG] Error getting active semesters: {sem_error}')
+            
+            # Apply active semester filter (batch=None to get all active semesters)
+            query = filter_by_active_semester(query, Session, batch=None, admin_override=False)
+            current_app.logger.info(f'[DEBUG] Applied active semester filtering for teacher {teacher.id} (using all active semesters)')
         except Exception as filter_error:
-            current_app.logger.error(f'Error applying active semester filter: {filter_error}', exc_info=True)
+            current_app.logger.error(f'[DEBUG] Error applying active semester filter: {filter_error}', exc_info=True)
             # Don't fail the request, but log the error
     
     sessions = query.order_by(Session.created_at.desc()).all()
 
-    current_app.logger.info(f'Loading index for teacher {teacher.id} ({teacher.name}). Found {len(sessions)} sessions after filtering.')
+    current_app.logger.info(f'[DEBUG] Teacher {teacher.id} ({teacher.name}): Found {len(sessions)} sessions AFTER filtering (was {len(sessions_before_filter)} before filtering)')
+    for s in sessions:
+        current_app.logger.info(f'[DEBUG] Session after filter: ID={s.id}, Course={s.course_code} ({s.course_name}), Year={s.year}, Term={s.term}, AcademicSession={s.academic_session}')
     for s in sessions:
         current_app.logger.debug(f'Session: ID={s.id}, Name={s.course_name}, Session={s.academic_session}, Year={s.year}, Term={s.term}, Archived={s.archived}, Teacher={s.teacher_id}')
 

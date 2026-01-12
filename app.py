@@ -826,6 +826,17 @@ def create_app():
             else:
                 # Check for exam committee chief assignment only if session/year/term are provided
                 if academic_session or year or term:
+                    # First check if semester is active
+                    try:
+                        from utils.semester_utils import is_semester_active
+                        semester_session = academic_session or batch
+                        if not is_semester_active(semester_session, year, term, batch=batch):
+                            flash('This semester is not active. Please activate it in Active Semester Management first.', 'danger')
+                            return redirect(url_for('exam_evaluation'))
+                    except Exception as e:
+                        current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
+                        # Continue with chief check if error
+                    
                     chief_exists = DutyAssignment.query.filter_by(
                         duty_type='exam_committee_chief',
                         academic_session=academic_session or batch or '',
@@ -894,11 +905,26 @@ def create_app():
         scrutiny_invites_map = {}
         if current_teacher:
             owned_ids = {entry.id for entry in entries}
-            scrutiny_entries = ExamPaperEvaluation.query.filter(
+            base_scrutiny_query = ExamPaperEvaluation.query.filter(
                 ExamPaperEvaluation.archived.is_(False),
                 ExamPaperEvaluation.assigned_scrutinizer_id == current_teacher.id,
                 ExamPaperEvaluation.submitted_to_committee.is_(True)
-            ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+            )
+            
+            # Apply active semester filtering
+            try:
+                from utils.semester_utils import filter_by_active_semester
+                if filter_by_active_semester and not is_admin(current_user):
+                    base_scrutiny_query = filter_by_active_semester(
+                        base_scrutiny_query, 
+                        ExamPaperEvaluation, 
+                        batch=None, 
+                        admin_override=False
+                    )
+            except ImportError:
+                pass
+            
+            scrutiny_entries = base_scrutiny_query.order_by(ExamPaperEvaluation.created_at.desc()).all()
             scrutiny_entries = [entry for entry in scrutiny_entries if entry.id not in owned_ids]
             
             # Get invite information for each scrutiny entry to check completion status
@@ -952,27 +978,58 @@ def create_app():
         curriculum_configs_json = '{}'
         try:
             from blueprints.course_management.models import Curriculum, CurriculumYearTerm
-            curricula = Curriculum.query.order_by(Curriculum.created_at.desc()).all()
-            for curriculum in curricula:
-                configs_query = curriculum.year_term_configs.order_by(
-                    CurriculumYearTerm.year.asc(),
-                    CurriculumYearTerm.term.asc()
-                )
-                configs = []
-                for config in configs_query.all():
-                    configs.append({
-                        'curriculum_id': curriculum.id,
-                        'year': config.year,
-                        'term': config.term,
-                        'batch': config.batch,
-                        'academic_session': config.academic_session
-                    })
-                    if config.academic_session:
-                        available_sessions.add(config.academic_session)
-                if configs:
-                    curriculum_configs[curriculum.id] = configs
-            curriculum_configs_json = json.dumps(curriculum_configs)
-        except Exception:
+            from utils.semester_utils import get_active_semesters
+            
+            # Get active semesters first
+            active_semesters = get_active_semesters(batch=None)
+            
+            if not active_semesters:
+                # No active semester - return empty curricula
+                curricula = []
+                curriculum_configs_json = '{}'
+                available_sessions = []
+            else:
+                # Load all curricula
+                all_curricula = Curriculum.query.order_by(Curriculum.created_at.desc()).all()
+                
+                # Filter curricula to only include those with active semester configs
+                for curriculum in all_curricula:
+                    configs_query = curriculum.year_term_configs.order_by(
+                        CurriculumYearTerm.year.asc(),
+                        CurriculumYearTerm.term.asc()
+                    )
+                    configs = []
+                    for config in configs_query.all():
+                        # Check if this config matches any active semester
+                        matches_active = False
+                        for sem in active_semesters:
+                            if (config.academic_session == sem.academic_session and
+                                config.year == sem.year and
+                                config.term == sem.term):
+                                # Check batch match: active sem batch None means all batches, or exact match
+                                if sem.batch is None or config.batch == sem.batch:
+                                    matches_active = True
+                                    break
+                        
+                        if matches_active:
+                            configs.append({
+                                'curriculum_id': curriculum.id,
+                                'year': config.year,
+                                'term': config.term,
+                                'batch': config.batch,
+                                'academic_session': config.academic_session
+                            })
+                            if config.academic_session:
+                                available_sessions.add(config.academic_session)
+                    
+                    # Only add curriculum if it has at least one active semester config
+                    if configs:
+                        curricula.append(curriculum)
+                        curriculum_configs[curriculum.id] = configs
+                
+                curriculum_configs_json = json.dumps(curriculum_configs)
+        except Exception as e:
+            current_app.logger.error(f'Error loading curricula: {e}', exc_info=True)
             curricula = []
             curriculum_configs_json = '{}'
         available_sessions = sorted(available_sessions)
@@ -3957,6 +4014,24 @@ def create_app():
             DutyAssignment.duty_type.in_(visible_duty_types)
         ).order_by(DutyAssignment.created_at.desc()).all()
         
+        # Filter by active semester for exam_committee_chief assignments
+        try:
+            from utils.semester_utils import is_semester_active
+            filtered_assignments = []
+            for assignment in assignments:
+                if assignment.duty_type == 'exam_committee_chief':
+                    # Check if semester is active
+                    if assignment.academic_session and assignment.year and assignment.term:
+                        if is_semester_active(assignment.academic_session, assignment.year, assignment.term, batch=assignment.batch):
+                            filtered_assignments.append(assignment)
+                    # If no semester info, exclude it
+                else:
+                    # Not exam_committee_chief, include it
+                    filtered_assignments.append(assignment)
+            assignments = filtered_assignments
+        except ImportError:
+            pass
+        
         # Get distinct academic sessions from curriculum year/term configuration
         academic_sessions = []
         try:
@@ -4237,6 +4312,18 @@ def create_app():
                 missing.append('Term')
             if missing:
                 return jsonify({'success': False, 'message': f'Exam Committee Chief assignment requires: {", ".join(missing)}'}), 400
+            
+            # Check if semester is active
+            try:
+                from utils.semester_utils import is_semester_active
+                if not is_semester_active(academic_session, year, term, batch=batch):
+                    return jsonify({
+                        'success': False, 
+                        'message': 'This semester is not active. Please activate it in Active Semester Management first.'
+                    }), 400
+            except Exception as e:
+                current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
+                # Continue anyway - don't block if there's an error
         
         try:
             # Non-scrutinizer duties
@@ -4924,25 +5011,54 @@ def create_app():
         
         available_entries = []
         if chief_assignment_details and current_session and current_year and current_term:
-            submitted_entries = ExamPaperEvaluation.query.filter(
-                ExamPaperEvaluation.archived.is_(False),
-                ExamPaperEvaluation.submitted_to_committee.is_(True),
-                ExamPaperEvaluation.academic_session == current_session,
-                ExamPaperEvaluation.year == current_year,
-                ExamPaperEvaluation.term == current_term,
-                ExamPaperEvaluation.assigned_scrutinizer_id.is_(None)  # Only show entries without assigned scrutinizer
-            ).order_by(ExamPaperEvaluation.created_at.desc()).all()
-            for entry in submitted_entries:
-                owner_name = entry.owner_teacher.name if entry.owner_teacher else 'N/A'
-                section_label = entry.section or 'Full'
-                available_entries.append({
-                    'id': entry.id,
-                    'course_code': entry.course_code,
-                    'course_name': entry.course_name,
-                    'section': section_label,
-                    'owner': owner_name,
-                    'owner_teacher_id': entry.owner_teacher_id  # Include owner ID for filtering
-                })
+            # Check if semester is active before fetching entries
+            try:
+                from utils.semester_utils import is_semester_active
+                if not is_semester_active(current_session, current_year, current_term, batch=None):
+                    # Semester is inactive, skip fetching entries
+                    available_entries = []
+                else:
+                    submitted_entries = ExamPaperEvaluation.query.filter(
+                        ExamPaperEvaluation.archived.is_(False),
+                        ExamPaperEvaluation.submitted_to_committee.is_(True),
+                        ExamPaperEvaluation.academic_session == current_session,
+                        ExamPaperEvaluation.year == current_year,
+                        ExamPaperEvaluation.term == current_term,
+                        ExamPaperEvaluation.assigned_scrutinizer_id.is_(None)  # Only show entries without assigned scrutinizer
+                    ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+                    for entry in submitted_entries:
+                        owner_name = entry.owner_teacher.name if entry.owner_teacher else 'N/A'
+                        section_label = entry.section or 'Full'
+                        available_entries.append({
+                            'id': entry.id,
+                            'course_code': entry.course_code,
+                            'course_name': entry.course_name,
+                            'section': section_label,
+                            'owner': owner_name,
+                            'owner_teacher_id': entry.owner_teacher_id  # Include owner ID for filtering
+                        })
+            except Exception as e:
+                current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
+                # Continue with fetching entries if error
+                submitted_entries = ExamPaperEvaluation.query.filter(
+                    ExamPaperEvaluation.archived.is_(False),
+                    ExamPaperEvaluation.submitted_to_committee.is_(True),
+                    ExamPaperEvaluation.academic_session == current_session,
+                    ExamPaperEvaluation.year == current_year,
+                    ExamPaperEvaluation.term == current_term,
+                    ExamPaperEvaluation.assigned_scrutinizer_id.is_(None)  # Only show entries without assigned scrutinizer
+                ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+                for entry in submitted_entries:
+                    owner_name = entry.owner_teacher.name if entry.owner_teacher else 'N/A'
+                    section_label = entry.section or 'Full'
+                    available_entries.append({
+                        'id': entry.id,
+                        'course_code': entry.course_code,
+                        'course_name': entry.course_name,
+                        'section': section_label,
+                        'owner': owner_name,
+                        'owner_teacher_id': entry.owner_teacher_id  # Include owner ID for filtering
+                    })
         
         # Get saved committee members for current session/year/term
         saved_committee_members = {
@@ -5744,6 +5860,20 @@ def create_app():
         
         if not all([academic_session, year, term]):
             return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
+        
+        # Check if this semester is active
+        try:
+            from utils.semester_utils import is_semester_active
+            batch = request.args.get('batch', '').strip() or None
+            
+            if not is_semester_active(academic_session, year, term, batch=batch):
+                return jsonify({
+                    'success': False,
+                    'message': f'This semester ({academic_session} - {year} - {term}) is not active. Please activate it in Active Semester Management first.'
+                }), 400
+        except Exception as e:
+            current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
+            # Continue anyway - don't block if there's an error
         
         try:
             from blueprints.course_management.models import CurriculumYearTerm, Course
@@ -8272,6 +8402,20 @@ def create_app():
         
         if not academic_session or not year or not term:
             return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
+        
+        # Check if semester is active
+        try:
+            from utils.semester_utils import is_semester_active
+            if not is_semester_active(academic_session, year, term, batch=None):
+                # Semester is inactive, return empty committee
+                return jsonify({
+                    'success': True,
+                    'committee': [],
+                    'message': f'This semester ({academic_session} - {year} - {term}) is not active.'
+                })
+        except Exception as e:
+            current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
+            # Continue anyway
         
         examination_committee = []
         
