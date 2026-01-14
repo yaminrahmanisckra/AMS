@@ -3650,6 +3650,13 @@ const RoutineManager = {
     'use strict';
     // Force scrolling immediately - don't wait for DOMContentLoaded
     function forceScrolling() {
+        // Force html and body
+        document.documentElement.style.setProperty('overflow', 'auto', 'important');
+        document.documentElement.style.setProperty('height', 'auto', 'important');
+        document.body.style.setProperty('overflow', 'auto', 'important');
+        document.body.style.setProperty('height', 'auto', 'important');
+        document.body.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+        
         const routineApp = document.querySelector('.routine-app');
         const routineMain = document.querySelector('.routine-main');
         const routineTableArea = document.querySelector('.routine-table-area');
@@ -3661,15 +3668,18 @@ const RoutineManager = {
             routineApp.style.setProperty('height', 'auto', 'important');
             routineApp.style.setProperty('min-height', '100vh', 'important');
             routineApp.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+            routineApp.style.setProperty('position', 'relative', 'important');
         }
         
         if (routineMain) {
             routineMain.style.setProperty('overflow', 'visible', 'important');
             routineMain.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+            routineMain.style.setProperty('position', 'relative', 'important');
         }
         
         if (routineTableArea) {
             routineTableArea.style.setProperty('overflow', 'visible', 'important');
+            routineTableArea.style.setProperty('position', 'relative', 'important');
         }
         
         if (tableWrapper) {
@@ -3680,6 +3690,7 @@ const RoutineManager = {
             tableWrapper.style.setProperty('position', 'relative', 'important');
             tableWrapper.style.setProperty('width', '100%', 'important');
             tableWrapper.style.setProperty('height', 'auto', 'important');
+            tableWrapper.style.setProperty('max-height', 'none', 'important');
         }
         
         if (routineTable) {
@@ -3690,24 +3701,44 @@ const RoutineManager = {
         document.querySelectorAll('.slot-cell').forEach(cell => {
             cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
             cell.style.setProperty('pointer-events', 'auto', 'important');
+            cell.style.setProperty('user-select', 'none', 'important');
+            cell.style.setProperty('-webkit-user-select', 'none', 'important');
             cell.draggable = false;
+            // Remove all drag handlers
+            cell.ondragstart = null;
+            cell.ondragend = null;
+            cell.ondragover = null;
+            cell.ondrop = null;
         });
     }
     
-    // Run immediately
+    // Run immediately - even before DOM is ready
+    forceScrolling();
+    
+    // Run on DOMContentLoaded
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', forceScrolling);
     } else {
         forceScrolling();
     }
     
-    // Also run after a short delay to catch any late-loading elements
+    // Run multiple times to catch all cases
+    setTimeout(forceScrolling, 50);
     setTimeout(forceScrolling, 100);
+    setTimeout(forceScrolling, 300);
     setTimeout(forceScrolling, 500);
     setTimeout(forceScrolling, 1000);
     
-    // Run on resize
+    // Run on resize and orientation change
     window.addEventListener('resize', forceScrolling);
+    window.addEventListener('orientationchange', forceScrolling);
+    
+    // Run when window becomes visible (mobile browser tab switching)
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            setTimeout(forceScrolling, 100);
+        }
+    });
 })();
 {% endif %}
 
