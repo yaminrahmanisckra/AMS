@@ -96,13 +96,57 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr>
-                                    <td colspan="6" class="text-center text-muted py-4">
-                                        <i class="fas fa-folder-open fa-3x mb-3"></i>
-                                        <p class="mb-0">No files uploaded yet</p>
-                                        <small>Click "Upload File" to add course materials</small>
-                                    </td>
-                                </tr>
+                                {% if uploaded_files %}
+                                    {% for file in uploaded_files %}
+                                    <tr>
+                                        <td>{{ loop.index }}</td>
+                                        <td>
+                                            <i class="fas fa-file me-2 text-info"></i>
+                                            <strong>{{ file.file_name }}</strong>
+                                            {% if file.description %}
+                                                <br><small class="text-muted">{{ file.description }}</small>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-secondary">Other</span>
+                                        </td>
+                                        <td>
+                                            <small>{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else 'N/A' }}</small>
+                                        </td>
+                                        <td>
+                                            <small>
+                                                {% if file.file_size %}
+                                                    {% if file.file_size < 1024 %}
+                                                        {{ file.file_size }} B
+                                                    {% elif file.file_size < 1048576 %}
+                                                        {{ "%.2f"|format(file.file_size / 1024) }} KB
+                                                    {% else %}
+                                                        {{ "%.2f"|format(file.file_size / 1048576) }} MB
+                                                    {% endif %}
+                                                {% else %}
+                                                    N/A
+                                                {% endif %}
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <a href="{{ url_for('class_management.download_course_file', file_id=file.id) }}" class="btn btn-sm btn-outline-primary" title="Download">
+                                                <i class="fas fa-download"></i>
+                                            </a>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteFile({{ file.id }})" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="6" class="text-center text-muted py-4">
+                                            <i class="fas fa-folder-open fa-3x mb-3"></i>
+                                            <p class="mb-0">No files uploaded yet</p>
+                                            <small>Click "Upload File" to add course materials</small>
+                                        </td>
+                                    </tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -123,7 +167,7 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <form id="uploadFileForm" enctype="multipart/form-data">
+                <form id="uploadFileForm" action="{{ url_for('class_management.upload_course_file', session_id=session.id) }}" method="POST" enctype="multipart/form-data">
                     <div class="mb-3">
                         <label for="file_name" class="form-label">
                             <i class="fas fa-file me-2"></i>File Name <span class="text-danger">*</span>
@@ -167,5 +211,17 @@
         </div>
     </div>
 </div>
+
+<script>
+function deleteFile(fileId) {
+    if (confirm('Are you sure you want to delete this file? This action cannot be undone.')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("class_management.delete_course_file", file_id=0) }}'.replace('0', fileId);
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+</script>
 {% endblock %}
 

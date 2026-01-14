@@ -2559,10 +2559,15 @@ def course_file(session_id):
     # Get course data from curriculum if available
     course_data = find_course_from_curriculum(session.course_code, session.course_name)
     
+    # Get uploaded files for this session
+    from blueprints.class_management.models import CourseFileUpload
+    uploaded_files = CourseFileUpload.query.filter_by(session_id=session_id).order_by(CourseFileUpload.created_at.desc()).all()
+    
     return render_template('class_management/course_file.html', 
                          session=session, 
                          course_outline=course_outline,
-                         course_data=course_data)
+                         course_data=course_data,
+                         uploaded_files=uploaded_files)
 
 @class_management_bp.route('/course_file/<int:session_id>/save', methods=['POST'])
 @login_required
@@ -2725,6 +2730,170 @@ def save_course_outline(session_id):
         return jsonify({'success': True, 'message': 'Course outline saved successfully!'})
     flash('Course outline saved successfully!', 'success')
     return redirect(url_for('class_management.course_file', session_id=session_id))
+
+@class_management_bp.route('/course_file/<int:session_id>/upload', methods=['POST'])
+@login_required
+def upload_course_file(session_id):
+    """Upload course file"""
+    try:
+        import os
+        from werkzeug.utils import secure_filename
+        from blueprints.class_management.models import CourseFileUpload
+        
+        session = Session.query.get_or_404(session_id)
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        
+        if not teacher:
+            flash('Teacher not found.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=session_id))
+        
+        # Check authorization
+        if teacher.id != session.teacher_id:
+            flash('You are not authorized to upload files for this course.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=session_id))
+        
+        # Get form data
+        file_name = request.form.get('file_name', '').strip()
+        file_category = request.form.get('file_category', 'other')
+        description = request.form.get('description', '').strip()
+        
+        if not file_name:
+            flash('File name is required.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=session_id))
+        
+        # Get uploaded file
+        if 'file' not in request.files:
+            flash('No file selected.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=session_id))
+        
+        file = request.files['file']
+        if file.filename == '':
+            flash('No file selected.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=session_id))
+        
+        # Validate file extension
+        allowed_extensions = {'.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', 
+                            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in allowed_extensions:
+            flash(f'File type not allowed. Supported formats: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, images', 'error')
+            return redirect(url_for('class_management.course_file', session_id=session_id))
+        
+        # Create upload directory if it doesn't exist
+        upload_dir = os.path.join(UPLOAD_FOLDER, 'course_files', str(session_id))
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Generate secure filename
+        secure_name = secure_filename(file.filename)
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        filename = f"{timestamp}_{secure_name}"
+        file_path = os.path.join(upload_dir, filename)
+        
+        # Save file
+        file.save(file_path)
+        file_size = os.path.getsize(file_path)
+        
+        # Get file type (MIME type or extension)
+        file_type = file_ext[1:] if file_ext else 'unknown'
+        
+        # Create CourseFileUpload record
+        uploaded_file = CourseFileUpload(
+            session_id=session_id,
+            teacher_id=teacher.id,
+            file_name=file_name,
+            file_path=file_path,
+            file_size=file_size,
+            file_type=file_type,
+            description=description,
+            student_access_enabled=True
+        )
+        
+        db.session.add(uploaded_file)
+        db.session.commit()
+        
+        current_app.logger.info(f"Course file uploaded successfully: {file_name} for session {session_id}")
+        flash(f'File "{file_name}" uploaded successfully!', 'success')
+        return redirect(url_for('class_management.course_file', session_id=session_id))
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error uploading course file for session {session_id}: {e}", exc_info=True)
+        flash(f'Error uploading file: {str(e)}', 'error')
+        return redirect(url_for('class_management.course_file', session_id=session_id))
+
+@class_management_bp.route('/course_file/<int:file_id>/download')
+@login_required
+def download_course_file(file_id):
+    """Download course file"""
+    try:
+        import os
+        from flask import send_file
+        from blueprints.class_management.models import CourseFileUpload
+        
+        uploaded_file = CourseFileUpload.query.get_or_404(file_id)
+        session = Session.query.get_or_404(uploaded_file.session_id)
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        
+        # Check authorization
+        if not teacher or teacher.id != session.teacher_id:
+            flash('You are not authorized to download this file.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
+        
+        # Check if file exists
+        if not os.path.exists(uploaded_file.file_path):
+            flash('File not found.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
+        
+        return send_file(
+            uploaded_file.file_path,
+            as_attachment=True,
+            download_name=uploaded_file.file_name
+        )
+    except Exception as e:
+        current_app.logger.error(f"Error downloading course file {file_id}: {e}", exc_info=True)
+        flash(f'Error downloading file: {str(e)}', 'error')
+        if 'uploaded_file' in locals():
+            return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
+        return redirect(url_for('class_management.index'))
+
+@class_management_bp.route('/course_file/<int:file_id>/delete', methods=['POST'])
+@login_required
+def delete_course_file(file_id):
+    """Delete course file"""
+    try:
+        import os
+        from blueprints.class_management.models import CourseFileUpload
+        
+        uploaded_file = CourseFileUpload.query.get_or_404(file_id)
+        session = Session.query.get_or_404(uploaded_file.session_id)
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        
+        # Check authorization
+        if not teacher or teacher.id != session.teacher_id:
+            flash('You are not authorized to delete this file.', 'error')
+            return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
+        
+        # Delete file from filesystem
+        if os.path.exists(uploaded_file.file_path):
+            try:
+                os.remove(uploaded_file.file_path)
+            except Exception as e:
+                current_app.logger.warning(f"Could not delete file from filesystem: {e}")
+        
+        # Delete record from database
+        db.session.delete(uploaded_file)
+        db.session.commit()
+        
+        flash(f'File "{uploaded_file.file_name}" deleted successfully.', 'success')
+        return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting course file {file_id}: {e}", exc_info=True)
+        flash(f'Error deleting file: {str(e)}', 'error')
+        if 'uploaded_file' in locals():
+            return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
+        return redirect(url_for('class_management.index'))
 
 @class_management_bp.route('/course_file/<int:session_id>/outline/generate-ai', methods=['POST'])
 @login_required
