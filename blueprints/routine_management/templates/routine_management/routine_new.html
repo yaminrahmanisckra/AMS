@@ -3975,12 +3975,30 @@ document.addEventListener('DOMContentLoaded', function() {
     RoutineManager.cacheElements();
     RoutineManager.setupStickyHeaders();
     
+    // Setup PDF download button for non-editors
+    if (RoutineManager.elements.btnPdf) {
+        RoutineManager.elements.btnPdf.addEventListener('click', () => RoutineManager.downloadPDF());
+    }
+    
     // Load routine data
     if (RoutineManager.config.savedRoutineId) {
         console.log('Loading saved routine from database:', RoutineManager.config.savedRoutineId);
-        RoutineManager.loadSavedRoutine();
+        RoutineManager.loadSavedRoutine().then(() => {
+            // Ensure lunch column is displayed after loading
+            const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
+                .map(th => th.textContent.trim());
+            if (currentSlots.length > 0) {
+                RoutineManager.updateTimeSlotsInTable(currentSlots);
+            }
+        });
     } else {
         RoutineManager.loadAutoSave();
+        // Ensure lunch column is displayed
+        const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        if (currentSlots.length > 0) {
+            RoutineManager.updateTimeSlotsInTable(currentSlots);
+        }
     }
     
     // CRITICAL: Force scrolling after routine loads
