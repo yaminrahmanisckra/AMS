@@ -908,6 +908,13 @@ body.fullscreen-active .routine-table {
     justify-content: center;
     z-index: 2000;
     backdrop-filter: blur(4px);
+    /* Ensure modal doesn't block touch events when hidden */
+    pointer-events: none;
+}
+
+.modal-overlay.active {
+    display: flex;
+    pointer-events: auto;
 }
 
 
