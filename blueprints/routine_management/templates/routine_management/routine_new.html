@@ -1170,6 +1170,29 @@ body.fullscreen-active .routine-table {
 
 /* Simple table styles for non-editors */
 {% if not can_edit %}
+/* Fix for students with container wrapper */
+{% if is_student %}
+.container.my-4 {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    height: 100vh !important;
+    overflow: hidden !important;
+}
+
+.container.my-4 > .routine-app {
+    height: 100vh !important;
+    margin: 0 !important;
+}
+{% endif %}
+
+.routine-app {
+    {% if is_student %}
+    height: 100vh !important;
+    margin: 0 !important;
+    {% endif %}
+}
+
 .routine-table-area {
     padding: 16px !important;
     overflow: hidden !important;
@@ -1336,7 +1359,7 @@ body.fullscreen-active .routine-table {
                 <i class="fas fa-plus topbar-btn-icon"></i>
                         </button>
                         {% endif %}
-            <button class="topbar-btn" id="btn-pdf" onclick="(function(){ if(window.RoutineManager && window.RoutineManager.downloadPDF) { window.RoutineManager.downloadPDF(); } else { setTimeout(function(){ if(window.RoutineManager && window.RoutineManager.downloadPDF) { window.RoutineManager.downloadPDF(); } else { alert('Please wait for page to load completely'); } }, 500); } })();">
+            <button class="topbar-btn" id="btn-pdf" onclick="(function(){ console.log('PDF button clicked'); console.log('RoutineManager exists:', !!window.RoutineManager); if(window.RoutineManager && window.RoutineManager.downloadPDF) { console.log('Calling downloadPDF'); window.RoutineManager.downloadPDF(); } else { console.log('RoutineManager not ready, retrying...'); setTimeout(function(){ if(window.RoutineManager && window.RoutineManager.downloadPDF) { console.log('Retry: Calling downloadPDF'); window.RoutineManager.downloadPDF(); } else { console.error('RoutineManager still not ready'); alert('Please wait for page to load completely. If problem persists, refresh the page.'); } }, 1000); } })();">
                 <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
             <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
@@ -1642,6 +1665,14 @@ const RoutineManager = {
     
     // Initialize
     init: function() {
+        // Prevent double initialization
+        if (this._initialized) {
+            console.log('RoutineManager already initialized, skipping');
+            return;
+        }
+        this._initialized = true;
+        console.log('RoutineManager.init() starting');
+        
         this.cacheElements();
         this.setupEventListeners();
 
@@ -3686,10 +3717,31 @@ window.RoutineManager = RoutineManager;
 // Initialize on DOM ready - same for both editors and non-editors
 // (editors work fine on mobile, so non-editors should too)
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOMContentLoaded - Initializing RoutineManager');
+    console.log('RoutineManager exists:', !!window.RoutineManager);
     if (window.RoutineManager) {
-        window.RoutineManager.init();
+        try {
+            window.RoutineManager.init();
+            console.log('RoutineManager.init() completed');
+        } catch (error) {
+            console.error('Error initializing RoutineManager:', error);
+        }
+    } else {
+        console.error('RoutineManager not found!');
     }
 });
+
+// Also try to initialize after a short delay (for students with slower loading)
+setTimeout(function() {
+    if (window.RoutineManager && !window.RoutineManager._initialized) {
+        console.log('Delayed initialization for RoutineManager');
+        try {
+            window.RoutineManager.init();
+        } catch (error) {
+            console.error('Error in delayed initialization:', error);
+        }
+    }
+}, 1000);
 
 // Custom entry modal save handler
 document.getElementById('custom-entry-modal-save')?.addEventListener('click', function() {
