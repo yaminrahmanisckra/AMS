@@ -1759,6 +1759,31 @@ const RoutineManager = {
     // Setup responsive behavior
     setupResponsive: function() {
         const handleResize = () => {
+            // For non-editors: Always ensure scrolling works regardless of screen size
+            if (!this.config.canEdit) {
+                const routineApp = document.querySelector('.routine-app');
+                const routineMain = document.querySelector('.routine-main');
+                const routineTableArea = document.querySelector('.routine-table-area');
+                const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
+                
+                if (routineApp) {
+                    routineApp.style.overflow = 'auto';
+                    routineApp.style.webkitOverflowScrolling = 'touch';
+                }
+                if (routineMain) {
+                    routineMain.style.overflow = 'visible';
+                }
+                if (routineTableArea) {
+                    routineTableArea.style.overflow = 'visible';
+                }
+                if (tableWrapper) {
+                    tableWrapper.style.overflowX = 'auto';
+                    tableWrapper.style.overflowY = 'auto';
+                    tableWrapper.style.webkitOverflowScrolling = 'touch';
+                    tableWrapper.style.touchAction = 'pan-x pan-y';
+                }
+            }
+            
             if (window.innerWidth <= 1024) {
                 // Mobile/Tablet: Panel starts collapsed
                 if (this.elements.coursePanel && !this.elements.coursePanel.classList.contains('collapsed')) {
