@@ -3461,62 +3461,10 @@ const RoutineManager = {
     }
 };
 
-// Initialize on DOM ready
+// Initialize on DOM ready - same for both editors and non-editors
+// (editors work fine on mobile, so non-editors should too)
 document.addEventListener('DOMContentLoaded', function() {
-    {% if can_edit %}
-    // Full initialization for editors
     RoutineManager.init();
-    {% else %}
-    // MINIMAL initialization for non-editors - only what's absolutely necessary
-    console.log('Non-editor mode: Starting minimal initialization');
-    
-    // Step 1: Cache only essential elements
-    RoutineManager.elements = {
-        routineTable: document.getElementById('routine-table'),
-        routineTbody: document.querySelector('#routine-table tbody'),
-        btnPdf: document.getElementById('btn-pdf'),
-        slotCells: document.querySelectorAll('.slot-cell')
-    };
-    
-    // Step 2: Setup PDF download only
-    if (RoutineManager.elements.btnPdf) {
-        RoutineManager.elements.btnPdf.addEventListener('click', function() {
-            RoutineManager.downloadPDF();
-        });
-    }
-    
-    // Step 3: Load routine data if saved_routine_id exists
-    if (RoutineManager.config.savedRoutineId) {
-        fetch('/routine-management/api/saved-routines/' + RoutineManager.config.savedRoutineId)
-            .then(function(response) { return response.json(); })
-            .then(function(data) {
-                console.log('Loaded routine data for non-editor');
-                if (data.routine && Array.isArray(data.routine)) {
-                    // Simple render - just update cell contents
-                    data.routine.forEach(function(item) {
-                        var cell = document.querySelector('.slot-cell[data-day="' + item.day + '"][data-slot="' + item.slot + '"][data-room="' + item.room_id + '"]');
-                        if (cell) {
-                            var content = cell.querySelector('.slot-content');
-                            if (content) {
-                                var courseCode = item.course_code || item.custom_course_name || '';
-                                var teacherShort = item.teacher_short_name || '';
-                                content.innerHTML = '<div class="slot-course-code">' + courseCode + '</div><div class="slot-teacher">' + teacherShort + '</div>';
-                                cell.classList.add('has-class');
-                            }
-                        }
-                    });
-                }
-                
-                // Add lunch column simply
-                RoutineManager.addLunchColumnSimple();
-            })
-            .catch(function(err) {
-                console.error('Error loading routine:', err);
-            });
-    }
-    
-    console.log('Non-editor mode: Initialization complete');
-    {% endif %}
 });
 
 // Make RoutineManager available globally for onclick handlers
