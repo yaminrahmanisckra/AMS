@@ -153,6 +153,11 @@ body {
     cursor: pointer;
     transition: var(--transition);
     white-space: nowrap;
+    /* Ensure button is always clickable */
+    pointer-events: auto !important;
+    touch-action: manipulation !important;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .topbar-btn:hover {
@@ -174,6 +179,15 @@ body {
 
 .topbar-btn-icon {
     font-size: 16px;
+}
+
+/* Ensure PDF button is always clickable */
+#btn-pdf {
+    pointer-events: auto !important;
+    touch-action: manipulation !important;
+    cursor: pointer !important;
+    z-index: 1000 !important;
+    position: relative !important;
 }
 
 /* Progress Indicator */
@@ -1286,7 +1300,7 @@ body.fullscreen-active .routine-table {
                 <i class="fas fa-plus topbar-btn-icon"></i>
                         </button>
                         {% endif %}
-            <button class="topbar-btn" id="btn-pdf" type="button">
+            <button class="topbar-btn" id="btn-pdf" type="button" onclick="if(window.RoutineManager && window.RoutineManager.downloadPDF) { window.RoutineManager.downloadPDF(); } else { console.error('RoutineManager not ready'); alert('Please wait for page to load. If problem persists, refresh the page.'); }">
                 <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
             <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
@@ -1812,21 +1826,38 @@ const RoutineManager = {
             this.elements.btnSave.addEventListener('click', () => this.saveRoutine());
         }
         if (this.elements.btnPdf) {
+            // Remove any existing onclick to avoid conflicts
+            this.elements.btnPdf.onclick = null;
+            
             // Use both click and touchstart for better mobile support
             this.elements.btnPdf.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                console.log('PDF button clicked, RoutineManager ready:', !!this.downloadPDF);
                 if (this.downloadPDF) {
-                    this.downloadPDF();
+                    try {
+                        this.downloadPDF();
+                    } catch (error) {
+                        console.error('Error in downloadPDF:', error);
+                        alert('Error downloading PDF: ' + error.message);
+                    }
                 } else {
                     console.error('downloadPDF method not available');
                     alert('Please wait for page to load. If problem persists, refresh the page.');
                 }
-            });
+            }, { capture: true });
+            
             // Also handle touchstart for better mobile responsiveness
             this.elements.btnPdf.addEventListener('touchstart', (e) => {
                 e.stopPropagation();
             }, { passive: true });
+            
+            // Ensure button is clickable
+            this.elements.btnPdf.style.pointerEvents = 'auto';
+            this.elements.btnPdf.style.touchAction = 'manipulation';
+            this.elements.btnPdf.style.cursor = 'pointer';
+        } else {
+            console.warn('PDF button not found in elements');
         }
         if (this.elements.btnTimeSlots) {
             this.elements.btnTimeSlots.addEventListener('click', () => this.showTimeSlotManager());
