@@ -523,8 +523,7 @@ body {
 
 .routine-table-wrapper {
     flex: 1;
-    overflow-x: auto;
-    overflow-y: auto;
+    overflow: auto;
     position: relative;
     padding: 16px;
     /* Ensure proper scrolling context */
@@ -533,9 +532,6 @@ body {
     isolation: isolate;
     /* Ensure touch scrolling works on mobile */
     touch-action: pan-x pan-y;
-    /* Ensure scrollbar is visible */
-    min-height: 0;
-    width: 100%;
 }
 
 .routine-table {
@@ -589,7 +585,6 @@ body {
     left: 0;
     z-index: 103;
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
-    border-right: 1px solid rgba(255, 255, 255, 0.2);
     /* Corner cell - highest z-index */
 }
 
@@ -601,7 +596,6 @@ body {
     left: 100px;
     z-index: 102;
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
-    border-left: 1px solid var(--border-light);
 }
 
 .routine-table thead th.time-col {
@@ -635,7 +629,7 @@ body {
     position: sticky;
     left: 0;
     z-index: 50;
-    border-right: 1px solid rgba(255, 255, 255, 0.2);
+    border-right: 2px solid var(--primary-dark);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
     background-color: var(--primary) !important;
@@ -649,7 +643,6 @@ body {
     position: sticky;
     left: 100px;
     z-index: 49;
-    border-left: 1px solid var(--border-light);
     border-right: 2px solid var(--border);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
@@ -1104,38 +1097,9 @@ body.fullscreen-active .routine-table {
 }
 
 @media (max-width: 768px) {
-    /* CRITICAL: Enable scrolling for mobile devices */
-    .routine-app {
-        height: auto !important;
-        min-height: 100vh;
-        overflow: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-    }
-    
-    .routine-main {
-        display: block !important; /* Change from flex to block for better mobile scrolling */
-        overflow: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        height: auto !important;
-    }
-    
-    .routine-table-area {
-        overflow: visible !important;
-        width: 100% !important;
-    }
-    
-    .routine-table-wrapper {
-        overflow: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        touch-action: pan-x pan-y !important;
-        padding: 8px;
-        width: 100% !important;
-    }
-    
     .routine-topbar {
         padding: 8px 12px;
         flex-wrap: wrap;
-        position: relative !important;
     }
     
     .topbar-left {
@@ -1151,251 +1115,20 @@ body.fullscreen-active .routine-table {
         font-size: 12px;
     }
     
+    .routine-table-wrapper {
+        padding: 8px;
+    }
+    
     .routine-table {
         font-size: 11px;
-    }
-    
-    .routine-table thead {
-        position: relative !important;
-    }
-    
-    .routine-table thead th {
-        position: relative !important;
-    }
-    
-    .routine-table tbody td.day-col,
-    .routine-table tbody td.room-col {
-        position: relative !important;
     }
     
     .routine-table tbody td.slot-cell {
         min-height: 50px;
         height: 50px;
-        touch-action: pan-x pan-y !important;
-    }
-    
-    /* Mobile-friendly: Smaller columns */
-    .routine-table thead th.day-col,
-    .routine-table tbody td.day-col {
-        min-width: 70px !important;
-        width: 70px !important;
-        padding: 8px 4px !important;
-        font-size: 11px !important;
-        left: 0 !important;
-    }
-    
-    .routine-table thead th.room-col,
-    .routine-table tbody td.room-col {
-        min-width: 60px !important;
-        width: 60px !important;
-        padding: 8px 4px !important;
-        font-size: 10px !important;
-        left: 70px !important;
-    }
-    
-    .routine-table thead th.time-col {
-        min-width: 80px !important;
-        font-size: 9px !important;
-        padding: 6px 4px !important;
-    }
-    
-    .routine-table tbody td.slot-cell {
-        padding: 2px !important;
-        font-size: 9px !important;
-    }
-    
-    .routine-table tbody td.slot-cell .slot-course-code {
-        font-size: 9px !important;
-        line-height: 1.2 !important;
-    }
-    
-    .routine-table tbody td.slot-cell .slot-teacher {
-        font-size: 8px !important;
     }
 }
 
-/* Extra small mobile devices */
-@media (max-width: 480px) {
-    .routine-table thead th.day-col,
-    .routine-table tbody td.day-col {
-        min-width: 60px !important;
-        width: 60px !important;
-        padding: 6px 2px !important;
-        font-size: 10px !important;
-    }
-    
-    .routine-table thead th.room-col,
-    .routine-table tbody td.room-col {
-        min-width: 50px !important;
-        width: 50px !important;
-        padding: 6px 2px !important;
-        font-size: 9px !important;
-        left: 60px !important;
-    }
-    
-    .routine-table thead th.time-col {
-        min-width: 70px !important;
-        font-size: 8px !important;
-        padding: 4px 2px !important;
-    }
-    
-    .routine-table-wrapper {
-        padding: 4px !important;
-    }
-}
-
-/* Simple table styles for non-editors */
-{% if not can_edit %}
-/* Fix for students with container wrapper */
-{% if is_student %}
-.container.my-4 {
-    padding: 0 !important;
-    margin: 0 !important;
-    max-width: 100% !important;
-    height: 100vh !important;
-    overflow: hidden !important;
-}
-
-.container.my-4 > .routine-app {
-    height: 100vh !important;
-    margin: 0 !important;
-}
-{% endif %}
-
-.routine-app {
-    {% if is_student %}
-    height: 100vh !important;
-    margin: 0 !important;
-    {% endif %}
-}
-
-.routine-table-area {
-    padding: 16px !important;
-    overflow: hidden !important;
-    {% if is_student %}
-    height: calc(100vh - 200px) !important;
-    {% else %}
-    height: calc(100vh - 150px) !important;
-    {% endif %}
-    display: flex !important;
-    flex-direction: column !important;
-    position: relative !important;
-}
-
-.routine-table-wrapper {
-    overflow-x: auto !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    touch-action: pan-x pan-y !important;
-    flex: 1 !important;
-    min-height: 0 !important;
-    width: 100% !important;
-    position: relative !important;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-}
-
-.routine-table {
-    min-width: max-content !important;
-    width: 100% !important;
-    border-collapse: collapse !important;
-}
-
-.routine-table thead {
-    position: relative !important;
-    background: #f8f9fa !important;
-}
-
-.routine-table thead th,
-.routine-table tbody td {
-    position: relative !important;
-}
-
-/* Room column alignment fix - ensure header and cells align */
-.routine-table thead th.room-col,
-.routine-table tbody td.room-col {
-    min-width: 100px !important;
-    width: 100px !important;
-    max-width: 100px !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    padding: 8px !important;
-    text-align: center !important;
-}
-
-/* Day column */
-.routine-table thead th.day-col,
-.routine-table tbody td.day-col {
-    min-width: 80px !important;
-    width: 80px !important;
-    padding: 8px !important;
-    text-align: center !important;
-}
-
-.routine-table tbody td.slot-cell.has-class {
-    background: #e3f2fd !important;
-    font-weight: 500;
-}
-
-.routine-table tbody td.slot-cell .slot-course-code {
-    font-weight: 600;
-    color: #1976d2;
-    margin-bottom: 2px;
-}
-
-.routine-table tbody td.slot-cell .slot-teacher {
-    font-size: 10px;
-    color: #666;
-}
-{% endif %}
-
-/* CRITICAL: Mobile Landscape Fix - Disable sticky positioning to prevent freeze */
-@media (max-height: 500px) and (orientation: landscape) {
-    .routine-table thead {
-        position: relative !important;
-        will-change: auto !important;
-    }
-    
-    .routine-table thead th {
-        position: relative !important;
-    }
-    
-    .routine-table thead th.day-col,
-    .routine-table thead th.room-col {
-        position: relative !important;
-    }
-    
-    .routine-table tbody td.day-col,
-    .routine-table tbody td.room-col {
-        position: relative !important;
-    }
-    
-    .routine-topbar {
-        position: relative !important;
-    }
-    
-    /* Ensure scrolling works */
-    .routine-app {
-        height: auto !important;
-        min-height: 100vh;
-        overflow: auto !important;
-    }
-    
-    .routine-main {
-        overflow: auto !important;
-    }
-    
-    .routine-table-area {
-        overflow: auto !important;
-    }
-    
-    .routine-table-wrapper {
-        overflow: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-    }
-}
 
 /* ============================================
    UTILITIES
