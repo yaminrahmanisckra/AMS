@@ -1570,10 +1570,15 @@ const RoutineManager = {
     init: function() {
         this.cacheElements();
         this.setupEventListeners();
-        
+
+        // For non-editors: IMMEDIATELY force enable scrolling before anything else
+        if (!this.config.canEdit) {
+            this.forceEnableScrolling();
+        }
+
         // Setup responsive panel toggle
         this.setupResponsive();
-        
+
         // Setup sticky headers
         this.setupStickyHeaders();
         
@@ -1612,33 +1617,16 @@ const RoutineManager = {
 
         // For non-editors: Completely disable all drag functionality and ensure touch scrolling
         if (!this.config.canEdit) {
-            // Force enable scrolling on all containers
-            const routineApp = document.querySelector('.routine-app');
-            if (routineApp) {
-                routineApp.style.overflow = 'auto';
-                routineApp.style.webkitOverflowScrolling = 'touch';
-                routineApp.style.height = 'auto';
-                routineApp.style.minHeight = '100vh';
-            }
-            
-            const routineMain = document.querySelector('.routine-main');
-            if (routineMain) {
-                routineMain.style.overflow = 'visible';
-                routineMain.style.webkitOverflowScrolling = 'touch';
-            }
-            
-            const routineTableArea = document.querySelector('.routine-table-area');
-            if (routineTableArea) {
-                routineTableArea.style.overflow = 'visible';
-            }
+            // Use the centralized forceEnableScrolling function
+            this.forceEnableScrolling();
             
             // Disable draggable on all cells
             this.elements.slotCells.forEach(cell => {
                 cell.draggable = false;
-                cell.style.touchAction = 'pan-x pan-y';
-                cell.style.userSelect = 'none';
-                cell.style.webkitUserSelect = 'none';
-                cell.style.pointerEvents = 'auto';
+                cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                cell.style.setProperty('user-select', 'none', 'important');
+                cell.style.setProperty('-webkit-user-select', 'none', 'important');
+                cell.style.setProperty('pointer-events', 'auto', 'important');
                 // Remove all drag-related event handlers
                 cell.ondragstart = null;
                 cell.ondragend = null;
@@ -1648,27 +1636,13 @@ const RoutineManager = {
                 cell.ondragleave = null;
             });
             
-            // Ensure table wrapper allows scrolling - CRITICAL for mobile
+            // Remove all drag-related event handlers from wrapper
             const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
             if (tableWrapper) {
-                tableWrapper.style.touchAction = 'pan-x pan-y';
-                tableWrapper.style.overflowX = 'auto';
-                tableWrapper.style.overflowY = 'auto';
-                tableWrapper.style.webkitOverflowScrolling = 'touch';
-                tableWrapper.style.pointerEvents = 'auto';
-                tableWrapper.style.position = 'relative';
-                tableWrapper.style.width = '100%';
-                // Remove all drag-related event handlers from wrapper
                 tableWrapper.ondragover = null;
                 tableWrapper.ondrop = null;
                 tableWrapper.ondragenter = null;
                 tableWrapper.ondragleave = null;
-            }
-            
-            // Also ensure the table itself allows scrolling
-            if (this.elements.routineTable) {
-                this.elements.routineTable.style.touchAction = 'pan-x pan-y';
-                this.elements.routineTable.style.pointerEvents = 'auto';
             }
         }
 
@@ -1756,32 +1730,58 @@ const RoutineManager = {
         }
     },
 
+    // Force enable scrolling for non-editors (called immediately on init)
+    forceEnableScrolling: function() {
+        // Force all containers to allow scrolling
+        const routineApp = document.querySelector('.routine-app');
+        const routineMain = document.querySelector('.routine-main');
+        const routineTableArea = document.querySelector('.routine-table-area');
+        const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
+        const routineTable = this.elements.routineTable;
+        
+        if (routineApp) {
+            routineApp.style.setProperty('overflow', 'auto', 'important');
+            routineApp.style.setProperty('height', 'auto', 'important');
+            routineApp.style.setProperty('min-height', '100vh', 'important');
+            routineApp.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+        }
+        
+        if (routineMain) {
+            routineMain.style.setProperty('overflow', 'visible', 'important');
+            routineMain.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+        }
+        
+        if (routineTableArea) {
+            routineTableArea.style.setProperty('overflow', 'visible', 'important');
+        }
+        
+        if (tableWrapper) {
+            tableWrapper.style.setProperty('overflow-x', 'auto', 'important');
+            tableWrapper.style.setProperty('overflow-y', 'auto', 'important');
+            tableWrapper.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+            tableWrapper.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+            tableWrapper.style.setProperty('position', 'relative', 'important');
+            tableWrapper.style.setProperty('width', '100%', 'important');
+            tableWrapper.style.setProperty('height', 'auto', 'important');
+        }
+        
+        if (routineTable) {
+            routineTable.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+        }
+        
+        // Force all cells to allow touch scrolling
+        this.elements.slotCells.forEach(cell => {
+            cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+            cell.style.setProperty('pointer-events', 'auto', 'important');
+        });
+    },
+
     // Setup responsive behavior
     setupResponsive: function() {
         const handleResize = () => {
             // For non-editors: Always ensure scrolling works regardless of screen size
             if (!this.config.canEdit) {
-                const routineApp = document.querySelector('.routine-app');
-                const routineMain = document.querySelector('.routine-main');
-                const routineTableArea = document.querySelector('.routine-table-area');
-                const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
-                
-                if (routineApp) {
-                    routineApp.style.overflow = 'auto';
-                    routineApp.style.webkitOverflowScrolling = 'touch';
-                }
-                if (routineMain) {
-                    routineMain.style.overflow = 'visible';
-                }
-                if (routineTableArea) {
-                    routineTableArea.style.overflow = 'visible';
-                }
-                if (tableWrapper) {
-                    tableWrapper.style.overflowX = 'auto';
-                    tableWrapper.style.overflowY = 'auto';
-                    tableWrapper.style.webkitOverflowScrolling = 'touch';
-                    tableWrapper.style.touchAction = 'pan-x pan-y';
-                }
+                this.forceEnableScrolling();
             }
             
             if (window.innerWidth <= 1024) {
@@ -2454,26 +2454,8 @@ const RoutineManager = {
                 cell.ondrop = null;
             });
             
-            // Ensure table wrapper allows touch scrolling
-            const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
-            if (tableWrapper) {
-                // Remove any drag event interference
-                tableWrapper.ondragover = null;
-                tableWrapper.ondrop = null;
-                tableWrapper.ondragenter = null;
-                tableWrapper.ondragleave = null;
-                // Ensure touch scrolling works
-                tableWrapper.style.touchAction = 'pan-x pan-y';
-                tableWrapper.style.overflowX = 'auto';
-                tableWrapper.style.overflowY = 'auto';
-                tableWrapper.style.webkitOverflowScrolling = 'touch';
-            }
-            
-            // Also ensure all cells allow touch scrolling
-            this.elements.slotCells.forEach(cell => {
-                cell.style.touchAction = 'pan-x pan-y';
-                cell.style.pointerEvents = 'auto';
-            });
+            // Use centralized function to ensure scrolling
+            this.forceEnableScrolling();
         }
     },
 
@@ -2705,9 +2687,10 @@ const RoutineManager = {
             cell.draggable = false;
             // For non-editors: Ensure touch scrolling works
             if (!this.config.canEdit) {
-                cell.style.touchAction = 'pan-x pan-y';
-                cell.style.userSelect = 'none';
-                cell.style.webkitUserSelect = 'none';
+                cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                cell.style.setProperty('user-select', 'none', 'important');
+                cell.style.setProperty('-webkit-user-select', 'none', 'important');
+                cell.style.setProperty('pointer-events', 'auto', 'important');
             }
                 cell.style.backgroundColor = '';
             cell.style.borderLeft = '';
