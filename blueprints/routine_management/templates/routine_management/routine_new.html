@@ -104,11 +104,13 @@ body {
 .routine-app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
     {% if not can_edit %}
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
+    height: auto !important;
+    min-height: 100vh;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch !important;
     {% else %}
+    height: 100vh;
     overflow: hidden;
     {% endif %}
     background: var(--bg);
