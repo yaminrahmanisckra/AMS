@@ -1909,6 +1909,7 @@ const RoutineManager = {
 
     // Load batch courses
     loadBatchCourses: function(batch) {
+        if (!this.elements.coursesList) return;
         this.elements.coursesList.innerHTML = '<div class="course-list-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
         
         fetch(`/routine-management/api/courses/batch-wise?batch=${encodeURIComponent(batch)}`)
@@ -1941,11 +1942,12 @@ const RoutineManager = {
 
     // Display courses
     displayCourses: function(courses) {
+        if (!this.elements.coursesList) return;
         if (!courses || courses.length === 0) {
             this.elements.coursesList.innerHTML = '<div class="course-list-empty">No courses found</div>';
             return;
         }
-        
+
         this.elements.coursesList.innerHTML = '';
         
         courses.forEach(course => {
@@ -2045,6 +2047,7 @@ const RoutineManager = {
 
     // Filter courses by search query
     filterCourses: function() {
+        if (!this.elements.coursesList) return;
         const query = this.state.searchQuery;
         if (!query) {
             // Show all
@@ -2053,7 +2056,7 @@ const RoutineManager = {
             });
             return;
         }
-        
+
         this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
             const code = (card.dataset.courseCode || '').toLowerCase();
             const name = (card.dataset.courseName || '').toLowerCase();
@@ -2064,6 +2067,7 @@ const RoutineManager = {
 
     // Update course cards (remaining counts)
     updateCourseCards: function() {
+        if (!this.elements.coursesList) return;
         this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
             const courseId = card.dataset.courseId;
             const compositeKey = card.dataset.compositeKey;
@@ -2103,11 +2107,13 @@ const RoutineManager = {
 
     // Show empty state
     showEmptyState: function() {
+        if (!this.elements.coursesList) return;
         this.elements.coursesList.innerHTML = '<div class="course-list-empty">Select a filter to view courses</div>';
     },
 
     // Show error
     showError: function(message) {
+        if (!this.elements.coursesList) return;
         this.elements.coursesList.innerHTML = `<div class="course-list-empty" style="color: var(--error);">${message}</div>`;
     },
     
@@ -2116,6 +2122,17 @@ const RoutineManager = {
         // Prevent duplicate setup
         if (this._dragDropInitialized) return;
         this._dragDropInitialized = true;
+        
+        // Only setup drag and drop for editors
+        if (!this.config.canEdit) {
+            return;
+        }
+        
+        // Check if coursesList exists (only for editors)
+        if (!this.elements.coursesList) {
+            console.warn('coursesList element not found, skipping drag setup');
+            return;
+        }
         
         // Course card drag start
         this.elements.coursesList.addEventListener('dragstart', (e) => {
@@ -2581,18 +2598,28 @@ const RoutineManager = {
         let totalCourses = 0;
         let placedCourses = 0;
 
-        this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
-            const total = parseInt(card.dataset.classesPerWeek || 0);
-            if (total > 0) {
-                totalCourses += total;
-                const courseId = card.dataset.courseId;
-                const compositeKey = card.dataset.compositeKey;
-                // Check both courseId (new placements) and compositeKey (loaded routines)
-                const placedById = this.state.placedCourses[courseId] || 0;
-                const placedByKey = this.state.placedCourses[compositeKey] || 0;
-                placedCourses += (placedById + placedByKey);
-            }
-        });
+        if (this.elements.coursesList) {
+            this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
+                const total = parseInt(card.dataset.classesPerWeek || 0);
+                if (total > 0) {
+                    totalCourses += total;
+                    const courseId = card.dataset.courseId;
+                    const compositeKey = card.dataset.compositeKey;
+                    // Check both courseId (new placements) and compositeKey (loaded routines)
+                    const placedById = this.state.placedCourses[courseId] || 0;
+                    const placedByKey = this.state.placedCourses[compositeKey] || 0;
+                    placedCourses += (placedById + placedByKey);
+                }
+            });
+        } else {
+            // For non-editors: calculate from routine state instead
+            Object.values(this.state.routine).forEach(item => {
+                if (item && item.courseCode) {
+                    totalCourses++;
+                    placedCourses++;
+                }
+            });
+        }
 
         const percentage = totalCourses > 0 ? Math.round((placedCourses / totalCourses) * 100) : 0;
         
