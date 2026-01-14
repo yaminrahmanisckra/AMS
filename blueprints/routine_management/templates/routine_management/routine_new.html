@@ -3193,82 +3193,113 @@ const RoutineManager = {
     
     // Download PDF
     downloadPDF: function() {
+        console.log('=== PDF Download Started ===');
+        
         // Re-cache slot cells
         this.elements.slotCells = document.querySelectorAll('.slot-cell');
+        console.log('Slot cells found:', this.elements.slotCells.length);
 
-        const title = this.elements.routineTitle.value || 'Class Routine';
-        const date = this.elements.effectiveDate.value || '';
-        const currentTimeSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+        const title = this.elements.routineTitle?.value || 'Class Routine';
+        const date = this.elements.effectiveDate?.value || '';
+        console.log('Title:', title, 'Date:', date);
+        
+        const currentTimeSlots = Array.from(this.elements.routineTable?.querySelectorAll('thead th.time-col') || [])
             .map(th => th.textContent.trim());
+        console.log('Time slots:', currentTimeSlots);
+        
+        // Check state
+        console.log('Routine state entries:', Object.keys(this.state.routine || {}).length);
+        console.log('savedRoutineId:', this.config.savedRoutineId);
             
-            const routineData = [];
+        const routineData = [];
         this.elements.slotCells.forEach(cell => {
             if (cell.classList.contains('lunch-cell')) return;
 
             const key = this.getSlotKey(cell);
             const item = this.state.routine[key];
-                if (item) {
-                    routineData.push({
-                        day: cell.dataset.day,
+            if (item) {
+                routineData.push({
+                    day: cell.dataset.day,
                     slot: cell.dataset.slot,
-                        room_id: parseInt(cell.dataset.room),
-                        course_code: item.courseCode,
+                    room_id: parseInt(cell.dataset.room),
+                    course_code: item.courseCode,
                     teacher_short_name: item.teacherShort,
                     batch: item.batch || '',
                     color_code: item.colorCode || '',
                     is_custom: item.isCustom || false,
                     custom_course_name: item.isCustom ? item.courseCode : ''
-                    });
-                }
-            });
+                });
+            }
+        });
+        
+        console.log('Routine data collected:', routineData.length, 'entries');
             
-            const params = new URLSearchParams({
-                title: title,
-                date: date,
-                lunch_after_slot: this.state.lunchAfterSlotIndex
-            });
+        const params = new URLSearchParams({
+            title: title,
+            date: date,
+            lunch_after_slot: this.state.lunchAfterSlotIndex || 3
+        });
         if (this.config.savedRoutineId) {
             params.append('saved_routine_id', this.config.savedRoutineId);
         }
         currentTimeSlots.forEach(slot => {
-                params.append('time_slots', slot);
-            });
+            params.append('time_slots', slot);
+        });
             
-        const btnPdf = this.elements.btnPdf;
-        const originalText = btnPdf.innerHTML;
-                btnPdf.disabled = true;
-        btnPdf.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+        const btnPdf = this.elements.btnPdf || document.getElementById('btn-pdf');
+        const originalText = btnPdf ? btnPdf.innerHTML : '';
+        if (btnPdf) {
+            btnPdf.disabled = true;
+            btnPdf.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+        }
 
-        fetch('/routine-management/download_pdf?' + params.toString(), {
-                method: 'POST',
+        const url = '/routine-management/download_pdf?' + params.toString();
+        console.log('Fetching:', url);
+        console.log('Body:', JSON.stringify({routine: routineData}).substring(0, 500));
+
+        fetch(url, {
+            method: 'POST',
             headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({routine: routineData})
-            })
-            .then(response => {
-                if (!response.ok) {
-                throw new Error('PDF generation failed');
+            body: JSON.stringify({routine: routineData})
+        })
+        .then(response => {
+            console.log('Response status:', response.status, response.statusText);
+            if (!response.ok) {
+                return response.text().then(text => {
+                    console.error('Server error response:', text);
+                    throw new Error('PDF generation failed: ' + response.status);
+                });
             }
-                    return response.blob();
-            })
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'routine.pdf';
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-                }, 100);
-                    btnPdf.disabled = false;
-                    btnPdf.innerHTML = originalText;
-            })
-            .catch(error => {
-                console.error('PDF Download Error:', error);
+            return response.blob();
+        })
+        .then(blob => {
+            console.log('Blob received:', blob.size, 'bytes, type:', blob.type);
+            if (blob.size === 0) {
+                throw new Error('Empty PDF received');
+            }
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = (title || 'routine') + '.pdf';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(downloadUrl);
+            }, 100);
+            if (btnPdf) {
+                btnPdf.disabled = false;
+                btnPdf.innerHTML = originalText;
+            }
+            console.log('=== PDF Download Complete ===');
+        })
+        .catch(error => {
+            console.error('PDF Download Error:', error);
             alert('Failed to generate PDF: ' + error.message);
-                    btnPdf.disabled = false;
-                    btnPdf.innerHTML = originalText;
+            if (btnPdf) {
+                btnPdf.disabled = false;
+                btnPdf.innerHTML = originalText;
+            }
         });
     },
 
