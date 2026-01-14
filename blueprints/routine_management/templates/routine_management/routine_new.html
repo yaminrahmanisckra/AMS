@@ -1206,7 +1206,7 @@ body.fullscreen-active .routine-table {
     position: relative !important;
 }
 
-.routine-table-area > div {
+.routine-table-wrapper {
     overflow-x: auto !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
@@ -1215,14 +1215,20 @@ body.fullscreen-active .routine-table {
     min-height: 0 !important;
     width: 100% !important;
     position: relative !important;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .routine-table {
     min-width: max-content !important;
+    width: 100% !important;
+    border-collapse: collapse !important;
 }
 
 .routine-table thead {
     position: relative !important;
+    background: #f8f9fa !important;
 }
 
 .routine-table thead th,
@@ -1230,8 +1236,8 @@ body.fullscreen-active .routine-table {
     position: relative !important;
 }
 
-/* Fix room column for non-editors */
-.routine-table thead th:nth-child(2),
+/* Room column alignment fix - ensure header and cells align */
+.routine-table thead th.room-col,
 .routine-table tbody td.room-col {
     min-width: 100px !important;
     width: 100px !important;
@@ -1239,7 +1245,17 @@ body.fullscreen-active .routine-table {
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
-    word-break: keep-all !important;
+    padding: 8px !important;
+    text-align: center !important;
+}
+
+/* Day column */
+.routine-table thead th.day-col,
+.routine-table tbody td.day-col {
+    min-width: 80px !important;
+    width: 80px !important;
+    padding: 8px !important;
+    text-align: center !important;
 }
 
 .routine-table tbody td.slot-cell.has-class {
@@ -1478,16 +1494,16 @@ body.fullscreen-active .routine-table {
                     </div>
                 </div>
         {% else %}
-        <!-- Non-editor view: Simple scrollable routine table -->
-        <div class="routine-table-area" style="padding: 16px; {% if is_student %}height: calc(100vh - 200px);{% else %}height: calc(100vh - 150px);{% endif %} overflow: hidden; display: flex; flex-direction: column; position: relative;">
-            <div style="background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: auto; -webkit-overflow-scrolling: touch; flex: 1; touch-action: pan-x pan-y; min-height: 0; width: 100%;">
-                <table class="routine-table" id="routine-table" style="width: 100%; border-collapse: collapse; font-size: 12px; min-width: max-content; table-layout: auto;">
-                    <thead style="background: #f8f9fa; position: relative;">
+        <!-- Non-editor view: Simple scrollable routine table (same for teachers and students) -->
+        <div class="routine-table-area">
+            <div class="routine-table-wrapper">
+                <table class="routine-table" id="routine-table">
+                    <thead>
                         <tr>
-                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white; min-width: 80px; width: 80px;">Day</th>
-                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; min-width: 100px; width: 100px; white-space: nowrap;">Room</th>
+                            <th class="day-col">Day</th>
+                            <th class="room-col">Room</th>
                             {% for slot in time_slots %}
-                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; min-width: 100px; white-space: nowrap;">{{ slot }}</th>
+                            <th class="time-col" data-slot="{{ slot }}">{{ slot }}</th>
                             {% endfor %}
                         </tr>
                     </thead>
@@ -1496,17 +1512,16 @@ body.fullscreen-active .routine-table {
                             {% for room in rooms %}
                             <tr data-day="{{ day }}" data-room="{{ room.id }}">
                                 {% if loop.first %}
-                                <td class="day-col" rowspan="{{ rooms|length }}" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white; vertical-align: middle; min-width: 80px; width: 80px;">{{ day }}</td>
+                                <td class="day-col" rowspan="{{ rooms|length }}">{{ day }}</td>
                                 {% endif %}
-                                <td class="room-col" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 500; min-width: 100px; width: 100px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ room.room_number }}</td>
+                                <td class="room-col">{{ room.room_number }}</td>
                                 {% for slot in time_slots %}
                                 <td class="slot-cell"
                                     data-day="{{ day }}"
                                     data-room="{{ room.id }}"
                                     data-room-name="{{ room.room_number }}"
-                                    data-slot="{{ slot }}"
-                                    style="padding: 6px; border: 1px solid #dee2e6; text-align: center; min-height: 50px; vertical-align: middle;">
-                                    <div class="slot-content" style="font-size: 11px;">
+                                    data-slot="{{ slot }}">
+                                    <div class="slot-content">
                                         <span class="slot-empty">-</span>
                                     </div>
                                 </td>
