@@ -1152,18 +1152,24 @@ body.fullscreen-active .routine-table {
         min-height: 0;
     }
     
+    /* Make routine-main scrollable like fullscreen mode */
     .routine-main {
         flex: 1;
-        overflow: hidden;
+        overflow: auto !important; /* Changed from hidden to auto - like fullscreen */
+        -webkit-overflow-scrolling: touch !important; /* Enable smooth scrolling */
         display: flex;
         flex-direction: column;
         touch-action: pan-x pan-y;
         min-height: 0;
+        /* Force hardware acceleration for smooth scrolling */
+        transform: translateZ(0);
+        will-change: scroll-position;
+        overscroll-behavior: contain;
     }
     
     .routine-table-area {
         flex: 1;
-        overflow: hidden;
+        overflow: visible; /* Changed from hidden - let parent handle scroll */
         display: flex;
         flex-direction: column;
         min-height: 0;
@@ -1172,16 +1178,12 @@ body.fullscreen-active .routine-table {
     
     .routine-table-wrapper {
         flex: 1;
-        overflow: auto !important;
+        overflow: visible; /* Changed from auto - parent (.routine-main) handles scroll */
         -webkit-overflow-scrolling: touch !important;
         touch-action: pan-x pan-y !important;
-        overscroll-behavior: contain;
         min-height: 0;
-        /* Ensure smooth scrolling */
-        scroll-behavior: smooth;
-        /* Force hardware acceleration for smooth scrolling */
-        transform: translateZ(0);
-        will-change: scroll-position;
+        height: 100%; /* Ensure it takes full height of parent */
+        /* Remove transform to avoid double acceleration */
     }
     
     /* Ensure table can scroll smoothly */
@@ -3723,42 +3725,45 @@ setTimeout(function() {
                 studentContainer.style.setProperty('flex-direction', 'column', 'important');
             }
             
+            // Make routine-main scrollable like fullscreen mode
+            const routineMain = document.querySelector('.routine-main');
+            if (routineMain) {
+                // Enable smooth scrolling on routine-main (like fullscreen)
+                routineMain.style.setProperty('overflow', 'auto', 'important');
+                routineMain.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+                routineMain.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                routineMain.style.setProperty('flex', '1', 'important');
+                routineMain.style.setProperty('min-height', '0', 'important');
+                routineMain.style.setProperty('transform', 'translateZ(0)', 'important');
+                routineMain.style.setProperty('will-change', 'scroll-position', 'important');
+                routineMain.style.setProperty('overscroll-behavior', 'contain', 'important');
+            }
+            
+            // Ensure parent containers don't block
+            const tableArea = document.querySelector('.routine-table-area');
+            if (tableArea) {
+                tableArea.style.setProperty('overflow', 'visible', 'important');
+                tableArea.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                tableArea.style.setProperty('flex', '1', 'important');
+                tableArea.style.setProperty('min-height', '0', 'important');
+            }
+            
             const tableWrapper = document.querySelector('.routine-table-wrapper');
             if (tableWrapper) {
-                // Force enable smooth scrolling
-                tableWrapper.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+                // Let parent (.routine-main) handle scroll
+                tableWrapper.style.setProperty('overflow', 'visible', 'important');
                 tableWrapper.style.setProperty('touch-action', 'pan-x pan-y', 'important');
-                tableWrapper.style.setProperty('overflow', 'auto', 'important');
-                tableWrapper.style.setProperty('overscroll-behavior', 'contain', 'important');
-                tableWrapper.style.setProperty('transform', 'translateZ(0)', 'important');
-                tableWrapper.style.setProperty('will-change', 'scroll-position', 'important');
-                
-                // Ensure parent containers allow scrolling
-                const tableArea = document.querySelector('.routine-table-area');
-                if (tableArea) {
-                    tableArea.style.setProperty('overflow', 'hidden', 'important');
-                    tableArea.style.setProperty('touch-action', 'pan-x pan-y', 'important');
-                    tableArea.style.setProperty('flex', '1', 'important');
-                    tableArea.style.setProperty('min-height', '0', 'important');
-                }
-                
-                const routineMain = document.querySelector('.routine-main');
-                if (routineMain) {
-                    routineMain.style.setProperty('overflow', 'hidden', 'important');
-                    routineMain.style.setProperty('touch-action', 'pan-x pan-y', 'important');
-                    routineMain.style.setProperty('flex', '1', 'important');
-                    routineMain.style.setProperty('min-height', '0', 'important');
-                }
-                
-                const routineApp = document.querySelector('.routine-app');
-                if (routineApp) {
-                    routineApp.style.setProperty('height', '100vh', 'important');
-                    routineApp.style.setProperty('overflow', 'hidden', 'important');
-                    routineApp.style.setProperty('display', 'flex', 'important');
-                    routineApp.style.setProperty('flex-direction', 'column', 'important');
-                    routineApp.style.setProperty('flex', '1', 'important');
-                    routineApp.style.setProperty('min-height', '0', 'important');
-                }
+                tableWrapper.style.setProperty('height', '100%', 'important');
+            }
+            
+            const routineApp = document.querySelector('.routine-app');
+            if (routineApp) {
+                routineApp.style.setProperty('height', '100vh', 'important');
+                routineApp.style.setProperty('overflow', 'hidden', 'important');
+                routineApp.style.setProperty('display', 'flex', 'important');
+                routineApp.style.setProperty('flex-direction', 'column', 'important');
+                routineApp.style.setProperty('flex', '1', 'important');
+                routineApp.style.setProperty('min-height', '0', 'important');
             }
             
             // Ensure buttons are clickable
