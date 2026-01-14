@@ -1313,7 +1313,80 @@ body.fullscreen-active .routine-table {
 }
 
 /* Additional mobile-specific fixes */
-@media (max-width: 768px) {
+@media (max-width: 770px) {
+    {% if not can_edit %}
+    /* CRITICAL: Force scrolling for screens 770px and below */
+    html, body {
+        overflow: auto !important;
+        height: auto !important;
+        max-height: none !important;
+        -webkit-overflow-scrolling: touch !important;
+        position: relative !important;
+    }
+    
+    .routine-app {
+        height: auto !important;
+        min-height: 100vh !important;
+        max-height: none !important;
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        position: relative !important;
+        display: block !important;
+    }
+    
+    .routine-main {
+        flex-direction: column !important;
+        overflow: visible !important;
+        -webkit-overflow-scrolling: touch !important;
+        position: relative !important;
+        height: auto !important;
+        max-height: none !important;
+    }
+    
+    .routine-table-area {
+        overflow: visible !important;
+        position: relative !important;
+        height: auto !important;
+        max-height: none !important;
+    }
+    
+    .routine-table-wrapper {
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        touch-action: pan-x pan-y !important;
+        position: relative !important;
+        width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        display: block !important;
+    }
+    
+    .routine-table {
+        min-width: max-content;
+        position: relative !important;
+    }
+    
+    .routine-table thead,
+    .routine-table thead th,
+    .routine-table tbody td.day-col,
+    .routine-table tbody td.room-col {
+        position: relative !important;
+    }
+    
+    .slot-cell {
+        touch-action: pan-x pan-y !important;
+        -webkit-touch-callout: none;
+        pointer-events: auto !important;
+        position: relative !important;
+    }
+    
+    /* Remove any transform that might interfere */
+    .routine-table-wrapper * {
+        transform: none !important;
+        will-change: auto !important;
+    }
+    {% else %}
     .routine-app {
         height: auto !important;
         min-height: 100vh;
@@ -1341,6 +1414,7 @@ body.fullscreen-active .routine-table {
         touch-action: pan-x pan-y !important;
         -webkit-touch-callout: none;
     }
+    {% endif %}
 }
 {% endif %}
 </style>
@@ -3816,9 +3890,20 @@ const RoutineManager = {
     setTimeout(forceScrolling, 1000);
     setTimeout(forceScrolling, 2000);
     
-    // Run on resize and orientation change
-    window.addEventListener('resize', forceScrolling);
-    window.addEventListener('orientationchange', forceScrolling);
+    // Run on resize and orientation change - with special handling for small screens
+    window.addEventListener('resize', function() {
+        forceScrolling();
+        if (window.innerWidth <= 770) {
+            // Extra aggressive fix for small screens
+            setTimeout(forceScrolling, 100);
+            setTimeout(forceScrolling, 300);
+        }
+    });
+    window.addEventListener('orientationchange', function() {
+        forceScrolling();
+        setTimeout(forceScrolling, 100);
+        setTimeout(forceScrolling, 500);
+    });
     
     // Run when window becomes visible (mobile browser tab switching)
     document.addEventListener('visibilitychange', function() {
@@ -3832,27 +3917,60 @@ const RoutineManager = {
         const tableWrapper = document.querySelector('.routine-table-wrapper');
         const routineTable = document.getElementById('routine-table');
         const routineApp = document.querySelector('.routine-app');
+        const routineMain = document.querySelector('.routine-main');
         
-        // Clone and replace elements to remove all event listeners
-        if (tableWrapper) {
-            const newWrapper = tableWrapper.cloneNode(true);
-            tableWrapper.parentNode.replaceChild(newWrapper, tableWrapper);
+        // For small screens (770px and below), be more aggressive
+        const isSmallScreen = window.innerWidth <= 770;
+        
+        if (isSmallScreen) {
+            // Force all containers to allow scrolling
+            [document.documentElement, document.body, routineApp, routineMain, tableWrapper].forEach(el => {
+                if (el) {
+                    el.style.setProperty('overflow', 'auto', 'important');
+                    el.style.setProperty('height', 'auto', 'important');
+                    el.style.setProperty('max-height', 'none', 'important');
+                    el.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+                    el.style.setProperty('position', 'relative', 'important');
+                    el.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                }
+            });
+            
+            // Remove all sticky positioning on small screens
+            document.querySelectorAll('[style*="position: sticky"], [style*="position:sticky"]').forEach(el => {
+                el.style.setProperty('position', 'relative', 'important');
+            });
+            
+            // Remove transforms that might interfere
+            document.querySelectorAll('.routine-table-wrapper *').forEach(el => {
+                el.style.setProperty('transform', 'none', 'important');
+                el.style.setProperty('will-change', 'auto', 'important');
+            });
         }
         
-        // Remove all touch event listeners from body
-        const touchEvents = ['touchstart', 'touchmove', 'touchend', 'touchcancel'];
-        touchEvents.forEach(eventType => {
-            document.body.removeEventListener(eventType, function() {}, true);
-            document.body.removeEventListener(eventType, function() {}, false);
-            if (routineApp) {
-                routineApp.removeEventListener(eventType, function() {}, true);
-                routineApp.removeEventListener(eventType, function() {}, false);
+        // Clone and replace elements to remove all event listeners (only on small screens)
+        if (isSmallScreen && tableWrapper) {
+            try {
+                const newWrapper = tableWrapper.cloneNode(true);
+                tableWrapper.parentNode.replaceChild(newWrapper, tableWrapper);
+            } catch (e) {
+                console.debug('Could not clone wrapper:', e);
             }
-        });
+        }
     }
     
-    // Remove blocking listeners after a delay
+    // Remove blocking listeners multiple times for small screens
+    setTimeout(removeBlockingListeners, 100);
+    setTimeout(removeBlockingListeners, 500);
+    setTimeout(removeBlockingListeners, 1000);
     setTimeout(removeBlockingListeners, 2000);
+    
+    // Also run on resize for small screens
+    window.addEventListener('resize', function() {
+        if (window.innerWidth <= 770) {
+            removeBlockingListeners();
+            forceScrolling();
+        }
+    });
     
     // Global debug function to test scrolling
     window.testScrolling = function() {
