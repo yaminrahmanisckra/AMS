@@ -1196,7 +1196,11 @@ body.fullscreen-active .routine-table {
 .routine-table-area {
     padding: 16px !important;
     overflow: hidden !important;
+    {% if is_student %}
+    height: calc(100vh - 200px) !important;
+    {% else %}
     height: calc(100vh - 150px) !important;
+    {% endif %}
     display: flex !important;
     flex-direction: column !important;
     position: relative !important;
@@ -1210,6 +1214,7 @@ body.fullscreen-active .routine-table {
     flex: 1 !important;
     min-height: 0 !important;
     width: 100% !important;
+    position: relative !important;
 }
 
 .routine-table {
@@ -1218,6 +1223,23 @@ body.fullscreen-active .routine-table {
 
 .routine-table thead {
     position: relative !important;
+}
+
+.routine-table thead th,
+.routine-table tbody td {
+    position: relative !important;
+}
+
+/* Fix room column for non-editors */
+.routine-table thead th:nth-child(2),
+.routine-table tbody td.room-col {
+    min-width: 100px !important;
+    width: 100px !important;
+    max-width: 100px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    word-break: keep-all !important;
 }
 
 .routine-table tbody td.slot-cell.has-class {
@@ -1457,15 +1479,15 @@ body.fullscreen-active .routine-table {
                 </div>
         {% else %}
         <!-- Non-editor view: Simple scrollable routine table -->
-        <div class="routine-table-area" style="padding: 16px; height: calc(100vh - 150px); overflow: hidden; display: flex; flex-direction: column;">
-            <div style="background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: auto; -webkit-overflow-scrolling: touch; flex: 1; touch-action: pan-x pan-y;">
-                <table class="routine-table" id="routine-table" style="width: 100%; border-collapse: collapse; font-size: 12px; min-width: max-content;">
-                    <thead style="background: #f8f9fa;">
+        <div class="routine-table-area" style="padding: 16px; {% if is_student %}height: calc(100vh - 200px);{% else %}height: calc(100vh - 150px);{% endif %} overflow: hidden; display: flex; flex-direction: column; position: relative;">
+            <div style="background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: auto; -webkit-overflow-scrolling: touch; flex: 1; touch-action: pan-x pan-y; min-height: 0; width: 100%;">
+                <table class="routine-table" id="routine-table" style="width: 100%; border-collapse: collapse; font-size: 12px; min-width: max-content; table-layout: auto;">
+                    <thead style="background: #f8f9fa; position: relative;">
                         <tr>
-                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white;">Day</th>
-                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600;">Room</th>
+                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white; min-width: 80px; width: 80px;">Day</th>
+                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; min-width: 100px; width: 100px; white-space: nowrap;">Room</th>
                             {% for slot in time_slots %}
-                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; min-width: 100px;">{{ slot }}</th>
+                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; min-width: 100px; white-space: nowrap;">{{ slot }}</th>
                             {% endfor %}
                         </tr>
                     </thead>
@@ -1474,9 +1496,9 @@ body.fullscreen-active .routine-table {
                             {% for room in rooms %}
                             <tr data-day="{{ day }}" data-room="{{ room.id }}">
                                 {% if loop.first %}
-                                <td class="day-col" rowspan="{{ rooms|length }}" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white; vertical-align: middle;">{{ day }}</td>
+                                <td class="day-col" rowspan="{{ rooms|length }}" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white; vertical-align: middle; min-width: 80px; width: 80px;">{{ day }}</td>
                                 {% endif %}
-                                <td class="room-col" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 500;">{{ room.room_number }}</td>
+                                <td class="room-col" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 500; min-width: 100px; width: 100px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ room.room_number }}</td>
                                 {% for slot in time_slots %}
                                 <td class="slot-cell"
                                     data-day="{{ day }}"
