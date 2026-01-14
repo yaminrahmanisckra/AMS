@@ -3266,11 +3266,25 @@ const RoutineManager = {
         });
             
         const btnPdf = this.elements.btnPdf || document.getElementById('btn-pdf');
-        const originalText = btnPdf ? btnPdf.innerHTML : '';
-        if (btnPdf) {
-            btnPdf.disabled = true;
-            btnPdf.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+        if (!btnPdf) {
+            alert('PDF button not found');
+            return;
         }
+        
+        // Store original text - use data attribute to persist across multiple clicks
+        if (!btnPdf.dataset.originalText) {
+            btnPdf.dataset.originalText = btnPdf.innerHTML;
+        }
+        const originalText = btnPdf.dataset.originalText;
+        
+        // Prevent multiple simultaneous downloads
+        if (btnPdf.disabled) {
+            console.log('PDF download already in progress');
+            return;
+        }
+        
+        btnPdf.disabled = true;
+        btnPdf.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
 
         const url = '/routine-management/download_pdf?' + params.toString();
         console.log('Fetching:', url);
@@ -3306,19 +3320,28 @@ const RoutineManager = {
                 document.body.removeChild(a);
                 window.URL.revokeObjectURL(downloadUrl);
             }, 100);
-            if (btnPdf) {
-                btnPdf.disabled = false;
-                btnPdf.innerHTML = originalText;
-            }
+            
+            // Reset button state
+            btnPdf.disabled = false;
+            btnPdf.innerHTML = originalText;
             console.log('=== PDF Download Complete ===');
         })
         .catch(error => {
             console.error('PDF Download Error:', error);
             alert('Failed to generate PDF: ' + error.message);
-            if (btnPdf) {
-                btnPdf.disabled = false;
-                btnPdf.innerHTML = originalText;
-            }
+            
+            // Always reset button state on error
+            btnPdf.disabled = false;
+            btnPdf.innerHTML = originalText;
+        })
+        .finally(() => {
+            // Ensure button is always reset, even if something unexpected happens
+            setTimeout(() => {
+                if (btnPdf && btnPdf.disabled) {
+                    btnPdf.disabled = false;
+                    btnPdf.innerHTML = originalText;
+                }
+            }, 5000); // Safety timeout
         });
     },
 
