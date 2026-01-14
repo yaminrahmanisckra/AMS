@@ -1129,6 +1129,84 @@ body.fullscreen-active .routine-table {
     }
 }
 
+/* Landscape mode fixes for mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+    /* Fix student container wrapper */
+    .container.my-4 {
+        padding: 0 !important;
+        margin: 0 !important;
+        height: 100vh !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    
+    .routine-app {
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        touch-action: pan-x pan-y;
+        flex: 1;
+        min-height: 0;
+    }
+    
+    .routine-main {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        touch-action: pan-x pan-y;
+        min-height: 0;
+    }
+    
+    .routine-table-area {
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        touch-action: pan-x pan-y;
+    }
+    
+    .routine-table-wrapper {
+        flex: 1;
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        touch-action: pan-x pan-y !important;
+        overscroll-behavior: contain;
+        min-height: 0;
+        /* Ensure smooth scrolling */
+        scroll-behavior: smooth;
+        /* Force hardware acceleration for smooth scrolling */
+        transform: translateZ(0);
+        will-change: scroll-position;
+    }
+    
+    /* Ensure table can scroll smoothly */
+    .routine-table {
+        touch-action: pan-x pan-y;
+    }
+    
+    /* Ensure buttons are clickable in landscape */
+    .topbar-btn {
+        touch-action: manipulation;
+        pointer-events: auto;
+        -webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+        /* Prevent button from being blocked */
+        z-index: 10;
+        position: relative;
+    }
+    
+    /* Ensure topbar doesn't block scrolling */
+    .routine-topbar {
+        flex-shrink: 0;
+        position: relative;
+        z-index: 100;
+    }
+}
+
 
 /* ============================================
    UTILITIES
@@ -1206,7 +1284,7 @@ body.fullscreen-active .routine-table {
                 <i class="fas fa-plus topbar-btn-icon"></i>
                         </button>
                         {% endif %}
-            <button class="topbar-btn" id="btn-pdf" onclick="if(window.RoutineManager && window.RoutineManager.downloadPDF) { window.RoutineManager.downloadPDF(); } else { alert('Please wait for page to load. If problem persists, refresh the page.'); }">
+            <button class="topbar-btn" id="btn-pdf" type="button">
                 <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
             <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
@@ -1732,7 +1810,21 @@ const RoutineManager = {
             this.elements.btnSave.addEventListener('click', () => this.saveRoutine());
         }
         if (this.elements.btnPdf) {
-            this.elements.btnPdf.addEventListener('click', () => this.downloadPDF());
+            // Use both click and touchstart for better mobile support
+            this.elements.btnPdf.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (this.downloadPDF) {
+                    this.downloadPDF();
+                } else {
+                    console.error('downloadPDF method not available');
+                    alert('Please wait for page to load. If problem persists, refresh the page.');
+                }
+            });
+            // Also handle touchstart for better mobile responsiveness
+            this.elements.btnPdf.addEventListener('touchstart', (e) => {
+                e.stopPropagation();
+            }, { passive: true });
         }
         if (this.elements.btnTimeSlots) {
             this.elements.btnTimeSlots.addEventListener('click', () => this.showTimeSlotManager());
@@ -3611,6 +3703,92 @@ setTimeout(function() {
         }
     }
 }, 1000);
+
+// Fix smooth scrolling in landscape mode for mobile
+(function() {
+    function ensureLandscapeScrolling() {
+        const isMobile = window.innerWidth <= 768;
+        const isLandscape = window.innerWidth > window.innerHeight;
+        
+        if (isMobile && isLandscape) {
+            // Fix student container wrapper
+            const studentContainer = document.querySelector('.container.my-4');
+            if (studentContainer) {
+                studentContainer.style.setProperty('padding', '0', 'important');
+                studentContainer.style.setProperty('margin', '0', 'important');
+                studentContainer.style.setProperty('height', '100vh', 'important');
+                studentContainer.style.setProperty('max-width', '100%', 'important');
+                studentContainer.style.setProperty('overflow', 'hidden', 'important');
+                studentContainer.style.setProperty('display', 'flex', 'important');
+                studentContainer.style.setProperty('flex-direction', 'column', 'important');
+            }
+            
+            const tableWrapper = document.querySelector('.routine-table-wrapper');
+            if (tableWrapper) {
+                // Force enable smooth scrolling
+                tableWrapper.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+                tableWrapper.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                tableWrapper.style.setProperty('overflow', 'auto', 'important');
+                tableWrapper.style.setProperty('overscroll-behavior', 'contain', 'important');
+                tableWrapper.style.setProperty('transform', 'translateZ(0)', 'important');
+                tableWrapper.style.setProperty('will-change', 'scroll-position', 'important');
+                
+                // Ensure parent containers allow scrolling
+                const tableArea = document.querySelector('.routine-table-area');
+                if (tableArea) {
+                    tableArea.style.setProperty('overflow', 'hidden', 'important');
+                    tableArea.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                    tableArea.style.setProperty('flex', '1', 'important');
+                    tableArea.style.setProperty('min-height', '0', 'important');
+                }
+                
+                const routineMain = document.querySelector('.routine-main');
+                if (routineMain) {
+                    routineMain.style.setProperty('overflow', 'hidden', 'important');
+                    routineMain.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+                    routineMain.style.setProperty('flex', '1', 'important');
+                    routineMain.style.setProperty('min-height', '0', 'important');
+                }
+                
+                const routineApp = document.querySelector('.routine-app');
+                if (routineApp) {
+                    routineApp.style.setProperty('height', '100vh', 'important');
+                    routineApp.style.setProperty('overflow', 'hidden', 'important');
+                    routineApp.style.setProperty('display', 'flex', 'important');
+                    routineApp.style.setProperty('flex-direction', 'column', 'important');
+                    routineApp.style.setProperty('flex', '1', 'important');
+                    routineApp.style.setProperty('min-height', '0', 'important');
+                }
+            }
+            
+            // Ensure buttons are clickable
+            const pdfButton = document.getElementById('btn-pdf');
+            if (pdfButton) {
+                pdfButton.style.setProperty('touch-action', 'manipulation', 'important');
+                pdfButton.style.setProperty('pointer-events', 'auto', 'important');
+                pdfButton.style.setProperty('z-index', '10', 'important');
+                pdfButton.style.setProperty('position', 'relative', 'important');
+            }
+        }
+    }
+    
+    // Run on load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', ensureLandscapeScrolling);
+    } else {
+        ensureLandscapeScrolling();
+    }
+    
+    // Run on orientation change
+    window.addEventListener('orientationchange', function() {
+        setTimeout(ensureLandscapeScrolling, 200);
+    });
+    
+    // Run on resize
+    window.addEventListener('resize', function() {
+        setTimeout(ensureLandscapeScrolling, 100);
+    });
+})();
 
 // Custom entry modal save handler
 document.getElementById('custom-entry-modal-save')?.addEventListener('click', function() {
