@@ -199,6 +199,133 @@ def _generate_feedback_code():
         if not StudentFeedbackLink.query.filter_by(access_code=code).first():
             return code
 
+
+def find_course_from_curriculum(session_course_code, session_course_name=None):
+    """
+    Find a Course from the curriculum that matches the session's course code or name.
+    Handles various formats like "0421 28 Law 4103" -> "Law 4103" or "Law4103"
+    
+    Returns: Course object if found, None otherwise
+    """
+    import re
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    if not Course:
+        return None
+    
+    course_data = None
+    
+    def extract_core_code(code_str):
+        """Extract the core code pattern (e.g., 'Law4103' without space) from various formats"""
+        if not code_str:
+            return None
+        # Try to find pattern like "Law 4103", "Law4103", "CSE 1101", etc.
+        match = re.search(r'([A-Za-z]+)\s*(\d{4})', code_str)
+        if match:
+            return f"{match.group(1)}{match.group(2)}"  # No space: "Law4103"
+        return None
+    
+    # Extract core code pattern from session course code
+    session_core_code = extract_core_code(session_course_code)
+    logger.debug(f"find_course_from_curriculum: session_code='{session_course_code}', session_core='{session_core_code}', session_name='{session_course_name}'")
+    
+    # Try exact match by course code
+    if session_course_code:
+        course_data = Course.query.filter_by(course_code=session_course_code).first()
+        if course_data:
+            logger.debug(f"Found by exact course_code match: {course_data.course_code}")
+            return course_data
+    
+    # Try case-insensitive match by course code
+    if session_course_code:
+        course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(session_course_code)).first()
+        if course_data:
+            logger.debug(f"Found by case-insensitive course_code match: {course_data.course_code}")
+            return course_data
+    
+    # Try whitespace-normalized match (handles extra spaces, tabs, etc.)
+    if session_course_code:
+        session_code_normalized = ' '.join(session_course_code.strip().split())  # Normalize whitespace
+        all_courses = Course.query.all()
+        for course in all_courses:
+            if course.course_code:
+                curriculum_code_normalized = ' '.join(course.course_code.strip().split())
+                if session_code_normalized.lower() == curriculum_code_normalized.lower():
+                    logger.debug(f"Found by whitespace-normalized match: {course.course_code}")
+                    return course
+    
+    # Try with extracted course code pattern (with space)
+    if session_core_code:
+        # Try "Law 4103" format (with space)
+        extracted_with_space = re.sub(r'([A-Za-z]+)(\d{4})', r'\1 \2', session_core_code)
+        course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(extracted_with_space)).first()
+        if course_data:
+            logger.debug(f"Found by extracted code with space: {course_data.course_code}")
+            return course_data
+        
+        # Try "Law4103" format (without space)
+        course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(session_core_code)).first()
+        if course_data:
+            logger.debug(f"Found by extracted code without space: {course_data.course_code}")
+            return course_data
+    
+    # Try normalized matching - compare core codes from both session and curriculum
+    if session_core_code:
+        all_courses = Course.query.all()
+        session_core_lower = session_core_code.lower()
+        for course in all_courses:
+            if course.course_code:
+                # Extract core code from curriculum course code
+                curriculum_core = extract_core_code(course.course_code)
+                if curriculum_core and curriculum_core.lower() == session_core_lower:
+                    logger.debug(f"Found by normalized core code match: {course.course_code} (core: {curriculum_core})")
+                    return course
+    
+    # Try partial match - check if curriculum course code is contained in session code
+    if session_course_code:
+        all_courses = Course.query.all()
+        session_code_lower = session_course_code.lower()
+        # Also try without spaces for partial matching
+        session_code_no_space = session_code_lower.replace(' ', '')
+        for course in all_courses:
+            if course.course_code:
+                course_code_lower = course.course_code.lower()
+                course_code_no_space = course_code_lower.replace(' ', '')
+                # Check with and without spaces
+                if course_code_lower in session_code_lower or course_code_no_space in session_code_no_space:
+                    logger.debug(f"Found by partial code match: {course.course_code}")
+                    return course
+    
+    # Try exact match by course name
+    if session_course_name:
+        course_data = Course.query.filter_by(course_name=session_course_name).first()
+        if course_data:
+            logger.debug(f"Found by exact course_name match: {course_data.course_name}")
+            return course_data
+    
+    # Try case-insensitive partial match by course name
+    if session_course_name:
+        course_data = Course.query.filter(func.lower(Course.course_name).like(f'%{session_course_name.lower()}%')).first()
+        if course_data:
+            logger.debug(f"Found by partial course_name match: {course_data.course_name}")
+            return course_data
+    
+    # Try reverse match (session name contains course name or vice versa)
+    if session_course_name:
+        all_courses = Course.query.all()
+        session_name_lower = session_course_name.lower()
+        for course in all_courses:
+            if course.course_name:
+                course_name_lower = course.course_name.lower()
+                if session_name_lower in course_name_lower or course_name_lower in session_name_lower:
+                    logger.debug(f"Found by reverse course_name match: {course.course_name}")
+                    return course
+    
+    logger.debug(f"No course found for session_code='{session_course_code}', session_name='{session_course_name}'")
+    return None
+
+
 class_management_bp = Blueprint(
     'class_management', __name__,
     template_folder='templates',
@@ -2430,12 +2557,7 @@ def course_file(session_id):
             flash('Course outline feature is not available. Please ensure database migration is complete.', 'warning')
     
     # Get course data from curriculum if available
-    course_data = None
-    try:
-        if Course:
-            course_data = Course.query.filter_by(course_code=session.course_code).first()
-    except:
-        pass
+    course_data = find_course_from_curriculum(session.course_code, session.course_name)
     
     return render_template('class_management/course_file.html', 
                          session=session, 
@@ -2660,12 +2782,12 @@ def generate_weekly_plan_ai(session_id):
         
         if not credit:
             # Try to get from course data
-            if course_data := Course.query.filter_by(course_code=session.course_code).first():
-                if course_data.credit:
-                    try:
-                        credit = float(course_data.credit)
-                    except:
-                        pass
+            course_data = find_course_from_curriculum(session.course_code, session.course_name)
+            if course_data and course_data.credit:
+                try:
+                    credit = float(course_data.credit)
+                except:
+                    pass
         
         if not credit:
             return jsonify({'success': False, 'message': 'Credit value is required. Please fill in the Credit Value field.'}), 400
@@ -2707,7 +2829,7 @@ def generate_weekly_plan_ai(session_id):
         
         # If no course content from section 14, try to get from curriculum
         if not course_contents:
-            if course_data := Course.query.filter_by(course_code=session.course_code).first():
+            if course_data := find_course_from_curriculum(session.course_code, session.course_name):
                 # For split courses, use only the specified part (A or B)
                 # For full courses, combine both sections
                 if part == 'A':
@@ -2745,7 +2867,8 @@ def generate_weekly_plan_ai(session_id):
         
         # Get CLOs
         clos = []
-        if course_data := Course.query.filter_by(course_code=session.course_code).first():
+        course_data = find_course_from_curriculum(session.course_code, session.course_name)
+        if course_data:
             clos = course_data.get_clos_list()
             
         # Normalize session year and term for matching
@@ -3239,14 +3362,27 @@ def edit_course_outline(session_id):
         db.session.add(course_outline)
         db.session.commit()
     
-    # Get course data from curriculum
+    # Get course data from curriculum using improved matching
     course_data = None
     try:
         if Course:
+            import re
             current_app.logger.info(f"Searching for course - session.course_code: '{session.course_code}', session.course_name: '{session.course_name}'")
             
-            # Normalize course code by removing spaces for matching
-            session_code_normalized = session.course_code.replace(' ', '').replace('-', '').replace('_', '') if session.course_code else None
+            def extract_core_code(code_str):
+                """Extract the core code pattern (e.g., 'Law4103' without space) from various formats"""
+                if not code_str:
+                    return None
+                # Try to find pattern like "Law 4103", "Law4103", "CSE 1101", etc.
+                match = re.search(r'([A-Za-z]+)\s*(\d{4})', code_str)
+                if match:
+                    return f"{match.group(1)}{match.group(2)}"  # No space: "Law4103"
+                return None
+            
+            # Extract core code pattern from session course code
+            session_core_code = extract_core_code(session.course_code)
+            if session_core_code:
+                current_app.logger.info(f"Extracted core code: '{session_core_code}' from '{session.course_code}'")
             
             # Try exact match by course code
             if session.course_code:
@@ -3260,16 +3396,58 @@ def edit_course_outline(session_id):
                 if course_data:
                     current_app.logger.info(f"Found by case-insensitive course_code match: {course_data.course_code}")
             
-            # If not found, try normalized match (remove spaces and hyphens)
-            if not course_data and session_code_normalized:
+            # If not found, try whitespace-normalized match (handles extra spaces, tabs, etc.)
+            if not course_data and session.course_code:
+                session_code_normalized = ' '.join(session.course_code.strip().split())  # Normalize whitespace
                 all_courses = Course.query.all()
-                current_app.logger.info(f"Trying normalized match with {len(all_courses)} courses")
                 for course in all_courses:
                     if course.course_code:
-                        course_code_normalized = course.course_code.replace(' ', '').replace('-', '').replace('_', '')
-                        if session_code_normalized.lower() == course_code_normalized.lower():
+                        curriculum_code_normalized = ' '.join(course.course_code.strip().split())
+                        if session_code_normalized.lower() == curriculum_code_normalized.lower():
                             course_data = course
-                            current_app.logger.info(f"Found by normalized course_code match: {course_data.course_code}")
+                            current_app.logger.info(f"Found by whitespace-normalized match: {course_data.course_code}")
+                            break
+            
+            # If not found, try with extracted course code pattern (with space)
+            if not course_data and session_core_code:
+                extracted_with_space = re.sub(r'([A-Za-z]+)(\d{4})', r'\1 \2', session_core_code)
+                course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(extracted_with_space)).first()
+                if course_data:
+                    current_app.logger.info(f"Found by extracted code with space: {course_data.course_code}")
+            
+            # If not found, try with extracted course code pattern (without space)
+            if not course_data and session_core_code:
+                course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(session_core_code)).first()
+                if course_data:
+                    current_app.logger.info(f"Found by extracted code without space: {course_data.course_code}")
+            
+            # If not found, try normalized core code matching - compare core codes from both session and curriculum
+            if not course_data and session_core_code:
+                all_courses = Course.query.all()
+                session_core_lower = session_core_code.lower()
+                current_app.logger.info(f"Trying normalized core code match with {len(all_courses)} courses (looking for: '{session_core_lower}')")
+                for course in all_courses:
+                    if course.course_code:
+                        # Extract core code from curriculum course code
+                        curriculum_core = extract_core_code(course.course_code)
+                        if curriculum_core and curriculum_core.lower() == session_core_lower:
+                            course_data = course
+                            current_app.logger.info(f"Found by normalized core code match: {course.course_code} (core: {curriculum_core})")
+                            break
+            
+            # If not found, try partial match - check if curriculum course code is contained in session code
+            if not course_data and session.course_code:
+                all_courses = Course.query.all()
+                session_code_lower = session.course_code.lower()
+                session_code_no_space = session_code_lower.replace(' ', '')
+                for course in all_courses:
+                    if course.course_code:
+                        course_code_lower = course.course_code.lower()
+                        course_code_no_space = course_code_lower.replace(' ', '')
+                        # Check with and without spaces
+                        if course_code_lower in session_code_lower or course_code_no_space in session_code_no_space:
+                            course_data = course
+                            current_app.logger.info(f"Found by partial code match: {course_data.course_code}")
                             break
             
             # If not found, try exact match by course name
@@ -3300,13 +3478,19 @@ def edit_course_outline(session_id):
             # Log the result for debugging
             if course_data:
                 current_app.logger.info(f"✓ Found course_data: {course_data.course_code} - {course_data.course_name}, core_optional: {course_data.core_optional}, course_type: {course_data.course_type}, category: {course_data.category}")
+                # Log additional fields for debugging
+                current_app.logger.info(f"  - rationale: {course_data.rationale[:100] if course_data.rationale else 'EMPTY'}")
+                current_app.logger.info(f"  - clo: {course_data.clo[:100] if course_data.clo else 'EMPTY'}")
+                current_app.logger.info(f"  - content_section_a: {course_data.content_section_a[:100] if course_data.content_section_a else 'EMPTY'}")
+                current_app.logger.info(f"  - content_section_b: {course_data.content_section_b[:100] if course_data.content_section_b else 'EMPTY'}")
             else:
                 current_app.logger.warning(f"✗ Course data NOT found for session - course_code: '{session.course_code}', course_name: '{session.course_name}'")
-                # List all courses for debugging
+                # List all courses for debugging with their core codes
                 all_courses = Course.query.all()
                 current_app.logger.info(f"Available courses in database ({len(all_courses)} total):")
-                for c in all_courses[:10]:  # Show first 10
-                    current_app.logger.info(f"  - Code: '{c.course_code}', Name: '{c.course_name}'")
+                for c in all_courses[:15]:  # Show first 15
+                    c_core = extract_core_code(c.course_code)
+                    current_app.logger.info(f"  - Code: '{c.course_code}', Core: '{c_core}', Name: '{c.course_name}'")
     except Exception as e:
         current_app.logger.error(f"Error fetching course data: {e}", exc_info=True)
         current_app.logger.warning(f"Session course_code: {session.course_code}, course_name: {session.course_name}")
@@ -3414,12 +3598,7 @@ def _generate_course_outline_docx(session_id):
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
     # Get course data
-    course_data = None
-    try:
-        if Course:
-            course_data = Course.query.filter_by(course_code=session.course_code).first()
-    except:
-        pass
+    course_data = find_course_from_curriculum(session.course_code, session.course_name)
     
     # Parse JSON fields
     course_objectives = json.loads(course_outline.course_objectives) if course_outline.course_objectives else []
@@ -3580,9 +3759,7 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
     # Get course data from curriculum if available
-    course_data = None
-    if Course:
-        course_data = Course.query.filter_by(course_code=session.course_code).first()
+    course_data = find_course_from_curriculum(session.course_code, session.course_name)
     
     # Parse all JSON fields
     def safe_json_parse(data, default=None):

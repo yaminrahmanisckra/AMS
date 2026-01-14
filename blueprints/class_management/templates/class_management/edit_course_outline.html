@@ -220,9 +220,44 @@
             </div>
             <div class="collapse" id="partA">
             <div class="card-body">
-                <!-- Basic Course Information -->
+                <!-- Curriculum Status Alert -->
+                {% if not course_data %}
+                <div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>কারিকুলামে কোর্স খুঁজে পাওয়া যায়নি:</strong> 
+                    কোর্স কোড <strong>{{ session.course_code }}</strong> ({{ session.course_name }}) কারিকুলামে নেই অথবা কোড ফরম্যাট ভিন্ন। 
+                    <br><small class="text-muted">কারিকুলামে কোর্স যোগ করলে Course Summary, CLO, এবং Course Content স্বয়ংক্রিয়ভাবে আসবে।</small>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% elif not course_data.rationale and not course_data.clo and not course_data.content_section_a and not course_data.content_section_b %}
+                <div class="alert alert-warning alert-dismissible fade show mb-3" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>কারিকুলামে Course Information খালি:</strong> 
+                    কোর্স <strong>{{ course_data.course_code }}</strong> পাওয়া গেছে, কিন্তু Rationale, CLO, এবং Course Content এখনও যোগ করা হয়নি।
+                    <br><small class="text-muted">Course Management → Curricula → কোর্সের "Course Information" এ তথ্য যোগ করুন।</small>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% else %}
+                <div class="alert alert-success alert-dismissible fade show mb-3" role="alert">
+                    <i class="fas fa-check-circle me-2"></i>
+                    <strong>কারিকুলাম লিংক সক্রিয়:</strong> 
+                    কোর্স <strong>{{ course_data.course_code }}</strong> থেকে তথ্য উপলব্ধ।
+                    <small class="text-muted">
+                        (Rationale: {{ '✓' if course_data.rationale else '✗' }}, 
+                        CLO: {{ '✓' if course_data.clo else '✗' }}, 
+                        Content: {{ '✓' if (course_data.content_section_a or course_data.content_section_b) else '✗' }})
+                    </small>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endif %}
+                
+                <!-- Debug comments for troubleshooting -->
                 {% if course_data %}
                 <!-- Debug: Course data found - Code: {{ course_data.course_code }}, Name: {{ course_data.course_name }}, Core/Optional: {{ course_data.core_optional }}, Type: {{ course_data.course_type }}, Category: {{ course_data.category }} -->
+                <!-- Debug: Rationale: {{ 'YES' if course_data.rationale else 'EMPTY' }} -->
+                <!-- Debug: CLO: {{ 'YES' if course_data.clo else 'EMPTY' }} -->
+                <!-- Debug: Content A: {{ 'YES' if course_data.content_section_a else 'EMPTY' }} -->
+                <!-- Debug: Content B: {{ 'YES' if course_data.content_section_b else 'EMPTY' }} -->
                 {% else %}
                 <!-- Debug: Course data NOT found for session - Code: {{ session.course_code }}, Name: {{ session.course_name }} -->
                 {% endif %}
@@ -502,9 +537,6 @@
                 <button type="button" class="btn btn-outline-success btn-sm" id="addWeekButton" onclick="addLessonPlanRow()">
                     <i class="fas fa-plus me-1"></i>Add Week
                 </button>
-                        <small class="text-muted d-block mt-2">
-                            <i class="fas fa-info-circle me-1"></i>সর্বোচ্চ ১৪ সপ্তাহের ক্লাস প্ল্যান করা যাবে (Maximum 14 weeks allowed)
-                        </small>
             </div>
         </div>
 
@@ -529,13 +561,18 @@
                         <h5 class="mb-0">16. CIE- Continuous Internal Evaluation (Mark):</h5>
                     </div>
                     <div class="card-body">
+                        <div class="mb-3">
+                            <button type="button" class="btn btn-outline-success btn-sm" onclick="addCIEColumn()">
+                                <i class="fas fa-plus me-1"></i>Add Column
+                            </button>
+                            <small class="text-muted ms-2">Add columns like: Test, Group Debate, Assignment, etc.</small>
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-bordered table-sm" id="cieTable">
-                                <thead class="table-light">
+                                <thead class="table-light" id="cieTableHead">
                                     <tr>
-                                        <th>Blooms Category Marks</th>
-                                        <th>Test</th>
-                                        <th>Group Debate</th>
+                                        <th style="width: 180px;">Blooms Category Marks</th>
+                                        <!-- Dynamic columns will be added here -->
                                     </tr>
                                 </thead>
                                 <tbody id="cieTableBody">
@@ -1013,9 +1050,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize lesson plan from existing data
     const lessonPlan = {{ outline_data.lesson_plan|tojson }};
     if (lessonPlan && lessonPlan.length > 0) {
-        // Limit to maximum 14 weeks
-        const limitedPlan = lessonPlan.slice(0, 14);
-        limitedPlan.forEach(lesson => addLessonPlanRow(lesson));
+        lessonPlan.forEach(lesson => addLessonPlanRow(lesson));
     } else {
         addLessonPlanRow(); // Add one empty row
     }
@@ -1039,17 +1074,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Initialize CIE breakdown
-    const cieBreakdown = {{ outline_data.cie_breakdown|tojson if outline_data.cie_breakdown else '[]' }};
-    if (cieBreakdown && cieBreakdown.length > 0) {
-        cieBreakdown.forEach(cie => addCIERow(cie));
-    } else {
-        // Add default Bloom's taxonomy categories
-        const defaultCategories = ['Remember', 'Understand', 'Apply', 'Analyse', 'Evaluate', 'Create'];
-        defaultCategories.forEach(category => {
-            addCIERow({ category: category, test: '', group_debate: '' });
-        });
-    }
+    // Initialize CIE breakdown with customizable columns
+    const cieBreakdown = {{ outline_data.cie_breakdown|tojson if outline_data.cie_breakdown else '{}' }};
+    loadCIEData(cieBreakdown);
     
     // Initialize SMEE breakdown
     const smeeBreakdown = {{ outline_data.smee_breakdown|tojson if outline_data.smee_breakdown else '[]' }};
@@ -1125,39 +1152,8 @@ document.addEventListener('DOMContentLoaded', function() {
 function addLessonPlanRow(data = {}) {
     const container = document.getElementById('lessonPlanContainer');
     
-    // Check if already 14 unique weeks (not total entries)
-    const existingRows = container.querySelectorAll('.border.rounded.p-3.mb-3');
-    const uniqueWeeks = new Set();
-    existingRows.forEach(row => {
-        const weekInput = row.querySelector('input[name^="lesson_plan_week"], input[name^="lesson_week"]');
-        if (weekInput) {
-            const weekValue = weekInput.value || '';
-            const weekMatch = weekValue.match(/\d+/);
-            if (weekMatch) {
-                uniqueWeeks.add(parseInt(weekMatch[0]));
-            }
-        }
-    });
-    
-    // Check if the new row's week would exceed 14
-    if (data.week) {
-        const weekMatch = data.week.match(/\d+/);
-        if (weekMatch) {
-            const weekNum = parseInt(weekMatch[0]);
-            if (weekNum > 14) {
-                alert('সর্বোচ্চ ১৪ সপ্তাহের ক্লাস প্ল্যান করা যাবে। আরও সপ্তাহ যোগ করতে পারবেন না।\n\nMaximum 14 weeks of class plan allowed. Cannot add more weeks.');
-                return;
-            }
-        }
-    }
-    
-    if (uniqueWeeks.size >= 14) {
-        alert('সর্বোচ্চ ১৪ সপ্তাহের ক্লাস প্ল্যান করা যাবে। আরও সপ্তাহ যোগ করতে পারবেন না।\n\nMaximum 14 weeks of class plan allowed. Cannot add more weeks.');
-        return;
-    }
-    
     const row = document.createElement('div');
-    row.className = 'border rounded p-3 mb-3';
+    row.className = 'border rounded p-3 mb-3 lesson-plan-row';
     row.innerHTML = `
         <div class="row g-2">
             <div class="col-md-2">
@@ -1178,9 +1174,20 @@ function addLessonPlanRow(data = {}) {
             </div>
             <div class="col-md-3">
                 <label class="form-label small">Actions</label>
-                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="removeLessonPlanRow(this)">
-                    <i class="fas fa-trash"></i> Remove
-                </button>
+                <div class="btn-group w-100" role="group">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveLessonPlanRow(this, 'up')" title="Move Up">
+                        <i class="fas fa-arrow-up"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveLessonPlanRow(this, 'down')" title="Move Down">
+                        <i class="fas fa-arrow-down"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-success" onclick="insertLessonPlanRow(this)" title="Insert Week Below">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLessonPlanRow(this)" title="Remove">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
             </div>
         </div>
         <div class="row g-2 mt-2">
@@ -1200,40 +1207,124 @@ function addLessonPlanRow(data = {}) {
 
 function removeLessonPlanRow(button) {
     if (confirm('Are you sure you want to remove this week?')) {
-        button.closest('.border').remove();
+        button.closest('.lesson-plan-row').remove();
         updateAddWeekButton();
     }
 }
 
-function updateAddWeekButton() {
+function moveLessonPlanRow(button, direction) {
+    const row = button.closest('.lesson-plan-row');
+    if (!row) return;
+    
     const container = document.getElementById('lessonPlanContainer');
-    const addWeekButton = document.getElementById('addWeekButton');
-    if (!container || !addWeekButton) return;
+    if (!container) return;
     
-    const existingRows = container.querySelectorAll('.border.rounded.p-3.mb-3');
-    
-    // Count unique weeks, not total entries
-    const uniqueWeeks = new Set();
-    existingRows.forEach(row => {
-        const weekInput = row.querySelector('input[name^="lesson_plan_week"]');
-        if (weekInput) {
-            const weekValue = weekInput.value || '';
-            const weekMatch = weekValue.match(/\d+/);
-            if (weekMatch) {
-                uniqueWeeks.add(parseInt(weekMatch[0]));
-            }
+    if (direction === 'up') {
+        // Move row up (swap with previous sibling)
+        const prevRow = row.previousElementSibling;
+        if (prevRow && prevRow.classList.contains('lesson-plan-row')) {
+            container.insertBefore(row, prevRow);
+            // Add highlight animation
+            row.style.transition = 'background-color 0.3s';
+            row.style.backgroundColor = '#d4edda';
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+            }, 300);
         }
-    });
-    
-    if (uniqueWeeks.size >= 14) {
-        addWeekButton.disabled = true;
-        addWeekButton.classList.add('disabled');
-        addWeekButton.title = 'সর্বোচ্চ ১৪ সপ্তাহের সীমা পূরণ হয়েছে (Maximum 14 weeks limit reached)';
-    } else {
-        addWeekButton.disabled = false;
-        addWeekButton.classList.remove('disabled');
-        addWeekButton.title = '';
+    } else if (direction === 'down') {
+        // Move row down (swap with next sibling)
+        const nextRow = row.nextElementSibling;
+        if (nextRow && nextRow.classList.contains('lesson-plan-row')) {
+            container.insertBefore(nextRow, row);
+            // Add highlight animation
+            row.style.transition = 'background-color 0.3s';
+            row.style.backgroundColor = '#d4edda';
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+            }, 300);
+        }
     }
+}
+
+function insertLessonPlanRow(button) {
+    const currentRow = button.closest('.lesson-plan-row');
+    if (!currentRow) return;
+    
+    const container = document.getElementById('lessonPlanContainer');
+    if (!container) return;
+    
+    // Create new empty row
+    const newRow = document.createElement('div');
+    newRow.className = 'border rounded p-3 mb-3 lesson-plan-row';
+    newRow.innerHTML = `
+        <div class="row g-2">
+            <div class="col-md-2">
+                <label class="form-label small">Week</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_week[]" value="" placeholder="Week 1">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Date</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_date[]" value="" placeholder="20-24 July 2025">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Topic</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_topic[]" value="" placeholder="Topic name">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">CLO Alignment</label>
+                <input type="text" class="form-control form-control-sm" name="lesson_clo[]" value="" placeholder="1, 2">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Actions</label>
+                <div class="btn-group w-100" role="group">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveLessonPlanRow(this, 'up')" title="Move Up">
+                        <i class="fas fa-arrow-up"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="moveLessonPlanRow(this, 'down')" title="Move Down">
+                        <i class="fas fa-arrow-down"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-success" onclick="insertLessonPlanRow(this)" title="Insert Week Below">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeLessonPlanRow(this)" title="Remove">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="row g-2 mt-2">
+            <div class="col-md-6">
+                <label class="form-label small">Specific Outcome</label>
+                <textarea class="form-control form-control-sm" name="lesson_outcome[]" rows="2" placeholder="Students will be able to..."></textarea>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label small">Teaching & Assessment</label>
+                <textarea class="form-control form-control-sm" name="lesson_teaching[]" rows="2" placeholder="Lecture, Question answer"></textarea>
+            </div>
+        </div>
+    `;
+    
+    // Insert after current row
+    currentRow.insertAdjacentElement('afterend', newRow);
+    
+    // Highlight the new row
+    newRow.style.transition = 'background-color 0.5s';
+    newRow.style.backgroundColor = '#d1ecf1';
+    setTimeout(() => {
+        newRow.style.backgroundColor = '';
+    }, 500);
+    
+    // Focus on the week input of the new row
+    const weekInput = newRow.querySelector('input[name="lesson_week[]"]');
+    if (weekInput) {
+        weekInput.focus();
+    }
+    
+    updateAddWeekButton();
+}
+
+function updateAddWeekButton() {
+    // No limit on weeks - button always enabled
 }
 
 function generateWeeklyPlanWithAI(part = null) {
@@ -1281,8 +1372,7 @@ function generateWeeklyPlanWithAI(part = null) {
     .then(data => {
         if (data.success && data.lesson_plan) {
             container.innerHTML = '';
-            // Add all entries - they represent 14 weeks with multiple classes per week
-            // Don't limit by entry count, limit by weeks (which backend already does)
+            // Add all entries
             data.lesson_plan.forEach(lesson => addLessonPlanRow(lesson));
             
             // Count unique weeks
@@ -1295,7 +1385,7 @@ function generateWeeklyPlanWithAI(part = null) {
             });
             
             let message = 'Weekly plan generated successfully!\n\n' + (data.message || '');
-            message += `\n\nGenerated ${data.lesson_plan.length} class entries across ${uniqueWeeks.size} weeks (maximum 14 weeks).`;
+            message += `\n\nGenerated ${data.lesson_plan.length} class entries across ${uniqueWeeks.size} weeks.`;
             message += '\n\nPlease review and adjust as needed.';
             alert(message);
         } else {
@@ -1473,6 +1563,96 @@ function addGradingPolicy(data = {}) {
     addGradingPolicyRow(data);
 }
 
+// CIE Table with customizable columns
+let cieColumns = []; // Array of column names
+
+function addCIEColumn(columnName = '') {
+    const headerRow = document.querySelector('#cieTableHead tr');
+    if (!headerRow) return;
+    
+    // Prompt for column name if not provided
+    if (!columnName) {
+        columnName = prompt('Enter column name (e.g., Test, Group Debate, Assignment):');
+        if (!columnName || !columnName.trim()) return;
+        columnName = columnName.trim();
+    }
+    
+    // Add to columns array
+    cieColumns.push(columnName);
+    
+    // Create header cell with editable name and delete button
+    const th = document.createElement('th');
+    th.className = 'cie-column-header';
+    th.innerHTML = `
+        <div class="d-flex align-items-center gap-1">
+            <input type="text" class="form-control form-control-sm cie-column-name" 
+                   value="${columnName}" 
+                   style="min-width: 80px; font-weight: bold;"
+                   onchange="updateCIEColumnName(this, ${cieColumns.length - 1})">
+            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" 
+                    onclick="removeCIEColumn(${cieColumns.length - 1})" title="Remove column">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `;
+    headerRow.appendChild(th);
+    
+    // Add cell to all existing rows
+    const rows = document.querySelectorAll('#cieTableBody tr');
+    rows.forEach(row => {
+        const td = document.createElement('td');
+        td.innerHTML = `<input type="number" class="form-control form-control-sm cie-value" value="0" placeholder="0" min="0">`;
+        row.appendChild(td);
+    });
+}
+
+function removeCIEColumn(index) {
+    if (!confirm('Are you sure you want to remove this column?')) return;
+    
+    // Remove from columns array
+    cieColumns.splice(index, 1);
+    
+    // Remove header
+    const headerRow = document.querySelector('#cieTableHead tr');
+    const headers = headerRow.querySelectorAll('th');
+    if (headers[index + 1]) { // +1 because first th is "Blooms Category Marks"
+        headers[index + 1].remove();
+    }
+    
+    // Remove cells from all rows
+    const rows = document.querySelectorAll('#cieTableBody tr');
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if (cells[index + 1]) { // +1 because first td is category dropdown
+            cells[index + 1].remove();
+        }
+    });
+    
+    // Re-index remaining columns
+    reindexCIEColumns();
+}
+
+function updateCIEColumnName(input, index) {
+    cieColumns[index] = input.value.trim();
+}
+
+function reindexCIEColumns() {
+    const headerRow = document.querySelector('#cieTableHead tr');
+    const headers = headerRow.querySelectorAll('th.cie-column-header');
+    
+    headers.forEach((th, idx) => {
+        const input = th.querySelector('input');
+        const deleteBtn = th.querySelector('button');
+        
+        if (input) {
+            input.setAttribute('onchange', `updateCIEColumnName(this, ${idx})`);
+        }
+        if (deleteBtn) {
+            deleteBtn.setAttribute('onclick', `removeCIEColumn(${idx})`);
+        }
+    });
+}
+
 function addCIERow(data = {}) {
     const tbody = document.getElementById('cieTableBody');
     if (!tbody) return;
@@ -1487,21 +1667,107 @@ function addCIERow(data = {}) {
     });
     
     const row = document.createElement('tr');
-    row.innerHTML = `
+    
+    // First cell: category dropdown
+    let rowHtml = `
         <td>
-            <select class="form-control form-control-sm" name="cie_category[]">
+            <select class="form-control form-control-sm cie-category" name="cie_category[]">
                 <option value="">Select Category</option>
                 ${options}
             </select>
         </td>
-        <td>
-            <input type="number" class="form-control form-control-sm" name="cie_test[]" value="${data.test || ''}" placeholder="0" min="0">
-        </td>
-        <td>
-            <input type="number" class="form-control form-control-sm" name="cie_group_debate[]" value="${data.group_debate || ''}" placeholder="0" min="0">
-        </td>
     `;
+    
+    // Add cells for each column
+    const values = data.values || [];
+    cieColumns.forEach((col, idx) => {
+        const value = values[idx] !== undefined ? values[idx] : (data[col.toLowerCase().replace(/\s+/g, '_')] || '');
+        rowHtml += `
+            <td>
+                <input type="number" class="form-control form-control-sm cie-value" value="${value}" placeholder="0" min="0">
+            </td>
+        `;
+    });
+    
+    row.innerHTML = rowHtml;
     tbody.appendChild(row);
+}
+
+function getCIEData() {
+    const data = {
+        columns: [...cieColumns],
+        rows: []
+    };
+    
+    const rows = document.querySelectorAll('#cieTableBody tr');
+    rows.forEach(row => {
+        const category = row.querySelector('.cie-category')?.value || '';
+        const values = [];
+        row.querySelectorAll('.cie-value').forEach(input => {
+            values.push(input.value || '0');
+        });
+        
+        if (category) {
+            data.rows.push({ category, values });
+        }
+    });
+    
+    return data;
+}
+
+function loadCIEData(cieData) {
+    // Clear existing columns and rows
+    cieColumns = [];
+    const headerRow = document.querySelector('#cieTableHead tr');
+    const tbody = document.getElementById('cieTableBody');
+    
+    // Remove existing column headers (keep first one - Blooms Category)
+    const existingHeaders = headerRow.querySelectorAll('th.cie-column-header');
+    existingHeaders.forEach(th => th.remove());
+    
+    // Clear tbody
+    tbody.innerHTML = '';
+    
+    // Check data format
+    if (cieData && cieData.columns && Array.isArray(cieData.columns)) {
+        // New format with customizable columns
+        cieData.columns.forEach(col => addCIEColumn(col));
+        
+        if (cieData.rows && cieData.rows.length > 0) {
+            cieData.rows.forEach(row => addCIERow(row));
+        } else {
+            // Add default categories
+            const defaultCategories = ['Remember', 'Understand', 'Apply', 'Analyse', 'Evaluate', 'Create'];
+            defaultCategories.forEach(category => addCIERow({ category }));
+        }
+    } else if (Array.isArray(cieData) && cieData.length > 0) {
+        // Old format - convert to new format
+        // Detect columns from first row
+        const firstRow = cieData[0];
+        const oldColumns = [];
+        
+        if (firstRow.test !== undefined) oldColumns.push('Test');
+        if (firstRow.group_debate !== undefined) oldColumns.push('Group Debate');
+        
+        // Add detected columns
+        oldColumns.forEach(col => addCIEColumn(col));
+        
+        // Add rows with converted data
+        cieData.forEach(item => {
+            const values = [];
+            if (oldColumns.includes('Test')) values.push(item.test || '');
+            if (oldColumns.includes('Group Debate')) values.push(item.group_debate || '');
+            
+            addCIERow({ category: item.category, values });
+        });
+    } else {
+        // No data - add default columns and rows
+        addCIEColumn('Test');
+        addCIEColumn('Group Debate');
+        
+        const defaultCategories = ['Remember', 'Understand', 'Apply', 'Analyse', 'Evaluate', 'Create'];
+        defaultCategories.forEach(category => addCIERow({ category }));
+    }
 }
 
 function addSMEERow(data = {}) {
@@ -2120,20 +2386,8 @@ function saveCourseOutline(isAutoSave = false) {
         }
     }
     
-    // Collect CIE breakdown
-    const cieCategories = formData.getAll('cie_category[]');
-    const cieTests = formData.getAll('cie_test[]');
-    const cieGroupDebates = formData.getAll('cie_group_debate[]');
-    data.cie_breakdown = [];
-    for (let i = 0; i < cieCategories.length; i++) {
-        if (cieCategories[i] || cieTests[i] || cieGroupDebates[i]) {
-            data.cie_breakdown.push({
-                category: cieCategories[i] || '',
-                test: cieTests[i] || '',
-                group_debate: cieGroupDebates[i] || ''
-            });
-        }
-    }
+    // Collect CIE breakdown with customizable columns
+    data.cie_breakdown = getCIEData();
     
     // Collect SMEE breakdown
     const smeeCategories = formData.getAll('smee_category[]');
