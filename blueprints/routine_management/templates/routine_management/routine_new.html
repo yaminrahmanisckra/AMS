@@ -3680,6 +3680,42 @@ const RoutineManager = {
         this.showTimeSlotManager(); // Refresh modal
     },
 
+    // Simple lunch column addition for non-editors (lightweight, no table rebuild)
+    addLunchColumnSimple: function() {
+        // Check if lunch column already exists
+        if (document.querySelector('.lunch-col')) return;
+        
+        const headerRow = this.elements.routineTable?.querySelector('thead tr');
+        if (!headerRow) return;
+        
+        const timeHeaders = headerRow.querySelectorAll('th.time-col');
+        const lunchAfterIndex = this.state.lunchAfterSlotIndex || 3;
+        
+        // Add lunch header after the specified slot
+        if (timeHeaders[lunchAfterIndex]) {
+            const lunchTh = document.createElement('th');
+            lunchTh.className = 'lunch-col';
+            lunchTh.style.cssText = 'background: #FEF3C7; color: #92400E; font-size: 10px; min-width: 70px;';
+            lunchTh.innerHTML = '01:00 PM<br>-<br>02:00 PM';
+            timeHeaders[lunchAfterIndex].after(lunchTh);
+        }
+        
+        // Add lunch cells to each row
+        const rows = this.elements.routineTbody?.querySelectorAll('tr');
+        if (!rows) return;
+        
+        rows.forEach(row => {
+            const slotCells = row.querySelectorAll('td.slot-cell');
+            if (slotCells[lunchAfterIndex]) {
+                const lunchTd = document.createElement('td');
+                lunchTd.className = 'slot-cell lunch-cell';
+                lunchTd.style.cssText = 'background: #FEF3C7; color: #92400E;';
+                lunchTd.innerHTML = '<div class="slot-content"><strong>LUNCH</strong></div>';
+                slotCells[lunchAfterIndex].after(lunchTd);
+            }
+        });
+    },
+
     // Update time slots in table
     updateTimeSlotsInTable: function(newSlots) {
         // Update headers
@@ -3779,9 +3815,8 @@ document.addEventListener('DOMContentLoaded', function() {
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
     {% if not can_edit %}
-    // For non-editors: Minimal initialization - only load routine data, skip all drag/drop
+    // For non-editors: Ultra-minimal initialization - only load routine data
     RoutineManager.cacheElements();
-    RoutineManager.setupStickyHeaders();
     
     // Setup PDF download button for non-editors
     if (RoutineManager.elements.btnPdf) {
@@ -3793,24 +3828,12 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Loading saved routine from database:', RoutineManager.config.savedRoutineId);
         RoutineManager.loadSavedRoutine();
         
-        // Ensure lunch column is displayed after loading (with delay to ensure table is rendered)
+        // Add lunch column simply (without rebuilding entire table)
         setTimeout(() => {
-            const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
-                .map(th => th.textContent.trim());
-            if (currentSlots.length > 0) {
-                RoutineManager.updateTimeSlotsInTable(currentSlots);
-            }
-        }, 1000);
+            RoutineManager.addLunchColumnSimple();
+        }, 1500);
     } else {
         RoutineManager.loadAutoSave();
-        // Ensure lunch column is displayed
-        setTimeout(() => {
-            const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
-                .map(th => th.textContent.trim());
-            if (currentSlots.length > 0) {
-                RoutineManager.updateTimeSlotsInTable(currentSlots);
-            }
-        }, 500);
     }
     {% else %}
     RoutineManager.init();
