@@ -8,6 +8,42 @@
 {% block title %}{% if is_student %}Class Routine{% else %}Routine Maker{% endif %}{% endblock %}
 
 {% block content %}
+{% if not can_edit %}
+<style>
+/* CRITICAL: Force enable scrolling for non-editors - Must be at top level */
+html, body {
+    overflow: auto !important;
+    height: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+.routine-app {
+    overflow: auto !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+.routine-main {
+    overflow: visible !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+.routine-table-area {
+    overflow: visible !important;
+}
+.routine-table-wrapper {
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x pan-y !important;
+    position: relative !important;
+    width: 100% !important;
+    height: auto !important;
+}
+.routine-table tbody td.slot-cell {
+    touch-action: pan-x pan-y !important;
+    pointer-events: auto !important;
+}
+</style>
+{% endif %}
 {% if is_student %}
 <div class="container my-4">
 {% endif %}
@@ -3598,6 +3634,73 @@ const RoutineManager = {
         }
     }
 };
+
+// CRITICAL: For non-editors, force enable scrolling IMMEDIATELY (before DOMContentLoaded)
+{% if not can_edit %}
+(function() {
+    'use strict';
+    // Force scrolling immediately - don't wait for DOMContentLoaded
+    function forceScrolling() {
+        const routineApp = document.querySelector('.routine-app');
+        const routineMain = document.querySelector('.routine-main');
+        const routineTableArea = document.querySelector('.routine-table-area');
+        const tableWrapper = document.querySelector('.routine-table-wrapper');
+        const routineTable = document.getElementById('routine-table');
+        
+        if (routineApp) {
+            routineApp.style.setProperty('overflow', 'auto', 'important');
+            routineApp.style.setProperty('height', 'auto', 'important');
+            routineApp.style.setProperty('min-height', '100vh', 'important');
+            routineApp.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+        }
+        
+        if (routineMain) {
+            routineMain.style.setProperty('overflow', 'visible', 'important');
+            routineMain.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+        }
+        
+        if (routineTableArea) {
+            routineTableArea.style.setProperty('overflow', 'visible', 'important');
+        }
+        
+        if (tableWrapper) {
+            tableWrapper.style.setProperty('overflow-x', 'auto', 'important');
+            tableWrapper.style.setProperty('overflow-y', 'auto', 'important');
+            tableWrapper.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+            tableWrapper.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+            tableWrapper.style.setProperty('position', 'relative', 'important');
+            tableWrapper.style.setProperty('width', '100%', 'important');
+            tableWrapper.style.setProperty('height', 'auto', 'important');
+        }
+        
+        if (routineTable) {
+            routineTable.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+        }
+        
+        // Force all cells
+        document.querySelectorAll('.slot-cell').forEach(cell => {
+            cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+            cell.style.setProperty('pointer-events', 'auto', 'important');
+            cell.draggable = false;
+        });
+    }
+    
+    // Run immediately
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', forceScrolling);
+    } else {
+        forceScrolling();
+    }
+    
+    // Also run after a short delay to catch any late-loading elements
+    setTimeout(forceScrolling, 100);
+    setTimeout(forceScrolling, 500);
+    setTimeout(forceScrolling, 1000);
+    
+    // Run on resize
+    window.addEventListener('resize', forceScrolling);
+})();
+{% endif %}
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
