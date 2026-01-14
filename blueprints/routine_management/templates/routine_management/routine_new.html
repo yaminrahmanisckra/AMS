@@ -1097,9 +1097,34 @@ body.fullscreen-active .routine-table {
 }
 
 @media (max-width: 768px) {
+    /* CRITICAL: Enable scrolling for mobile devices */
+    .routine-app {
+        height: auto !important;
+        min-height: 100vh;
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    
+    .routine-main {
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    
+    .routine-table-area {
+        overflow: visible !important;
+    }
+    
+    .routine-table-wrapper {
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        touch-action: pan-x pan-y !important;
+        padding: 8px;
+    }
+    
     .routine-topbar {
         padding: 8px 12px;
         flex-wrap: wrap;
+        position: relative !important;
     }
     
     .topbar-left {
@@ -1115,17 +1140,27 @@ body.fullscreen-active .routine-table {
         font-size: 12px;
     }
     
-    .routine-table-wrapper {
-        padding: 8px;
-    }
-    
     .routine-table {
         font-size: 11px;
+    }
+    
+    .routine-table thead {
+        position: relative !important;
+    }
+    
+    .routine-table thead th {
+        position: relative !important;
+    }
+    
+    .routine-table tbody td.day-col,
+    .routine-table tbody td.room-col {
+        position: relative !important;
     }
     
     .routine-table tbody td.slot-cell {
         min-height: 50px;
         height: 50px;
+        touch-action: pan-x pan-y !important;
     }
 }
 
@@ -1251,7 +1286,7 @@ body.fullscreen-active .routine-table {
                 <i class="fas fa-plus topbar-btn-icon"></i>
                         </button>
                         {% endif %}
-            <button class="topbar-btn" id="btn-pdf" onclick="RoutineManager.downloadPDF()">
+            <button class="topbar-btn" id="btn-pdf" onclick="if(window.RoutineManager && window.RoutineManager.downloadPDF) { window.RoutineManager.downloadPDF(); } else { alert('Please wait for page to load'); }">
                 <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
             <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
@@ -3538,14 +3573,16 @@ const RoutineManager = {
     }
 };
 
+// Make RoutineManager available globally for onclick handlers (BEFORE DOMContentLoaded)
+window.RoutineManager = RoutineManager;
+
 // Initialize on DOM ready - same for both editors and non-editors
 // (editors work fine on mobile, so non-editors should too)
 document.addEventListener('DOMContentLoaded', function() {
-    RoutineManager.init();
+    if (window.RoutineManager) {
+        window.RoutineManager.init();
+    }
 });
-
-// Make RoutineManager available globally for onclick handlers
-window.RoutineManager = RoutineManager;
 
 // Custom entry modal save handler
 document.getElementById('custom-entry-modal-save')?.addEventListener('click', function() {
