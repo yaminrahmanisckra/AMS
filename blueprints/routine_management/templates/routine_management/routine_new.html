@@ -1129,6 +1129,52 @@ body.fullscreen-active .routine-table {
     }
 }
 
+/* CRITICAL: Mobile Landscape Fix - Disable sticky positioning to prevent freeze */
+@media (max-height: 500px) and (orientation: landscape) {
+    .routine-table thead {
+        position: relative !important;
+        will-change: auto !important;
+    }
+    
+    .routine-table thead th {
+        position: relative !important;
+    }
+    
+    .routine-table thead th.day-col,
+    .routine-table thead th.room-col {
+        position: relative !important;
+    }
+    
+    .routine-table tbody td.day-col,
+    .routine-table tbody td.room-col {
+        position: relative !important;
+    }
+    
+    .routine-topbar {
+        position: relative !important;
+    }
+    
+    /* Ensure scrolling works */
+    .routine-app {
+        height: auto !important;
+        min-height: 100vh;
+        overflow: auto !important;
+    }
+    
+    .routine-main {
+        overflow: auto !important;
+    }
+    
+    .routine-table-area {
+        overflow: auto !important;
+    }
+    
+    .routine-table-wrapper {
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+}
+
 /* ============================================
    UTILITIES
    ============================================ */
@@ -1205,7 +1251,7 @@ body.fullscreen-active .routine-table {
                 <i class="fas fa-plus topbar-btn-icon"></i>
                         </button>
                         {% endif %}
-            <button class="topbar-btn" id="btn-pdf">
+            <button class="topbar-btn" id="btn-pdf" onclick="RoutineManager.downloadPDF()">
                 <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
             <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
