@@ -1168,6 +1168,40 @@ body.fullscreen-active .routine-table {
     }
 }
 
+/* Simple table styles for non-editors */
+{% if not can_edit %}
+.routine-table-area {
+    padding: 16px !important;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    height: auto !important;
+    max-height: calc(100vh - 150px) !important;
+}
+
+.routine-table-area > div {
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x pan-y !important;
+}
+
+.routine-table tbody td.slot-cell.has-class {
+    background: #e3f2fd !important;
+    font-weight: 500;
+}
+
+.routine-table tbody td.slot-cell .slot-course-code {
+    font-weight: 600;
+    color: #1976d2;
+    margin-bottom: 2px;
+}
+
+.routine-table tbody td.slot-cell .slot-teacher {
+    font-size: 10px;
+    color: #666;
+}
+{% endif %}
+
 /* CRITICAL: Mobile Landscape Fix - Disable sticky positioning to prevent freeze */
 @media (max-height: 500px) and (orientation: landscape) {
     .routine-table thead {
@@ -1387,22 +1421,44 @@ body.fullscreen-active .routine-table {
                     </div>
                 </div>
         {% else %}
-        <!-- Non-editor view: Simple download page -->
-        <div class="routine-table-area" style="display: flex; align-items: center; justify-content: center; min-height: 60vh; padding: 40px;">
-            <div style="text-align: center; max-width: 500px;">
-                <div style="font-size: 48px; color: var(--primary); margin-bottom: 20px;">
-                    <i class="fas fa-file-pdf"></i>
-                </div>
-                <h2 style="color: var(--text); margin-bottom: 16px;">Class Routine</h2>
-                <p style="color: var(--text-muted); margin-bottom: 30px; font-size: 16px;">
-                    Click the PDF button above to download the routine schedule.
-                </p>
-                <div style="background: var(--bg-card); padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
-                    <p style="color: var(--text); margin: 0; font-size: 14px;">
-                        <i class="fas fa-info-circle" style="color: var(--primary); margin-right: 8px;"></i>
-                        The routine is available for download in PDF format.
-                    </p>
-                </div>
+        <!-- Non-editor view: Simple scrollable routine table -->
+        <div class="routine-table-area" style="padding: 16px; overflow: auto; -webkit-overflow-scrolling: touch;">
+            <div style="background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: auto; max-height: calc(100vh - 200px);">
+                <table class="routine-table" id="routine-table" style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead style="background: #f8f9fa; position: sticky; top: 0; z-index: 10;">
+                        <tr>
+                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white;">Day</th>
+                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600;">Room</th>
+                            {% for slot in time_slots %}
+                            <th style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; min-width: 100px;">{{ slot }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody id="routine-tbody">
+                        {% for day in days %}
+                            {% for room in rooms %}
+                            <tr data-day="{{ day }}" data-room="{{ room.id }}">
+                                {% if loop.first %}
+                                <td class="day-col" rowspan="{{ rooms|length }}" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 600; background: var(--primary); color: white; vertical-align: middle;">{{ day }}</td>
+                                {% endif %}
+                                <td class="room-col" style="padding: 8px; border: 1px solid #dee2e6; text-align: center; font-weight: 500;">{{ room.room_number }}</td>
+                                {% for slot in time_slots %}
+                                <td class="slot-cell"
+                                    data-day="{{ day }}"
+                                    data-room="{{ room.id }}"
+                                    data-room-name="{{ room.room_number }}"
+                                    data-slot="{{ slot }}"
+                                    style="padding: 6px; border: 1px solid #dee2e6; text-align: center; min-height: 50px; vertical-align: middle;">
+                                    <div class="slot-content" style="font-size: 11px;">
+                                        <span class="slot-empty">-</span>
+                                    </div>
+                                </td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
         {% endif %}
@@ -2633,11 +2689,6 @@ const RoutineManager = {
 
     // Update routine display (optimized - batch DOM updates)
     updateRoutineDisplay: function() {
-        // Skip for non-editors (table doesn't exist)
-        if (!this.config.canEdit) {
-            return;
-        }
-        
         // Re-cache slot cells
         this.elements.slotCells = document.querySelectorAll('.slot-cell');
 
@@ -3287,56 +3338,29 @@ const RoutineManager = {
             
         const routineData = [];
         
-        // For editors: read from DOM cells
-        // For non-editors: read directly from state (table doesn't exist)
-        if (this.config.canEdit && this.elements.routineTable) {
-            // Re-cache slot cells for editors
-            this.elements.slotCells = document.querySelectorAll('.slot-cell');
-            console.log('Slot cells found:', this.elements.slotCells.length);
-            
-            this.elements.slotCells.forEach(cell => {
-                if (cell.classList.contains('lunch-cell')) return;
+        // Read from DOM cells (works for both editors and non-editors now)
+        this.elements.slotCells = document.querySelectorAll('.slot-cell');
+        console.log('Slot cells found:', this.elements.slotCells.length);
+        
+        this.elements.slotCells.forEach(cell => {
+            if (cell.classList.contains('lunch-cell')) return;
 
-                const key = this.getSlotKey(cell);
-                const item = this.state.routine[key];
-                if (item) {
-                    routineData.push({
-                        day: cell.dataset.day,
-                        slot: cell.dataset.slot,
-                        room_id: parseInt(cell.dataset.room),
-                        course_code: item.courseCode,
-                        teacher_short_name: item.teacherShort,
-                        batch: item.batch || '',
-                        color_code: item.colorCode || '',
-                        is_custom: item.isCustom || false,
-                        custom_course_name: item.isCustom ? item.courseCode : ''
-                    });
-                }
-            });
-        } else {
-            // For non-editors: use state data directly
-            // State keys are in format: "Day|Slot|RoomId"
-            Object.keys(this.state.routine || {}).forEach(key => {
-                const item = this.state.routine[key];
-                if (item) {
-                    // Parse key to get day, slot, room_id
-                    const parts = key.split('|');
-                    if (parts.length === 3) {
-                        routineData.push({
-                            day: parts[0],
-                            slot: parts[1],
-                            room_id: parseInt(parts[2]),
-                            course_code: item.courseCode,
-                            teacher_short_name: item.teacherShort,
-                            batch: item.batch || '',
-                            color_code: item.colorCode || '',
-                            is_custom: item.isCustom || false,
-                            custom_course_name: item.isCustom ? item.courseCode : ''
-                        });
-                    }
-                }
-            });
-        }
+            const key = this.getSlotKey(cell);
+            const item = this.state.routine[key];
+            if (item) {
+                routineData.push({
+                    day: cell.dataset.day,
+                    slot: cell.dataset.slot,
+                    room_id: parseInt(cell.dataset.room),
+                    course_code: item.courseCode,
+                    teacher_short_name: item.teacherShort,
+                    batch: item.batch || '',
+                    color_code: item.colorCode || '',
+                    is_custom: item.isCustom || false,
+                    custom_course_name: item.isCustom ? item.courseCode : ''
+                });
+            }
+        });
         
         console.log('Routine data collected:', routineData.length, 'entries');
             
