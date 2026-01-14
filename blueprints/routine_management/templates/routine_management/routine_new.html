@@ -3770,11 +3770,12 @@ setTimeout(function() {
             console.log('isFullscreen:', window.RoutineManager.state?.isFullscreen);
         }
         
-        if (isMobile && isLandscape) {
+        // Auto enable fullscreen in landscape mode (for both mobile and desktop)
+        if (isLandscape) {
             // Auto enable fullscreen in landscape mode
             if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
-                    console.log('Enabling auto fullscreen for landscape mode');
+                    console.log('✅ Enabling auto fullscreen for landscape mode');
                     window.RoutineManager.toggleFullscreen();
                 } else {
                     console.log('Already in fullscreen mode');
@@ -3870,7 +3871,8 @@ setTimeout(function() {
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
         
-        if (isMobile && isLandscape) {
+        // Enable fullscreen for any landscape orientation (mobile or desktop)
+        if (isLandscape) {
             if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
                     console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries);
