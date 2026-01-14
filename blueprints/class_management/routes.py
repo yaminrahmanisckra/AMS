@@ -3363,11 +3363,12 @@ def edit_course_outline(session_id):
         db.session.commit()
     
     # Get course data from curriculum using improved matching
+    # IMPORTANT: Same course can exist in multiple curricula, so we need to find the right one
     course_data = None
     try:
         if Course:
             import re
-            current_app.logger.info(f"Searching for course - session.course_code: '{session.course_code}', session.course_name: '{session.course_name}'")
+            current_app.logger.info(f"Searching for course - session.course_code: '{session.course_code}', session.course_name: '{session.course_name}', session.year: '{session.year}', session.term: '{session.term}', session.academic_session: '{session.academic_session}'")
             
             def extract_core_code(code_str):
                 """Extract the core code pattern (e.g., 'Law4103' without space) from various formats"""
@@ -3379,101 +3380,209 @@ def edit_course_outline(session_id):
                     return f"{match.group(1)}{match.group(2)}"  # No space: "Law4103"
                 return None
             
+            def has_course_info(course):
+                """Check if a course has Course Information (rationale, CLO, or content)"""
+                return bool(course.rationale or course.clo or course.content_section_a or course.content_section_b)
+            
+            def normalize_year_term(value):
+                """Normalize year/term values for comparison"""
+                if not value:
+                    return ''
+                value = str(value).strip().lower()
+                # Map numeric to text
+                year_map = {'1': 'first', '2': 'second', '3': 'third', '4': 'fourth', '5': 'fifth'}
+                term_map = {'1': 'first', '2': 'second'}
+                if value in year_map:
+                    return year_map[value]
+                if value in term_map:
+                    return term_map[value]
+                # Remove "year" or "term" suffix
+                for suffix in [' year', ' term']:
+                    if value.endswith(suffix):
+                        value = value[:-len(suffix)]
+                return value
+            
             # Extract core code pattern from session course code
             session_core_code = extract_core_code(session.course_code)
             if session_core_code:
                 current_app.logger.info(f"Extracted core code: '{session_core_code}' from '{session.course_code}'")
             
+            # Normalize session year/term for matching
+            session_year_norm = normalize_year_term(session.year)
+            session_term_norm = normalize_year_term(session.term)
+            
+            def find_matching_courses(code_filter_func):
+                """Find all courses matching the code filter, then prioritize by curriculum match and course info"""
+                all_courses = Course.query.all()
+                matching_courses = [c for c in all_courses if c.course_code and code_filter_func(c.course_code)]
+                
+                if not matching_courses:
+                    return None
+                
+                current_app.logger.info(f"Found {len(matching_courses)} courses matching code filter")
+                
+                # Score courses: higher score = better match
+                scored_courses = []
+                for course in matching_courses:
+                    score = 0
+                    reasons = []
+                    
+                    # Priority 1: Has Course Information (most important)
+                    if has_course_info(course):
+                        score += 100
+                        reasons.append("has_course_info")
+                    
+                    # Priority 2: Year/Term match from course's derived or stored year/term
+                    course_year_norm = normalize_year_term(course.year or course.derived_year)
+                    course_term_norm = normalize_year_term(course.term or course.derived_term)
+                    
+                    if session_year_norm and course_year_norm and session_year_norm == course_year_norm:
+                        score += 20
+                        reasons.append(f"year_match({course_year_norm})")
+                    if session_term_norm and course_term_norm and session_term_norm == course_term_norm:
+                        score += 10
+                        reasons.append(f"term_match({course_term_norm})")
+                    
+                    # Priority 3: Academic session match via CurriculumYearTerm
+                    if CurriculumYearTerm and session.academic_session and course.curriculum_id:
+                        try:
+                            config = CurriculumYearTerm.query.filter_by(
+                                curriculum_id=course.curriculum_id,
+                                academic_session=session.academic_session
+                            ).first()
+                            if config:
+                                score += 50
+                                reasons.append(f"academic_session_match({session.academic_session})")
+                        except Exception as e:
+                            current_app.logger.warning(f"Error checking CurriculumYearTerm: {e}")
+                    
+                    scored_courses.append((course, score, reasons))
+                    current_app.logger.info(f"  Course: {course.course_code} (curriculum_id={course.curriculum_id}), score={score}, reasons={reasons}")
+                
+                # Sort by score (highest first)
+                scored_courses.sort(key=lambda x: x[1], reverse=True)
+                
+                if scored_courses:
+                    best_course, best_score, best_reasons = scored_courses[0]
+                    current_app.logger.info(f"Selected best match: {best_course.course_code} with score {best_score} ({best_reasons})")
+                    return best_course
+                
+                return None
+            
             # Try exact match by course code
             if session.course_code:
-                course_data = Course.query.filter_by(course_code=session.course_code).first()
+                course_data = find_matching_courses(
+                    lambda code: code == session.course_code
+                )
                 if course_data:
                     current_app.logger.info(f"Found by exact course_code match: {course_data.course_code}")
             
             # If not found, try case-insensitive match by course code
             if not course_data and session.course_code:
-                course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(session.course_code)).first()
+                course_data = find_matching_courses(
+                    lambda code: code.lower() == session.course_code.lower()
+                )
                 if course_data:
                     current_app.logger.info(f"Found by case-insensitive course_code match: {course_data.course_code}")
             
-            # If not found, try whitespace-normalized match (handles extra spaces, tabs, etc.)
+            # If not found, try whitespace-normalized match
             if not course_data and session.course_code:
-                session_code_normalized = ' '.join(session.course_code.strip().split())  # Normalize whitespace
-                all_courses = Course.query.all()
-                for course in all_courses:
-                    if course.course_code:
-                        curriculum_code_normalized = ' '.join(course.course_code.strip().split())
-                        if session_code_normalized.lower() == curriculum_code_normalized.lower():
-                            course_data = course
-                            current_app.logger.info(f"Found by whitespace-normalized match: {course_data.course_code}")
-                            break
+                session_code_normalized = ' '.join(session.course_code.strip().split()).lower()
+                course_data = find_matching_courses(
+                    lambda code: ' '.join(code.strip().split()).lower() == session_code_normalized
+                )
+                if course_data:
+                    current_app.logger.info(f"Found by whitespace-normalized match: {course_data.course_code}")
             
             # If not found, try with extracted course code pattern (with space)
             if not course_data and session_core_code:
-                extracted_with_space = re.sub(r'([A-Za-z]+)(\d{4})', r'\1 \2', session_core_code)
-                course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(extracted_with_space)).first()
+                extracted_with_space = re.sub(r'([A-Za-z]+)(\d{4})', r'\1 \2', session_core_code).lower()
+                course_data = find_matching_courses(
+                    lambda code: code.lower() == extracted_with_space
+                )
                 if course_data:
                     current_app.logger.info(f"Found by extracted code with space: {course_data.course_code}")
             
             # If not found, try with extracted course code pattern (without space)
             if not course_data and session_core_code:
-                course_data = Course.query.filter(func.lower(Course.course_code) == func.lower(session_core_code)).first()
+                course_data = find_matching_courses(
+                    lambda code: code.lower() == session_core_code.lower()
+                )
                 if course_data:
                     current_app.logger.info(f"Found by extracted code without space: {course_data.course_code}")
             
-            # If not found, try normalized core code matching - compare core codes from both session and curriculum
+            # If not found, try normalized core code matching
             if not course_data and session_core_code:
-                all_courses = Course.query.all()
                 session_core_lower = session_core_code.lower()
-                current_app.logger.info(f"Trying normalized core code match with {len(all_courses)} courses (looking for: '{session_core_lower}')")
-                for course in all_courses:
-                    if course.course_code:
-                        # Extract core code from curriculum course code
-                        curriculum_core = extract_core_code(course.course_code)
-                        if curriculum_core and curriculum_core.lower() == session_core_lower:
-                            course_data = course
-                            current_app.logger.info(f"Found by normalized core code match: {course.course_code} (core: {curriculum_core})")
-                            break
+                course_data = find_matching_courses(
+                    lambda code: extract_core_code(code) and extract_core_code(code).lower() == session_core_lower
+                )
+                if course_data:
+                    current_app.logger.info(f"Found by normalized core code match: {course_data.course_code}")
             
             # If not found, try partial match - check if curriculum course code is contained in session code
             if not course_data and session.course_code:
-                all_courses = Course.query.all()
                 session_code_lower = session.course_code.lower()
                 session_code_no_space = session_code_lower.replace(' ', '')
-                for course in all_courses:
-                    if course.course_code:
-                        course_code_lower = course.course_code.lower()
-                        course_code_no_space = course_code_lower.replace(' ', '')
-                        # Check with and without spaces
-                        if course_code_lower in session_code_lower or course_code_no_space in session_code_no_space:
-                            course_data = course
-                            current_app.logger.info(f"Found by partial code match: {course_data.course_code}")
-                            break
+                course_data = find_matching_courses(
+                    lambda code: code.lower() in session_code_lower or code.lower().replace(' ', '') in session_code_no_space
+                )
+                if course_data:
+                    current_app.logger.info(f"Found by partial code match: {course_data.course_code}")
             
             # If not found, try exact match by course name
             if not course_data and session.course_name:
-                course_data = Course.query.filter_by(course_name=session.course_name).first()
-                if course_data:
-                    current_app.logger.info(f"Found by exact course_name match: {course_data.course_name}")
+                course_data = find_matching_courses(
+                    lambda code: True  # Match all, but filter by name below
+                )
+                # Re-filter by name since find_matching_courses filters by code
+                if not course_data:
+                    all_courses = Course.query.filter_by(course_name=session.course_name).all()
+                    if all_courses:
+                        # Pick the one with course info
+                        for c in all_courses:
+                            if has_course_info(c):
+                                course_data = c
+                                break
+                        if not course_data:
+                            course_data = all_courses[0]
+                        if course_data:
+                            current_app.logger.info(f"Found by exact course_name match: {course_data.course_name}")
             
             # If not found, try case-insensitive partial match by course name
             if not course_data and session.course_name:
-                course_data = Course.query.filter(func.lower(Course.course_name).like(f'%{session.course_name.lower()}%')).first()
-                if course_data:
-                    current_app.logger.info(f"Found by partial course_name match: {course_data.course_name}")
+                all_courses = Course.query.filter(func.lower(Course.course_name).like(f'%{session.course_name.lower()}%')).all()
+                if all_courses:
+                    # Pick the one with course info
+                    for c in all_courses:
+                        if has_course_info(c):
+                            course_data = c
+                            break
+                    if not course_data:
+                        course_data = all_courses[0]
+                    if course_data:
+                        current_app.logger.info(f"Found by partial course_name match: {course_data.course_name}")
             
             # If still not found, try reverse match (session name contains course name)
             if not course_data and session.course_name:
                 all_courses = Course.query.all()
                 session_name_lower = session.course_name.lower()
+                matching = []
                 for course in all_courses:
                     if course.course_name:
                         course_name_lower = course.course_name.lower()
-                        # Check if either name contains the other
                         if session_name_lower in course_name_lower or course_name_lower in session_name_lower:
-                            course_data = course
-                            current_app.logger.info(f"Found by reverse course_name match: {course_data.course_name}")
+                            matching.append(course)
+                if matching:
+                    # Pick the one with course info
+                    for c in matching:
+                        if has_course_info(c):
+                            course_data = c
                             break
+                    if not course_data:
+                        course_data = matching[0]
+                    if course_data:
+                        current_app.logger.info(f"Found by reverse course_name match: {course_data.course_name}")
             
             # Log the result for debugging
             if course_data:
