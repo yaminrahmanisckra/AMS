@@ -524,7 +524,11 @@ body {
     flex: 1;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+    {% if not can_edit %}
+    overflow: visible;
+    {% else %}
+    overflow: hidden;
+    {% endif %}
     background: var(--bg);
     position: relative;
     /* Ensure proper stacking context */
@@ -668,7 +672,12 @@ body {
     min-height: 60px;
     height: 60px;
     padding: 4px;
+    {% if can_edit %}
     cursor: pointer;
+    {% else %}
+    cursor: default;
+    touch-action: pan-x pan-y;
+    {% endif %}
 }
 
 .routine-table tbody td.slot-cell:hover:not(.has-class):not(.lunch-cell) {
@@ -677,7 +686,12 @@ body {
 }
 
 .routine-table tbody td.slot-cell.has-class {
+    {% if can_edit %}
     cursor: grab;
+    {% else %}
+    cursor: default;
+    touch-action: pan-x pan-y;
+    {% endif %}
     padding: 6px;
 }
 
@@ -1203,9 +1217,10 @@ body.fullscreen-active .routine-table {
         min-width: 100%;
     }
     
-    /* Ensure cells don't block touch events */
+    /* Ensure cells don't block touch events - allow scrolling */
     .slot-cell {
-        touch-action: manipulation;
+        touch-action: pan-x pan-y;
+        -webkit-touch-callout: none;
     }
     
     /* Prevent text selection interference */
@@ -1556,7 +1571,7 @@ const RoutineManager = {
         // Apply day-based row striping
         this.applyDayStripes();
 
-        // For non-editors: Disable all drag functionality and ensure touch scrolling
+        // For non-editors: Completely disable all drag functionality and ensure touch scrolling
         if (!this.config.canEdit) {
             // Disable draggable on all cells
             this.elements.slotCells.forEach(cell => {
@@ -1564,6 +1579,14 @@ const RoutineManager = {
                 cell.style.touchAction = 'pan-x pan-y';
                 cell.style.userSelect = 'none';
                 cell.style.webkitUserSelect = 'none';
+                cell.style.pointerEvents = 'auto';
+                // Remove all drag-related event handlers
+                cell.ondragstart = null;
+                cell.ondragend = null;
+                cell.ondragover = null;
+                cell.ondrop = null;
+                cell.ondragenter = null;
+                cell.ondragleave = null;
             });
             
             // Ensure table wrapper allows scrolling
@@ -1573,6 +1596,18 @@ const RoutineManager = {
                 tableWrapper.style.overflowX = 'auto';
                 tableWrapper.style.overflowY = 'auto';
                 tableWrapper.style.webkitOverflowScrolling = 'touch';
+                tableWrapper.style.pointerEvents = 'auto';
+                // Remove all drag-related event handlers from wrapper
+                tableWrapper.ondragover = null;
+                tableWrapper.ondrop = null;
+                tableWrapper.ondragenter = null;
+                tableWrapper.ondragleave = null;
+            }
+            
+            // Also ensure the table itself allows scrolling
+            if (this.elements.routineTable) {
+                this.elements.routineTable.style.touchAction = 'pan-x pan-y';
+                this.elements.routineTable.style.pointerEvents = 'auto';
             }
         }
 
@@ -2339,7 +2374,20 @@ const RoutineManager = {
                 // Remove any drag event interference
                 tableWrapper.ondragover = null;
                 tableWrapper.ondrop = null;
+                tableWrapper.ondragenter = null;
+                tableWrapper.ondragleave = null;
+                // Ensure touch scrolling works
+                tableWrapper.style.touchAction = 'pan-x pan-y';
+                tableWrapper.style.overflowX = 'auto';
+                tableWrapper.style.overflowY = 'auto';
+                tableWrapper.style.webkitOverflowScrolling = 'touch';
             }
+            
+            // Also ensure all cells allow touch scrolling
+            this.elements.slotCells.forEach(cell => {
+                cell.style.touchAction = 'pan-x pan-y';
+                cell.style.pointerEvents = 'auto';
+            });
         }
     },
 
