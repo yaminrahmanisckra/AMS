@@ -1106,12 +1106,15 @@ body.fullscreen-active .routine-table {
     }
     
     .routine-main {
+        display: block !important; /* Change from flex to block for better mobile scrolling */
         overflow: auto !important;
         -webkit-overflow-scrolling: touch !important;
+        height: auto !important;
     }
     
     .routine-table-area {
         overflow: visible !important;
+        width: 100% !important;
     }
     
     .routine-table-wrapper {
@@ -1119,6 +1122,7 @@ body.fullscreen-active .routine-table {
         -webkit-overflow-scrolling: touch !important;
         touch-action: pan-x pan-y !important;
         padding: 8px;
+        width: 100% !important;
     }
     
     .routine-topbar {
@@ -1557,8 +1561,10 @@ const RoutineManager = {
         // Setup responsive panel toggle
         this.setupResponsive();
 
-        // Setup sticky headers
-        this.setupStickyHeaders();
+        // Setup sticky headers (skip for non-editors on mobile to prevent freeze)
+        if (this.config.canEdit || window.innerWidth > 768) {
+            this.setupStickyHeaders();
+        }
         
         // Load batches for course panel (if user can edit)
         if (this.config.canEdit) {
@@ -1686,6 +1692,11 @@ const RoutineManager = {
 
     // Setup responsive behavior
     setupResponsive: function() {
+        // Only setup responsive for editors (they have course panel)
+        if (!this.config.canEdit) {
+            return;
+        }
+        
         const handleResize = () => {
             if (window.innerWidth <= 1024) {
                 // Mobile/Tablet: Panel starts collapsed
