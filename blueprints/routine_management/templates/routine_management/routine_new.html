@@ -782,19 +782,20 @@ body.fullscreen-active .routine-table {
 }
 .fullscreen-exit-btn {
     position: fixed;
-    top: 20px;
-    right: 20px;
+    top: 10px;
+    left: 10px;
     z-index: 10002;
-    padding: 10px 20px;
+    padding: 6px 12px;
     background: var(--primary);
     color: white;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 12px;
     display: none;
     opacity: 0.7;
     transition: opacity 0.3s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 .fullscreen-exit-btn:hover {
     background: var(--primary-dark);
@@ -1527,8 +1528,8 @@ body.fullscreen-active .routine-table {
 </div>
 
 <!-- Fullscreen Exit Button (outside of routine-app for proper z-index) -->
-<button class="fullscreen-exit-btn" id="fullscreen-exit-btn">
-    <i class="fas fa-compress"></i> Exit Fullscreen (ESC)
+<button class="fullscreen-exit-btn" id="fullscreen-exit-btn" title="Exit Fullscreen (ESC)">
+    <i class="fas fa-compress"></i> Exit
 </button>
 
 <script>
@@ -3737,13 +3738,21 @@ setTimeout(function() {
     }
 }, 1000);
 
-// Fix smooth scrolling in landscape mode for mobile
+// Auto fullscreen and fix smooth scrolling in landscape mode for mobile
 (function() {
-    function ensureLandscapeScrolling() {
+    function handleLandscapeMode() {
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
         
         if (isMobile && isLandscape) {
+            // Auto enable fullscreen in landscape mode
+            if (window.RoutineManager && window.RoutineManager.toggleFullscreen) {
+                if (!window.RoutineManager.state.isFullscreen) {
+                    window.RoutineManager.toggleFullscreen();
+                }
+            }
+            
+            // Fix smooth scrolling
             // Fix student container wrapper
             const studentContainer = document.querySelector('.container.my-4');
             if (studentContainer) {
@@ -3805,24 +3814,36 @@ setTimeout(function() {
                 pdfButton.style.setProperty('z-index', '10', 'important');
                 pdfButton.style.setProperty('position', 'relative', 'important');
             }
+        } else {
+            // Exit fullscreen if in portrait mode
+            if (window.RoutineManager && window.RoutineManager.toggleFullscreen) {
+                if (window.RoutineManager.state.isFullscreen) {
+                    window.RoutineManager.toggleFullscreen();
+                }
+            }
         }
     }
     
     // Run on load
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', ensureLandscapeScrolling);
+        document.addEventListener('DOMContentLoaded', function() {
+            // Wait for RoutineManager to be ready
+            setTimeout(handleLandscapeMode, 500);
+        });
     } else {
-        ensureLandscapeScrolling();
+        setTimeout(handleLandscapeMode, 500);
     }
     
     // Run on orientation change
     window.addEventListener('orientationchange', function() {
-        setTimeout(ensureLandscapeScrolling, 200);
+        setTimeout(handleLandscapeMode, 300);
     });
     
     // Run on resize
+    let resizeTimeout;
     window.addEventListener('resize', function() {
-        setTimeout(ensureLandscapeScrolling, 100);
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(handleLandscapeMode, 200);
     });
 })();
 
