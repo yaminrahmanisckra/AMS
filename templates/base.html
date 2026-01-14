@@ -263,7 +263,7 @@
     </footer>
 
     <!-- Version Info Modal -->
-    <div class="modal fade" id="versionModal" tabindex="-1" aria-labelledby="versionModalLabel" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal fade" id="versionModal" tabindex="-1" aria-labelledby="versionModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
@@ -333,13 +333,22 @@
         });
         
         socket.on('disconnect', function() {
-            console.log('WebSocket disconnected');
+            // Only log disconnect if it was previously connected (reduce console noise)
+            if (socketConnected) {
+                console.log('WebSocket disconnected');
+            }
             socketConnected = false;
             const statusIndicator = document.getElementById('ws-status');
             if (statusIndicator) {
                 statusIndicator.className = 'badge bg-danger';
                 statusIndicator.textContent = 'Offline';
             }
+        });
+        
+        socket.on('connect_error', function(error) {
+            // Suppress repeated connection error logs
+            // Connection will automatically retry with polling fallback
+            socketConnected = false;
         });
         
         socket.on('connected', function(data) {
