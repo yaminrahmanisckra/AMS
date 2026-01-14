@@ -536,7 +536,7 @@ body {
 
 .routine-table {
     width: 100%;
-    border-collapse: separate;
+    border-collapse: collapse;
     border-spacing: 0;
     background: var(--bg-card);
     border-radius: var(--radius-lg);
@@ -585,6 +585,7 @@ body {
     left: 0;
     z-index: 103;
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+    border-right: none !important;
     /* Corner cell - highest z-index */
 }
 
@@ -596,6 +597,7 @@ body {
     left: 100px;
     z-index: 102;
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+    border-left: none !important;
 }
 
 .routine-table thead th.time-col {
@@ -629,7 +631,7 @@ body {
     position: sticky;
     left: 0;
     z-index: 50;
-    border-right: 2px solid var(--primary-dark);
+    border-right: none !important;
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
     background-color: var(--primary) !important;
@@ -643,6 +645,7 @@ body {
     position: sticky;
     left: 100px;
     z-index: 49;
+    border-left: none !important;
     border-right: 2px solid var(--border);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
@@ -1166,6 +1169,77 @@ body.fullscreen-active .routine-table {
         height: 50px;
         touch-action: pan-x pan-y !important;
     }
+    
+    /* Mobile-friendly: Smaller columns, no gap */
+    .routine-table thead th.day-col,
+    .routine-table tbody td.day-col {
+        min-width: 70px !important;
+        width: 70px !important;
+        padding: 8px 4px !important;
+        font-size: 11px !important;
+        left: 0 !important;
+        border-right: none !important;
+    }
+    
+    .routine-table thead th.room-col,
+    .routine-table tbody td.room-col {
+        min-width: 60px !important;
+        width: 60px !important;
+        padding: 8px 4px !important;
+        font-size: 10px !important;
+        left: 70px !important;
+        border-left: none !important;
+    }
+    
+    .routine-table thead th.time-col {
+        min-width: 80px !important;
+        font-size: 9px !important;
+        padding: 6px 4px !important;
+    }
+    
+    .routine-table tbody td.slot-cell {
+        padding: 2px !important;
+        font-size: 9px !important;
+    }
+    
+    .routine-table tbody td.slot-cell .slot-course-code {
+        font-size: 9px !important;
+        line-height: 1.2 !important;
+    }
+    
+    .routine-table tbody td.slot-cell .slot-teacher {
+        font-size: 8px !important;
+    }
+}
+
+/* Extra small mobile devices */
+@media (max-width: 480px) {
+    .routine-table thead th.day-col,
+    .routine-table tbody td.day-col {
+        min-width: 60px !important;
+        width: 60px !important;
+        padding: 6px 2px !important;
+        font-size: 10px !important;
+    }
+    
+    .routine-table thead th.room-col,
+    .routine-table tbody td.room-col {
+        min-width: 50px !important;
+        width: 50px !important;
+        padding: 6px 2px !important;
+        font-size: 9px !important;
+        left: 60px !important;
+    }
+    
+    .routine-table thead th.time-col {
+        min-width: 70px !important;
+        font-size: 8px !important;
+        padding: 4px 2px !important;
+    }
+    
+    .routine-table-wrapper {
+        padding: 4px !important;
+    }
 }
 
 /* Simple table styles for non-editors */
@@ -1236,7 +1310,7 @@ body.fullscreen-active .routine-table {
     position: relative !important;
 }
 
-/* Room column alignment fix - ensure header and cells align */
+/* Room column alignment fix - ensure header and cells align, no gap */
 .routine-table thead th.room-col,
 .routine-table tbody td.room-col {
     min-width: 100px !important;
@@ -1247,15 +1321,17 @@ body.fullscreen-active .routine-table {
     text-overflow: ellipsis !important;
     padding: 8px !important;
     text-align: center !important;
+    border-left: none !important;
 }
 
-/* Day column */
+/* Day column - no gap with room column */
 .routine-table thead th.day-col,
 .routine-table tbody td.day-col {
     min-width: 80px !important;
     width: 80px !important;
     padding: 8px !important;
     text-align: center !important;
+    border-right: none !important;
 }
 
 .routine-table tbody td.slot-cell.has-class {
