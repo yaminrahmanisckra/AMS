@@ -130,8 +130,12 @@ body {
     gap: 16px;
     box-shadow: var(--shadow);
     z-index: 1000;
+    {% if not can_edit %}
+    position: relative !important;
+    {% else %}
     position: sticky;
     top: 0;
+    {% endif %}
 }
 
 .topbar-left {
@@ -616,9 +620,13 @@ body {
 }
 
 .routine-table thead {
+    {% if not can_edit %}
+    position: relative !important;
+    {% else %}
     position: sticky;
     top: 0;
     z-index: 100;
+    {% endif %}
     background: var(--bg-card);
     /* Ensure header stays on top */
     will-change: transform;
@@ -635,9 +643,13 @@ body {
     text-align: center;
     border-bottom: 2px solid var(--border);
     border-right: 1px solid var(--border-light);
+    {% if not can_edit %}
+    position: relative !important;
+    {% else %}
     position: sticky;
     top: 0;
     z-index: 101;
+    {% endif %}
     /* Ensure background covers content when scrolling */
     background-clip: padding-box;
 }
@@ -647,9 +659,13 @@ body {
     color: white;
     min-width: 100px;
     width: 100px;
+    {% if not can_edit %}
+    position: relative !important;
+    {% else %}
     position: sticky;
     left: 0;
     z-index: 103;
+    {% endif %}
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Corner cell - highest z-index */
 }
@@ -658,9 +674,13 @@ body {
     background: var(--bg);
     min-width: 80px;
     width: 80px;
+    {% if not can_edit %}
+    position: relative !important;
+    {% else %}
     position: sticky;
     left: 100px;
     z-index: 102;
+    {% endif %}
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -692,9 +712,13 @@ body {
     font-size: 14px;
     padding: 16px 12px;
     text-align: center;
+    {% if not can_edit %}
+    position: relative !important;
+    {% else %}
     position: sticky;
     left: 0;
     z-index: 50;
+    {% endif %}
     border-right: 2px solid var(--primary-dark);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
@@ -706,9 +730,13 @@ body {
     font-weight: 600;
     font-size: 13px;
     padding: 12px 8px;
+    {% if not can_edit %}
+    position: relative !important;
+    {% else %}
     position: sticky;
     left: 100px;
     z-index: 49;
+    {% endif %}
     border-right: 2px solid var(--border);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
@@ -3799,6 +3827,33 @@ const RoutineManager = {
         }
     });
     
+    // CRITICAL: Remove ALL touch event listeners that might block scrolling
+    function removeBlockingListeners() {
+        const tableWrapper = document.querySelector('.routine-table-wrapper');
+        const routineTable = document.getElementById('routine-table');
+        const routineApp = document.querySelector('.routine-app');
+        
+        // Clone and replace elements to remove all event listeners
+        if (tableWrapper) {
+            const newWrapper = tableWrapper.cloneNode(true);
+            tableWrapper.parentNode.replaceChild(newWrapper, tableWrapper);
+        }
+        
+        // Remove all touch event listeners from body
+        const touchEvents = ['touchstart', 'touchmove', 'touchend', 'touchcancel'];
+        touchEvents.forEach(eventType => {
+            document.body.removeEventListener(eventType, function() {}, true);
+            document.body.removeEventListener(eventType, function() {}, false);
+            if (routineApp) {
+                routineApp.removeEventListener(eventType, function() {}, true);
+                routineApp.removeEventListener(eventType, function() {}, false);
+            }
+        });
+    }
+    
+    // Remove blocking listeners after a delay
+    setTimeout(removeBlockingListeners, 2000);
+    
     // Global debug function to test scrolling
     window.testScrolling = function() {
         console.log('=== SCROLLING DEBUG ===');
@@ -3806,19 +3861,52 @@ const RoutineManager = {
         console.log('Body overflow:', getComputedStyle(document.body).overflow);
         const app = document.querySelector('.routine-app');
         const wrapper = document.querySelector('.routine-table-wrapper');
-        if (app) console.log('Routine-app overflow:', getComputedStyle(app).overflow);
-        if (wrapper) console.log('Table-wrapper overflow:', getComputedStyle(wrapper).overflow);
+        if (app) {
+            console.log('Routine-app overflow:', getComputedStyle(app).overflow);
+            console.log('Routine-app height:', getComputedStyle(app).height);
+        }
+        if (wrapper) {
+            console.log('Table-wrapper overflow:', getComputedStyle(wrapper).overflow);
+            console.log('Table-wrapper height:', getComputedStyle(wrapper).height);
+        }
         console.log('Window width:', window.innerWidth);
         console.log('Window height:', window.innerHeight);
         forceScrolling();
-        console.log('Force scrolling applied');
+        removeBlockingListeners();
+        console.log('Force scrolling applied and blocking listeners removed');
     };
 })();
 {% endif %}
 
 // Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', function() {
+    {% if not can_edit %}
+    // For non-editors: Minimal initialization - only load routine data, skip all drag/drop
+    RoutineManager.cacheElements();
+    RoutineManager.setupStickyHeaders();
+    
+    // Load routine data
+    if (RoutineManager.config.savedRoutineId) {
+        console.log('Loading saved routine from database:', RoutineManager.config.savedRoutineId);
+        RoutineManager.loadSavedRoutine();
+    } else {
+        RoutineManager.loadAutoSave();
+    }
+    
+    // CRITICAL: Force scrolling after routine loads
+    setTimeout(() => {
+        if (RoutineManager.forceEnableScrolling) {
+            RoutineManager.forceEnableScrolling();
+        }
+    }, 500);
+    setTimeout(() => {
+        if (RoutineManager.forceEnableScrolling) {
+            RoutineManager.forceEnableScrolling();
+        }
+    }, 1500);
+    {% else %}
     RoutineManager.init();
+    {% endif %}
 });
 
 // Make RoutineManager available globally for onclick handlers
