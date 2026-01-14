@@ -1777,29 +1777,47 @@ const RoutineManager = {
 
     // Force enable scrolling for non-editors (called immediately on init)
     forceEnableScrolling: function() {
+        // CRITICAL: Force html and body FIRST
+        document.documentElement.style.setProperty('overflow', 'auto', 'important');
+        document.documentElement.style.setProperty('height', 'auto', 'important');
+        document.documentElement.style.setProperty('max-height', 'none', 'important');
+        document.body.style.setProperty('overflow', 'auto', 'important');
+        document.body.style.setProperty('height', 'auto', 'important');
+        document.body.style.setProperty('max-height', 'none', 'important');
+        document.body.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+        document.body.style.setProperty('position', 'relative', 'important');
+        
         // Force all containers to allow scrolling
         const routineApp = document.querySelector('.routine-app');
         const routineMain = document.querySelector('.routine-main');
         const routineTableArea = document.querySelector('.routine-table-area');
-        const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
-        const routineTable = this.elements.routineTable;
-        
+        const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper') || document.querySelector('.routine-table-wrapper');
+        const routineTable = this.elements.routineTable || document.getElementById('routine-table');
+
         if (routineApp) {
             routineApp.style.setProperty('overflow', 'auto', 'important');
             routineApp.style.setProperty('height', 'auto', 'important');
             routineApp.style.setProperty('min-height', '100vh', 'important');
+            routineApp.style.setProperty('max-height', 'none', 'important');
             routineApp.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+            routineApp.style.setProperty('position', 'relative', 'important');
         }
-        
+
         if (routineMain) {
             routineMain.style.setProperty('overflow', 'visible', 'important');
             routineMain.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+            routineMain.style.setProperty('position', 'relative', 'important');
+            routineMain.style.setProperty('height', 'auto', 'important');
+            routineMain.style.setProperty('max-height', 'none', 'important');
         }
-        
+
         if (routineTableArea) {
             routineTableArea.style.setProperty('overflow', 'visible', 'important');
+            routineTableArea.style.setProperty('position', 'relative', 'important');
+            routineTableArea.style.setProperty('height', 'auto', 'important');
+            routineTableArea.style.setProperty('max-height', 'none', 'important');
         }
-        
+
         if (tableWrapper) {
             tableWrapper.style.setProperty('overflow-x', 'auto', 'important');
             tableWrapper.style.setProperty('overflow-y', 'auto', 'important');
@@ -1808,17 +1826,44 @@ const RoutineManager = {
             tableWrapper.style.setProperty('position', 'relative', 'important');
             tableWrapper.style.setProperty('width', '100%', 'important');
             tableWrapper.style.setProperty('height', 'auto', 'important');
+            tableWrapper.style.setProperty('max-height', 'none', 'important');
+            // Remove any fixed height
+            tableWrapper.style.removeProperty('max-height');
         }
-        
+
         if (routineTable) {
             routineTable.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+            routineTable.style.setProperty('position', 'relative', 'important');
         }
-        
+
         // Force all cells to allow touch scrolling
-        this.elements.slotCells.forEach(cell => {
+        const slotCells = this.elements.slotCells?.length > 0 ? this.elements.slotCells : document.querySelectorAll('.slot-cell');
+        slotCells.forEach(cell => {
             cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
             cell.style.setProperty('pointer-events', 'auto', 'important');
+            cell.style.setProperty('user-select', 'none', 'important');
+            cell.style.setProperty('-webkit-user-select', 'none', 'important');
+            // Ensure draggable is false
+            cell.draggable = false;
         });
+        
+        // Remove ALL drag event listeners from cells
+        slotCells.forEach(cell => {
+            cell.ondragstart = null;
+            cell.ondragend = null;
+            cell.ondragover = null;
+            cell.ondrop = null;
+            cell.ondragenter = null;
+            cell.ondragleave = null;
+        });
+        
+        // Remove ALL drag event listeners from table wrapper
+        if (tableWrapper) {
+            tableWrapper.ondragover = null;
+            tableWrapper.ondrop = null;
+            tableWrapper.ondragenter = null;
+            tableWrapper.ondragleave = null;
+        }
     },
 
     // Setup responsive behavior
@@ -3650,12 +3695,15 @@ const RoutineManager = {
     'use strict';
     // Force scrolling immediately - don't wait for DOMContentLoaded
     function forceScrolling() {
-        // Force html and body
+        // CRITICAL: Force html and body FIRST with all properties
         document.documentElement.style.setProperty('overflow', 'auto', 'important');
         document.documentElement.style.setProperty('height', 'auto', 'important');
+        document.documentElement.style.setProperty('max-height', 'none', 'important');
         document.body.style.setProperty('overflow', 'auto', 'important');
         document.body.style.setProperty('height', 'auto', 'important');
+        document.body.style.setProperty('max-height', 'none', 'important');
         document.body.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
+        document.body.style.setProperty('position', 'relative', 'important');
         
         const routineApp = document.querySelector('.routine-app');
         const routineMain = document.querySelector('.routine-main');
@@ -3667,6 +3715,7 @@ const RoutineManager = {
             routineApp.style.setProperty('overflow', 'auto', 'important');
             routineApp.style.setProperty('height', 'auto', 'important');
             routineApp.style.setProperty('min-height', '100vh', 'important');
+            routineApp.style.setProperty('max-height', 'none', 'important');
             routineApp.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
             routineApp.style.setProperty('position', 'relative', 'important');
         }
@@ -3675,11 +3724,15 @@ const RoutineManager = {
             routineMain.style.setProperty('overflow', 'visible', 'important');
             routineMain.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
             routineMain.style.setProperty('position', 'relative', 'important');
+            routineMain.style.setProperty('height', 'auto', 'important');
+            routineMain.style.setProperty('max-height', 'none', 'important');
         }
         
         if (routineTableArea) {
             routineTableArea.style.setProperty('overflow', 'visible', 'important');
             routineTableArea.style.setProperty('position', 'relative', 'important');
+            routineTableArea.style.setProperty('height', 'auto', 'important');
+            routineTableArea.style.setProperty('max-height', 'none', 'important');
         }
         
         if (tableWrapper) {
@@ -3695,6 +3748,7 @@ const RoutineManager = {
         
         if (routineTable) {
             routineTable.style.setProperty('touch-action', 'pan-x pan-y', 'important');
+            routineTable.style.setProperty('position', 'relative', 'important');
         }
         
         // Force all cells
@@ -3709,6 +3763,8 @@ const RoutineManager = {
             cell.ondragend = null;
             cell.ondragover = null;
             cell.ondrop = null;
+            cell.ondragenter = null;
+            cell.ondragleave = null;
         });
     }
     
@@ -3728,6 +3784,7 @@ const RoutineManager = {
     setTimeout(forceScrolling, 300);
     setTimeout(forceScrolling, 500);
     setTimeout(forceScrolling, 1000);
+    setTimeout(forceScrolling, 2000);
     
     // Run on resize and orientation change
     window.addEventListener('resize', forceScrolling);
@@ -3739,6 +3796,21 @@ const RoutineManager = {
             setTimeout(forceScrolling, 100);
         }
     });
+    
+    // Global debug function to test scrolling
+    window.testScrolling = function() {
+        console.log('=== SCROLLING DEBUG ===');
+        console.log('HTML overflow:', getComputedStyle(document.documentElement).overflow);
+        console.log('Body overflow:', getComputedStyle(document.body).overflow);
+        const app = document.querySelector('.routine-app');
+        const wrapper = document.querySelector('.routine-table-wrapper');
+        if (app) console.log('Routine-app overflow:', getComputedStyle(app).overflow);
+        if (wrapper) console.log('Table-wrapper overflow:', getComputedStyle(wrapper).overflow);
+        console.log('Window width:', window.innerWidth);
+        console.log('Window height:', window.innerHeight);
+        forceScrolling();
+        console.log('Force scrolling applied');
+    };
 })();
 {% endif %}
 
