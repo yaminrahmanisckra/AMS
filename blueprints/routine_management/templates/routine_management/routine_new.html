@@ -7,52 +7,7 @@
 
 {% block title %}{% if is_student %}Class Routine{% else %}Routine Maker{% endif %}{% endblock %}
 
-{% block force_scrolling_css %}
-{% if not can_edit %}
-<style>
-/* CRITICAL: Force enable scrolling for non-editors - Must be at top level */
-html, body {
-    overflow: auto !important;
-    height: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    position: relative !important;
-}
-{% endif %}
-</style>
-{% endblock %}
-
 {% block content %}
-{% if not can_edit %}
-<style>
-/* CRITICAL: Force enable scrolling for non-editors - Must be at top level */
-.routine-app {
-    overflow: auto !important;
-    height: auto !important;
-    min-height: 100vh !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-.routine-main {
-    overflow: visible !important;
-    -webkit-overflow-scrolling: touch !important;
-}
-.routine-table-area {
-    overflow: visible !important;
-}
-.routine-table-wrapper {
-    overflow-x: auto !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    touch-action: pan-x pan-y !important;
-    position: relative !important;
-    width: 100% !important;
-    height: auto !important;
-}
-.routine-table tbody td.slot-cell {
-    touch-action: pan-x pan-y !important;
-    pointer-events: auto !important;
-}
-</style>
-{% endif %}
 {% if is_student %}
 <div class="container my-4">
 {% endif %}
@@ -104,15 +59,8 @@ body {
 .routine-app {
     display: flex;
     flex-direction: column;
-    {% if not can_edit %}
-    height: auto !important;
-    min-height: 100vh;
-    overflow: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    {% else %}
     height: 100vh;
     overflow: hidden;
-    {% endif %}
     background: var(--bg);
 }
 
@@ -130,12 +78,8 @@ body {
     gap: 16px;
     box-shadow: var(--shadow);
     z-index: 1000;
-    {% if not can_edit %}
-    position: relative !important;
-    {% else %}
     position: sticky;
     top: 0;
-    {% endif %}
 }
 
 .topbar-left {
@@ -266,13 +210,8 @@ body {
 .routine-main {
     display: flex;
     flex: 1;
-    {% if not can_edit %}
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-    {% else %}
     overflow: hidden;
-    {% endif %}
-        position: relative;
+    position: relative;
 }
 
 /* ============================================
@@ -575,11 +514,7 @@ body {
     flex: 1;
         display: flex;
         flex-direction: column;
-    {% if not can_edit %}
-    overflow: visible;
-    {% else %}
     overflow: hidden;
-    {% endif %}
     background: var(--bg);
     position: relative;
     /* Ensure proper stacking context */
@@ -597,11 +532,6 @@ body {
     isolation: isolate;
     /* Ensure touch scrolling works on mobile */
     touch-action: pan-x pan-y;
-    /* Prevent drag interference on mobile for non-editors */
-    {% if not can_edit %}
-    -webkit-user-select: none;
-    user-select: none;
-    {% endif %}
 }
 
 .routine-table {
@@ -620,13 +550,9 @@ body {
 }
 
 .routine-table thead {
-    {% if not can_edit %}
-    position: relative !important;
-    {% else %}
     position: sticky;
     top: 0;
     z-index: 100;
-    {% endif %}
     background: var(--bg-card);
     /* Ensure header stays on top */
     will-change: transform;
@@ -643,13 +569,9 @@ body {
     text-align: center;
     border-bottom: 2px solid var(--border);
     border-right: 1px solid var(--border-light);
-    {% if not can_edit %}
-    position: relative !important;
-    {% else %}
     position: sticky;
     top: 0;
     z-index: 101;
-    {% endif %}
     /* Ensure background covers content when scrolling */
     background-clip: padding-box;
 }
@@ -659,13 +581,9 @@ body {
     color: white;
     min-width: 100px;
     width: 100px;
-    {% if not can_edit %}
-    position: relative !important;
-    {% else %}
     position: sticky;
     left: 0;
     z-index: 103;
-    {% endif %}
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Corner cell - highest z-index */
 }
@@ -674,13 +592,9 @@ body {
     background: var(--bg);
     min-width: 80px;
     width: 80px;
-    {% if not can_edit %}
-    position: relative !important;
-    {% else %}
     position: sticky;
     left: 100px;
     z-index: 102;
-    {% endif %}
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -712,13 +626,9 @@ body {
     font-size: 14px;
     padding: 16px 12px;
     text-align: center;
-    {% if not can_edit %}
-    position: relative !important;
-    {% else %}
     position: sticky;
     left: 0;
     z-index: 50;
-    {% endif %}
     border-right: 2px solid var(--primary-dark);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
@@ -730,13 +640,9 @@ body {
     font-weight: 600;
     font-size: 13px;
     padding: 12px 8px;
-    {% if not can_edit %}
-    position: relative !important;
-    {% else %}
     position: sticky;
     left: 100px;
     z-index: 49;
-    {% endif %}
     border-right: 2px solid var(--border);
     box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
     /* Ensure background covers content */
@@ -1264,134 +1170,9 @@ body.fullscreen-active .routine-table {
     background: var(--text-muted);
     }
 
-/* Mobile-specific fixes for non-routine-makers - Apply to ALL screen widths for non-editors */
-{% if not can_edit %}
-/* Force scrolling to work on all screen sizes for non-editors */
-.routine-app {
-    height: auto !important;
-    min-height: 100vh;
-    overflow: auto !important;
-    -webkit-overflow-scrolling: touch;
-}
-
-.routine-main {
-    flex-direction: column;
-    overflow: visible !important;
-    -webkit-overflow-scrolling: touch;
-}
-
-.routine-table-area {
-    overflow: visible !important;
-}
-
-.routine-table-wrapper {
-    overflow-x: auto !important;
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch !important;
-    touch-action: pan-x pan-y !important;
-    position: relative;
-    width: 100%;
-    /* Ensure scrolling works on mobile */
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-}
-
-.routine-table {
-    min-width: max-content;
-}
-
-/* Ensure cells don't block touch events - allow scrolling */
-.slot-cell {
-    touch-action: pan-x pan-y !important;
-    -webkit-touch-callout: none;
-    pointer-events: auto !important;
-}
-
-/* Prevent text selection interference */
-.routine-table-wrapper * {
-    -webkit-tap-highlight-color: transparent;
-}
-
-/* Additional mobile-specific fixes */
-@media (max-width: 770px) {
-    {% if not can_edit %}
-    /* CRITICAL: Force scrolling for screens 770px and below */
-    html, body {
-        overflow: auto !important;
-        height: auto !important;
-        max-height: none !important;
-        -webkit-overflow-scrolling: touch !important;
-        position: relative !important;
-    }
-    
-    .routine-app {
-        height: auto !important;
-        min-height: 100vh !important;
-        max-height: none !important;
-        overflow: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        position: relative !important;
-        display: block !important;
-    }
-    
-    .routine-main {
-        flex-direction: column !important;
-        overflow: visible !important;
-        -webkit-overflow-scrolling: touch !important;
-        position: relative !important;
-        height: auto !important;
-        max-height: none !important;
-    }
-    
-    .routine-table-area {
-        overflow: visible !important;
-        position: relative !important;
-        height: auto !important;
-        max-height: none !important;
-    }
-    
-    .routine-table-wrapper {
-        overflow-x: auto !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch !important;
-        touch-action: pan-x pan-y !important;
-        position: relative !important;
-        width: 100% !important;
-        height: auto !important;
-        max-height: none !important;
-        display: block !important;
-    }
-    
-    .routine-table {
-        min-width: max-content;
-        position: relative !important;
-    }
-    
-    .routine-table thead,
-    .routine-table thead th,
-    .routine-table tbody td.day-col,
-    .routine-table tbody td.room-col {
-        position: relative !important;
-    }
-    
-    .slot-cell {
-        touch-action: pan-x pan-y !important;
-        -webkit-touch-callout: none;
-        pointer-events: auto !important;
-        position: relative !important;
-    }
-    
-    /* Remove any transform that might interfere */
-    .routine-table-wrapper * {
-        transform: none !important;
-        will-change: auto !important;
-    }
-    {% endif %}
-}
-{% endif %}
 </style>
 
-<div class="routine-app" {% if not can_edit %}style="overflow: auto !important; height: auto !important; min-height: 100vh !important; -webkit-overflow-scrolling: touch !important;"{% endif %}>
+<div class="routine-app">
     <!-- Top Navigation Bar -->
     <div class="routine-topbar">
         <div class="topbar-left">
@@ -1437,7 +1218,7 @@ body.fullscreen-active .routine-table {
                 </div>
 
     <!-- Main Content Area -->
-    <div class="routine-main" {% if not can_edit %}style="overflow: visible !important; -webkit-overflow-scrolling: touch !important;"{% endif %}>
+    <div class="routine-main">
         <!-- Course Panel (Sidebar) -->
         {% if can_edit %}
         <div class="course-panel" id="course-panel">
@@ -1475,8 +1256,8 @@ body.fullscreen-active .routine-table {
         {% endif %}
 
         <!-- Routine Table Area -->
-        <div class="routine-table-area" {% if not can_edit %}style="overflow: visible !important;"{% endif %}>
-            <div class="routine-table-wrapper" {% if not can_edit %}style="overflow-x: auto !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-x pan-y !important; position: relative !important; width: 100% !important; height: auto !important;"{% endif %}>
+        <div class="routine-table-area">
+            <div class="routine-table-wrapper">
                 <table class="routine-table" id="routine-table">
                         <thead>
                             <tr>
@@ -3801,43 +3582,10 @@ const RoutineManager = {
     }
 };
 
-// For non-editors: Simple scrolling fix (CSS handles most of the work)
-{% if not can_edit %}
-// Minimal JS - just disable draggable on cells after DOM loads
+// Initialize on DOM ready - same for both editors and non-editors
+// (editors work fine on mobile, so non-editors should too)
 document.addEventListener('DOMContentLoaded', function() {
-    // Disable draggable on all cells (one time only, no loops)
-    document.querySelectorAll('.slot-cell').forEach(cell => {
-        cell.draggable = false;
-    });
-});
-{% endif %}
-
-// Initialize on DOM ready
-document.addEventListener('DOMContentLoaded', function() {
-    {% if not can_edit %}
-    // For non-editors: Ultra-minimal initialization - only load routine data
-    RoutineManager.cacheElements();
-    
-    // Setup PDF download button for non-editors
-    if (RoutineManager.elements.btnPdf) {
-        RoutineManager.elements.btnPdf.addEventListener('click', () => RoutineManager.downloadPDF());
-    }
-    
-    // Load routine data
-    if (RoutineManager.config.savedRoutineId) {
-        console.log('Loading saved routine from database:', RoutineManager.config.savedRoutineId);
-        RoutineManager.loadSavedRoutine();
-        
-        // Add lunch column simply (without rebuilding entire table)
-        setTimeout(() => {
-            RoutineManager.addLunchColumnSimple();
-        }, 1500);
-    } else {
-        RoutineManager.loadAutoSave();
-    }
-    {% else %}
     RoutineManager.init();
-    {% endif %}
 });
 
 // Make RoutineManager available globally for onclick handlers
