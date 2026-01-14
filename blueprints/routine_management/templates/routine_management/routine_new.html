@@ -7,7 +7,7 @@
 
 {% block title %}{% if is_student %}Class Routine{% else %}Routine Maker{% endif %}{% endblock %}
 
-{% block content %}
+{% block force_scrolling_css %}
 {% if not can_edit %}
 <style>
 /* CRITICAL: Force enable scrolling for non-editors - Must be at top level */
@@ -15,7 +15,16 @@ html, body {
     overflow: auto !important;
     height: auto !important;
     -webkit-overflow-scrolling: touch !important;
+    position: relative !important;
 }
+{% endif %}
+</style>
+{% endblock %}
+
+{% block content %}
+{% if not can_edit %}
+<style>
+/* CRITICAL: Force enable scrolling for non-editors - Must be at top level */
 .routine-app {
     overflow: auto !important;
     height: auto !important;
@@ -1306,7 +1315,7 @@ body.fullscreen-active .routine-table {
 {% endif %}
 </style>
 
-<div class="routine-app">
+<div class="routine-app" {% if not can_edit %}style="overflow: auto !important; height: auto !important; min-height: 100vh !important; -webkit-overflow-scrolling: touch !important;"{% endif %}>
     <!-- Top Navigation Bar -->
     <div class="routine-topbar">
         <div class="topbar-left">
@@ -1352,7 +1361,7 @@ body.fullscreen-active .routine-table {
                 </div>
 
     <!-- Main Content Area -->
-    <div class="routine-main">
+    <div class="routine-main" {% if not can_edit %}style="overflow: visible !important; -webkit-overflow-scrolling: touch !important;"{% endif %}>
         <!-- Course Panel (Sidebar) -->
         {% if can_edit %}
         <div class="course-panel" id="course-panel">
@@ -1390,8 +1399,8 @@ body.fullscreen-active .routine-table {
         {% endif %}
 
         <!-- Routine Table Area -->
-        <div class="routine-table-area">
-            <div class="routine-table-wrapper">
+        <div class="routine-table-area" {% if not can_edit %}style="overflow: visible !important;"{% endif %}>
+            <div class="routine-table-wrapper" {% if not can_edit %}style="overflow-x: auto !important; overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-x pan-y !important; position: relative !important; width: 100% !important; height: auto !important;"{% endif %}>
                 <table class="routine-table" id="routine-table">
                         <thead>
                             <tr>

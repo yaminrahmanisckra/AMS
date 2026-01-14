@@ -59,8 +59,9 @@
             opacity: 0.9;
         }
     </style>
+    {% block force_scrolling_css %}{% endblock %}
 </head>
-<body>
+<body {% if request.endpoint and 'routine_management' in request.endpoint and not can_edit_routine() %}style="overflow: auto !important; height: auto !important; -webkit-overflow-scrolling: touch !important;"{% endif %}>
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
