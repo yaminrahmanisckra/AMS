@@ -1551,7 +1551,27 @@ const RoutineManager = {
         
         // Apply day-based row striping
         this.applyDayStripes();
-        
+
+        // For non-editors: Disable all drag functionality and ensure touch scrolling
+        if (!this.config.canEdit) {
+            // Disable draggable on all cells
+            this.elements.slotCells.forEach(cell => {
+                cell.draggable = false;
+                cell.style.touchAction = 'pan-x pan-y';
+                cell.style.userSelect = 'none';
+                cell.style.webkitUserSelect = 'none';
+            });
+            
+            // Ensure table wrapper allows scrolling
+            const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
+            if (tableWrapper) {
+                tableWrapper.style.touchAction = 'pan-x pan-y';
+                tableWrapper.style.overflowX = 'auto';
+                tableWrapper.style.overflowY = 'auto';
+                tableWrapper.style.webkitOverflowScrolling = 'touch';
+            }
+        }
+
         this.updateProgress();
         this.checkConflicts();
         
@@ -2145,126 +2165,160 @@ const RoutineManager = {
             }
         });
 
-        // Cell drag start (for moving existing courses)
-        this.elements.routineTbody.addEventListener('dragstart', (e) => {
-                const cell = e.target.closest('.slot-cell');
-            if (cell && cell.classList.contains('has-class')) {
-                const key = this.getSlotKey(cell);
-                const routineItem = this.state.routine[key];
-                    if (routineItem) {
-                    this.state.draggedFromCell = {
-                            key: key,
-                        item: routineItem,
-                        cell: cell
-                        };
-                        e.dataTransfer.effectAllowed = 'move';
-                        cell.style.opacity = '0.5';
-                        
-                        // Create custom drag preview matching table cell size
-                        const dragPreview = document.createElement('div');
-                        dragPreview.className = 'drag-preview';
-                        dragPreview.innerHTML = `
-                            <div class="drag-preview-code">${routineItem.courseCode || ''}</div>
-                            <div class="drag-preview-teacher">${routineItem.teacherShort || ''}</div>
-                        `;
-                        dragPreview.style.cssText = `
-                            position: absolute;
-                            top: -1000px;
-                            left: -1000px;
-                            width: 100px;
-                            padding: 8px 6px;
-                            background: var(--primary);
-                            color: white;
-                            border-radius: 6px;
-                            font-size: 11px;
-                            text-align: center;
-                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-                            pointer-events: none;
-                            z-index: 9999;
-                        `;
-                        document.body.appendChild(dragPreview);
-                        e.dataTransfer.setDragImage(dragPreview, 50, 25);
-                        setTimeout(() => dragPreview.remove(), 0);
+        // Cell drag start (for moving existing courses) - Only for editors
+        if (this.config.canEdit) {
+            this.elements.routineTbody.addEventListener('dragstart', (e) => {
+                    const cell = e.target.closest('.slot-cell');
+                if (cell && cell.classList.contains('has-class')) {
+                    const key = this.getSlotKey(cell);
+                    const routineItem = this.state.routine[key];
+                        if (routineItem) {
+                        this.state.draggedFromCell = {
+                                key: key,
+                            item: routineItem,
+                            cell: cell
+                            };
+                            e.dataTransfer.effectAllowed = 'move';
+                            cell.style.opacity = '0.5';
+                            
+                            // Create custom drag preview matching table cell size
+                            const dragPreview = document.createElement('div');
+                            dragPreview.className = 'drag-preview';
+                            dragPreview.innerHTML = `
+                                <div class="drag-preview-code">${routineItem.courseCode || ''}</div>
+                                <div class="drag-preview-teacher">${routineItem.teacherShort || ''}</div>
+                            `;
+                            dragPreview.style.cssText = `
+                                position: absolute;
+                                top: -1000px;
+                                left: -1000px;
+                                width: 100px;
+                                padding: 8px 6px;
+                                background: var(--primary);
+                                color: white;
+                                border-radius: 6px;
+                                font-size: 11px;
+                                text-align: center;
+                                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                                pointer-events: none;
+                                z-index: 9999;
+                            `;
+                            document.body.appendChild(dragPreview);
+                            e.dataTransfer.setDragImage(dragPreview, 50, 25);
+                            setTimeout(() => dragPreview.remove(), 0);
+                        }
                     }
+                });
+                
+            // Cell drag end
+            this.elements.routineTbody.addEventListener('dragend', (e) => {
+                    const cell = e.target.closest('.slot-cell');
+                if (cell) {
+                        cell.style.opacity = '';
+                    this.state.draggedFromCell = null;
                 }
             });
-            
-        // Cell drag end
-        this.elements.routineTbody.addEventListener('dragend', (e) => {
-                const cell = e.target.closest('.slot-cell');
-            if (cell) {
-                    cell.style.opacity = '';
-                this.state.draggedFromCell = null;
-            }
-        });
-
-        // Drag over cells (throttled for performance)
-        let dragOverTimeout;
-        this.elements.routineTbody.addEventListener('dragover', (e) => {
+        } else {
+            // For non-editors: Prevent any drag events from interfering with touch scrolling
+            this.elements.routineTbody.addEventListener('dragstart', (e) => {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
+                return false;
+            }, true);
+            
+            this.elements.routineTbody.addEventListener('dragend', (e) => {
+                e.preventDefault();
+                return false;
+            }, true);
+        }
+
+        // Drag over cells (throttled for performance) - Only for editors
+        if (this.config.canEdit) {
+            let dragOverTimeout;
+            this.elements.routineTbody.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    
+                clearTimeout(dragOverTimeout);
+                dragOverTimeout = setTimeout(() => {
+                    const cell = e.target.closest('.slot-cell');
+                    if (!cell || cell.classList.contains('lunch-cell')) return;
+
+                    if (this.state.draggedCourse || this.state.draggedFromCell) {
+                        // Remove drag-over from other cells
+                        this.elements.slotCells.forEach(c => {
+                            if (c !== cell) {
+                                c.classList.remove('drag-over');
+                            }
+                        });
+
+                        if (!cell.classList.contains('has-class')) {
+                            cell.classList.add('drag-over');
+                        }
+                    }
+                }, 50); // Throttle to 50ms
+                });
                 
-            clearTimeout(dragOverTimeout);
-            dragOverTimeout = setTimeout(() => {
+            // Drag leave cells
+            this.elements.routineTbody.addEventListener('dragleave', (e) => {
+                    const cell = e.target.closest('.slot-cell');
+                if (cell) {
+                    cell.classList.remove('drag-over');
+                }
+            });
+
+            // Drop on cells
+            this.elements.routineTbody.addEventListener('drop', (e) => {
                 const cell = e.target.closest('.slot-cell');
                 if (!cell || cell.classList.contains('lunch-cell')) return;
-
-                if (this.state.draggedCourse || this.state.draggedFromCell) {
-                    // Remove drag-over from other cells
-                    this.elements.slotCells.forEach(c => {
-                        if (c !== cell) {
-                            c.classList.remove('drag-over');
-                        }
-                    });
-
-                    if (!cell.classList.contains('has-class')) {
-                        cell.classList.add('drag-over');
-                    }
-                }
-            }, 50); // Throttle to 50ms
-            });
-            
-        // Drag leave cells
-        this.elements.routineTbody.addEventListener('dragleave', (e) => {
-                const cell = e.target.closest('.slot-cell');
-            if (cell) {
+                    
+                    e.preventDefault();
                 cell.classList.remove('drag-over');
-            }
-        });
 
-        // Drop on cells
-        this.elements.routineTbody.addEventListener('drop', (e) => {
-            const cell = e.target.closest('.slot-cell');
-            if (!cell || cell.classList.contains('lunch-cell')) return;
-                
-                e.preventDefault();
-            cell.classList.remove('drag-over');
-
-            if (this.state.draggedCourse) {
-                this.handleDropCourse(cell);
-            } else if (this.state.draggedFromCell) {
-                this.handleMoveCourse(cell);
-            }
-        });
-
-        // Delete zone
-        if (this.elements.deleteZone) {
-            this.elements.deleteZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                if (this.state.draggedCourse || this.state.draggedFromCell) {
-                    this.elements.deleteZone.classList.add('drag-over', 'active');
+                if (this.state.draggedCourse) {
+                    this.handleDropCourse(cell);
+                } else if (this.state.draggedFromCell) {
+                    this.handleMoveCourse(cell);
                 }
             });
-            
-            this.elements.deleteZone.addEventListener('dragleave', () => {
-                this.elements.deleteZone.classList.remove('drag-over');
+
+            // Delete zone
+            if (this.elements.deleteZone) {
+                this.elements.deleteZone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    if (this.state.draggedCourse || this.state.draggedFromCell) {
+                        this.elements.deleteZone.classList.add('drag-over', 'active');
+                    }
+                });
+                
+                this.elements.deleteZone.addEventListener('dragleave', () => {
+                    this.elements.deleteZone.classList.remove('drag-over');
+                });
+                
+                this.elements.deleteZone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    this.elements.deleteZone.classList.remove('drag-over', 'active');
+                    this.handleDelete();
+                });
+            }
+        } else {
+            // For non-editors: Ensure touch scrolling works by preventing drag interference
+            // Make all cells non-draggable explicitly
+            this.elements.slotCells.forEach(cell => {
+                cell.draggable = false;
+                // Remove any drag-related event listeners
+                cell.ondragstart = null;
+                cell.ondragend = null;
+                cell.ondragover = null;
+                cell.ondrop = null;
             });
             
-            this.elements.deleteZone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                this.elements.deleteZone.classList.remove('drag-over', 'active');
-                this.handleDelete();
-            });
+            // Ensure table wrapper allows touch scrolling
+            const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
+            if (tableWrapper) {
+                // Remove any drag event interference
+                tableWrapper.ondragover = null;
+                tableWrapper.ondrop = null;
+            }
         }
     },
 
@@ -2429,6 +2483,13 @@ const RoutineManager = {
         if (item) {
             cell.classList.add('has-class');
             cell.draggable = this.config.canEdit;
+            
+            // For non-editors: Ensure touch scrolling works
+            if (!this.config.canEdit) {
+                cell.style.touchAction = 'pan-x pan-y';
+                cell.style.userSelect = 'none';
+                cell.style.webkitUserSelect = 'none';
+            }
 
             // Get batch color for ribbon
             const batchColor = this.getBatchColor(item.batch);
@@ -2487,10 +2548,16 @@ const RoutineManager = {
             } else {
             cell.classList.remove('has-class');
             cell.draggable = false;
+            // For non-editors: Ensure touch scrolling works
+            if (!this.config.canEdit) {
+                cell.style.touchAction = 'pan-x pan-y';
+                cell.style.userSelect = 'none';
+                cell.style.webkitUserSelect = 'none';
+            }
                 cell.style.backgroundColor = '';
             cell.style.borderLeft = '';
             content.innerHTML = '<span class="slot-empty">-</span>';
-        }
+            }
     },
 
     // Update routine display (optimized - batch DOM updates)
