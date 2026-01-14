@@ -47,6 +47,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Skip non-HTTP/HTTPS requests (chrome-extension://, file://, etc.)
+  if (!event.request.url.startsWith('http://') && !event.request.url.startsWith('https://')) {
+    return;
+  }
+
   // Skip API requests and dynamic content
   if (event.request.url.includes('/api/') || 
       event.request.url.includes('/download') ||
@@ -87,10 +92,17 @@ self.addEventListener('fetch', (event) => {
           // Clone the response
           const responseToCache = response.clone();
 
-          caches.open(CACHE_NAME)
-            .then((cache) => {
-              cache.put(event.request, responseToCache);
-            });
+          // Only cache if URL is http/https (skip chrome-extension://, file://, etc.)
+          if (event.request.url.startsWith('http://') || event.request.url.startsWith('https://')) {
+            caches.open(CACHE_NAME)
+              .then((cache) => {
+                cache.put(event.request, responseToCache);
+              })
+              .catch((error) => {
+                // Silently fail if caching fails (e.g., chrome-extension URLs)
+                console.debug('Cache put failed (non-critical):', error);
+              });
+          }
 
           return response;
         });
