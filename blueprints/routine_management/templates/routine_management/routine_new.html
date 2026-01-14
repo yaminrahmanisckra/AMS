@@ -1473,11 +1473,6 @@ const RoutineManager = {
         this.cacheElements();
         this.setupEventListeners();
 
-        // For non-editors: IMMEDIATELY force enable scrolling before anything else
-        if (!this.config.canEdit) {
-            this.forceEnableScrolling();
-        }
-
         // Setup responsive panel toggle
         this.setupResponsive();
 
@@ -1507,62 +1502,37 @@ const RoutineManager = {
         
         this.setupEditableHeaders();
         
-        // Initialize table with lunch column at default position
-        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
-            .map(th => th.textContent.trim());
-        if (currentSlots.length > 0) {
-            this.updateTimeSlotsInTable(currentSlots);
+        // Initialize table with lunch column at default position (only for editors)
+        if (this.config.canEdit) {
+            const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+                .map(th => th.textContent.trim());
+            if (currentSlots.length > 0) {
+                this.updateTimeSlotsInTable(currentSlots);
+            }
+        } else {
+            // For non-editors: Just add lunch column simply
+            this.addLunchColumnSimple();
         }
         
         // Apply day-based row striping
         this.applyDayStripes();
 
-        // For non-editors: Completely disable all drag functionality and ensure touch scrolling
-        if (!this.config.canEdit) {
-            // Use the centralized forceEnableScrolling function
-            this.forceEnableScrolling();
-            
-            // Disable draggable on all cells
-            this.elements.slotCells.forEach(cell => {
-                cell.draggable = false;
-                cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
-                cell.style.setProperty('user-select', 'none', 'important');
-                cell.style.setProperty('-webkit-user-select', 'none', 'important');
-                cell.style.setProperty('pointer-events', 'auto', 'important');
-                // Remove all drag-related event handlers
-                cell.ondragstart = null;
-                cell.ondragend = null;
-                cell.ondragover = null;
-                cell.ondrop = null;
-                cell.ondragenter = null;
-                cell.ondragleave = null;
-            });
-            
-            // Remove all drag-related event handlers from wrapper
-            const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
-            if (tableWrapper) {
-                tableWrapper.ondragover = null;
-                tableWrapper.ondrop = null;
-                tableWrapper.ondragenter = null;
-                tableWrapper.ondragleave = null;
-            }
-        }
-
-        this.updateProgress();
-        this.checkConflicts();
-        
-        // Auto-save every 30 seconds
+        // Editor-only features
         if (this.config.canEdit) {
+            this.updateProgress();
+            this.checkConflicts();
+            
+            // Auto-save every 30 seconds
             setInterval(() => this.autoSave(), 30000);
+            
+            // Warn before leaving if unsaved changes
+            window.addEventListener('beforeunload', (e) => {
+                if (this.state.hasUnsavedChanges) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            });
         }
-        
-        // Warn before leaving if unsaved changes
-        window.addEventListener('beforeunload', (e) => {
-            if (this.state.hasUnsavedChanges) {
-                e.preventDefault();
-                e.returnValue = '';
-            }
-        });
     },
 
     // Setup sticky headers
@@ -1632,105 +1602,10 @@ const RoutineManager = {
         }
     },
 
-    // Force enable scrolling for non-editors (called immediately on init)
-    forceEnableScrolling: function() {
-        // CRITICAL: Force html and body FIRST
-        document.documentElement.style.setProperty('overflow', 'auto', 'important');
-        document.documentElement.style.setProperty('height', 'auto', 'important');
-        document.documentElement.style.setProperty('max-height', 'none', 'important');
-        document.body.style.setProperty('overflow', 'auto', 'important');
-        document.body.style.setProperty('height', 'auto', 'important');
-        document.body.style.setProperty('max-height', 'none', 'important');
-        document.body.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
-        document.body.style.setProperty('position', 'relative', 'important');
-        
-        // Force all containers to allow scrolling
-        const routineApp = document.querySelector('.routine-app');
-        const routineMain = document.querySelector('.routine-main');
-        const routineTableArea = document.querySelector('.routine-table-area');
-        const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper') || document.querySelector('.routine-table-wrapper');
-        const routineTable = this.elements.routineTable || document.getElementById('routine-table');
-
-        if (routineApp) {
-            routineApp.style.setProperty('overflow', 'auto', 'important');
-            routineApp.style.setProperty('height', 'auto', 'important');
-            routineApp.style.setProperty('min-height', '100vh', 'important');
-            routineApp.style.setProperty('max-height', 'none', 'important');
-            routineApp.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
-            routineApp.style.setProperty('position', 'relative', 'important');
-        }
-
-        if (routineMain) {
-            routineMain.style.setProperty('overflow', 'visible', 'important');
-            routineMain.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
-            routineMain.style.setProperty('position', 'relative', 'important');
-            routineMain.style.setProperty('height', 'auto', 'important');
-            routineMain.style.setProperty('max-height', 'none', 'important');
-        }
-
-        if (routineTableArea) {
-            routineTableArea.style.setProperty('overflow', 'visible', 'important');
-            routineTableArea.style.setProperty('position', 'relative', 'important');
-            routineTableArea.style.setProperty('height', 'auto', 'important');
-            routineTableArea.style.setProperty('max-height', 'none', 'important');
-        }
-
-        if (tableWrapper) {
-            tableWrapper.style.setProperty('overflow-x', 'auto', 'important');
-            tableWrapper.style.setProperty('overflow-y', 'auto', 'important');
-            tableWrapper.style.setProperty('-webkit-overflow-scrolling', 'touch', 'important');
-            tableWrapper.style.setProperty('touch-action', 'pan-x pan-y', 'important');
-            tableWrapper.style.setProperty('position', 'relative', 'important');
-            tableWrapper.style.setProperty('width', '100%', 'important');
-            tableWrapper.style.setProperty('height', 'auto', 'important');
-            tableWrapper.style.setProperty('max-height', 'none', 'important');
-            // Remove any fixed height
-            tableWrapper.style.removeProperty('max-height');
-        }
-
-        if (routineTable) {
-            routineTable.style.setProperty('touch-action', 'pan-x pan-y', 'important');
-            routineTable.style.setProperty('position', 'relative', 'important');
-        }
-
-        // Force all cells to allow touch scrolling
-        const slotCells = this.elements.slotCells?.length > 0 ? this.elements.slotCells : document.querySelectorAll('.slot-cell');
-        slotCells.forEach(cell => {
-            cell.style.setProperty('touch-action', 'pan-x pan-y', 'important');
-            cell.style.setProperty('pointer-events', 'auto', 'important');
-            cell.style.setProperty('user-select', 'none', 'important');
-            cell.style.setProperty('-webkit-user-select', 'none', 'important');
-            // Ensure draggable is false
-            cell.draggable = false;
-        });
-        
-        // Remove ALL drag event listeners from cells
-        slotCells.forEach(cell => {
-            cell.ondragstart = null;
-            cell.ondragend = null;
-            cell.ondragover = null;
-            cell.ondrop = null;
-            cell.ondragenter = null;
-            cell.ondragleave = null;
-        });
-        
-        // Remove ALL drag event listeners from table wrapper
-        if (tableWrapper) {
-            tableWrapper.ondragover = null;
-            tableWrapper.ondrop = null;
-            tableWrapper.ondragenter = null;
-            tableWrapper.ondragleave = null;
-        }
-    },
 
     // Setup responsive behavior
     setupResponsive: function() {
         const handleResize = () => {
-            // For non-editors: Always ensure scrolling works regardless of screen size
-            if (!this.config.canEdit) {
-                this.forceEnableScrolling();
-            }
-            
             if (window.innerWidth <= 1024) {
                 // Mobile/Tablet: Panel starts collapsed
                 if (this.elements.coursePanel && !this.elements.coursePanel.classList.contains('collapsed')) {
@@ -2960,12 +2835,16 @@ const RoutineManager = {
 
                 // Update display after loading (or clearing)
                 this.updateRoutineDisplay();
-                this.updateProgress();
-                this.checkConflicts();
+                
+                // Editor-only operations
+                if (this.config.canEdit) {
+                    this.updateProgress();
+                    this.checkConflicts();
 
-                // Reload courses if filter is active
-                if (this.elements.batchSelect && this.elements.batchSelect.value) {
-                    this.loadBatchCourses(this.elements.batchSelect.value);
+                    // Reload courses if filter is active
+                    if (this.elements.batchSelect && this.elements.batchSelect.value) {
+                        this.loadBatchCourses(this.elements.batchSelect.value);
+                    }
                 }
             })
             .catch(error => {

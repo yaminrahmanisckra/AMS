@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file, current_app
 from flask_login import login_required, current_user
 from extensions import db
-from sqlalchemy import func
+from sqlalchemy import func, text
 from .models import Teacher, Room, AssignedCourse, Routine, SavedRoutine
 from blueprints.course_management.models import Course, DutyAssignment
 from .forms import TeacherForm, RoomForm, AssignCourseForm
@@ -27,9 +27,9 @@ routine_management_bp = Blueprint('routine_management', __name__,
 @login_required
 def index():
     can_edit = can_edit_routine()
-    # If user doesn't have Routine Maker assignment, redirect to view routine
+    # If user doesn't have Routine Maker assignment, redirect to public routines
     if not can_edit:
-        return redirect(url_for('routine_management.view_routine'))
+        return redirect(url_for('routine_management.public_routines'))
     
     # Use raw SQL to avoid ORM relationship issues
     from sqlalchemy import text
@@ -80,6 +80,69 @@ def index():
     return render_template('routine_management/index.html', 
                           saved_routines=saved_routines,
                           can_edit=can_edit)
+
+# Public Routines - Accessible to all users (students and non-routine maker teachers)
+@routine_management_bp.route('/public-routines')
+@login_required
+def public_routines():
+    """View public (revealed) routines - accessible to all users"""
+    from sqlalchemy import text
+    
+    can_edit = can_edit_routine()
+    
+    # If user can edit, they should use the main dashboard instead
+    if can_edit:
+        return redirect(url_for('routine_management.index'))
+    
+    try:
+        # Get only revealed routines using raw SQL
+        result = db.session.execute(text("""
+            SELECT id, year, name, is_revealed, created_at, updated_at 
+            FROM saved_routine 
+            WHERE is_revealed = 1
+            ORDER BY year DESC
+        """))
+        rows = result.fetchall()
+        
+        # Convert to objects for template compatibility
+        revealed_routines = []
+        for row in rows:
+            # Format dates for display
+            updated_at_display = 'N/A'
+            if row[5]:
+                try:
+                    if isinstance(row[5], str):
+                        updated_at_display = row[5][:16].replace('T', ' ')
+                    else:
+                        updated_at_display = row[5].strftime('%Y-%m-%d %H:%M')
+                except:
+                    updated_at_display = str(row[5])[:16]
+            elif row[4]:
+                try:
+                    if isinstance(row[4], str):
+                        updated_at_display = row[4][:16].replace('T', ' ')
+                    else:
+                        updated_at_display = row[4].strftime('%Y-%m-%d %H:%M')
+                except:
+                    updated_at_display = str(row[4])[:16]
+            
+            sr = type('SavedRoutine', (), {
+                'id': row[0],
+                'year': row[1],
+                'name': row[2] or row[1],
+                'is_revealed': row[3] if row[3] is not None else False,
+                'created_at': row[4],
+                'updated_at': row[5],
+                'updated_at_display': updated_at_display
+            })()
+            revealed_routines.append(sr)
+    except Exception as e:
+        current_app.logger.error(f'Error loading revealed routines: {e}', exc_info=True)
+        revealed_routines = []
+    
+    return render_template('routine_management/public_routines.html', 
+                          revealed_routines=revealed_routines,
+                          can_edit=False)
 
 # Teacher Management
 @routine_management_bp.route('/teachers', methods=['GET', 'POST'])
@@ -482,12 +545,18 @@ def check_edit_permission():
 @routine_management_bp.route('/view_routine')
 @login_required
 def view_routine():
-    """View routine - accessible to all users, but only teachers/TAs can edit"""
+    """View routine - accessible to all users, but only routine makers can edit"""
     from role_utils import get_teachers_excluding_head
     from blueprints.course_management.models import CourseSessionAssignment, Curriculum
     
+    can_edit = can_edit_routine()
+    
     # Get saved_routine_id from URL query params
     saved_routine_id = request.args.get('saved_routine_id', type=int)
+    
+    # If no saved_routine_id provided and user can't edit, redirect to public routines
+    if not saved_routine_id and not can_edit:
+        return redirect(url_for('routine_management.public_routines'))
     
     # Load saved routine if ID provided
     current_saved_routine = None
@@ -495,7 +564,15 @@ def view_routine():
         current_saved_routine = SavedRoutine.query.get(saved_routine_id)
         if not current_saved_routine:
             flash('Routine not found', 'error')
-            return redirect(url_for('routine_management.index'))
+            if can_edit:
+                return redirect(url_for('routine_management.index'))
+            else:
+                return redirect(url_for('routine_management.public_routines'))
+        
+        # For non-editors, check if the routine is revealed (public)
+        if not can_edit and not current_saved_routine.is_revealed:
+            flash('This routine is not available for viewing.', 'warning')
+            return redirect(url_for('routine_management.public_routines'))
     
     # Get all teachers (for display purposes)
     teachers_list = get_teachers_excluding_head()
@@ -511,7 +588,7 @@ def view_routine():
         "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
         "04:00 PM - 04:50 PM"
     ]
-    can_edit = can_edit_routine()
+    # can_edit is already defined at the beginning of this function
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
@@ -519,12 +596,18 @@ def view_routine():
                            saved_routine_id=saved_routine_id,
                            current_saved_routine=current_saved_routine)
 
-# Generate Routine
+# Generate Routine (Only for Routine Makers)
 @routine_management_bp.route('/generate_routine')
 @login_required
 def generate_routine():
     from role_utils import get_teachers_excluding_head
     from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    
+    # Only routine makers can access this route
+    can_edit = can_edit_routine()
+    if not can_edit:
+        flash('You do not have permission to edit routines.', 'warning')
+        return redirect(url_for('routine_management.public_routines'))
     
     # Get saved_routine_id from URL query params
     saved_routine_id = request.args.get('saved_routine_id', type=int)
@@ -551,7 +634,7 @@ def generate_routine():
         "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
         "04:00 PM - 04:50 PM"
     ]
-    can_edit = can_edit_routine()
+    # can_edit is already defined at the beginning of this function
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
@@ -1028,11 +1111,19 @@ def save_routine():
                 continue
             
             # Prepare entry data
+            is_custom = entry.get('is_custom', False)
+            custom_course_name = entry.get('custom_course_name', '').strip() or None
+            course_code = entry.get('course_code', '').strip() or None
+            
+            # For custom entries, ensure course_code is set from custom_course_name if needed
+            if is_custom and custom_course_name and not course_code:
+                course_code = custom_course_name
+            
             validated_entries.append({
                 'day': day,
                 'slot': slot,
                 'room': room,
-                'course_code': entry.get('course_code', '').strip() or None,
+                'course_code': course_code,
                 'teacher_short_name': entry.get('teacher_short_name', '').strip() or None,
                 'part': entry.get('part', 'Full').strip() or None,
                 'teacher_id': entry.get('teacher_id'),
@@ -1042,8 +1133,8 @@ def save_routine():
                 'term': entry.get('term', '').strip() or None,
                 'batch': entry.get('batch', '').strip() or None,
                 'color_code': entry.get('color_code', '').strip() or None,
-                'is_custom': entry.get('is_custom', False),
-                'custom_course_name': entry.get('custom_course_name', '').strip() or None,
+                'is_custom': is_custom,
+                'custom_course_name': custom_course_name,
                 'placement_order': entry.get('placement_order')
             })
         
@@ -1323,7 +1414,7 @@ def create_saved_routine():
         result = db.session.execute(
             text("""
                 INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at)
-                VALUES (:year, :name, 0, :created_by_id, datetime('now'), datetime('now'))
+                VALUES (:year, :name, 0, :created_by_id, NOW(), NOW())
             """),
             {
                 'year': year,
@@ -1389,20 +1480,32 @@ def get_saved_routine(saved_routine_id):
         
         routine_data = []
         if has_saved_routine_id:
+            # Check which optional columns exist
+            has_is_custom = 'is_custom' in routine_columns
+            has_custom_course_name = 'custom_course_name' in routine_columns
+            has_batch = 'batch' in routine_columns
+            has_color_code = 'color_code' in routine_columns
+            
+            # Build dynamic SQL based on available columns
+            select_columns = ['day', 'time_slot', 'room_number', 'course_code', 'teacher_short_name', 
+                             'part', 'is_shared', 'shared_with', 'teacher_id', 'year', 'term']
+            if has_batch:
+                select_columns.append('batch')
+            if has_color_code:
+                select_columns.append('color_code')
+            if has_is_custom:
+                select_columns.append('is_custom')
+            if has_custom_course_name:
+                select_columns.append('custom_course_name')
+            
+            sql = f"SELECT {', '.join(select_columns)} FROM routine WHERE saved_routine_id = :id"
+            
             # Get routine entries using raw SQL
-            result = db.session.execute(
-                text("""
-                    SELECT day, time_slot, room_number, course_code, teacher_short_name, 
-                           part, is_shared, shared_with, teacher_id, year, term,
-                           batch, color_code, is_custom, custom_course_name
-                    FROM routine WHERE saved_routine_id = :id
-                """),
-                {'id': saved_routine_id}
-            )
+            result = db.session.execute(text(sql), {'id': saved_routine_id})
             rows = result.fetchall()
             
             for row in rows:
-                routine_data.append({
+                entry = {
                     "day": row[0] or '',
                     "slot": row[1] or '',
                     "room_id": all_rooms.get(row[2]),
@@ -1414,11 +1517,36 @@ def get_saved_routine(saved_routine_id):
                     "teacher_id": row[8],
                     "year": row[9] or '',
                     "term": row[10] or '',
-                    "batch": row[11] or '',
-                    "color_code": row[12] or '',
-                    "is_custom": row[13] or False,
-                    "custom_course_name": row[14] or ''
-                })
+                    "batch": '',
+                    "color_code": '',
+                    "is_custom": False,
+                    "custom_course_name": ''
+                }
+                
+                # Add optional columns if they exist
+                col_idx = 11
+                if has_batch:
+                    entry["batch"] = row[col_idx] or ''
+                    col_idx += 1
+                if has_color_code:
+                    entry["color_code"] = row[col_idx] or ''
+                    col_idx += 1
+                if has_is_custom:
+                    # Convert MySQL TINYINT(1) to boolean (0/1 -> False/True)
+                    is_custom_val = row[col_idx]
+                    entry["is_custom"] = bool(is_custom_val) if is_custom_val is not None else False
+                    col_idx += 1
+                if has_custom_course_name:
+                    entry["custom_course_name"] = row[col_idx] or ''
+                    col_idx += 1
+                
+                # Debug log for custom entries
+                if entry.get("is_custom"):
+                    current_app.logger.info(f"Loading custom entry: day={entry['day']}, slot={entry['slot']}, "
+                                         f"course_code={entry.get('course_code')}, "
+                                         f"custom_course_name={entry.get('custom_course_name')}")
+                
+                routine_data.append(entry)
         
         return jsonify({
             'id': sr_row[0],
@@ -1575,6 +1703,65 @@ def toggle_reveal_saved_routine(saved_routine_id):
             'message': f'Error updating reveal status: {str(e)}'
         }), 500
 
+@routine_management_bp.route('/api/time-slots', methods=['POST'])
+@login_required
+def save_time_slots():
+    """Save custom time slots for a saved routine"""
+    try:
+        data = request.get_json() or {}
+        saved_routine_id = data.get('saved_routine_id')
+        time_slots = data.get('time_slots', [])
+        
+        if not saved_routine_id:
+            return jsonify({'success': False, 'message': 'No saved routine ID provided'}), 400
+        
+        # Check if routine exists
+        saved_routine = SavedRoutine.query.get(saved_routine_id)
+        if not saved_routine:
+            return jsonify({'success': False, 'message': 'Saved routine not found'}), 404
+        
+        # Delete existing time slots for this routine
+        try:
+            db.session.execute(
+                text("DELETE FROM routine_time_slot WHERE saved_routine_id = :id"),
+                {'id': saved_routine_id}
+            )
+        except Exception as e:
+            # Table might not exist yet - that's ok
+            current_app.logger.warning(f'Could not delete time slots (table may not exist): {e}')
+        
+        # Insert new time slots
+        for idx, slot in enumerate(time_slots):
+            try:
+                db.session.execute(
+                    text("""
+                        INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, created_at)
+                        VALUES (:saved_routine_id, :time_slot, :display_order, 1, NOW())
+                    """),
+                    {
+                        'saved_routine_id': saved_routine_id,
+                        'time_slot': slot,
+                        'display_order': idx
+                    }
+                )
+            except Exception as insert_error:
+                current_app.logger.warning(f'Could not insert time slot {slot}: {insert_error}')
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Time slots saved successfully!'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error saving time slots: {e}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error saving time slots: {str(e)}'
+        }), 500
+
 @routine_management_bp.route('/api/routine/load')
 def load_routine():
     routine_entries = Routine.query.all()
@@ -1716,8 +1903,10 @@ def download_pdf():
                 "04:00 PM - 04:50 PM"
             ]
         
-        lunch_time = "01:00 PM - 01:50 PM"
         rooms_db = Room.query.order_by('room_number').all()
+        
+        # Get lunch position from frontend (default: after 4th slot, index 3)
+        lunch_after_slot = request.args.get('lunch_after_slot', 3, type=int)
         
         # Helper function to convert time to compact format (9:10-10:00)
         def compact_time(time_str):
@@ -1729,25 +1918,57 @@ def download_pdf():
                 return f"{int(h1)}:{m1}-{int(h2)}:{m2}"
             return time_str.replace(' - ', '-').replace(' AM', '').replace(' PM', '')
         
-        # Prepare header: Day, Room, then time slots with lunch inserted
+        # Prepare header: Day, Room, then time slots with lunch inserted after selected slot
         header = ['Day', 'Room']
         
-        # Find lunch position (usually after 4th slot or where "01:00" appears)
-        lunch_inserted = False
         for idx, slot in enumerate(time_slots):
-            # Insert lunch before slot containing "01:00" or "12:10 PM - 01:00 PM"
-            if not lunch_inserted and ('01:00' in slot or '12:10 PM - 01:00 PM' in slot):
-                header.append("Lunch\n1:00-1:50")
-                lunch_inserted = True
             header.append(compact_time(slot))
-        
-        # If lunch wasn't inserted, add it after 4th slot (default behavior)
-        if not lunch_inserted and len(header) > 6:
-            header.insert(6, "Lunch\n1:00-1:50")
+            # Insert lunch after the selected slot
+            if idx == lunch_after_slot:
+                header.append("1:00-2:00")
         
         table_data = [header]
 
+        # Batch color palette - MUST match frontend exactly (routine_new.html batchColors)
+        batch_colors_hex = [
+            '#3B82F6',  # Blue
+            '#10B981',  # Green
+            '#F59E0B',  # Amber
+            '#EF4444',  # Red
+            '#8B5CF6',  # Purple
+            '#EC4899',  # Pink
+            '#06B6D4',  # Cyan
+            '#F97316',  # Orange
+            '#6366F1',  # Indigo
+            '#14B8A6',  # Teal
+            '#84CC16',  # Lime
+            '#A855F7',  # Violet
+        ]
+        
+        def hex_to_rgb_color(hex_color):
+            """Convert hex color to reportlab Color with transparency"""
+            hex_color = hex_color.lstrip('#')
+            r = int(hex_color[0:2], 16) / 255.0
+            g = int(hex_color[2:4], 16) / 255.0
+            b = int(hex_color[4:6], 16) / 255.0
+            # Return lighter version for background
+            return colors.Color(r, g, b, alpha=0.25)
+        
+        def get_batch_color_index(batch):
+            """Get consistent color index using same hash algorithm as frontend"""
+            if not batch:
+                return 0
+            # Same hash algorithm as frontend JavaScript
+            hash_val = 0
+            for char in batch:
+                hash_val = ord(char) + ((hash_val << 5) - hash_val)
+            return abs(hash_val) % len(batch_colors_hex)
+        
+        batch_color_map = {}
+        cell_batch_colors = []  # Store (row, col, color) for cells with batches
+        
         # Data rows
+        current_row = 1  # Start from 1 (0 is header)
         for day in days:
             for i, room in enumerate(rooms_db):
                 row = []
@@ -1757,28 +1978,51 @@ def download_pdf():
                     row.append("")
                 row.append(Paragraph(str(room.room_number), body_text_style))
                 
-                # Insert lunch and time slots
-                lunch_inserted = False
+                # Insert time slots with lunch after selected slot
+                current_col = 2  # Start from column 2 (0=Day, 1=Room)
                 for idx, slot in enumerate(time_slots):
-                    # Insert lunch before slot containing "01:00" or "12:10 PM - 01:00 PM"
-                    if not lunch_inserted and ('01:00' in slot or '12:10 PM - 01:00 PM' in slot):
-                        row.append(Paragraph("LUNCH", body_text_style))
-                        lunch_inserted = True
-                    
                     # Find cell data - match by day, slot (which may have been edited), and room_id
                     cell_data = routine_map.get((day, slot, room.id))
                     
                     if cell_data:
-                        cell_content = f"<b>{cell_data.get('course_code', '')}</b><br/>({cell_data.get('teacher_short_name', '')})"
+                        # Handle custom entries - use custom_course_name if available
+                        is_custom = cell_data.get('is_custom', False)
+                        custom_name = cell_data.get('custom_course_name', '')
+                        course_code = cell_data.get('course_code', '')
+                        
+                        # For custom entries, prefer custom_course_name, then course_code
+                        display_name = custom_name if (is_custom and custom_name) else course_code
+                        
+                        teacher_short = cell_data.get('teacher_short_name', '')
+                        
+                        # Build cell content
+                        if teacher_short:
+                            cell_content = f"<b>{display_name}</b><br/>({teacher_short})"
+                        else:
+                            cell_content = f"<b>{display_name}</b>"
+                        
                         row.append(Paragraph(cell_content, body_text_style))
+                        
+                        # Track batch color for this cell (using hash-based color like frontend)
+                        batch = cell_data.get('batch', '')
+                        if batch:
+                            if batch not in batch_color_map:
+                                # Use hash-based color index (same algorithm as frontend)
+                                color_index = get_batch_color_index(batch)
+                                batch_color_map[batch] = hex_to_rgb_color(batch_colors_hex[color_index])
+                            cell_batch_colors.append((current_row, current_col, batch_color_map[batch]))
                     else:
                         row.append("")
-                
-                # If lunch wasn't inserted, add it after 4th slot (default behavior)
-                if not lunch_inserted and len(row) > 6:
-                    row.insert(6, Paragraph("LUNCH", body_text_style))
+                    
+                    current_col += 1
+                    
+                    # Insert lunch after the selected slot
+                    if idx == lunch_after_slot:
+                        row.append(Paragraph("LUNCH", body_text_style))
+                        current_col += 1
                 
                 table_data.append(row)
+                current_row += 1
 
         # Compact column widths for A4 landscape
         num_time_cols = len(time_slots) + 1  # +1 for lunch
@@ -1823,6 +2067,10 @@ def download_pdf():
             # Slightly thicker border above each day's first row for visual separation
             if start_row > 1:
                 style.add('LINEABOVE', (0, start_row), (-1, start_row), 1, colors.black)
+        
+        # Apply batch colors to cells
+        for row_idx, col_idx, batch_color in cell_batch_colors:
+            style.add('BACKGROUND', (col_idx, row_idx), (col_idx, row_idx), batch_color)
 
         table.setStyle(style)
         elements.append(table)

@@ -590,12 +590,29 @@
         <thead>
             <tr>
                 <th>Category</th>
-                <th>Test</th>
-                <th>Group Debate</th>
+                {% if cie_breakdown and cie_breakdown.columns %}
+                    {% for col in cie_breakdown.columns %}
+                    <th>{{ col }}</th>
+                    {% endfor %}
+                {% else %}
+                    <th>Test</th>
+                    <th>Group Debate</th>
+                {% endif %}
             </tr>
         </thead>
         <tbody>
-            {% if cie_breakdown and cie_breakdown|length > 0 %}
+            {% if cie_breakdown and cie_breakdown.rows %}
+                {# New format with customizable columns #}
+                {% for row in cie_breakdown.rows %}
+                <tr>
+                    <td>{{ row.get('category', '') }}</td>
+                    {% for val in row.get('values', []) %}
+                    <td>{{ val }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            {% elif cie_breakdown and cie_breakdown|length > 0 and cie_breakdown is iterable and cie_breakdown is not mapping %}
+                {# Old format - array of objects #}
                 {% for cie in cie_breakdown %}
                 <tr>
                     <td>{{ cie.get('category', '') }}</td>

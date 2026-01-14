@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Class Routines{% endblock %}
+
+{% block extra_css %}
+<style>
+:root {
+    --primary-color: #0d6efd;
+    --success-color: #198754;
+    --info-color: #0dcaf0;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --secondary-color: #6c757d;
+}
+
+.routine-wrapper {
+    background: linear-gradient(to bottom, #f8f9fa 0%, #e9ecef 100%);
+    min-height: 100vh;
+    padding: 2rem 0 3rem;
+    position: relative;
+}
+
+.routine-wrapper::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+        radial-gradient(circle at 20% 30%, rgba(102, 126, 234, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(118, 75, 162, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 50% 50%, rgba(240, 147, 251, 0.05) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.routine-wrapper > .container {
+    position: relative;
+    z-index: 1;
+}
+
+.routine-header {
+    text-align: center;
+    margin-bottom: 2rem;
+    padding: 1.5rem 0;
+}
+
+.routine-header h1 {
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+    color: #212529;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.routine-header p {
+    font-size: clamp(0.9375rem, 2vw, 1.125rem);
+    color: #6c757d;
+    margin: 0;
+    font-weight: 400;
+    line-height: 1.6;
+}
+
+.routine-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e9ecef;
+    transition: all 0.3s ease;
+    margin-bottom: 1rem;
+}
+
+.routine-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    border-color: #0d6efd;
+}
+
+.routine-card .card-body {
+    padding: 1.5rem;
+}
+
+.routine-card .routine-year {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #0d6efd;
+    margin-bottom: 0.5rem;
+}
+
+.routine-card .routine-name {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: #212529;
+    margin-bottom: 0.5rem;
+}
+
+.routine-card .routine-updated {
+    font-size: 0.875rem;
+    color: #6c757d;
+    margin-bottom: 1rem;
+}
+
+.routine-card .btn-group {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.no-routine-message {
+    text-align: center;
+    padding: 4rem 2rem;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.no-routine-message i {
+    font-size: 4rem;
+    color: #6c757d;
+    margin-bottom: 1rem;
+}
+
+.no-routine-message h4 {
+    color: #212529;
+    margin-bottom: 0.5rem;
+}
+
+.no-routine-message p {
+    color: #6c757d;
+}
+
+/* Mobile responsive */
+@media (max-width: 576px) {
+    .routine-wrapper {
+        padding: 1rem 0 1.5rem;
+    }
+    
+    .routine-header {
+        margin-bottom: 1.25rem;
+        padding: 1rem 0;
+    }
+    
+    .routine-card .card-body {
+        padding: 1rem;
+    }
+    
+    .routine-card .btn-group {
+        flex-direction: column;
+    }
+    
+    .routine-card .btn-group .btn {
+        width: 100%;
+    }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="routine-wrapper">
+    <div class="container">
+        <div class="routine-header">
+            <h1><i class="fas fa-calendar-alt me-2"></i>Class Routines</h1>
+            <p>View and download published class routines</p>
+        </div>
+
+        {% if revealed_routines %}
+        <div class="row">
+            {% for routine in revealed_routines %}
+            <div class="col-12 col-md-6 col-lg-4">
+                <div class="routine-card">
+                    <div class="card-body">
+                        <div class="routine-year">{{ routine.year }}</div>
+                        <div class="routine-name">{{ routine.name if routine.name != routine.year else 'Academic Routine' }}</div>
+                        <div class="routine-updated">
+                            <i class="fas fa-clock me-1"></i>
+                            Last updated: {{ routine.updated_at_display }}
+                        </div>
+                        <div class="btn-group">
+                            <a href="{{ url_for('routine_management.view_routine', saved_routine_id=routine.id) }}" 
+                               class="btn btn-primary">
+                                <i class="fas fa-eye me-1"></i>View Routine
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="no-routine-message">
+            <i class="fas fa-calendar-times d-block"></i>
+            <h4>No Routines Available</h4>
+            <p>No class routines have been published yet. Please check back later.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
