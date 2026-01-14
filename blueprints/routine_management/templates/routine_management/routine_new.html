@@ -1341,6 +1341,7 @@ body.fullscreen-active .routine-table {
         {% endif %}
 
         <!-- Routine Table Area -->
+        {% if can_edit %}
         <div class="routine-table-area">
             <div class="routine-table-wrapper">
                 <table class="routine-table" id="routine-table">
@@ -1380,13 +1381,31 @@ body.fullscreen-active .routine-table {
                         </tbody>
                     </table>
             </div>
-                    {% if can_edit %}
                     <div class="delete-zone" id="delete-zone">
                 <i class="fas fa-trash-alt" style="font-size: 32px; margin-bottom: 8px;"></i>
                 <p style="margin: 0; font-weight: 500;">Drag here to remove from routine</p>
                     </div>
-                    {% endif %}
                 </div>
+        {% else %}
+        <!-- Non-editor view: Simple download page -->
+        <div class="routine-table-area" style="display: flex; align-items: center; justify-content: center; min-height: 60vh; padding: 40px;">
+            <div style="text-align: center; max-width: 500px;">
+                <div style="font-size: 48px; color: var(--primary); margin-bottom: 20px;">
+                    <i class="fas fa-file-pdf"></i>
+                </div>
+                <h2 style="color: var(--text); margin-bottom: 16px;">Class Routine</h2>
+                <p style="color: var(--text-muted); margin-bottom: 30px; font-size: 16px;">
+                    Click the PDF button above to download the routine schedule.
+                </p>
+                <div style="background: var(--bg-card); padding: 20px; border-radius: 8px; box-shadow: var(--shadow);">
+                    <p style="color: var(--text); margin: 0; font-size: 14px;">
+                        <i class="fas fa-info-circle" style="color: var(--primary); margin-right: 8px;"></i>
+                        The routine is available for download in PDF format.
+                    </p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
             </div>
                     </div>
                     
@@ -2614,9 +2633,14 @@ const RoutineManager = {
 
     // Update routine display (optimized - batch DOM updates)
     updateRoutineDisplay: function() {
+        // Skip for non-editors (table doesn't exist)
+        if (!this.config.canEdit) {
+            return;
+        }
+        
         // Re-cache slot cells
         this.elements.slotCells = document.querySelectorAll('.slot-cell');
-        
+
         // Use requestAnimationFrame for smooth updates
         requestAnimationFrame(() => {
             this.elements.slotCells.forEach(cell => {
@@ -2853,7 +2877,8 @@ const RoutineManager = {
                         const key = `${item.day}|${item.slot}|${item.room_id}`;
                         const cell = document.querySelector(`.slot-cell[data-day="${item.day}"][data-slot="${item.slot}"][data-room="${item.room_id}"]`);
                         
-                        if (cell) {
+                        // For non-editors, store data even if cell doesn't exist (table is hidden)
+                        if (cell || !this.config.canEdit) {
                             const assignedId = item.assigned_id ? String(item.assigned_id).trim() : '';
                             
                             let teachersArray = [];
@@ -3241,16 +3266,19 @@ const RoutineManager = {
     downloadPDF: function() {
         console.log('=== PDF Download Started ===');
         
-        // Re-cache slot cells
-        this.elements.slotCells = document.querySelectorAll('.slot-cell');
-        console.log('Slot cells found:', this.elements.slotCells.length);
-
         const title = this.elements.routineTitle?.value || 'Class Routine';
         const date = this.elements.effectiveDate?.value || '';
         console.log('Title:', title, 'Date:', date);
         
-        const currentTimeSlots = Array.from(this.elements.routineTable?.querySelectorAll('thead th.time-col') || [])
-            .map(th => th.textContent.trim());
+        // Get time slots - from table if exists, otherwise from config
+        let currentTimeSlots = [];
+        if (this.elements.routineTable) {
+            currentTimeSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+                .map(th => th.textContent.trim());
+        } else {
+            // For non-editors without table, use config time slots
+            currentTimeSlots = this.config.timeSlots || [];
+        }
         console.log('Time slots:', currentTimeSlots);
         
         // Check state
@@ -3258,25 +3286,57 @@ const RoutineManager = {
         console.log('savedRoutineId:', this.config.savedRoutineId);
             
         const routineData = [];
-        this.elements.slotCells.forEach(cell => {
-            if (cell.classList.contains('lunch-cell')) return;
+        
+        // For editors: read from DOM cells
+        // For non-editors: read directly from state (table doesn't exist)
+        if (this.config.canEdit && this.elements.routineTable) {
+            // Re-cache slot cells for editors
+            this.elements.slotCells = document.querySelectorAll('.slot-cell');
+            console.log('Slot cells found:', this.elements.slotCells.length);
+            
+            this.elements.slotCells.forEach(cell => {
+                if (cell.classList.contains('lunch-cell')) return;
 
-            const key = this.getSlotKey(cell);
-            const item = this.state.routine[key];
-            if (item) {
-                routineData.push({
-                    day: cell.dataset.day,
-                    slot: cell.dataset.slot,
-                    room_id: parseInt(cell.dataset.room),
-                    course_code: item.courseCode,
-                    teacher_short_name: item.teacherShort,
-                    batch: item.batch || '',
-                    color_code: item.colorCode || '',
-                    is_custom: item.isCustom || false,
-                    custom_course_name: item.isCustom ? item.courseCode : ''
-                });
-            }
-        });
+                const key = this.getSlotKey(cell);
+                const item = this.state.routine[key];
+                if (item) {
+                    routineData.push({
+                        day: cell.dataset.day,
+                        slot: cell.dataset.slot,
+                        room_id: parseInt(cell.dataset.room),
+                        course_code: item.courseCode,
+                        teacher_short_name: item.teacherShort,
+                        batch: item.batch || '',
+                        color_code: item.colorCode || '',
+                        is_custom: item.isCustom || false,
+                        custom_course_name: item.isCustom ? item.courseCode : ''
+                    });
+                }
+            });
+        } else {
+            // For non-editors: use state data directly
+            // State keys are in format: "Day|Slot|RoomId"
+            Object.keys(this.state.routine || {}).forEach(key => {
+                const item = this.state.routine[key];
+                if (item) {
+                    // Parse key to get day, slot, room_id
+                    const parts = key.split('|');
+                    if (parts.length === 3) {
+                        routineData.push({
+                            day: parts[0],
+                            slot: parts[1],
+                            room_id: parseInt(parts[2]),
+                            course_code: item.courseCode,
+                            teacher_short_name: item.teacherShort,
+                            batch: item.batch || '',
+                            color_code: item.colorCode || '',
+                            is_custom: item.isCustom || false,
+                            custom_course_name: item.isCustom ? item.courseCode : ''
+                        });
+                    }
+                }
+            });
+        }
         
         console.log('Routine data collected:', routineData.length, 'entries');
             
