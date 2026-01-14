@@ -60,7 +60,12 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    {% if not can_edit %}
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    {% else %}
     overflow: hidden;
+    {% endif %}
     background: var(--bg);
 }
 
@@ -210,7 +215,12 @@ body {
 .routine-main {
     display: flex;
     flex: 1;
+    {% if not can_edit %}
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    {% else %}
     overflow: hidden;
+    {% endif %}
         position: relative;
 }
 
@@ -530,6 +540,13 @@ body {
     -webkit-overflow-scrolling: touch;
     /* Create stacking context for sticky elements */
     isolation: isolate;
+    /* Ensure touch scrolling works on mobile */
+    touch-action: pan-x pan-y;
+    /* Prevent drag interference on mobile for non-editors */
+    {% if not can_edit %}
+    -webkit-user-select: none;
+    user-select: none;
+    {% endif %}
 }
 
 .routine-table {
@@ -684,6 +701,98 @@ body {
 .routine-table tbody td.slot-cell.has-conflict {
     border: 2px solid var(--error);
     background: rgba(239, 68, 68, 0.05);
+}
+
+/* Day-based row striping for visual contrast */
+.routine-table tbody tr.day-odd td.slot-cell:not(.has-class):not(.lunch-cell) {
+    background: #f8f9fa;
+}
+.routine-table tbody tr.day-odd td.room-col {
+    background: #f0f1f2 !important;
+}
+.routine-table tbody tr.day-even td.slot-cell:not(.has-class):not(.lunch-cell) {
+    background: #ffffff;
+}
+.routine-table tbody tr.day-even td.room-col {
+    background: var(--bg) !important;
+}
+
+/* Fullscreen mode styles */
+body.fullscreen-active {
+    overflow: hidden;
+}
+body.fullscreen-active .course-panel {
+    display: none !important;
+}
+body.fullscreen-active .routine-topbar {
+    position: fixed;
+    top: -60px;
+    left: 0;
+    right: 0;
+    z-index: 10001;
+    transition: top 0.3s ease;
+    background: white;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+body.fullscreen-active .routine-topbar:hover,
+body.fullscreen-active .routine-topbar.show {
+    top: 0;
+}
+/* Hover trigger zone at top of screen */
+body.fullscreen-active::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 15px;
+    z-index: 10000;
+}
+body.fullscreen-active .routine-main {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: white;
+    padding: 20px;
+    overflow: auto;
+}
+body.fullscreen-active .routine-table-area {
+    width: 100%;
+    height: 100%;
+}
+body.fullscreen-active .routine-table-wrapper {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+}
+body.fullscreen-active .routine-table {
+    max-width: none;
+}
+.fullscreen-exit-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10002;
+    padding: 10px 20px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    display: none;
+    opacity: 0.7;
+    transition: opacity 0.3s;
+}
+.fullscreen-exit-btn:hover {
+    background: var(--primary-dark);
+    opacity: 1;
+}
+.fullscreen-exit-btn.visible {
+    display: block;
 }
 
 .slot-content {
@@ -1061,6 +1170,46 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
     }
+
+/* Mobile-specific fixes for non-routine-makers */
+{% if not can_edit %}
+@media (max-width: 768px) {
+    .routine-app {
+        height: auto;
+        min-height: 100vh;
+    }
+    
+    .routine-main {
+        flex-direction: column;
+        overflow: visible;
+    }
+    
+    .routine-table-wrapper {
+        overflow-x: auto;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-x pan-y;
+        /* Ensure scrolling works */
+        position: relative;
+        width: 100%;
+    }
+    
+    .routine-table {
+        /* Prevent table from being too wide */
+        min-width: 100%;
+    }
+    
+    /* Ensure cells don't block touch events */
+    .slot-cell {
+        touch-action: manipulation;
+    }
+    
+    /* Prevent text selection interference */
+    .routine-table-wrapper * {
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+{% endif %}
 </style>
 
 <div class="routine-app">
@@ -1099,7 +1248,10 @@ body {
             <button class="topbar-btn" id="btn-pdf">
                 <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
-            <a href="{{ url_for('routine_management.index') }}" class="topbar-btn">
+            <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
+                <i class="fas fa-expand topbar-btn-icon"></i>
+            </button>
+            <a href="{{ url_for('routine_management.index') if can_edit else url_for('routine_management.public_routines') }}" class="topbar-btn">
                 <i class="fas fa-arrow-left topbar-btn-icon"></i> Back
             </a>
                     </div>
@@ -1167,17 +1319,13 @@ body {
                                     {% endif %}
                                 <td class="room-col">{{ room.room_number }}</td>
                                     {% for slot in time_slots %}
-                                    <td class="slot-cell{% if 'Lunch' in slot or '01:00' in slot %} lunch-cell{% endif %}" 
-                                        data-day="{{ day }}" 
-                                        data-room="{{ room.id }}" 
+                                    <td class="slot-cell"
+                                        data-day="{{ day }}"
+                                        data-room="{{ room.id }}"
                                         data-room-name="{{ room.room_number }}"
                                     data-slot="{{ slot }}">
                                     <div class="slot-content">
-                                        {% if 'Lunch' in slot or '01:00' in slot %}
-                                        <strong>LUNCH</strong>
-                                        {% else %}
                                         <span class="slot-empty">-</span>
-                                        {% endif %}
                                     </div>
                                     </td>
                                     {% endfor %}
@@ -1207,6 +1355,9 @@ body {
         <div class="modal-body">
             <div class="form-group">
                 <label class="form-label">Time Slots</label>
+                <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                    <i class="fas fa-utensils" style="color: #F59E0B;"></i> Click the lunch icon to set lunch time after a slot
+                </p>
                 <div id="time-slots-list" style="margin-bottom: 16px;"></div>
                 <div style="display: flex; gap: 8px;">
                     <input type="text" class="form-control" id="new-time-slot-input" placeholder="e.g., 9:10-10:00">
@@ -1260,9 +1411,7 @@ body {
                 <label class="form-label">Time Slot *</label>
                 <select class="form-control" id="custom-time-slot" required>
                     {% for slot in time_slots %}
-                    {% if 'Lunch' not in slot and '01:00' not in slot %}
                     <option value="{{ slot }}">{{ slot }}</option>
-                    {% endif %}
                     {% endfor %}
                 </select>
                     </div>
@@ -1281,6 +1430,11 @@ body {
         </div>
     </div>
 </div>
+
+<!-- Fullscreen Exit Button (outside of routine-app for proper z-index) -->
+<button class="fullscreen-exit-btn" id="fullscreen-exit-btn">
+    <i class="fas fa-compress"></i> Exit Fullscreen (ESC)
+</button>
 
 <script>
 // ============================================
@@ -1308,7 +1462,9 @@ const RoutineManager = {
         searchQuery: '',
         conflicts: [],
         hasUnsavedChanges: false,
-        batchColorMap: {}  // Cache for batch colors
+        batchColorMap: {},  // Cache for batch colors
+        lunchAfterSlotIndex: 3,  // Default: lunch after 4th slot (index 3)
+        isFullscreen: false
     },
 
     // Batch color palette - vibrant colors for ribbon
@@ -1385,6 +1541,17 @@ const RoutineManager = {
         }
         
         this.setupEditableHeaders();
+        
+        // Initialize table with lunch column at default position
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        if (currentSlots.length > 0) {
+            this.updateTimeSlotsInTable(currentSlots);
+        }
+        
+        // Apply day-based row striping
+        this.applyDayStripes();
+        
         this.updateProgress();
         this.checkConflicts();
         
@@ -1431,6 +1598,42 @@ const RoutineManager = {
             });
         }
         }, 200);
+    },
+    
+    // Apply day-based row striping for visual contrast
+    applyDayStripes: function() {
+        const days = this.config.days || [];
+        const rows = this.elements.routineTbody.querySelectorAll('tr');
+        
+        rows.forEach(row => {
+            const day = row.dataset.day;
+            const dayIndex = days.indexOf(day);
+            
+            // Remove existing stripe classes
+            row.classList.remove('day-odd', 'day-even');
+            
+            // Add appropriate class based on day index
+            if (dayIndex % 2 === 0) {
+                row.classList.add('day-odd');  // Sunday, Tuesday, Thursday, Saturday
+            } else {
+                row.classList.add('day-even'); // Monday, Wednesday, Friday
+            }
+        });
+    },
+    
+    // Toggle fullscreen mode
+    toggleFullscreen: function() {
+        this.state.isFullscreen = !this.state.isFullscreen;
+
+        if (this.state.isFullscreen) {
+            document.body.classList.add('fullscreen-active');
+            this.elements.fullscreenExitBtn.classList.add('visible');
+            this.elements.btnFullscreen.innerHTML = '<i class="fas fa-compress topbar-btn-icon"></i>';
+        } else {
+            document.body.classList.remove('fullscreen-active');
+            this.elements.fullscreenExitBtn.classList.remove('visible');
+            this.elements.btnFullscreen.innerHTML = '<i class="fas fa-expand topbar-btn-icon"></i>';
+        }
     },
 
     // Setup responsive behavior
@@ -1490,7 +1693,12 @@ const RoutineManager = {
             
             // Modals
             timeSlotModal: document.getElementById('time-slot-modal'),
-            customEntryModal: document.getElementById('custom-entry-modal')
+            customEntryModal: document.getElementById('custom-entry-modal'),
+            
+            // Fullscreen
+            btnFullscreen: document.getElementById('btn-fullscreen'),
+            fullscreenExitBtn: document.getElementById('fullscreen-exit-btn'),
+            routineTableWrapper: document.querySelector('.routine-table-wrapper')
         };
     },
 
@@ -1509,6 +1717,34 @@ const RoutineManager = {
         if (this.elements.btnCustomEntry) {
             this.elements.btnCustomEntry.addEventListener('click', () => this.showCustomEntryModal());
         }
+        
+        // Fullscreen toggle
+        if (this.elements.btnFullscreen) {
+            this.elements.btnFullscreen.addEventListener('click', () => this.toggleFullscreen());
+        }
+        if (this.elements.fullscreenExitBtn) {
+            this.elements.fullscreenExitBtn.addEventListener('click', () => this.toggleFullscreen());
+        }
+        // ESC key to exit fullscreen
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.state.isFullscreen) {
+                this.toggleFullscreen();
+            }
+        });
+        
+        // Show topbar when mouse is near top of screen in fullscreen mode
+        document.addEventListener('mousemove', (e) => {
+            if (this.state.isFullscreen) {
+                const topbar = document.querySelector('.routine-topbar');
+                if (topbar) {
+                    if (e.clientY < 60) {
+                        topbar.classList.add('show');
+                    } else if (e.clientY > 80) {
+                        topbar.classList.remove('show');
+                    }
+                }
+            }
+        });
 
         // Course panel
         if (this.elements.coursePanelToggle) {
@@ -1558,6 +1794,23 @@ const RoutineManager = {
                         // Handle scroll if needed
                     }, 100);
                 }, { passive: true });
+                
+                // For non-editors on mobile, ensure touch scrolling works
+                if (!this.config.canEdit) {
+                    // Prevent any drag events from interfering with touch scrolling
+                    tableWrapper.addEventListener('touchstart', (e) => {
+                        // Allow touch scrolling
+                    }, { passive: true });
+                    
+                    tableWrapper.addEventListener('touchmove', (e) => {
+                        // Allow touch scrolling
+                    }, { passive: true });
+                    
+                    // Ensure no preventDefault on touch events
+                    tableWrapper.addEventListener('touchend', (e) => {
+                        // Allow touch scrolling
+                    }, { passive: true });
+                }
             }
         }
 
@@ -1840,6 +2093,10 @@ const RoutineManager = {
     
     // Setup drag and drop
     setupDragAndDrop: function() {
+        // Prevent duplicate setup
+        if (this._dragDropInitialized) return;
+        this._dragDropInitialized = true;
+        
         // Course card drag start
         this.elements.coursesList.addEventListener('dragstart', (e) => {
             if (e.target.classList.contains('course-card') && !e.target.classList.contains('disabled')) {
@@ -2477,7 +2734,35 @@ const RoutineManager = {
 
                             const part = item.part || 'Full';
                             const batch = item.batch || '';
-                            const courseCode = item.course_code || '';
+                            // Handle both boolean and number (0/1) from database
+                            const isCustom = item.is_custom === true || item.is_custom === 1 || item.is_custom === '1';
+                            
+                            // For custom entries: use course_code first (it should have the full name),
+                            // fallback to custom_course_name if course_code is empty
+                            // This ensures we get the full name even if custom_course_name was truncated
+                            let courseCode = item.course_code || '';
+                            if (isCustom && !courseCode && item.custom_course_name) {
+                                courseCode = item.custom_course_name;
+                            }
+                            // Also check: if it's custom and custom_course_name exists, prefer it (it's more reliable)
+                            if (isCustom && item.custom_course_name) {
+                                courseCode = item.custom_course_name;
+                            }
+                            
+                            // Debug log for custom entries (always log to see what we're getting)
+                            if (isCustom || item.custom_course_name) {
+                                console.log('Loading entry (custom check):', {
+                                    is_custom_raw: item.is_custom,
+                                    is_custom_type: typeof item.is_custom,
+                                    isCustom_processed: isCustom,
+                                    course_code: item.course_code,
+                                    custom_course_name: item.custom_course_name,
+                                    final_courseCode: courseCode,
+                                    day: day,
+                                    slot: slot,
+                                    room: roomName
+                                });
+                            }
                             
                             this.state.routine[key] = {
                                 courseId: assignedId,
@@ -2492,7 +2777,7 @@ const RoutineManager = {
                                 batch: batch,
                                 colorCode: item.color_code || '',
                                 isSharedSlot: item.is_shared_slot || false,
-                                isCustom: item.is_custom || false
+                                isCustom: isCustom
                             };
 
                             // Track placed courses - use composite key since saved routines don't have assigned_id
@@ -2616,11 +2901,15 @@ const RoutineManager = {
                     return;
                 }
                 
-                routineData.push({
+                // For custom entries, ensure both course_code and custom_course_name have the same value
+                const isCustom = item.isCustom || false;
+                const courseCodeValue = item.courseCode || '';
+                
+                const entryData = {
                     day: day,
                     slot: slot,
                     room_id: roomId,
-                    course_code: item.courseCode || '',
+                    course_code: courseCodeValue,
                     teacher_short_name: item.teacherShort || '',
                     part: item.part || 'Full',
                     assigned_id: item.courseId || '',
@@ -2629,9 +2918,20 @@ const RoutineManager = {
                     term: item.term || '',
                     batch: item.batch || '',
                     color_code: item.colorCode || '',
-                    is_custom: item.isCustom || false,
-                    custom_course_name: item.isCustom ? item.courseCode : ''
-                });
+                    is_custom: isCustom,
+                    custom_course_name: isCustom ? courseCodeValue : ''
+                };
+                
+                // Debug log for custom entries
+                if (isCustom) {
+                    console.log('Saving custom entry:', {
+                        ...entryData,
+                        courseCodeLength: courseCodeValue.length,
+                        customNameLength: entryData.custom_course_name.length
+                    });
+                }
+                
+                routineData.push(entryData);
             }
         });
         
@@ -2828,14 +3128,17 @@ const RoutineManager = {
                         course_code: item.courseCode,
                     teacher_short_name: item.teacherShort,
                     batch: item.batch || '',
-                    color_code: item.colorCode || ''
+                    color_code: item.colorCode || '',
+                    is_custom: item.isCustom || false,
+                    custom_course_name: item.isCustom ? item.courseCode : ''
                     });
                 }
             });
             
             const params = new URLSearchParams({
                 title: title,
-                date: date
+                date: date,
+                lunch_after_slot: this.state.lunchAfterSlotIndex
             });
         if (this.config.savedRoutineId) {
             params.append('saved_routine_id', this.config.savedRoutineId);
@@ -2895,13 +3198,18 @@ const RoutineManager = {
         list.innerHTML = '';
 
         currentSlots.forEach((slot, index) => {
+            const isLunchAfter = (this.state.lunchAfterSlotIndex === index);
             const item = document.createElement('div');
             item.className = 'course-card';
-            item.style.marginBottom = '8px';
+            item.style.marginBottom = '4px';
             item.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                    <span>${slot}</span>
-                    <div style="display: flex; gap: 4px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
+                    <span style="flex: 1;">${slot}</span>
+                    <div style="display: flex; gap: 4px; align-items: center;">
+                        <button class="topbar-btn lunch-select-btn" style="padding: 4px 8px; ${isLunchAfter ? 'background: #F59E0B; color: white;' : ''}" 
+                                onclick="RoutineManager.setLunchAfterSlot(${index})" title="Set lunch break after this slot">
+                            <i class="fas fa-utensils"></i>
+                        </button>
                         <button class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.moveTimeSlot(${index}, 'up')" ${index === 0 ? 'disabled' : ''}>
                             <i class="fas fa-arrow-up"></i>
                         </button>
@@ -2915,9 +3223,30 @@ const RoutineManager = {
                 </div>
             `;
             list.appendChild(item);
+            
+            // Show lunch indicator after the selected slot
+            if (isLunchAfter) {
+                const lunchIndicator = document.createElement('div');
+                lunchIndicator.style.cssText = 'background: linear-gradient(90deg, #FEF3C7, #FDE68A); padding: 6px 12px; margin: 4px 0 8px 0; border-radius: 6px; text-align: center; font-size: 12px; color: #92400E; font-weight: 500;';
+                lunchIndicator.innerHTML = '<i class="fas fa-utensils"></i> LUNCH BREAK';
+                list.appendChild(lunchIndicator);
+            }
         });
 
         modal.classList.add('active');
+    },
+
+    // Set lunch after a specific slot
+    setLunchAfterSlot: function(index) {
+        this.state.lunchAfterSlotIndex = index;
+        
+        // Get current time slots and rebuild table with new lunch position
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        this.updateTimeSlotsInTable(currentSlots);
+        
+        this.showTimeSlotManager(); // Refresh modal
+        this.autoSave(); // Mark as changed
     },
 
     // Move time slot
@@ -2974,36 +3303,51 @@ const RoutineManager = {
     updateTimeSlotsInTable: function(newSlots) {
         // Update headers
         const headerRow = this.elements.routineTable.querySelector('thead tr');
-        const timeHeaders = headerRow.querySelectorAll('th.time-col');
+        const timeHeaders = headerRow.querySelectorAll('th.time-col, th.lunch-col');
         timeHeaders.forEach(th => th.remove());
 
-        newSlots.forEach(slot => {
+        newSlots.forEach((slot, idx) => {
             const th = document.createElement('th');
             th.className = 'time-col';
             th.dataset.slot = slot;
             th.contentEditable = this.config.canEdit ? 'true' : 'false';
             th.textContent = slot;
             headerRow.appendChild(th);
+            
+            // Insert LUNCH header after selected slot
+            if (idx === this.state.lunchAfterSlotIndex) {
+                const lunchTh = document.createElement('th');
+                lunchTh.className = 'lunch-col';
+                lunchTh.style.cssText = 'background: #FEF3C7; color: #92400E; font-size: 10px; min-width: 70px;';
+                lunchTh.innerHTML = '01:00 PM<br>-<br>02:00 PM';
+                headerRow.appendChild(lunchTh);
+            }
         });
 
         // Update cells
         const rows = this.elements.routineTbody.querySelectorAll('tr');
         rows.forEach(row => {
-            const timeCells = row.querySelectorAll('td.slot-cell:not(.lunch-cell)');
+            const timeCells = row.querySelectorAll('td.slot-cell, td.lunch-cell');
             timeCells.forEach(cell => cell.remove());
 
-            newSlots.forEach(slot => {
+            newSlots.forEach((slot, idx) => {
                 const td = document.createElement('td');
                 td.className = 'slot-cell';
-                if (slot.includes('Lunch') || slot.includes('01:00')) {
-                    td.classList.add('lunch-cell');
-                }
                 td.dataset.day = row.dataset.day;
                 td.dataset.room = row.dataset.room;
                 td.dataset.roomName = row.querySelector('.room-col')?.textContent.trim() || '';
                 td.dataset.slot = slot;
-                td.innerHTML = `<div class="slot-content">${slot.includes('Lunch') || slot.includes('01:00') ? '<strong>LUNCH</strong>' : '<span class="slot-empty">-</span>'}</div>`;
+                td.innerHTML = `<div class="slot-content"><span class="slot-empty">-</span></div>`;
                 row.appendChild(td);
+                
+                // Insert LUNCH cell after selected slot
+                if (idx === this.state.lunchAfterSlotIndex) {
+                    const lunchTd = document.createElement('td');
+                    lunchTd.className = 'slot-cell lunch-cell';
+                    lunchTd.style.cssText = 'background: #FEF3C7; color: #92400E;';
+                    lunchTd.innerHTML = '<div class="slot-content"><strong>LUNCH</strong></div>';
+                    row.appendChild(lunchTd);
+                }
             });
         });
 
@@ -3011,6 +3355,7 @@ const RoutineManager = {
         this.elements.slotCells = document.querySelectorAll('.slot-cell');
         this.setupEditableHeaders();
         this.setupDragAndDrop();
+        this.applyDayStripes();
         this.updateRoutineDisplay();
     },
 
