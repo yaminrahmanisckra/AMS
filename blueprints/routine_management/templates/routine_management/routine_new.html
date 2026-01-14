@@ -1189,43 +1189,82 @@ body.fullscreen-active .routine-table {
     background: var(--text-muted);
     }
 
-/* Mobile-specific fixes for non-routine-makers */
+/* Mobile-specific fixes for non-routine-makers - Apply to ALL screen widths for non-editors */
 {% if not can_edit %}
+/* Force scrolling to work on all screen sizes for non-editors */
+.routine-app {
+    height: auto !important;
+    min-height: 100vh;
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+.routine-main {
+    flex-direction: column;
+    overflow: visible !important;
+    -webkit-overflow-scrolling: touch;
+}
+
+.routine-table-area {
+    overflow: visible !important;
+}
+
+.routine-table-wrapper {
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x pan-y !important;
+    position: relative;
+    width: 100%;
+    /* Ensure scrolling works on mobile */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+.routine-table {
+    min-width: max-content;
+}
+
+/* Ensure cells don't block touch events - allow scrolling */
+.slot-cell {
+    touch-action: pan-x pan-y !important;
+    -webkit-touch-callout: none;
+    pointer-events: auto !important;
+}
+
+/* Prevent text selection interference */
+.routine-table-wrapper * {
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* Additional mobile-specific fixes */
 @media (max-width: 768px) {
     .routine-app {
-        height: auto;
+        height: auto !important;
         min-height: 100vh;
     }
     
     .routine-main {
         flex-direction: column;
-        overflow: visible;
+        overflow: visible !important;
     }
     
     .routine-table-wrapper {
-        overflow-x: auto;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        touch-action: pan-x pan-y;
-        /* Ensure scrolling works */
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        touch-action: pan-x pan-y !important;
         position: relative;
         width: 100%;
     }
     
     .routine-table {
-        /* Prevent table from being too wide */
-        min-width: 100%;
+        min-width: max-content;
     }
     
-    /* Ensure cells don't block touch events - allow scrolling */
     .slot-cell {
-        touch-action: pan-x pan-y;
+        touch-action: pan-x pan-y !important;
         -webkit-touch-callout: none;
-    }
-    
-    /* Prevent text selection interference */
-    .routine-table-wrapper * {
-        -webkit-tap-highlight-color: transparent;
     }
 }
 {% endif %}
@@ -1573,6 +1612,26 @@ const RoutineManager = {
 
         // For non-editors: Completely disable all drag functionality and ensure touch scrolling
         if (!this.config.canEdit) {
+            // Force enable scrolling on all containers
+            const routineApp = document.querySelector('.routine-app');
+            if (routineApp) {
+                routineApp.style.overflow = 'auto';
+                routineApp.style.webkitOverflowScrolling = 'touch';
+                routineApp.style.height = 'auto';
+                routineApp.style.minHeight = '100vh';
+            }
+            
+            const routineMain = document.querySelector('.routine-main');
+            if (routineMain) {
+                routineMain.style.overflow = 'visible';
+                routineMain.style.webkitOverflowScrolling = 'touch';
+            }
+            
+            const routineTableArea = document.querySelector('.routine-table-area');
+            if (routineTableArea) {
+                routineTableArea.style.overflow = 'visible';
+            }
+            
             // Disable draggable on all cells
             this.elements.slotCells.forEach(cell => {
                 cell.draggable = false;
@@ -1589,7 +1648,7 @@ const RoutineManager = {
                 cell.ondragleave = null;
             });
             
-            // Ensure table wrapper allows scrolling
+            // Ensure table wrapper allows scrolling - CRITICAL for mobile
             const tableWrapper = this.elements.routineTable?.closest('.routine-table-wrapper');
             if (tableWrapper) {
                 tableWrapper.style.touchAction = 'pan-x pan-y';
@@ -1597,6 +1656,8 @@ const RoutineManager = {
                 tableWrapper.style.overflowY = 'auto';
                 tableWrapper.style.webkitOverflowScrolling = 'touch';
                 tableWrapper.style.pointerEvents = 'auto';
+                tableWrapper.style.position = 'relative';
+                tableWrapper.style.width = '100%';
                 // Remove all drag-related event handlers from wrapper
                 tableWrapper.ondragover = null;
                 tableWrapper.ondrop = null;
