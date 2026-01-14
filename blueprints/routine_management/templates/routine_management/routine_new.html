@@ -3718,6 +3718,17 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             window.RoutineManager.init();
             console.log('RoutineManager.init() completed');
+            // Trigger auto fullscreen check after init completes
+            setTimeout(() => {
+                if (window.handleLandscapeMode) {
+                    console.log('Triggering auto fullscreen check after init');
+                    window.handleLandscapeMode();
+                    // Also try with retry logic
+                    if (window.checkAndEnableFullscreen) {
+                        window.checkAndEnableFullscreen();
+                    }
+                }
+            }, 300);
         } catch (error) {
             console.error('Error initializing RoutineManager:', error);
         }
@@ -3732,6 +3743,13 @@ setTimeout(function() {
         console.log('Delayed initialization for RoutineManager');
         try {
             window.RoutineManager.init();
+            console.log('Delayed RoutineManager.init() completed');
+            // Trigger auto fullscreen check after delayed init
+            setTimeout(() => {
+                if (window.handleLandscapeMode) {
+                    window.handleLandscapeMode();
+                }
+            }, 200);
         } catch (error) {
             console.error('Error in delayed initialization:', error);
         }
@@ -3740,16 +3758,33 @@ setTimeout(function() {
 
 // Auto fullscreen and fix smooth scrolling in landscape mode for mobile
 (function() {
-    function handleLandscapeMode() {
+    // Make function globally accessible for delayed init
+    window.handleLandscapeMode = function() {
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
         
+        console.log('handleLandscapeMode:', { isMobile, isLandscape, width: window.innerWidth, height: window.innerHeight });
+        console.log('RoutineManager available:', !!window.RoutineManager);
+        if (window.RoutineManager) {
+            console.log('RoutineManager state:', window.RoutineManager.state);
+            console.log('isFullscreen:', window.RoutineManager.state?.isFullscreen);
+        }
+        
         if (isMobile && isLandscape) {
             // Auto enable fullscreen in landscape mode
-            if (window.RoutineManager && window.RoutineManager.toggleFullscreen) {
+            if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
+                    console.log('Enabling auto fullscreen for landscape mode');
                     window.RoutineManager.toggleFullscreen();
+                } else {
+                    console.log('Already in fullscreen mode');
                 }
+            } else {
+                console.warn('RoutineManager not ready for auto fullscreen:', {
+                    exists: !!window.RoutineManager,
+                    hasToggle: !!(window.RoutineManager && window.RoutineManager.toggleFullscreen),
+                    hasState: !!(window.RoutineManager && window.RoutineManager.state)
+                });
             }
             
             // Fix smooth scrolling
@@ -3816,34 +3851,80 @@ setTimeout(function() {
             }
         } else {
             // Exit fullscreen if in portrait mode
-            if (window.RoutineManager && window.RoutineManager.toggleFullscreen) {
+            if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (window.RoutineManager.state.isFullscreen) {
+                    console.log('Exiting fullscreen for portrait mode');
                     window.RoutineManager.toggleFullscreen();
                 }
             }
         }
-    }
+    };
+    
+    // Function to check and enable auto fullscreen with retries (make globally accessible)
+    window.checkAndEnableFullscreen = function(retries = 10, delay = 300) {
+        if (retries <= 0) {
+            console.warn('Failed to enable auto fullscreen after multiple retries');
+            return;
+        }
+        
+        const isMobile = window.innerWidth <= 768;
+        const isLandscape = window.innerWidth > window.innerHeight;
+        
+        if (isMobile && isLandscape) {
+            if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
+                if (!window.RoutineManager.state.isFullscreen) {
+                    console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries);
+                    try {
+                        window.RoutineManager.toggleFullscreen();
+                    } catch (error) {
+                        console.error('Error toggling fullscreen:', error);
+                    }
+                } else {
+                    console.log('Already in fullscreen mode');
+                }
+            } else {
+                console.log('⏳ RoutineManager not ready, retrying...', retries, {
+                    exists: !!window.RoutineManager,
+                    hasToggle: !!(window.RoutineManager && window.RoutineManager.toggleFullscreen),
+                    hasState: !!(window.RoutineManager && window.RoutineManager.state)
+                });
+                setTimeout(() => window.checkAndEnableFullscreen(retries - 1, delay), delay);
+            }
+        }
+    };
     
     // Run on load
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function() {
-            // Wait for RoutineManager to be ready
-            setTimeout(handleLandscapeMode, 500);
+            // Wait for RoutineManager to be ready with multiple retries
+            setTimeout(() => {
+                window.handleLandscapeMode();
+                window.checkAndEnableFullscreen();
+            }, 800);
         });
     } else {
-        setTimeout(handleLandscapeMode, 500);
+        setTimeout(() => {
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
+        }, 800);
     }
     
     // Run on orientation change
     window.addEventListener('orientationchange', function() {
-        setTimeout(handleLandscapeMode, 300);
+        setTimeout(() => {
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
+        }, 500);
     });
     
     // Run on resize
     let resizeTimeout;
     window.addEventListener('resize', function() {
         clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(handleLandscapeMode, 200);
+        resizeTimeout = setTimeout(() => {
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
+        }, 300);
     });
 })();
 
