@@ -3983,22 +3983,26 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load routine data
     if (RoutineManager.config.savedRoutineId) {
         console.log('Loading saved routine from database:', RoutineManager.config.savedRoutineId);
-        RoutineManager.loadSavedRoutine().then(() => {
-            // Ensure lunch column is displayed after loading
+        RoutineManager.loadSavedRoutine();
+        
+        // Ensure lunch column is displayed after loading (with delay to ensure table is rendered)
+        setTimeout(() => {
             const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
                 .map(th => th.textContent.trim());
             if (currentSlots.length > 0) {
                 RoutineManager.updateTimeSlotsInTable(currentSlots);
             }
-        });
+        }, 1000);
     } else {
         RoutineManager.loadAutoSave();
         // Ensure lunch column is displayed
-        const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
-            .map(th => th.textContent.trim());
-        if (currentSlots.length > 0) {
-            RoutineManager.updateTimeSlotsInTable(currentSlots);
-        }
+        setTimeout(() => {
+            const currentSlots = Array.from(RoutineManager.elements.routineTable.querySelectorAll('thead th.time-col'))
+                .map(th => th.textContent.trim());
+            if (currentSlots.length > 0) {
+                RoutineManager.updateTimeSlotsInTable(currentSlots);
+            }
+        }, 500);
     }
     
     // CRITICAL: Force scrolling after routine loads
