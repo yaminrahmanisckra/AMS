@@ -1206,7 +1206,7 @@ body.fullscreen-active .routine-table {
                 <i class="fas fa-plus topbar-btn-icon"></i>
                         </button>
                         {% endif %}
-            <button class="topbar-btn" id="btn-pdf" onclick="(function(){ console.log('PDF button clicked'); console.log('RoutineManager exists:', !!window.RoutineManager); if(window.RoutineManager && window.RoutineManager.downloadPDF) { console.log('Calling downloadPDF'); window.RoutineManager.downloadPDF(); } else { console.log('RoutineManager not ready, retrying...'); setTimeout(function(){ if(window.RoutineManager && window.RoutineManager.downloadPDF) { console.log('Retry: Calling downloadPDF'); window.RoutineManager.downloadPDF(); } else { console.error('RoutineManager still not ready'); alert('Please wait for page to load completely. If problem persists, refresh the page.'); } }, 1000); } })();">
+            <button class="topbar-btn" id="btn-pdf" onclick="if(window.RoutineManager && window.RoutineManager.downloadPDF) { window.RoutineManager.downloadPDF(); } else { alert('Please wait for page to load. If problem persists, refresh the page.'); }">
                 <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
                         </button>
             <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
@@ -3697,6 +3697,58 @@ document.getElementById('new-time-slot-input')?.addEventListener('keypress', fun
         document.getElementById('add-time-slot-btn').click();
     }
 });
+
+{% if is_student %}
+// Landscape orientation request for students on mobile
+(function() {
+    function checkOrientation() {
+        const isMobile = window.innerWidth <= 768;
+        const isPortrait = window.innerHeight > window.innerWidth;
+        
+        if (isMobile && isPortrait) {
+            // Show landscape request
+            const existingModal = document.getElementById('landscape-request-modal');
+            if (!existingModal) {
+                const modal = document.createElement('div');
+                modal.id = 'landscape-request-modal';
+                modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+                modal.innerHTML = `
+                    <div style="background: white; padding: 30px; border-radius: 12px; text-align: center; max-width: 300px; margin: 20px;">
+                        <div style="font-size: 48px; margin-bottom: 20px;">📱</div>
+                        <h3 style="margin: 0 0 15px 0; color: #333;">Please Rotate Your Device</h3>
+                        <p style="margin: 0 0 20px 0; color: #666; font-size: 14px;">For better viewing experience, please rotate your phone to landscape mode.</p>
+                        <button onclick="this.closest('#landscape-request-modal').style.display='none'" style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">OK, I Understand</button>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            } else {
+                existingModal.style.display = 'flex';
+            }
+        } else {
+            // Hide modal if in landscape
+            const modal = document.getElementById('landscape-request-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+    }
+    
+    // Check on load
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', checkOrientation);
+    } else {
+        checkOrientation();
+    }
+    
+    // Check on orientation change
+    window.addEventListener('orientationchange', function() {
+        setTimeout(checkOrientation, 100);
+    });
+    
+    // Check on resize
+    window.addEventListener('resize', checkOrientation);
+})();
+{% endif %}
 </script>
 
 {% if is_student %}
