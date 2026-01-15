@@ -63,8 +63,7 @@ body {
     overflow: hidden;
     background: var(--bg);
     position: relative;
-    /* Ensure fixed elements work correctly */
-    transform: translateZ(0);
+    /* Panel is outside routine-main, so it won't scroll with table */
 }
 
 /* ============================================
@@ -229,8 +228,7 @@ body {
     flex: 1;
     overflow: hidden;
     position: relative;
-    /* Ensure course panel stays fixed */
-    isolation: isolate;
+    /* Panel is now outside, so no isolation needed */
 }
 
 /* ============================================
