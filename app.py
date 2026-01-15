@@ -4956,11 +4956,31 @@ def create_app():
             flash('Teacher profile not found.', 'warning')
             return redirect(url_for('index'))
         
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
+        # Get session/year/term from URL parameters
+        url_session = request.args.get('session', '').strip()
+        url_year = request.args.get('year', '').strip()
+        url_term = request.args.get('term', '').strip()
+        
+        # Find matching chief assignment
+        chief_assignment = None
+        if url_session and url_year and url_term:
+            # Find assignment matching URL parameters
+            chief_assignment = DutyAssignment.query.filter_by(
+                duty_type='exam_committee_chief',
+                assigned_teacher_id=teacher.id,
+                academic_session=url_session,
+                year=url_year,
+                term=url_term,
+                status='active'
+            ).first()
+        
+        # If no match found, use first assignment (for backward compatibility)
+        if not chief_assignment:
+            chief_assignment = DutyAssignment.query.filter_by(
+                duty_type='exam_committee_chief',
+                assigned_teacher_id=teacher.id,
+                status='active'
+            ).first()
         
         # Check if user is an internal member (not external)
         member_assignments = DutyAssignment.query.filter(
