@@ -229,6 +229,7 @@ body {
     overflow: hidden;
     position: relative;
     /* Panel is now outside, so no isolation needed */
+    width: 100%;
 }
 
 /* ============================================
@@ -538,13 +539,20 @@ body {
 
 .routine-table-area {
     flex: 1;
-        display: flex;
-        flex-direction: column;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     background: var(--bg);
     position: relative;
     /* Ensure proper stacking context */
     isolation: isolate;
+}
+
+/* When panel is visible, add left margin to prevent overlap */
+.routine-table-area-with-panel {
+    margin-left: 320px !important;
+    width: calc(100% - 320px) !important;
+    min-width: 0;
 }
 
 .routine-table-wrapper {
@@ -1083,8 +1091,8 @@ body.fullscreen-active .routine-table {
         transform: translateX(0) !important;
     }
     
-    .routine-table-area {
-        width: 100%;
+    .routine-table-area-with-panel {
+        width: 100% !important;
         margin-left: 0 !important;
     }
     
@@ -1359,7 +1367,7 @@ body.fullscreen-active .routine-table {
     <div class="routine-main">
         <!-- Routine Table Area -->
         {% if can_edit %}
-        <div class="routine-table-area" style="margin-left: 320px;">
+        <div class="routine-table-area routine-table-area-with-panel">
             <div class="routine-table-wrapper">
                 <table class="routine-table" id="routine-table">
                         <thead>
