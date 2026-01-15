@@ -249,19 +249,6 @@ body {
     height: 100%;
 }
 
-/* For editors: Prevent panel from being hidden */
-{% if can_edit %}
-.course-panel {
-    transform: translateX(0) !important;
-    position: relative !important;
-}
-
-.course-panel.collapsed {
-    transform: translateX(0) !important;
-    position: relative !important;
-}
-{% endif %}
-
 .course-panel-header {
     padding: 16px;
     border-bottom: 1px solid var(--border);
@@ -1068,8 +1055,6 @@ body.fullscreen-active .routine-table {
    ============================================ */
 
 @media (max-width: 1024px) {
-    /* For editors: Keep panel visible, don't make it fixed */
-    {% if not can_edit %}
     .course-panel {
         position: fixed;
         left: 0;
@@ -1088,14 +1073,6 @@ body.fullscreen-active .routine-table {
     .routine-table-area {
         width: 100%;
     }
-    {% else %}
-    /* For editors: Keep panel in normal flow, always visible */
-    .course-panel {
-        position: relative !important;
-        transform: translateX(0) !important;
-        z-index: auto;
-    }
-    {% endif %}
     
     .course-panel-toggle {
         display: block !important;
@@ -1632,13 +1609,6 @@ const RoutineManager = {
 
         // Setup responsive panel toggle
         this.setupResponsive();
-        
-        // For editors: Ensure panel is always visible and not collapsed
-        if (this.config.canEdit && this.elements.coursePanel) {
-            this.elements.coursePanel.classList.remove('collapsed');
-            this.elements.coursePanel.style.transform = 'translateX(0)';
-            this.elements.coursePanel.style.position = 'relative';
-        }
 
         // Setup sticky headers (skip for non-editors on mobile to prevent freeze)
         if (this.config.canEdit || window.innerWidth > 768) {
@@ -1771,25 +1741,11 @@ const RoutineManager = {
 
     // Setup responsive behavior
     setupResponsive: function() {
-        // For editors: Keep panel always visible, never collapse
-        if (this.config.canEdit) {
-            const handleResize = () => {
-                // Always keep panel visible for editors
-                if (this.elements.coursePanel) {
-                    this.elements.coursePanel.classList.remove('collapsed');
-                    this.elements.coursePanel.style.transform = 'translateX(0)';
-                    this.elements.coursePanel.style.position = 'relative';
-                }
-                if (this.elements.coursePanelToggle) {
-                    this.elements.coursePanelToggle.style.display = 'none';
-                }
-            };
-            handleResize();
-            window.addEventListener('resize', handleResize);
+        // Only setup responsive for editors (they have course panel)
+        if (!this.config.canEdit) {
             return;
         }
         
-        // For non-editors: Normal responsive behavior
         const handleResize = () => {
             if (window.innerWidth <= 1024) {
                 // Mobile/Tablet: Panel starts collapsed
@@ -3752,20 +3708,15 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             window.RoutineManager.init();
             console.log('RoutineManager.init() completed');
-            // Trigger auto fullscreen check after init completes (only for non-editors)
+            // Trigger auto fullscreen check after init completes
             setTimeout(() => {
-                const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-                if (!canEdit) {
-                    if (window.handleLandscapeMode) {
-                        console.log('Triggering auto fullscreen check after init (non-editor)');
-                        window.handleLandscapeMode();
-                        // Also try with retry logic
-                        if (window.checkAndEnableFullscreen) {
-                            window.checkAndEnableFullscreen();
-                        }
+                if (window.handleLandscapeMode) {
+                    console.log('Triggering auto fullscreen check after init');
+                    window.handleLandscapeMode();
+                    // Also try with retry logic
+                    if (window.checkAndEnableFullscreen) {
+                        window.checkAndEnableFullscreen();
                     }
-                } else {
-                    console.log('Skipping auto fullscreen for editor');
                 }
             }, 300);
         } catch (error) {
@@ -3783,13 +3734,10 @@ setTimeout(function() {
         try {
             window.RoutineManager.init();
             console.log('Delayed RoutineManager.init() completed');
-            // Trigger auto fullscreen check after delayed init (only for non-editors)
+            // Trigger auto fullscreen check after delayed init
             setTimeout(() => {
-                const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-                if (!canEdit) {
-                    if (window.handleLandscapeMode) {
-                        window.handleLandscapeMode();
-                    }
+                if (window.handleLandscapeMode) {
+                    window.handleLandscapeMode();
                 }
             }, 200);
         } catch (error) {
@@ -3812,15 +3760,12 @@ setTimeout(function() {
             console.log('isFullscreen:', window.RoutineManager.state?.isFullscreen);
         }
         
-        // Auto enable fullscreen in landscape mode (ONLY for non-editors)
-        // Editors should NOT auto-fullscreen
-        const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-        
-        if (isLandscape && !canEdit) {
-            // Auto enable fullscreen in landscape mode (only for non-editors)
+        // Auto enable fullscreen in landscape mode (for both mobile and desktop)
+        if (isLandscape) {
+            // Auto enable fullscreen in landscape mode
             if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
-                    console.log('✅ Enabling auto fullscreen for landscape mode (non-editor)');
+                    console.log('✅ Enabling auto fullscreen for landscape mode');
                     window.RoutineManager.toggleFullscreen();
                 } else {
                     console.log('Already in fullscreen mode');
@@ -3832,9 +3777,6 @@ setTimeout(function() {
                     hasState: !!(window.RoutineManager && window.RoutineManager.state)
                 });
             }
-        } else if (isLandscape && canEdit) {
-            console.log('⏭️ Skipping auto fullscreen for editor');
-        }
             
             // Fix smooth scrolling
             // Fix student container wrapper
@@ -3899,11 +3841,10 @@ setTimeout(function() {
                 pdfButton.style.setProperty('position', 'relative', 'important');
             }
         } else {
-            // Exit fullscreen if in portrait mode (only for non-editors)
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit && window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
+            // Exit fullscreen if in portrait mode
+            if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (window.RoutineManager.state.isFullscreen) {
-                    console.log('Exiting fullscreen for portrait mode (non-editor)');
+                    console.log('Exiting fullscreen for portrait mode');
                     window.RoutineManager.toggleFullscreen();
                 }
             }
@@ -3920,13 +3861,11 @@ setTimeout(function() {
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
         
-        // Enable fullscreen for any landscape orientation (ONLY for non-editors)
-        const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-        
-        if (isLandscape && !canEdit) {
+        // Enable fullscreen for any landscape orientation (mobile or desktop)
+        if (isLandscape) {
             if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
-                    console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries, '(non-editor)');
+                    console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries);
                     try {
                         window.RoutineManager.toggleFullscreen();
                     } catch (error) {
@@ -3943,53 +3882,40 @@ setTimeout(function() {
                 });
                 setTimeout(() => window.checkAndEnableFullscreen(retries - 1, delay), delay);
             }
-        } else if (isLandscape && canEdit) {
-            console.log('⏭️ Skipping auto fullscreen for editor');
         }
     };
     
-    // Run on load (only for non-editors)
+    // Run on load
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function() {
+            // Wait for RoutineManager to be ready with multiple retries
             setTimeout(() => {
-                const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-                if (!canEdit) {
-                    window.handleLandscapeMode();
-                    window.checkAndEnableFullscreen();
-                }
+                window.handleLandscapeMode();
+                window.checkAndEnableFullscreen();
             }, 800);
         });
     } else {
         setTimeout(() => {
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit) {
-                window.handleLandscapeMode();
-                window.checkAndEnableFullscreen();
-            }
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
         }, 800);
     }
     
-    // Run on orientation change (only for non-editors)
+    // Run on orientation change
     window.addEventListener('orientationchange', function() {
         setTimeout(() => {
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit) {
-                window.handleLandscapeMode();
-                window.checkAndEnableFullscreen();
-            }
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
         }, 500);
     });
     
-    // Run on resize (only for non-editors)
+    // Run on resize
     let resizeTimeout;
     window.addEventListener('resize', function() {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit) {
-                window.handleLandscapeMode();
-                window.checkAndEnableFullscreen();
-            }
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
         }, 300);
     });
 })();
