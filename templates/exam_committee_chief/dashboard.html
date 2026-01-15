@@ -444,7 +444,7 @@
                     <div class="mb-0">
                         <!-- Create Remuneration Statement Button -->
                         <div class="mb-3">
-                            <a href="{{ url_for('exam_committee_chief_custom_remuneration') }}" class="btn btn-success">
+                            <a href="{{ url_for('exam_committee_chief_custom_remuneration', session=current_session, year=current_year, term=current_term) if current_session and current_year and current_term else url_for('exam_committee_chief_custom_remuneration') }}" class="btn btn-success">
                                 <i class="fas fa-file-invoice-dollar me-2"></i>Create Remuneration Statement
                             </a>
                         </div>
@@ -507,7 +507,7 @@
                         {% else %}
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>No saved remuneration forms yet. 
-                            <a href="{{ url_for('exam_committee_chief_custom_remuneration') }}" class="alert-link">Create a new form</a>.
+                            <a href="{{ url_for('exam_committee_chief_custom_remuneration', session=current_session, year=current_year, term=current_term) if current_session and current_year and current_term else url_for('exam_committee_chief_custom_remuneration') }}" class="alert-link">Create a new form</a>.
                         </div>
                         {% endif %}
                     </div>

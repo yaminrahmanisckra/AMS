@@ -6506,16 +6506,26 @@ def create_app():
                     str(assignment.term)
                 ))
         
-        # Use first assignment for current values (for backward compatibility)
-        chief_assignment = chief_assignments[0] if chief_assignments else None
+        # Determine which committee to load based on:
+        # 1. URL parameters (session, year, term)
+        # 2. Form data if form_id is provided
+        # 3. Otherwise use first assignment (for backward compatibility)
+        url_session = request.args.get('session', '').strip()
+        url_year = request.args.get('year', '').strip()
+        url_term = request.args.get('term', '').strip()
         
         # Load saved form data if form_id is provided
         saved_data = None
         saved_examination_committee = None
+        form_entry = None
         if form_id:
             # Allow loading Chief's form if user is a member of the same committee
             form_entry = RemunerationForm.query.filter_by(id=form_id).first()
             if form_entry:
+                # Use form's session/year/term to find matching assignment
+                url_session = form_entry.academic_year or url_session
+                url_year = form_entry.year or url_year
+                url_term = form_entry.term or url_term
                 # Check if user owns the form or is a member of the same committee
                 can_access = False
                 if form_entry.user_id == current_user.id:
@@ -6622,9 +6632,34 @@ def create_app():
                 'batch': str(config.batch) if config.batch else ''
             })
         
-        current_session = chief_assignment.academic_session if chief_assignment else None
-        current_year = chief_assignment.year if chief_assignment else None
-        current_term = chief_assignment.term if chief_assignment else None
+        # Find the matching chief assignment based on URL params or form data
+        chief_assignment = None
+        if url_session and url_year and url_term:
+            # Find assignment matching URL parameters
+            current_app.logger.info(f'Looking for chief assignment: session={url_session}, year={url_year}, term={url_term}')
+            for assignment in chief_assignments:
+                assignment_session = str(assignment.academic_session) if assignment.academic_session else ''
+                assignment_year = str(assignment.year) if assignment.year else ''
+                assignment_term = str(assignment.term) if assignment.term else ''
+                current_app.logger.info(f'Checking assignment: session={assignment_session}, year={assignment_year}, term={assignment_term}')
+                if (assignment_session == url_session and
+                    assignment_year == url_year and
+                    assignment_term == url_term):
+                    chief_assignment = assignment
+                    current_app.logger.info(f'✅ Found matching chief assignment: ID={assignment.id}')
+                    break
+        
+        # If no match found, use first assignment (for backward compatibility)
+        if not chief_assignment and chief_assignments:
+            chief_assignment = chief_assignments[0]
+            current_app.logger.warning(f'⚠️ No matching assignment found, using first assignment: session={chief_assignment.academic_session}, year={chief_assignment.year}, term={chief_assignment.term}')
+        
+        # Set current values from matched assignment or URL params
+        current_session = url_session or (chief_assignment.academic_session if chief_assignment else None)
+        current_year = url_year or (chief_assignment.year if chief_assignment else None)
+        current_term = url_term or (chief_assignment.term if chief_assignment else None)
+        
+        current_app.logger.info(f'Final current values: session={current_session}, year={current_year}, term={current_term}')
         
         # Get current batch from curriculum if available
         current_batch = None
