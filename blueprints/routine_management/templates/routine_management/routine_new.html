@@ -243,10 +243,25 @@ body {
     box-shadow: var(--shadow-md);
 }
 
-/* Wider course panel for editors */
+/* Wider course panel for editors - always visible */
 {% if can_edit %}
 .course-panel {
-    width: 380px; /* Increased from 320px for editors */
+    width: 380px !important; /* Increased from 320px for editors */
+    position: relative !important;
+    transform: translateX(0) !important;
+    display: flex !important;
+    visibility: visible !important;
+    flex-shrink: 0;
+}
+
+.course-panel.collapsed {
+    transform: translateX(0) !important; /* Never collapse for editors */
+}
+
+.routine-table-area {
+    width: calc(100% - 380px) !important;
+    flex: 1;
+    min-width: 0;
 }
 {% endif %}
 
@@ -1062,6 +1077,8 @@ body.fullscreen-active .routine-table {
    ============================================ */
 
 @media (max-width: 1024px) {
+    /* For editors: Keep panel in normal flow, don't make it fixed */
+    {% if not can_edit %}
     .course-panel {
         position: fixed;
         left: 0;
@@ -1080,6 +1097,22 @@ body.fullscreen-active .routine-table {
     .routine-table-area {
         width: 100%;
     }
+    {% else %}
+    /* For editors: Keep panel visible and in normal flow */
+    .course-panel {
+        position: relative !important;
+        transform: translateX(0) !important;
+        display: flex !important;
+        visibility: visible !important;
+        width: 380px !important;
+        flex-shrink: 0;
+    }
+    
+    .routine-table-area {
+        width: calc(100% - 380px) !important;
+        flex: 1;
+    }
+    {% endif %}
     
     .course-panel-toggle {
         display: block !important;
@@ -1354,7 +1387,7 @@ body.fullscreen-active .routine-table {
 
         <!-- Routine Table Area -->
         {% if can_edit %}
-        <div class="routine-table-area" style="width: calc(100% - 380px);">
+        <div class="routine-table-area">
             <div class="routine-table-wrapper">
                 <table class="routine-table" id="routine-table">
                         <thead>
