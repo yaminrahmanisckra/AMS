@@ -3885,12 +3885,13 @@ setTimeout(function() {
         
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
+        const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
         
-        // Enable fullscreen for any landscape orientation (mobile or desktop)
-        if (isLandscape) {
+        // Enable fullscreen for any landscape orientation (ONLY for non-editors)
+        if (isLandscape && !canEdit) {
             if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
-                    console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries);
+                    console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries, '(non-editor)');
                     try {
                         window.RoutineManager.toggleFullscreen();
                     } catch (error) {
@@ -3907,6 +3908,8 @@ setTimeout(function() {
                 });
                 setTimeout(() => window.checkAndEnableFullscreen(retries - 1, delay), delay);
             }
+        } else if (isLandscape && canEdit) {
+            console.log('⏭️ Skipping auto fullscreen for editor');
         } else if (isLandscape && canEdit) {
             console.log('⏭️ Skipping auto fullscreen for editor');
         }
