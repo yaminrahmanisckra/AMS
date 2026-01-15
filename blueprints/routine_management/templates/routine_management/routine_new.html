@@ -1316,44 +1316,46 @@ body.fullscreen-active .routine-table {
                     </div>
                 </div>
 
-    <!-- Main Content Area -->
-    <div class="routine-main">
-        <!-- Course Panel (Sidebar) -->
-        {% if can_edit %}
-        <div class="course-panel" id="course-panel">
-            <div class="course-panel-header">
-                <div class="course-panel-title">
-                    <i class="fas fa-book"></i> Courses
-                </div>
-                <button class="course-panel-toggle" id="course-panel-close" title="Close Panel">
-                    <i class="fas fa-times"></i>
-                    </button>
-                </div>
-            <div class="course-panel-body">
-                <!-- Search -->
-                <div class="course-search">
-                    <i class="fas fa-search course-search-icon"></i>
-                    <input type="text" id="course-search-input" class="course-search-input" placeholder="Search courses...">
-                </div>
+    <!-- Course Panel (Sidebar) - Outside routine-main -->
+    {% if can_edit %}
+    <div class="course-panel" id="course-panel">
+        <div class="course-panel-header">
+            <div class="course-panel-title">
+                <i class="fas fa-book"></i> Courses
+            </div>
+            <button class="course-panel-toggle" id="course-panel-close" title="Close Panel">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="course-panel-body">
+            <!-- Search -->
+            <div class="course-search">
+                <i class="fas fa-search course-search-icon"></i>
+                <input type="text" id="course-search-input" class="course-search-input" placeholder="Search courses...">
+            </div>
 
-                <!-- Batch Filter -->
-                <div class="filter-section active" id="batch-filter-section">
-                    <select class="filter-select" id="batch-select">
-                        <option value="">-- Select Batch --</option>
-                    </select>
-                </div>
+            <!-- Batch Filter -->
+            <div class="filter-section active" id="batch-filter-section">
+                <select class="filter-select" id="batch-select">
+                    <option value="">-- Select Batch --</option>
+                </select>
+            </div>
 
-                <!-- Course List -->
-                <div class="course-list" id="courses-list">
-                    <div class="course-list-empty">Select a batch to view courses</div>
-                </div>
+            <!-- Course List -->
+            <div class="course-list" id="courses-list">
+                <div class="course-list-empty">Select a batch to view courses</div>
             </div>
         </div>
-        <button class="topbar-btn topbar-btn-primary" id="course-panel-toggle" style="position: fixed; left: 16px; top: 80px; z-index: 150; display: none; box-shadow: var(--shadow-md);">
-            <i class="fas fa-book"></i> Courses
-        </button>
-        {% endif %}
+    </div>
+    {% endif %}
+    {% if not can_edit %}
+    <button class="topbar-btn topbar-btn-primary" id="course-panel-toggle" style="position: fixed; left: 16px; top: 80px; z-index: 150; display: none; box-shadow: var(--shadow-md);">
+        <i class="fas fa-book"></i> Courses
+    </button>
+    {% endif %}
 
+    <!-- Main Content Area -->
+    <div class="routine-main">
         <!-- Routine Table Area -->
         {% if can_edit %}
         <div class="routine-table-area" style="margin-left: 320px;">
