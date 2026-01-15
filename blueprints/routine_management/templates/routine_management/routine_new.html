@@ -1624,6 +1624,16 @@ const RoutineManager = {
 
         // Setup responsive panel toggle
         this.setupResponsive();
+        
+        // Force panel fixed position on init
+        if (this.config.canEdit && this.elements.coursePanel) {
+            this.elements.coursePanel.style.position = 'fixed';
+            this.elements.coursePanel.style.top = '60px';
+            this.elements.coursePanel.style.bottom = '0';
+            this.elements.coursePanel.style.left = '0';
+            this.elements.coursePanel.style.zIndex = '1000';
+            this.elements.coursePanel.style.height = 'calc(100vh - 60px)';
+        }
 
         // Setup sticky headers (skip for non-editors on mobile to prevent freeze)
         if (this.config.canEdit || window.innerWidth > 768) {
@@ -1761,7 +1771,25 @@ const RoutineManager = {
             return;
         }
         
+        // Force panel to stay fixed - prevent any movement
+        const enforceFixedPosition = () => {
+            if (this.elements.coursePanel) {
+                // Force fixed position via JavaScript
+                this.elements.coursePanel.style.position = 'fixed';
+                this.elements.coursePanel.style.top = '60px';
+                this.elements.coursePanel.style.bottom = '0';
+                this.elements.coursePanel.style.left = '0';
+                this.elements.coursePanel.style.zIndex = '1000';
+                this.elements.coursePanel.style.height = 'calc(100vh - 60px)';
+                // Prevent transform from moving panel
+                if (!this.elements.coursePanel.classList.contains('collapsed')) {
+                    this.elements.coursePanel.style.transform = 'translateX(0)';
+                }
+            }
+        };
+        
         const handleResize = () => {
+            enforceFixedPosition();
             if (window.innerWidth <= 1024) {
                 // Mobile/Tablet: Panel starts collapsed
                 if (this.elements.coursePanel && !this.elements.coursePanel.classList.contains('collapsed')) {
@@ -1779,9 +1807,15 @@ const RoutineManager = {
                     this.elements.coursePanelToggle.style.display = 'none';
                 }
             }
+            enforceFixedPosition();
         };
 
+        // Enforce on init
+        enforceFixedPosition();
         handleResize();
+        
+        // Re-enforce on scroll (prevent panel from moving)
+        window.addEventListener('scroll', enforceFixedPosition, { passive: true });
         window.addEventListener('resize', handleResize);
     },
 
