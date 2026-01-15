@@ -1620,6 +1620,14 @@ const RoutineManager = {
 
         // Setup responsive panel toggle
         this.setupResponsive();
+        
+        // For editors: Ensure panel is visible and not collapsed
+        if (this.config.canEdit && this.elements.coursePanel) {
+            this.elements.coursePanel.classList.remove('collapsed');
+            this.elements.coursePanel.style.display = 'flex';
+            this.elements.coursePanel.style.visibility = 'visible';
+            this.elements.coursePanel.style.transform = 'translateX(0)';
+        }
 
         // Setup sticky headers (skip for non-editors on mobile to prevent freeze)
         if (this.config.canEdit || window.innerWidth > 768) {
@@ -1763,13 +1771,22 @@ const RoutineManager = {
             // Always keep panel visible for editors - never collapse
             if (this.elements.coursePanel) {
                 this.elements.coursePanel.classList.remove('collapsed');
+                // Ensure panel is visible
+                this.elements.coursePanel.style.display = 'flex';
+                this.elements.coursePanel.style.visibility = 'visible';
+                this.elements.coursePanel.style.transform = 'translateX(0)';
             }
             if (this.elements.coursePanelToggle) {
                 this.elements.coursePanelToggle.style.display = 'none';
             }
         };
 
+        // Run immediately to ensure panel is visible on load
         handleResize();
+        
+        // Also run after a short delay to ensure it's applied
+        setTimeout(handleResize, 100);
+        
         window.addEventListener('resize', handleResize);
     },
 
