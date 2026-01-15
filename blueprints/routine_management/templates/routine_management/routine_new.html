@@ -62,6 +62,9 @@ body {
     height: 100vh;
     overflow: hidden;
     background: var(--bg);
+    position: relative;
+    /* Ensure fixed elements work correctly */
+    transform: translateZ(0);
 }
 
 /* ============================================
@@ -226,6 +229,8 @@ body {
     flex: 1;
     overflow: hidden;
     position: relative;
+    /* Ensure course panel stays fixed */
+    isolation: isolate;
 }
 
 /* ============================================
@@ -1064,18 +1069,19 @@ body.fullscreen-active .routine-table {
 
 @media (max-width: 1024px) {
     .course-panel {
-        position: fixed;
-        left: 0;
-        top: 0;
-        bottom: 0;
+        position: fixed !important;
+        left: 0 !important;
+        top: 60px !important;
+        bottom: 0 !important;
         z-index: 200;
-        transform: translateX(-100%);
+        transform: translateX(-100%) !important;
         transition: transform 0.3s ease;
         box-shadow: var(--shadow-lg);
+        height: calc(100vh - 60px) !important;
     }
     
     .course-panel:not(.collapsed) {
-        transform: translateX(0);
+        transform: translateX(0) !important;
     }
     
     .routine-table-area {
