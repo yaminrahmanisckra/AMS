@@ -241,6 +241,12 @@ body {
     transition: transform 0.3s ease;
     z-index: 100;
     box-shadow: var(--shadow-md);
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .course-panel.collapsed {
@@ -1072,6 +1078,7 @@ body.fullscreen-active .routine-table {
     
     .routine-table-area {
         width: 100%;
+        margin-left: 0 !important;
     }
     
     .course-panel-toggle {
@@ -1343,7 +1350,7 @@ body.fullscreen-active .routine-table {
 
         <!-- Routine Table Area -->
         {% if can_edit %}
-        <div class="routine-table-area">
+        <div class="routine-table-area" style="margin-left: 320px;">
             <div class="routine-table-wrapper">
                 <table class="routine-table" id="routine-table">
                         <thead>
