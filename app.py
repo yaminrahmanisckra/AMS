@@ -7798,6 +7798,152 @@ def create_app():
                 if template_data[key] is None:
                     template_data[key] = []
             
+            # Build list of sections with data only, for sequential numbering
+            sections_list = []
+            
+            # Section 1: Examination Committee
+            if template_data.get('examination_committee') and len(template_data['examination_committee']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'examination_committee',
+                    'title': 'Examination Committee',
+                    'data': template_data['examination_committee']
+                })
+            
+            # Section 2: Question Preparation
+            if template_data.get('question_preparation') and len(template_data['question_preparation']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'question_preparation',
+                    'title': f'Question Preparation: ({template_data["unique_qp_courses_count"]} Courses {template_data["qp_total_questions"]} Questions)',
+                    'data': template_data['question_preparation'],
+                    'unique_courses_count': template_data['unique_qp_courses_count'],
+                    'total_questions': template_data['qp_total_questions']
+                })
+            
+            # Section 3: Script Examination
+            if template_data.get('script_examination') and len(template_data['script_examination']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'script_examination',
+                    'title': f'Answer Script Examination: ({template_data["unique_se_courses_count"]} Courses {template_data["total_scripts_se"]} Scripts)',
+                    'data': template_data['script_examination'],
+                    'unique_courses_count': template_data['unique_se_courses_count'],
+                    'total_scripts': template_data['total_scripts_se']
+                })
+            
+            # Section 4: Class Test
+            if template_data.get('class_test') and len(template_data['class_test']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'class_test',
+                    'title': f'Class Test: ({template_data["unique_ct_courses_count"]} Courses)',
+                    'data': template_data['class_test'],
+                    'unique_courses_count': template_data['unique_ct_courses_count']
+                })
+            
+            # Section 5: Moderation Committee
+            if template_data.get('moderation_committee') and len(template_data['moderation_committee']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'moderation_committee',
+                    'title': 'Moderation Committee',
+                    'data': template_data['moderation_committee']
+                })
+            
+            # Section 6: Sessional Assessment
+            if template_data.get('sessional_assessment') and len(template_data['sessional_assessment']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'sessional_assessment',
+                    'title': f'Sessional Assessment: ({len(template_data["sessional_assessment"])} Course{"s" if len(template_data["sessional_assessment"]) != 1 else ""})',
+                    'data': template_data['sessional_assessment']
+                })
+            
+            # Section 7: Sessional Viva
+            if template_data.get('sessional_viva') and len(template_data['sessional_viva']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'sessional_viva',
+                    'title': f'Sessional viva: ({len(template_data["sessional_viva"])} Course{"s" if len(template_data["sessional_viva"]) != 1 else ""})',
+                    'data': template_data['sessional_viva']
+                })
+            
+            # Section 8: Script Scrutiny
+            if template_data.get('script_scrutiny') and len(template_data['script_scrutiny']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'script_scrutiny',
+                    'title': 'Answer Script Scrutiny',
+                    'data': template_data['script_scrutiny']
+                })
+            
+            # Section 9: Tabulation
+            if template_data.get('tabulation') and len(template_data['tabulation']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'tabulation',
+                    'title': 'Tabulation',
+                    'data': template_data['tabulation']
+                })
+            
+            # Section 10: Coding & Decoding
+            if template_data.get('coding_decoding') and len(template_data['coding_decoding']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'coding_decoding',
+                    'title': 'Coding & Decoding',
+                    'data': template_data['coding_decoding']
+                })
+            
+            # Section 11: Invigilation
+            if template_data.get('invigilation') and len(template_data['invigilation']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'invigilation',
+                    'title': 'Chief Invigilation/Invigilation',
+                    'data': template_data['invigilation']
+                })
+            
+            # Section 12: Thesis Supervision
+            if template_data.get('thesis_supervision') and len(template_data['thesis_supervision']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'thesis_supervision',
+                    'title': 'Thesis Supervision',
+                    'data': template_data['thesis_supervision']
+                })
+            
+            # Section 13: Viva
+            if template_data.get('viva') and len(template_data['viva']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'viva',
+                    'title': 'Viva',
+                    'data': template_data['viva']
+                })
+            
+            # Section 14: Question Typing
+            if template_data.get('question_typing') and len(template_data['question_typing']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'question_typing',
+                    'title': f'Question Typing: ({len(template_data["question_typing"])} Courses)',
+                    'data': template_data['question_typing']
+                })
+            
+            # Section 15: Question Photocopy
+            if template_data.get('question_photocopy') and len(template_data['question_photocopy']) > 0:
+                sections_list.append({
+                    'number': len(sections_list) + 1,
+                    'type': 'question_photocopy',
+                    'title': f'Question Photocopy: ({len(template_data["question_photocopy"])} Courses)',
+                    'data': template_data['question_photocopy']
+                })
+            
+            # Add sections_list to template_data
+            template_data['sections_list'] = sections_list
+            
             # Generate PDF using WeasyPrint with HTML template
             from flask import render_template
             from weasyprint import HTML, CSS

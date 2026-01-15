@@ -164,396 +164,148 @@
             <h2>Statement of Remuneration</h2>
         </div>
         
-        <!-- Section 1: Examination Committee -->
-        <div class="section">
-            <div class="section-title">1. Examination Committee</div>
+        <!-- Render sections dynamically with sequential numbering -->
+        {% for section in sections_list %}
+        <div class="section{% if section.type == 'moderation_committee' %} page-break-after{% endif %}">
+            <div class="section-title">{{ section.number }}. {{ section.title }}</div>
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 40%;">Name</th>
-                        <th style="width: 35%;">Designation/Institute</th>
-                        <th style="width: 20%;">Position</th>
+                        {% if section.type == 'examination_committee' or section.type == 'moderation_committee' %}
+                            <th style="width: 40%;">Name</th>
+                            <th style="width: 35%;">Designation/Institute</th>
+                            <th style="width: 20%;">Position</th>
+                        {% elif section.type == 'question_preparation' %}
+                            <th>Course No.</th>
+                            <th>Section</th>
+                            <th>Name of Question Setter</th>
+                            <th>Designation/Institute</th>
+                            <th>No. of Questions</th>
+                        {% elif section.type == 'script_examination' %}
+                            <th>Course No.</th>
+                            <th>Section</th>
+                            <th>Name of Examiner</th>
+                            <th>Designation/Institute</th>
+                            <th>No. of Scripts</th>
+                        {% elif section.type == 'class_test' %}
+                            <th>Course No.</th>
+                            <th>Section</th>
+                            <th>Name of Course Teacher</th>
+                            <th>Designation/Institute</th>
+                            <th>No. of Class Tests</th>
+                            <th>No. of Students</th>
+                        {% elif section.type == 'sessional_assessment' or section.type == 'sessional_viva' %}
+                            <th>Course No.</th>
+                            <th>Name of the Teacher</th>
+                            <th>No. of Students</th>
+                        {% elif section.type == 'script_scrutiny' %}
+                            <th>Name of the Scrutinizer</th>
+                            <th>Designation/Institute</th>
+                            <th>No. of Scripts</th>
+                        {% elif section.type == 'tabulation' %}
+                            <th>Name of Tabulators</th>
+                            <th>Designation/Institute</th>
+                            <th>Course wise</th>
+                            <th>Student wise</th>
+                        {% elif section.type == 'coding_decoding' %}
+                            <th>Name</th>
+                            <th>Designation/Institute</th>
+                            <th>No. of Scripts</th>
+                        {% elif section.type == 'invigilation' %}
+                            <th>Name</th>
+                            <th>Designation/Institute</th>
+                            <th>Chief Invigilation</th>
+                            <th>Invigilation</th>
+                        {% elif section.type == 'thesis_supervision' %}
+                            <th>Name</th>
+                            <th>Designation/Institute</th>
+                            <th>Examine</th>
+                            <th>Supervision</th>
+                            <th>Co-Supervision</th>
+                            <th>Viva</th>
+                        {% elif section.type == 'viva' %}
+                            <th>Course Teacher</th>
+                            <th>Designation</th>
+                            <th>Institution</th>
+                            <th>No of Students</th>
+                        {% elif section.type == 'question_typing' or section.type == 'question_photocopy' %}
+                            <th>Name</th>
+                            <th>Designation/Institute</th>
+                            <th>Total No. of Question</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
-                    {% for member in examination_committee %}
+                    {% for item in section.data %}
                     <tr>
-                        <td>{{ member.name }}</td>
-                        <td>{{ member.designation }}</td>
-                        <td>{{ member.position }}</td>
+                        {% if section.type == 'examination_committee' or section.type == 'moderation_committee' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.position }}</td>
+                        {% elif section.type == 'question_preparation' %}
+                            <td>{{ item.course_code }}</td>
+                            <td>{{ item.section or 'Full' }}</td>
+                            <td>{{ item.teacher }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.questions or '1' }}</td>
+                        {% elif section.type == 'script_examination' %}
+                            <td>{{ item.course_code }}</td>
+                            <td>{{ item.section or 'Full' }}</td>
+                            <td>{{ item.teacher }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.scripts or '0' }}</td>
+                        {% elif section.type == 'class_test' %}
+                            <td>{{ item.course_code }}</td>
+                            <td>{{ item.section or 'Full' }}</td>
+                            <td>{{ item.teacher }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.class_test or '0' }}</td>
+                            <td>{{ item.students or '0' }}</td>
+                        {% elif section.type == 'sessional_assessment' or section.type == 'sessional_viva' %}
+                            <td>{{ item.course_code }}</td>
+                            <td>{{ item.teacher }}</td>
+                            <td>{{ item.students or '0' }}</td>
+                        {% elif section.type == 'script_scrutiny' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.scripts or '0' }}</td>
+                        {% elif section.type == 'tabulation' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.course_wise or '0' }}</td>
+                            <td>{{ item.student_wise or '0' }}</td>
+                        {% elif section.type == 'coding_decoding' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.scripts or '0' }}</td>
+                        {% elif section.type == 'invigilation' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.chief or '-' }}</td>
+                            <td>{{ item.invigilation or '-' }}</td>
+                        {% elif section.type == 'thesis_supervision' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.examine or '-' }}</td>
+                            <td>{{ item.supervision or '-' }}</td>
+                            <td>{{ item.co_supervision or '-' }}</td>
+                            <td>{{ item.viva or '-' }}</td>
+                        {% elif section.type == 'viva' %}
+                            <td>{{ item.teacher }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.institution }}</td>
+                            <td>{{ item.students or '0' }}</td>
+                        {% elif section.type == 'question_typing' or section.type == 'question_photocopy' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.questions or '0' }}</td>
+                        {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-        
-        <!-- Section 2: Question Preparation -->
-        <div class="section">
-            <div class="section-title">2. Question Preparation: ({{ unique_qp_courses_count }} Courses {{ qp_total_questions }} Questions)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Course No.</th>
-                        <th>Section</th>
-                        <th>Name of Question Setter</th>
-                        <th>Designation/Institute</th>
-                        <th>No. of Questions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in question_preparation %}
-                    <tr>
-                        <td>{{ item.course_code }}</td>
-                        <td>{{ item.section or 'Full' }}</td>
-                        <td>{{ item.teacher }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.questions or '1' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        
-        <!-- Section 3: Answer Script Examination -->
-        <div class="section">
-            <div class="section-title">3. Answer Script Examination: ({{ unique_se_courses_count }} Courses {{ total_scripts_se }} Scripts)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Course No.</th>
-                        <th>Section</th>
-                        <th>Name of Examiner</th>
-                        <th>Designation/Institute</th>
-                        <th>No. of Scripts</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in script_examination %}
-                    <tr>
-                        <td>{{ item.course_code }}</td>
-                        <td>{{ item.section or 'Full' }}</td>
-                        <td>{{ item.teacher }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.scripts or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        
-        <!-- Section 4: Class Test -->
-        <div class="section">
-            <div class="section-title">4. Class Test: ({{ unique_ct_courses_count }} Courses)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Course No.</th>
-                        <th>Section</th>
-                        <th>Name of Course Teacher</th>
-                        <th>Designation/Institute</th>
-                        <th>No. of Class Tests</th>
-                        <th>No. of Students</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in class_test %}
-                    <tr>
-                        <td>{{ item.course_code }}</td>
-                        <td>{{ item.section or 'Full' }}</td>
-                        <td>{{ item.teacher }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.class_test or '0' }}</td>
-                        <td>{{ item.students or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        
-        <!-- Section 5: Moderation Committee -->
-        <div class="section page-break-after">
-            <div class="section-title">5. Moderation Committee</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Designation/Institute</th>
-                        <th>Position</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for member in moderation_committee %}
-                    <tr>
-                        <td>{{ member.name }}</td>
-                        <td>{{ member.designation }}</td>
-                        <td>{{ member.position }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        
-        <!-- Section 6: Sessional Assessment -->
-        {% if sessional_assessment|length > 0 %}
-        <div class="section">
-            <div class="section-title">6. Sessional Assessment: ({{ sessional_assessment|length }} Course{% if sessional_assessment|length != 1 %}s{% endif %})</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Course No.</th>
-                        <th>Name of the Teacher</th>
-                        <th>No. of Students</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in sessional_assessment %}
-                    <tr>
-                        <td>{{ item.course_code }}</td>
-                        <td>{{ item.teacher }}</td>
-                        <td>{{ item.students or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 7: Sessional viva -->
-        {% if sessional_viva|length > 0 %}
-        <div class="section">
-            <div class="section-title">7. Sessional viva: ({{ sessional_viva|length }} Course{% if sessional_viva|length != 1 %}s{% endif %})</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Course No.</th>
-                        <th>Name of the Teacher</th>
-                        <th>No. of Students</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in sessional_viva %}
-                    <tr>
-                        <td>{{ item.course_code }}</td>
-                        <td>{{ item.teacher }}</td>
-                        <td>{{ item.students or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 8: Answer Script Scrutiny -->
-        {% if script_scrutiny|length > 0 %}
-        <div class="section">
-            <div class="section-title">8. Answer Script Scrutiny</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name of the Scrutinizer</th>
-                        <th>Designation/Institute</th>
-                        <th>No. of Scripts</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in script_scrutiny %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.scripts or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 9: Tabulation -->
-        {% if tabulation|length > 0 %}
-        <div class="section">
-            <div class="section-title">9. Tabulation</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name of Tabulators</th>
-                        <th>Designation/Institute</th>
-                        <th>Course wise</th>
-                        <th>Student wise</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in tabulation %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.course_wise or '0' }}</td>
-                        <td>{{ item.student_wise or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 10: Coding & Decoding -->
-        {% if coding_decoding|length > 0 %}
-        <div class="section">
-            <div class="section-title">10. Coding & Decoding</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Designation/Institute</th>
-                        <th>No. of Scripts</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in coding_decoding %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.scripts or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 11: Chief Invigilation/Invigilation -->
-        {% if invigilation|length > 0 %}
-        <div class="section">
-            <div class="section-title">11. Chief Invigilation/Invigilation</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Designation/Institute</th>
-                        <th>Chief Invigilation</th>
-                        <th>Invigilation</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in invigilation %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.chief or '-' }}</td>
-                        <td>{{ item.invigilation or '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 12: Thesis Supervision -->
-        {% if thesis_supervision|length > 0 %}
-        <div class="section">
-            <div class="section-title">12. Thesis Supervision</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Designation/Institute</th>
-                        <th>Examine</th>
-                        <th>Supervision</th>
-                        <th>Co-Supervision</th>
-                        <th>Viva</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in thesis_supervision %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.examine or '-' }}</td>
-                        <td>{{ item.supervision or '-' }}</td>
-                        <td>{{ item.co_supervision or '-' }}</td>
-                        <td>{{ item.viva or '-' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 13: Viva -->
-        {% if viva|length > 0 %}
-        <div class="section">
-            <div class="section-title">13. Viva</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Course Teacher</th>
-                        <th>Designation</th>
-                        <th>Institution</th>
-                        <th>No of Students</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in viva %}
-                    <tr>
-                        <td>{{ item.teacher }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.institution }}</td>
-                        <td>{{ item.students or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 14: Question Typing -->
-        {% if question_typing|length > 0 %}
-        <div class="section">
-            <div class="section-title">14. Question Typing: ({{ question_typing|length }} Courses)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Designation/Institute</th>
-                        <th>Total No. of Question</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in question_typing %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.questions or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-        
-        <!-- Section 15: Question Photocopy -->
-        {% if question_photocopy|length > 0 %}
-        <div class="section">
-            <div class="section-title">15. Question Photocopy: ({{ question_photocopy|length }} Courses)</div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Designation/Institute</th>
-                        <th>Total No. of Question</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in question_photocopy %}
-                    <tr>
-                        <td>{{ item.name }}</td>
-                        <td>{{ item.designation }}</td>
-                        <td>{{ item.questions or '0' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
+        {% endfor %}
         
         <!-- Signature Section -->
         <div class="signature">
