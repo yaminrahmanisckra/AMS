@@ -243,7 +243,7 @@ body {
     display: flex;
     flex-direction: column;
     transition: transform 0.3s ease;
-    z-index: 1000;
+    z-index: 999;
     box-shadow: var(--shadow-md);
     position: fixed !important;
     top: 120px !important;
@@ -553,6 +553,8 @@ body {
     margin-left: 320px !important;
     width: calc(100% - 320px) !important;
     min-width: 0;
+    position: relative;
+    z-index: 1;
 }
 
 .routine-table-wrapper {
