@@ -1862,6 +1862,28 @@ const RoutineManager = {
             batchSelect: document.getElementById('batch-select'),
             batchFilterSection: document.getElementById('batch-filter-section'),
             coursesList: document.getElementById('courses-list'),
+        };
+        
+        // Log cached elements for debugging
+        console.log('Cached elements:', {
+            coursePanel: !!this.elements.coursePanel,
+            batchSelect: !!this.elements.batchSelect,
+            coursesList: !!this.elements.coursesList,
+            canEdit: this.config.canEdit
+        });
+        
+        // For editors: Ensure panel elements are found
+        if (this.config.canEdit) {
+            if (!this.elements.coursePanel) {
+                console.error('❌ coursePanel element not found!');
+            }
+            if (!this.elements.batchSelect) {
+                console.error('❌ batchSelect element not found!');
+            }
+            if (!this.elements.coursesList) {
+                console.error('❌ coursesList element not found!');
+            }
+        }
             
             // Routine table
             routineTable: document.getElementById('routine-table'),
