@@ -5285,7 +5285,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('📝 No saved data found, starting with empty form');
         isEditMode = false; // New form, enable auto-load
         
-        // Auto-load tabulators if session/year/term are already set
+        // Auto-load tabulators and committee if session/year/term are already set
         setTimeout(() => {
             const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
             const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
@@ -5295,6 +5295,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 autoLoadTabulators().catch(err => {
                     console.error('❌ Error loading tabulators on initial load:', err);
                 });
+                
+                // Also load examination committee if not in edit mode
+                if (!isEditMode) {
+                    console.log('🔄 Auto-loading examination committee on initial load...');
+                    loadExaminationCommittee(session, year, term).catch(err => {
+                        console.error('❌ Error loading committee on initial load:', err);
+                    });
+                }
             }
         }, 500);
         {% endif %}
