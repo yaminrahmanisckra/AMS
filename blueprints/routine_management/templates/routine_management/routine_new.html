@@ -1669,7 +1669,24 @@ const RoutineManager = {
         
         // Load batches for course panel (if user can edit)
         if (this.config.canEdit) {
+            console.log('Loading batches for editor...');
             this.loadBatches();
+            
+            // Ensure panel is visible after batches load
+            setTimeout(() => {
+                if (this.elements.coursePanel) {
+                    this.elements.coursePanel.classList.remove('collapsed');
+                    this.elements.coursePanel.style.display = 'flex';
+                    this.elements.coursePanel.style.visibility = 'visible';
+                    this.elements.coursePanel.style.transform = 'translateX(0)';
+                    console.log('Panel visibility ensured:', {
+                        display: this.elements.coursePanel.style.display,
+                        visibility: this.elements.coursePanel.style.visibility,
+                        transform: this.elements.coursePanel.style.transform,
+                        hasCollapsed: this.elements.coursePanel.classList.contains('collapsed')
+                    });
+                }
+            }, 200);
         }
         
         // Load routine data based on context:
@@ -2052,7 +2069,12 @@ const RoutineManager = {
     
     // Load batches
     loadBatches: function() {
-        if (!this.elements.batchSelect) return;
+        if (!this.elements.batchSelect) {
+            console.error('batchSelect element not found!');
+            return;
+        }
+        
+        console.log('loadBatches() called, batchSelect element:', this.elements.batchSelect);
         
         this.elements.batchSelect.innerHTML = '<option value="">Loading...</option>';
         this.elements.batchSelect.disabled = true;
@@ -2065,6 +2087,7 @@ const RoutineManager = {
                 return response.json();
             })
             .then(data => {
+                console.log('Batches API response:', data);
                 if (data.success && data.batches && data.batches.length > 0) {
                     this.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
                     data.batches.forEach(batch => {
@@ -2073,16 +2096,16 @@ const RoutineManager = {
                         option.textContent = batch;
                         this.elements.batchSelect.appendChild(option);
                     });
-                    console.log('Loaded batches:', data.batches);
+                    console.log('✅ Loaded batches:', data.batches.length, 'batches');
                 } else {
                     // No batches found - show helpful message
                     this.elements.batchSelect.innerHTML = '<option value="">No batches found</option>';
-                    console.warn('No batches returned from API:', data);
+                    console.warn('⚠️ No batches returned from API:', data);
                 }
                 this.elements.batchSelect.disabled = false;
             })
             .catch(error => {
-                console.error('Error loading batches:', error);
+                console.error('❌ Error loading batches:', error);
                 this.elements.batchSelect.innerHTML = '<option value="">Error loading batches</option>';
                 this.elements.batchSelect.disabled = false;
             });
@@ -2090,54 +2113,79 @@ const RoutineManager = {
 
     // Load batch courses
     loadBatchCourses: function(batch) {
-        if (!this.elements.coursesList) return;
+        if (!this.elements.coursesList) {
+            console.error('coursesList element not found!');
+            return;
+        }
+        
+        console.log('loadBatchCourses() called for batch:', batch);
         this.elements.coursesList.innerHTML = '<div class="course-list-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
         
         fetch(`/routine-management/api/courses/batch-wise?batch=${encodeURIComponent(batch)}`)
-            .then(response => response.json())
+            .then(response => {
+                console.log('Courses API response status:', response.status);
+                return response.json();
+            })
             .then(data => {
+                console.log('Courses API response data:', data);
                 if (data.success && data.courses_by_batch && data.courses_by_batch[batch]) {
-                    this.displayCourses(data.courses_by_batch[batch] || []);
+                    const courses = data.courses_by_batch[batch] || [];
+                    console.log('✅ Loaded courses from batch-wise API:', courses.length);
+                    this.displayCourses(courses);
                 } else {
                     // Fallback to old API
-        fetch(`/routine-management/api/courses-by-batch?batch=${encodeURIComponent(batch)}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
+                    console.log('Trying fallback API...');
+                    fetch(`/routine-management/api/courses-by-batch?batch=${encodeURIComponent(batch)}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            console.log('Fallback API response:', data);
+                            if (data.success) {
+                                console.log('✅ Loaded courses from fallback API:', data.courses?.length || 0);
                                 this.displayCourses(data.courses || []);
-                } else {
+                            } else {
+                                console.error('❌ Fallback API failed:', data);
                                 this.showError('Error loading courses');
-                }
-            })
-            .catch(error => {
-                            console.error('Error:', error);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('❌ Fallback API error:', error);
                             this.showError('Error loading courses');
                         });
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
+                console.error('❌ Error loading courses:', error);
                 this.showError('Error loading courses');
             });
     },
 
     // Display courses
     displayCourses: function(courses) {
-        if (!this.elements.coursesList) return;
+        if (!this.elements.coursesList) {
+            console.error('coursesList element not found in displayCourses!');
+            return;
+        }
+        
+        console.log('displayCourses() called with', courses?.length || 0, 'courses');
+        
         if (!courses || courses.length === 0) {
+            console.warn('No courses to display');
             this.elements.coursesList.innerHTML = '<div class="course-list-empty">No courses found</div>';
             return;
         }
 
         this.elements.coursesList.innerHTML = '';
         
+        let cardsCreated = 0;
         courses.forEach(course => {
             const card = this.createCourseCard(course);
             if (card) {
                 this.elements.coursesList.appendChild(card);
+                cardsCreated++;
             }
         });
 
+        console.log('✅ Created', cardsCreated, 'course cards');
         this.filterCourses();
         this.updateCourseCards();
     },
