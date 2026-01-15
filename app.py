@@ -4236,6 +4236,9 @@ def create_app():
         year = data.get('year', '').strip()
         term = data.get('term', '').strip()
         batch = data.get('batch', '').strip()
+        # Normalize empty batch to None
+        if batch == '':
+            batch = None
         duty_type = data.get('duty_type', '').strip()
         
         teacher_id = data.get('teacher_id')
@@ -4314,9 +4317,13 @@ def create_app():
                 return jsonify({'success': False, 'message': f'Exam Committee Chief assignment requires: {", ".join(missing)}'}), 400
             
             # Check if semester is active
+            # For Exam Committee Chief, batch is not required, so pass None
             try:
                 from utils.semester_utils import is_semester_active
-                if not is_semester_active(academic_session, year, term, batch=batch):
+                # Exam Committee Chief doesn't need batch, so check without batch filter
+                is_active = is_semester_active(academic_session, year, term, batch=None)
+                current_app.logger.info(f'Checking active semester for Exam Committee Chief: session={academic_session}, year={year}, term={term}, is_active={is_active}')
+                if not is_active:
                     return jsonify({
                         'success': False, 
                         'message': 'This semester is not active. Please activate it in Active Semester Management first.'
