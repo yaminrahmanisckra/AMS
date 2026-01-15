@@ -1976,6 +1976,12 @@ const RoutineManager = {
 
     // Toggle course panel
     toggleCoursePanel: function() {
+        // For editors: Disable panel toggle (panel should always be visible)
+        if (this.config.canEdit) {
+            console.log('Panel toggle disabled for editors');
+            return;
+        }
+        
         if (this.elements.coursePanel) {
             const isCollapsed = this.elements.coursePanel.classList.contains('collapsed');
             if (isCollapsed) {
