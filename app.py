@@ -9797,9 +9797,22 @@ def create_app():
         academic_session = request.args.get('academic_session')
         year = request.args.get('year')
         term = request.args.get('term')
+        section = request.args.get('section', '').strip().upper()  # A, B, Full, or empty
         
         if not course_code or not academic_session:
             return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
+        
+        # Map section to course_scope for Session filtering
+        course_scope = None
+        if section == 'A':
+            course_scope = 'part_a'
+        elif section == 'B':
+            course_scope = 'part_b'
+        elif section == 'FULL' or section == '':
+            course_scope = 'full'
+        # If section is something else, treat as 'full'
+        if course_scope is None:
+            course_scope = 'full'
         
         try:
             # Get current teacher
@@ -9884,24 +9897,33 @@ def create_app():
                     current_app.logger.info('Using single available session')
             
             if matched_sessions:
+                # Filter sessions by course_scope if section is specified
+                if course_scope:
+                    matched_sessions = [s for s in matched_sessions if s.course_scope == course_scope]
+                    current_app.logger.info(
+                        f'Filtered sessions by course_scope={course_scope} (section={section}), '
+                        f'remaining sessions: {len(matched_sessions)}'
+                    )
+                
                 # Count distinct students from all matched sessions
-                session_ids = [s.id for s in matched_sessions]
-                count = db.session.query(
-                    func.count(func.distinct(ClassStudent.student_id))
-                ).filter(
-                    ClassStudent.session_id.in_(session_ids)
-                ).scalar() or 0
-                
-                current_app.logger.info(
-                    f'Teacher {teacher.name} - Matched {len(matched_sessions)} sessions for course_code={course_code}, '
-                    f'session={academic_session}, student_count={count}'
-                )
-                
-                if count > 0:
-                    return jsonify({
-                        'success': True,
-                        'student_count': count
-                    })
+                if matched_sessions:
+                    session_ids = [s.id for s in matched_sessions]
+                    count = db.session.query(
+                        func.count(func.distinct(ClassStudent.student_id))
+                    ).filter(
+                        ClassStudent.session_id.in_(session_ids)
+                    ).scalar() or 0
+                    
+                    current_app.logger.info(
+                        f'Teacher {teacher.name} - Matched {len(matched_sessions)} sessions for course_code={course_code}, '
+                        f'session={academic_session}, section={section}, course_scope={course_scope}, student_count={count}'
+                    )
+                    
+                    if count > 0:
+                        return jsonify({
+                            'success': True,
+                            'student_count': count
+                        })
             
             # Fallback: Try StudentCourseRegistration if no class sessions found
             current_app.logger.info(

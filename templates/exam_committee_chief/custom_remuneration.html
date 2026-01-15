@@ -3059,9 +3059,12 @@ function updateClassTestCount(sectionInput) {
     }
     
     // Also trigger student count fetch if course is selected
+    // Force refresh when section changes to get correct count for the section
     const courseSelect = row.querySelector('select[name="class_test_course[]"]');
     const studentsInput = row.querySelector('input[name="class_test_students[]"]');
     if (courseSelect && courseSelect.value && studentsInput) {
+        // Clear existing value to force refresh with new section
+        studentsInput.value = '';
         fetchStudentCountForClassTest(courseSelect, studentsInput);
     }
 }
@@ -3083,13 +3086,17 @@ async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryC
     }
     
     try {
-        console.log(`Fetching student count for Class Test (attempt ${retryCount + 1}/${MAX_RETRIES}):`, { courseCode, session, year, term });
+        console.log(`Fetching student count for Class Test (attempt ${retryCount + 1}/${MAX_RETRIES}):`, { courseCode, session, year, term, section });
         
         // Use AbortController for timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
-        const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        // Build URL with section parameter
+        let url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        if (section) {
+            url += `&section=${encodeURIComponent(section)}`;
+        }
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
         
@@ -3099,11 +3106,9 @@ async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryC
         
         const data = await response.json();
         if (data.success && data.student_count !== undefined) {
-            // Only auto-fill if field is empty
-            if (!studentsInput.value || studentsInput.value.trim() === '') {
-                studentsInput.value = data.student_count || '';
-                console.log(`✅ Class Test: Fetched ${data.student_count} students for ${courseCode}`);
-            }
+            // Always update with correct count (section-based)
+            studentsInput.value = data.student_count || '';
+            console.log(`✅ Class Test: Fetched ${data.student_count} students for ${courseCode} (section: ${section || 'Full'})`);
         } else {
             throw new Error(data.message || 'No student count returned');
         }
@@ -4776,18 +4781,75 @@ function populateTableData(data) {
             if (data.class_test && Array.isArray(data.class_test)) {
                 const rows = document.querySelectorAll('#table_class_test tbody tr');
                 data.class_test.forEach((item, index) => {
-                    if (rows[index] && item.course) {
-                        const courseSelect = rows[index].querySelector('select[name="class_test_course[]"]');
-                        if (courseSelect) {
-                            const courseValue = item.course;
-                            const options = Array.from(courseSelect.options);
-                            for (let opt of options) {
-                                if (opt.value === courseValue || opt.text === courseValue || opt.value.includes(courseValue) || opt.text.includes(courseValue)) {
-                                    courseSelect.value = opt.value;
-                                    break;
+                    if (rows[index]) {
+                        const row = rows[index];
+                        
+                        // Populate course
+                        if (item.course) {
+                            const courseSelect = row.querySelector('select[name="class_test_course[]"]');
+                            if (courseSelect) {
+                                const courseValue = item.course;
+                                const options = Array.from(courseSelect.options);
+                                for (let opt of options) {
+                                    if (opt.value === courseValue || opt.text === courseValue || opt.value.includes(courseValue) || opt.text.includes(courseValue)) {
+                                        courseSelect.value = opt.value;
+                                        break;
+                                    }
                                 }
                             }
                         }
+                        
+                        // Populate section
+                        if (item.section) {
+                            const sectionInput = row.querySelector('input[name="class_test_section[]"]');
+                            if (sectionInput) {
+                                sectionInput.value = item.section;
+                                // Trigger updateClassTestCount to set class test number
+                                updateClassTestCount(sectionInput);
+                            }
+                        }
+                        
+                        // Populate other fields (teacher, designation, class_test_no)
+                        // Note: students will be refreshed based on section
+                        if (item.teacher) {
+                            const teacherSelect = row.querySelector('select[name="class_test_teacher_select[]"]');
+                            const teacherInput = row.querySelector('input.class-test-custom-name');
+                            if (teacherSelect) {
+                                const teacherOptions = Array.from(teacherSelect.options);
+                                let found = false;
+                                for (let opt of teacherOptions) {
+                                    if (opt.value === item.teacher || opt.text === item.teacher) {
+                                        teacherSelect.value = opt.value;
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if (!found && teacherInput) {
+                                    teacherSelect.value = '__CUSTOM__';
+                                    teacherInput.style.display = 'block';
+                                    teacherInput.value = item.teacher;
+                                }
+                            }
+                        }
+                        if (item.designation) {
+                            const designationInput = row.querySelector('input[name="class_test_designation[]"]');
+                            if (designationInput) designationInput.value = item.designation;
+                        }
+                        if (item.class_test) {
+                            const classTestInput = row.querySelector('input[name="class_test_no[]"]');
+                            if (classTestInput) classTestInput.value = item.class_test;
+                        }
+                        
+                        // Refresh student count based on section (don't use saved value, fetch correct one)
+                        setTimeout(() => {
+                            const courseSelect = row.querySelector('select[name="class_test_course[]"]');
+                            const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+                            if (courseSelect && courseSelect.value && studentsInput) {
+                                // Clear saved value and fetch correct count for section
+                                studentsInput.value = '';
+                                fetchStudentCountForClassTest(courseSelect, studentsInput);
+                            }
+                        }, 200);
                     }
                 });
             }
