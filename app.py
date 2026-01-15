@@ -9815,12 +9815,11 @@ def create_app():
             course_scope = 'full'
         
         try:
-            # Get current teacher
+            # Import models
+            from blueprints.course_management.models import StudentCourseRegistration
             from blueprints.class_management.models import Teacher, Session, ClassStudent
-            
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-            if not teacher:
-                return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+            from sqlalchemy import func, or_
+            import re
             
             # Extract course code only (remove course name if present in format "CODE - Name")
             original_course_code = course_code
@@ -9834,193 +9833,172 @@ def create_app():
             # Clean course code
             course_code = course_code.strip()
             
-            # Count students from current teacher's class sessions for this course
-            from sqlalchemy import func, or_
+            # Normalize year/term labels
+            def normalize_label(label):
+                if not label:
+                    return ''
+                label = str(label).strip()
+                for suffix in [' Year', ' Term', 'Year', 'Term']:
+                    if label.lower().endswith(suffix.lower()):
+                        label = label[:-len(suffix)].strip()
+                return label
             
-            # Extract numbers from course code for flexible matching
-            import re
-            course_numbers = re.findall(r'\d+', course_code)
+            normalized_year = normalize_label(year) if year else None
+            normalized_term = normalize_label(term) if term else None
             
-            # Find ALL sessions of current teacher in this academic session
-            all_teacher_sessions = Session.query.filter(
-                Session.teacher_id == teacher.id,
-                Session.academic_session == academic_session
-            ).all()
-            
-            current_app.logger.info(
-                f'Teacher {teacher.name} - Found {len(all_teacher_sessions)} total sessions in session {academic_session}'
+            # PRIMARY: Count registered students from StudentCourseRegistration
+            # Filter by course_code, academic_session, year, term, and status='finalized'
+            base_query = db.session.query(
+                func.count(func.distinct(StudentCourseRegistration.student_id))
+            ).filter(
+                StudentCourseRegistration.course_code == course_code,
+                StudentCourseRegistration.academic_session == academic_session,
+                StudentCourseRegistration.status == 'finalized'
             )
             
-            # Try to match sessions by course_code (multiple strategies)
-            matched_sessions = []
+            # Add year filter if provided
+            if normalized_year:
+                base_query = base_query.filter(StudentCourseRegistration.year == normalized_year)
             
-            for session in all_teacher_sessions:
-                # Strategy 1: Exact match
-                if session.course_code == course_code:
-                    matched_sessions.append(session)
-                    continue
-                
-                # Strategy 2: Partial match
-                if session.course_code and course_code in session.course_code:
-                    matched_sessions.append(session)
-                    continue
-                
-                # Strategy 3: Reverse partial match (course_code contains session course_code)
-                if session.course_code and session.course_code in course_code:
-                    matched_sessions.append(session)
-                    continue
-                
-                # Strategy 4: Match by numbers in course code
-                if session.course_code and course_numbers:
-                    session_numbers = re.findall(r'\d+', session.course_code)
-                    if any(num in session_numbers for num in course_numbers):
-                        matched_sessions.append(session)
-                        continue
-                
-                # Strategy 5: Match by course name
-                if session.course_name and course_name:
-                    if course_name.lower() in session.course_name.lower():
-                        matched_sessions.append(session)
-                        continue
+            # Add term filter if provided
+            if normalized_term:
+                base_query = base_query.filter(StudentCourseRegistration.term == normalized_term)
             
-            # If no exact match, use ALL teacher sessions for this academic session
-            if not matched_sessions and all_teacher_sessions:
-                # Log what sessions exist
-                session_info = [(s.id, s.course_code, s.course_name) for s in all_teacher_sessions]
-                current_app.logger.info(
-                    f'No exact match found. Available sessions: {session_info}'
+            # Get total registered count
+            total_registered_count = base_query.scalar() or 0
+            
+            current_app.logger.info(
+                f'Registered students for course_code={course_code}, session={academic_session}, '
+                f'year={normalized_year}, term={normalized_term}, total={total_registered_count}'
+            )
+            
+            # If section is specified (A or B), try to filter by Session course_scope
+            if section in ['A', 'B'] and total_registered_count > 0:
+                # Find Sessions matching this course and section
+                session_query = Session.query.filter(
+                    Session.course_code == course_code,
+                    Session.academic_session == academic_session,
+                    Session.course_scope == course_scope
                 )
                 
-                # If only one session, use it (likely the correct one)
-                if len(all_teacher_sessions) == 1:
-                    matched_sessions = all_teacher_sessions
-                    current_app.logger.info('Using single available session')
-            
-            if matched_sessions:
-                # Filter sessions by course_scope if section is specified
-                if course_scope:
-                    matched_sessions = [s for s in matched_sessions if s.course_scope == course_scope]
-                    current_app.logger.info(
-                        f'Filtered sessions by course_scope={course_scope} (section={section}), '
-                        f'remaining sessions: {len(matched_sessions)}'
-                    )
+                if normalized_year:
+                    session_query = session_query.filter(Session.year == normalized_year)
+                if normalized_term:
+                    session_query = session_query.filter(Session.term == normalized_term)
                 
-                # Count distinct students from all matched sessions
+                matched_sessions = session_query.all()
+                
                 if matched_sessions:
+                    # Count students in these specific sessions
                     session_ids = [s.id for s in matched_sessions]
-                    count = db.session.query(
+                    section_count = db.session.query(
                         func.count(func.distinct(ClassStudent.student_id))
                     ).filter(
                         ClassStudent.session_id.in_(session_ids)
                     ).scalar() or 0
                     
                     current_app.logger.info(
-                        f'Teacher {teacher.name} - Matched {len(matched_sessions)} sessions for course_code={course_code}, '
-                        f'session={academic_session}, section={section}, course_scope={course_scope}, student_count={count}'
+                        f'Section {section} (course_scope={course_scope}): Found {len(matched_sessions)} sessions, '
+                        f'{section_count} students in sessions'
                     )
                     
+                    # Use section count if available, otherwise use total registered count
+                    if section_count > 0:
+                        return jsonify({
+                            'success': True,
+                            'student_count': section_count
+                        })
+                    else:
+                        # If no students in sessions but we have registered students,
+                        # return total registered (sessions might not be set up yet)
+                        current_app.logger.info(
+                            f'No students in sessions for section {section}, using total registered count'
+                        )
+                        return jsonify({
+                            'success': True,
+                            'student_count': total_registered_count
+                        })
+                else:
+                    # No sessions found for this section, return total registered
+                    current_app.logger.info(
+                        f'No sessions found for section {section}, using total registered count'
+                    )
+                    return jsonify({
+                        'success': True,
+                        'student_count': total_registered_count
+                    })
+            
+            # For Full section or no section specified, return total registered count
+            if total_registered_count > 0:
+                return jsonify({
+                    'success': True,
+                    'student_count': total_registered_count
+                })
+            
+            # Fallback: Try flexible matching if exact match didn't work
+            # Try partial course code match
+            if total_registered_count == 0:
+                current_app.logger.info(
+                    f'No exact match found. Trying flexible matching...'
+                )
+                
+                # Try matching by course name if available
+                if course_name:
+                    name_query = db.session.query(
+                        func.count(func.distinct(StudentCourseRegistration.student_id))
+                    ).filter(
+                        StudentCourseRegistration.course_name.like(f'%{course_name}%'),
+                        StudentCourseRegistration.academic_session == academic_session,
+                        StudentCourseRegistration.status == 'finalized'
+                    )
+                    
+                    if normalized_year:
+                        name_query = name_query.filter(StudentCourseRegistration.year == normalized_year)
+                    if normalized_term:
+                        name_query = name_query.filter(StudentCourseRegistration.term == normalized_term)
+                    
+                    count = name_query.scalar() or 0
+                    
                     if count > 0:
+                        current_app.logger.info(
+                            f'Found {count} students by course name match'
+                        )
                         return jsonify({
                             'success': True,
                             'student_count': count
                         })
-            
-            # Fallback: Try StudentCourseRegistration if no class sessions found
-            current_app.logger.info(
-                f'No class sessions found for teacher. Trying StudentCourseRegistration...'
-            )
-            
-            # DEBUG: Find ALL registrations matching Jurisprudence course name
-            # Check if course_name is "Jurisprudence" - count ALL students regardless of session/year/term
-            if course_name and 'jurisprudence' in course_name.lower():
-                # First, try with session filter
-                jurisprudence_regs = db.session.query(StudentCourseRegistration).filter(
-                    StudentCourseRegistration.course_name.like('%Jurisprudence%'),
-                    StudentCourseRegistration.academic_session == academic_session
-                ).all()
                 
-                count = len(set(r.student_id for r in jurisprudence_regs)) if jurisprudence_regs else 0
-                unique_codes = set(r.course_code for r in jurisprudence_regs)
-                
-                current_app.logger.info(
-                    f'JURISPRUDENCE DEBUG (with session): Found {len(jurisprudence_regs)} registrations, '
-                    f'{count} unique students, course codes: {unique_codes}'
+                # Try without year/term filters (just session and course code)
+                fallback_query = db.session.query(
+                    func.count(func.distinct(StudentCourseRegistration.student_id))
+                ).filter(
+                    StudentCourseRegistration.course_code == course_code,
+                    StudentCourseRegistration.academic_session == academic_session,
+                    StudentCourseRegistration.status == 'finalized'
                 )
                 
-                # If count is low, try WITHOUT session filter - count ALL Jurisprudence students
-                if count < 10:  # If we found less than 10, maybe session is wrong
-                    all_jurisprudence_regs = db.session.query(StudentCourseRegistration).filter(
-                        StudentCourseRegistration.course_name.like('%Jurisprudence%')
-                    ).all()
-                    
-                    all_count = len(set(r.student_id for r in all_jurisprudence_regs)) if all_jurisprudence_regs else 0
-                    all_sessions = set(r.academic_session for r in all_jurisprudence_regs)
-                    all_years = set(r.year for r in all_jurisprudence_regs)
-                    all_terms = set(r.term for r in all_jurisprudence_regs)
-                    
-                    current_app.logger.info(
-                        f'JURISPRUDENCE DEBUG (ALL sessions): Found {len(all_jurisprudence_regs)} total registrations, '
-                        f'{all_count} unique students, sessions: {all_sessions}, years: {all_years}, terms: {all_terms}'
-                    )
-                    
-                    # Use the higher count
-                    if all_count > count:
-                        count = all_count
-                        current_app.logger.info(f'Using count from ALL sessions: {count}')
+                count = fallback_query.scalar() or 0
                 
                 if count > 0:
+                    current_app.logger.info(
+                        f'Found {count} students without year/term filter'
+                    )
                     return jsonify({
                         'success': True,
                         'student_count': count
                     })
             
-            # If not Jurisprudence or above didn't work, try normal matching
-            # First try exact course code match
-            count = db.session.query(
-                func.count(func.distinct(StudentCourseRegistration.student_id))
-            ).filter(
-                StudentCourseRegistration.course_code == course_code,
-                StudentCourseRegistration.academic_session == academic_session
-            ).scalar() or 0
-            
-            current_app.logger.info(
-                f'DEBUG: Exact match - code="{course_code}", session="{academic_session}", count={count}'
-            )
-            
-            # If no match, try course name
-            if count == 0 and course_name:
-                count = db.session.query(
-                    func.count(func.distinct(StudentCourseRegistration.student_id))
-                ).filter(
-                    StudentCourseRegistration.course_name.like(f'%{course_name}%'),
-                    StudentCourseRegistration.academic_session == academic_session
-                ).scalar() or 0
-                
-                current_app.logger.info(
-                    f'DEBUG: Course name match - name="{course_name}", count={count}'
-                )
-            
-            # If still no match, try without session filter (course code only)
-            if count == 0:
-                count = db.session.query(
-                    func.count(func.distinct(StudentCourseRegistration.student_id))
-                ).filter(
-                    StudentCourseRegistration.course_code == course_code
-                ).scalar() or 0
-                
-                current_app.logger.info(
-                    f'DEBUG: Course code only (no session) - count={count}'
-                )
-            
             # Final log
             current_app.logger.info(
                 f'FINAL: code="{course_code}", name="{course_name}", '
-                f'session="{academic_session}", FINAL COUNT={count}'
+                f'session="{academic_session}", year="{normalized_year}", term="{normalized_term}", '
+                f'section="{section}", FINAL COUNT={total_registered_count}'
             )
             
+            # Return count (even if 0, to indicate no registered students found)
             return jsonify({
                 'success': True,
-                'student_count': count
+                'student_count': total_registered_count
             })
             
         except Exception as e:
