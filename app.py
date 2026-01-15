@@ -5023,14 +5023,11 @@ def create_app():
         ).order_by(Session.academic_session.desc()).all()
         academic_sessions = [s[0] for s in sessions if s[0]]
 
+        # Use the matched chief_assignment for current values
         current_session = None
         current_year = None
         current_term = None
-        chief_assignment_details = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).order_by(DutyAssignment.updated_at.desc(), DutyAssignment.created_at.desc()).first()
+        chief_assignment_details = chief_assignment  # Use the matched assignment from above
         if chief_assignment_details:
             current_session = chief_assignment_details.academic_session
             current_year = chief_assignment_details.year
