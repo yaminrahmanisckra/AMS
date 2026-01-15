@@ -62,11 +62,16 @@
         
         /* Section styling */
         .section {
-            margin-bottom: 0.25in;
+            margin-bottom: 0.15in;
             page-break-inside: avoid !important; /* Prevent section from breaking across pages */
             break-inside: avoid;
             orphans: 3;
             widows: 3;
+        }
+        
+        /* Remove bottom margin from last section */
+        .section:last-of-type {
+            margin-bottom: 0;
         }
         
         /* Page break after Section 5 (Moderation Committee) */
@@ -86,10 +91,15 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 0.2in;
+            margin-bottom: 0.1in;
             page-break-inside: avoid !important; /* Entire table on same page */
             break-inside: avoid !important;
             table-layout: fixed;
+        }
+        
+        /* Remove bottom margin from last table in section */
+        .section table:last-child {
+            margin-bottom: 0;
         }
         
         table thead {
