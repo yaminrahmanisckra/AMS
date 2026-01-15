@@ -230,6 +230,8 @@ body {
     position: relative;
     /* Panel is now outside, so no isolation needed */
     width: 100%;
+    margin-left: 0;
+    padding-left: 0;
 }
 
 /* ============================================
@@ -253,6 +255,9 @@ body {
     overflow-x: hidden;
     height: calc(100vh - 120px) !important;
     will-change: auto;
+    /* Ensure panel doesn't overlap table */
+    max-width: 320px;
+    box-sizing: border-box;
 }
 
 .course-panel.collapsed {
@@ -551,10 +556,13 @@ body {
 /* When panel is visible, add left margin to prevent overlap */
 .routine-table-area-with-panel {
     margin-left: 320px !important;
-    width: calc(100% - 320px) !important;
+    padding-left: 0 !important;
+    width: calc(100vw - 320px) !important;
+    max-width: calc(100vw - 320px) !important;
     min-width: 0;
     position: relative;
     z-index: 1;
+    box-sizing: border-box;
 }
 
 .routine-table-wrapper {
@@ -1642,8 +1650,18 @@ const RoutineManager = {
             this.elements.coursePanel.style.top = '120px';
             this.elements.coursePanel.style.bottom = '0';
             this.elements.coursePanel.style.left = '0';
-            this.elements.coursePanel.style.zIndex = '1000';
+            this.elements.coursePanel.style.zIndex = '999';
+            this.elements.coursePanel.style.width = '320px';
+            this.elements.coursePanel.style.maxWidth = '320px';
             this.elements.coursePanel.style.height = 'calc(100vh - 120px)';
+            
+            // Ensure table area has proper margin
+            const tableArea = document.querySelector('.routine-table-area-with-panel');
+            if (tableArea) {
+                tableArea.style.marginLeft = '320px';
+                tableArea.style.width = 'calc(100vw - 320px)';
+                tableArea.style.maxWidth = 'calc(100vw - 320px)';
+            }
         }
 
         // Setup sticky headers (skip for non-editors on mobile to prevent freeze)
@@ -1791,11 +1809,21 @@ const RoutineManager = {
                 this.elements.coursePanel.style.top = '120px';
                 this.elements.coursePanel.style.bottom = '0';
                 this.elements.coursePanel.style.left = '0';
-                this.elements.coursePanel.style.zIndex = '1000';
+                this.elements.coursePanel.style.zIndex = '999';
+                this.elements.coursePanel.style.width = '320px';
+                this.elements.coursePanel.style.maxWidth = '320px';
                 this.elements.coursePanel.style.height = 'calc(100vh - 120px)';
                 // Prevent transform from moving panel
                 if (!this.elements.coursePanel.classList.contains('collapsed')) {
                     this.elements.coursePanel.style.transform = 'translateX(0)';
+                }
+                
+                // Ensure table area has proper margin
+                const tableArea = document.querySelector('.routine-table-area-with-panel');
+                if (tableArea) {
+                    tableArea.style.marginLeft = '320px';
+                    tableArea.style.width = 'calc(100vw - 320px)';
+                    tableArea.style.maxWidth = 'calc(100vw - 320px)';
                 }
             }
         };
