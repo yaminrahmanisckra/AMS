@@ -243,28 +243,6 @@ body {
     box-shadow: var(--shadow-md);
 }
 
-/* Wider course panel for editors - always visible */
-{% if can_edit %}
-.course-panel {
-    width: 380px !important; /* Increased from 320px for editors */
-    position: relative !important;
-    transform: translateX(0) !important;
-    display: flex !important;
-    visibility: visible !important;
-    flex-shrink: 0;
-}
-
-.course-panel.collapsed {
-    transform: translateX(0) !important; /* Never collapse for editors */
-}
-
-.routine-table-area {
-    width: calc(100% - 380px) !important;
-    flex: 1;
-    min-width: 0;
-}
-{% endif %}
-
 .course-panel.collapsed {
     transform: translateX(-100%);
     position: absolute;
@@ -1077,8 +1055,6 @@ body.fullscreen-active .routine-table {
    ============================================ */
 
 @media (max-width: 1024px) {
-    /* For editors: Keep panel in normal flow, don't make it fixed */
-    {% if not can_edit %}
     .course-panel {
         position: fixed;
         left: 0;
@@ -1097,22 +1073,6 @@ body.fullscreen-active .routine-table {
     .routine-table-area {
         width: 100%;
     }
-    {% else %}
-    /* For editors: Keep panel visible and in normal flow */
-    .course-panel {
-        position: relative !important;
-        transform: translateX(0) !important;
-        display: flex !important;
-        visibility: visible !important;
-        width: 380px !important;
-        flex-shrink: 0;
-    }
-    
-    .routine-table-area {
-        width: calc(100% - 380px) !important;
-        flex: 1;
-    }
-    {% endif %}
     
     .course-panel-toggle {
         display: block !important;
@@ -1352,11 +1312,9 @@ body.fullscreen-active .routine-table {
                 <div class="course-panel-title">
                     <i class="fas fa-book"></i> Courses
                 </div>
-                {% if not can_edit %}
                 <button class="course-panel-toggle" id="course-panel-close" title="Close Panel">
                     <i class="fas fa-times"></i>
-                </button>
-                {% endif %}
+                    </button>
                 </div>
             <div class="course-panel-body">
                 <!-- Search -->
@@ -1378,11 +1336,9 @@ body.fullscreen-active .routine-table {
                 </div>
             </div>
         </div>
-        {% if not can_edit %}
         <button class="topbar-btn topbar-btn-primary" id="course-panel-toggle" style="position: fixed; left: 16px; top: 80px; z-index: 150; display: none; box-shadow: var(--shadow-md);">
             <i class="fas fa-book"></i> Courses
         </button>
-        {% endif %}
         {% endif %}
 
         <!-- Routine Table Area -->
@@ -1653,14 +1609,6 @@ const RoutineManager = {
 
         // Setup responsive panel toggle
         this.setupResponsive();
-        
-        // For editors: Ensure panel is visible and not collapsed
-        if (this.config.canEdit && this.elements.coursePanel) {
-            this.elements.coursePanel.classList.remove('collapsed');
-            this.elements.coursePanel.style.display = 'flex';
-            this.elements.coursePanel.style.visibility = 'visible';
-            this.elements.coursePanel.style.transform = 'translateX(0)';
-        }
 
         // Setup sticky headers (skip for non-editors on mobile to prevent freeze)
         if (this.config.canEdit || window.innerWidth > 768) {
@@ -1669,24 +1617,7 @@ const RoutineManager = {
         
         // Load batches for course panel (if user can edit)
         if (this.config.canEdit) {
-            console.log('Loading batches for editor...');
             this.loadBatches();
-            
-            // Ensure panel is visible after batches load
-            setTimeout(() => {
-                if (this.elements.coursePanel) {
-                    this.elements.coursePanel.classList.remove('collapsed');
-                    this.elements.coursePanel.style.display = 'flex';
-                    this.elements.coursePanel.style.visibility = 'visible';
-                    this.elements.coursePanel.style.transform = 'translateX(0)';
-                    console.log('Panel visibility ensured:', {
-                        display: this.elements.coursePanel.style.display,
-                        visibility: this.elements.coursePanel.style.visibility,
-                        transform: this.elements.coursePanel.style.transform,
-                        hasCollapsed: this.elements.coursePanel.classList.contains('collapsed')
-                    });
-                }
-            }, 200);
         }
         
         // Load routine data based on context:
@@ -1815,28 +1746,27 @@ const RoutineManager = {
             return;
         }
         
-        // For editors: Keep panel always visible, never collapse
-        // Disable responsive collapse behavior
         const handleResize = () => {
-            // Always keep panel visible for editors - never collapse
-            if (this.elements.coursePanel) {
-                this.elements.coursePanel.classList.remove('collapsed');
-                // Ensure panel is visible
-                this.elements.coursePanel.style.display = 'flex';
-                this.elements.coursePanel.style.visibility = 'visible';
-                this.elements.coursePanel.style.transform = 'translateX(0)';
-            }
-            if (this.elements.coursePanelToggle) {
-                this.elements.coursePanelToggle.style.display = 'none';
+            if (window.innerWidth <= 1024) {
+                // Mobile/Tablet: Panel starts collapsed
+                if (this.elements.coursePanel && !this.elements.coursePanel.classList.contains('collapsed')) {
+                    this.elements.coursePanel.classList.add('collapsed');
+                }
+                if (this.elements.coursePanelToggle) {
+                    this.elements.coursePanelToggle.style.display = 'block';
+                }
+            } else {
+                // Desktop: Panel visible
+                if (this.elements.coursePanel) {
+                    this.elements.coursePanel.classList.remove('collapsed');
+                }
+                if (this.elements.coursePanelToggle) {
+                    this.elements.coursePanelToggle.style.display = 'none';
+                }
             }
         };
 
-        // Run immediately to ensure panel is visible on load
         handleResize();
-        
-        // Also run after a short delay to ensure it's applied
-        setTimeout(handleResize, 100);
-        
         window.addEventListener('resize', handleResize);
     },
 
@@ -1862,28 +1792,6 @@ const RoutineManager = {
             batchSelect: document.getElementById('batch-select'),
             batchFilterSection: document.getElementById('batch-filter-section'),
             coursesList: document.getElementById('courses-list'),
-        };
-        
-        // Log cached elements for debugging
-        console.log('Cached elements:', {
-            coursePanel: !!this.elements.coursePanel,
-            batchSelect: !!this.elements.batchSelect,
-            coursesList: !!this.elements.coursesList,
-            canEdit: this.config.canEdit
-        });
-        
-        // For editors: Ensure panel elements are found
-        if (this.config.canEdit) {
-            if (!this.elements.coursePanel) {
-                console.error('❌ coursePanel element not found!');
-            }
-            if (!this.elements.batchSelect) {
-                console.error('❌ batchSelect element not found!');
-            }
-            if (!this.elements.coursesList) {
-                console.error('❌ coursesList element not found!');
-            }
-        }
             
             // Routine table
             routineTable: document.getElementById('routine-table'),
@@ -1978,14 +1886,11 @@ const RoutineManager = {
         });
 
         // Course panel
-        // For editors: Disable panel toggle (panel should always be visible)
-        if (!this.config.canEdit) {
-            if (this.elements.coursePanelToggle) {
-                this.elements.coursePanelToggle.addEventListener('click', () => this.toggleCoursePanel());
-            }
-            if (this.elements.coursePanelClose) {
-                this.elements.coursePanelClose.addEventListener('click', () => this.toggleCoursePanel());
-            }
+        if (this.elements.coursePanelToggle) {
+            this.elements.coursePanelToggle.addEventListener('click', () => this.toggleCoursePanel());
+        }
+        if (this.elements.coursePanelClose) {
+            this.elements.coursePanelClose.addEventListener('click', () => this.toggleCoursePanel());
         }
 
         // Search (debounced)
@@ -2065,12 +1970,6 @@ const RoutineManager = {
 
     // Toggle course panel
     toggleCoursePanel: function() {
-        // For editors: Disable panel toggle (panel should always be visible)
-        if (this.config.canEdit) {
-            console.log('Panel toggle disabled for editors');
-            return;
-        }
-        
         if (this.elements.coursePanel) {
             const isCollapsed = this.elements.coursePanel.classList.contains('collapsed');
             if (isCollapsed) {
@@ -2091,12 +1990,7 @@ const RoutineManager = {
     
     // Load batches
     loadBatches: function() {
-        if (!this.elements.batchSelect) {
-            console.error('batchSelect element not found!');
-            return;
-        }
-        
-        console.log('loadBatches() called, batchSelect element:', this.elements.batchSelect);
+        if (!this.elements.batchSelect) return;
         
         this.elements.batchSelect.innerHTML = '<option value="">Loading...</option>';
         this.elements.batchSelect.disabled = true;
@@ -2109,7 +2003,6 @@ const RoutineManager = {
                 return response.json();
             })
             .then(data => {
-                console.log('Batches API response:', data);
                 if (data.success && data.batches && data.batches.length > 0) {
                     this.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
                     data.batches.forEach(batch => {
@@ -2118,16 +2011,16 @@ const RoutineManager = {
                         option.textContent = batch;
                         this.elements.batchSelect.appendChild(option);
                     });
-                    console.log('✅ Loaded batches:', data.batches.length, 'batches');
+                    console.log('Loaded batches:', data.batches);
                 } else {
                     // No batches found - show helpful message
                     this.elements.batchSelect.innerHTML = '<option value="">No batches found</option>';
-                    console.warn('⚠️ No batches returned from API:', data);
+                    console.warn('No batches returned from API:', data);
                 }
                 this.elements.batchSelect.disabled = false;
             })
             .catch(error => {
-                console.error('❌ Error loading batches:', error);
+                console.error('Error loading batches:', error);
                 this.elements.batchSelect.innerHTML = '<option value="">Error loading batches</option>';
                 this.elements.batchSelect.disabled = false;
             });
@@ -2135,79 +2028,54 @@ const RoutineManager = {
 
     // Load batch courses
     loadBatchCourses: function(batch) {
-        if (!this.elements.coursesList) {
-            console.error('coursesList element not found!');
-            return;
-        }
-        
-        console.log('loadBatchCourses() called for batch:', batch);
+        if (!this.elements.coursesList) return;
         this.elements.coursesList.innerHTML = '<div class="course-list-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
         
         fetch(`/routine-management/api/courses/batch-wise?batch=${encodeURIComponent(batch)}`)
-            .then(response => {
-                console.log('Courses API response status:', response.status);
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                console.log('Courses API response data:', data);
                 if (data.success && data.courses_by_batch && data.courses_by_batch[batch]) {
-                    const courses = data.courses_by_batch[batch] || [];
-                    console.log('✅ Loaded courses from batch-wise API:', courses.length);
-                    this.displayCourses(courses);
+                    this.displayCourses(data.courses_by_batch[batch] || []);
                 } else {
                     // Fallback to old API
-                    console.log('Trying fallback API...');
-                    fetch(`/routine-management/api/courses-by-batch?batch=${encodeURIComponent(batch)}`)
-                        .then(response => response.json())
-                        .then(data => {
-                            console.log('Fallback API response:', data);
-                            if (data.success) {
-                                console.log('✅ Loaded courses from fallback API:', data.courses?.length || 0);
+        fetch(`/routine-management/api/courses-by-batch?batch=${encodeURIComponent(batch)}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
                                 this.displayCourses(data.courses || []);
-                            } else {
-                                console.error('❌ Fallback API failed:', data);
+                } else {
                                 this.showError('Error loading courses');
-                            }
-                        })
-                        .catch(error => {
-                            console.error('❌ Fallback API error:', error);
+                }
+            })
+            .catch(error => {
+                            console.error('Error:', error);
                             this.showError('Error loading courses');
                         });
                 }
             })
             .catch(error => {
-                console.error('❌ Error loading courses:', error);
+                console.error('Error:', error);
                 this.showError('Error loading courses');
             });
     },
 
     // Display courses
     displayCourses: function(courses) {
-        if (!this.elements.coursesList) {
-            console.error('coursesList element not found in displayCourses!');
-            return;
-        }
-        
-        console.log('displayCourses() called with', courses?.length || 0, 'courses');
-        
+        if (!this.elements.coursesList) return;
         if (!courses || courses.length === 0) {
-            console.warn('No courses to display');
             this.elements.coursesList.innerHTML = '<div class="course-list-empty">No courses found</div>';
             return;
         }
 
         this.elements.coursesList.innerHTML = '';
         
-        let cardsCreated = 0;
         courses.forEach(course => {
             const card = this.createCourseCard(course);
             if (card) {
                 this.elements.coursesList.appendChild(card);
-                cardsCreated++;
             }
         });
 
-        console.log('✅ Created', cardsCreated, 'course cards');
         this.filterCourses();
         this.updateCourseCards();
     },
@@ -3840,21 +3708,17 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             window.RoutineManager.init();
             console.log('RoutineManager.init() completed');
-            // Trigger auto fullscreen check after init completes (only for non-editors)
-            if (!window.RoutineManager.config.canEdit) {
-                setTimeout(() => {
-                    if (window.handleLandscapeMode) {
-                        console.log('Triggering auto fullscreen check after init (non-editor)');
-                        window.handleLandscapeMode();
-                        // Also try with retry logic
-                        if (window.checkAndEnableFullscreen) {
-                            window.checkAndEnableFullscreen();
-                        }
+            // Trigger auto fullscreen check after init completes
+            setTimeout(() => {
+                if (window.handleLandscapeMode) {
+                    console.log('Triggering auto fullscreen check after init');
+                    window.handleLandscapeMode();
+                    // Also try with retry logic
+                    if (window.checkAndEnableFullscreen) {
+                        window.checkAndEnableFullscreen();
                     }
-                }, 300);
-            } else {
-                console.log('Skipping auto fullscreen for editor');
-            }
+                }
+            }, 300);
         } catch (error) {
             console.error('Error initializing RoutineManager:', error);
         }
@@ -3870,14 +3734,12 @@ setTimeout(function() {
         try {
             window.RoutineManager.init();
             console.log('Delayed RoutineManager.init() completed');
-            // Trigger auto fullscreen check after delayed init (only for non-editors)
-            if (!window.RoutineManager.config.canEdit) {
-                setTimeout(() => {
-                    if (window.handleLandscapeMode) {
-                        window.handleLandscapeMode();
-                    }
-                }, 200);
-            }
+            // Trigger auto fullscreen check after delayed init
+            setTimeout(() => {
+                if (window.handleLandscapeMode) {
+                    window.handleLandscapeMode();
+                }
+            }, 200);
         } catch (error) {
             console.error('Error in delayed initialization:', error);
         }
@@ -3898,15 +3760,12 @@ setTimeout(function() {
             console.log('isFullscreen:', window.RoutineManager.state?.isFullscreen);
         }
         
-        // Auto enable fullscreen in landscape mode (ONLY for non-editors)
-        // Editors should NOT auto-fullscreen
-        const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-        
-        if (isLandscape && !canEdit) {
-            // Auto enable fullscreen in landscape mode (only for non-editors)
+        // Auto enable fullscreen in landscape mode (for both mobile and desktop)
+        if (isLandscape) {
+            // Auto enable fullscreen in landscape mode
             if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
-                    console.log('✅ Enabling auto fullscreen for landscape mode (non-editor)');
+                    console.log('✅ Enabling auto fullscreen for landscape mode');
                     window.RoutineManager.toggleFullscreen();
                 } else {
                     console.log('Already in fullscreen mode');
@@ -3918,9 +3777,6 @@ setTimeout(function() {
                     hasState: !!(window.RoutineManager && window.RoutineManager.state)
                 });
             }
-        } else if (isLandscape && canEdit) {
-            console.log('⏭️ Skipping auto fullscreen for editor');
-        }
             
             // Fix smooth scrolling
             // Fix student container wrapper
@@ -3985,11 +3841,10 @@ setTimeout(function() {
                 pdfButton.style.setProperty('position', 'relative', 'important');
             }
         } else {
-            // Exit fullscreen if in portrait mode (only for non-editors)
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit && window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
+            // Exit fullscreen if in portrait mode
+            if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (window.RoutineManager.state.isFullscreen) {
-                    console.log('Exiting fullscreen for portrait mode (non-editor)');
+                    console.log('Exiting fullscreen for portrait mode');
                     window.RoutineManager.toggleFullscreen();
                 }
             }
@@ -4005,13 +3860,12 @@ setTimeout(function() {
         
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
-        const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
         
-        // Enable fullscreen for any landscape orientation (ONLY for non-editors)
-        if (isLandscape && !canEdit) {
+        // Enable fullscreen for any landscape orientation (mobile or desktop)
+        if (isLandscape) {
             if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
-                    console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries, '(non-editor)');
+                    console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries);
                     try {
                         window.RoutineManager.toggleFullscreen();
                     } catch (error) {
@@ -4028,57 +3882,40 @@ setTimeout(function() {
                 });
                 setTimeout(() => window.checkAndEnableFullscreen(retries - 1, delay), delay);
             }
-        } else if (isLandscape && canEdit) {
-            console.log('⏭️ Skipping auto fullscreen for editor');
-        } else if (isLandscape && canEdit) {
-            console.log('⏭️ Skipping auto fullscreen for editor');
         }
     };
     
-    // Run on load (only for non-editors)
+    // Run on load
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function() {
-            // Check if editor - only run auto-fullscreen for non-editors
+            // Wait for RoutineManager to be ready with multiple retries
             setTimeout(() => {
-                const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-                if (!canEdit) {
-                    // Wait for RoutineManager to be ready with multiple retries
-                    window.handleLandscapeMode();
-                    window.checkAndEnableFullscreen();
-                }
+                window.handleLandscapeMode();
+                window.checkAndEnableFullscreen();
             }, 800);
         });
     } else {
         setTimeout(() => {
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit) {
-                window.handleLandscapeMode();
-                window.checkAndEnableFullscreen();
-            }
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
         }, 800);
     }
     
-    // Run on orientation change (only for non-editors)
+    // Run on orientation change
     window.addEventListener('orientationchange', function() {
         setTimeout(() => {
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit) {
-                window.handleLandscapeMode();
-                window.checkAndEnableFullscreen();
-            }
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
         }, 500);
     });
     
-    // Run on resize (only for non-editors)
+    // Run on resize
     let resizeTimeout;
     window.addEventListener('resize', function() {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
-            const canEdit = window.RoutineManager && window.RoutineManager.config && window.RoutineManager.config.canEdit;
-            if (!canEdit) {
-                window.handleLandscapeMode();
-                window.checkAndEnableFullscreen();
-            }
+            window.handleLandscapeMode();
+            window.checkAndEnableFullscreen();
         }, 300);
     });
 })();
