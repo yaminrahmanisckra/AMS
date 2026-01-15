@@ -7347,6 +7347,130 @@ def create_app():
             current_app.logger.error(f'Error getting custom remuneration form by session: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': f'Failed to get form: {str(e)}'}), 500
 
+    @app.route('/exam-committee-chief/custom-remuneration/get-committee', methods=['GET'])
+    @login_required
+    def exam_committee_chief_get_committee():
+        """Get examination committee data for specific session/year/term"""
+        try:
+            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+            if not teacher:
+                return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+            
+            session = request.args.get('session', '').strip()
+            year = request.args.get('year', '').strip()
+            term = request.args.get('term', '').strip()
+            
+            if not session or not year or not term:
+                return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
+            
+            # Find matching chief assignment
+            chief_assignment = DutyAssignment.query.filter_by(
+                duty_type='exam_committee_chief',
+                assigned_teacher_id=teacher.id,
+                academic_session=session,
+                year=year,
+                term=term,
+                status='active'
+            ).first()
+            
+            if not chief_assignment:
+                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief for this session/year/term'}), 403
+            
+            # Build examination committee
+            examination_committee = []
+            
+            # Add Chief (Chairman)
+            if chief_assignment.assigned_teacher:
+                chief_teacher = chief_assignment.assigned_teacher
+                chief_designation = ''
+                chief_institute = ''
+                
+                try:
+                    chief_data = json.loads(chief_assignment.remarks) if chief_assignment.remarks else {}
+                    if chief_data.get('type') == 'chief':
+                        chief_designation = chief_data.get('designation', '')
+                        chief_institute = chief_data.get('institute', '')
+                except:
+                    pass
+                
+                if not chief_designation and chief_teacher.designation:
+                    chief_designation = chief_teacher.designation
+                if not chief_institute and chief_teacher.institute:
+                    chief_institute = chief_teacher.institute
+                
+                if not chief_designation:
+                    chief_designation = 'Head, Law Discipline, KU'
+                if not chief_institute:
+                    chief_institute = 'Law Discipline, KU'
+                
+                examination_committee.append({
+                    'name': chief_teacher.name,
+                    'designation': f'{chief_designation}, {chief_institute}',
+                    'position': 'Chairman'
+                })
+            
+            # Get committee members
+            committee_assignments = DutyAssignment.query.filter(
+                DutyAssignment.duty_type == 'exam_committee_member',
+                DutyAssignment.academic_session == session,
+                DutyAssignment.year == year,
+                DutyAssignment.term == term,
+                DutyAssignment.status == 'active',
+                DutyAssignment.assigned_by_id == current_user.id
+            ).all()
+            
+            for assignment in committee_assignments:
+                if assignment.assigned_teacher_id:
+                    teacher = assignment.assigned_teacher
+                    if teacher:
+                        member_designation = ''
+                        member_institute = ''
+                        
+                        try:
+                            member_data = json.loads(assignment.remarks) if assignment.remarks else {}
+                            if member_data.get('type') == 'internal':
+                                member_designation = member_data.get('designation', '')
+                                member_institute = member_data.get('institute', '')
+                        except:
+                            pass
+                        
+                        if not member_designation and teacher.designation:
+                            member_designation = teacher.designation
+                        if not member_institute and teacher.institute:
+                            member_institute = teacher.institute
+                        
+                        if not member_designation:
+                            member_designation = 'Assistant Professor'
+                        if not member_institute:
+                            member_institute = 'Law Discipline, KU'
+                        
+                        examination_committee.append({
+                            'name': teacher.name,
+                            'designation': f'{member_designation}, {member_institute}',
+                            'position': 'Member'
+                        })
+                else:
+                    try:
+                        external_info = json.loads(assignment.remarks) if assignment.remarks else {}
+                        if external_info.get('type') == 'external':
+                            designation = f"{external_info.get('designation', '')}, {external_info.get('institute', '')}"
+                            examination_committee.append({
+                                'name': external_info.get('name', ''),
+                                'designation': designation.strip(', '),
+                                'position': 'Ext. Member'
+                            })
+                    except:
+                        pass
+            
+            return jsonify({
+                'success': True,
+                'committee': examination_committee
+            })
+            
+        except Exception as e:
+            current_app.logger.error(f'Error getting committee data: {str(e)}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Failed to get committee data: {str(e)}'}), 500
+
     @app.route('/exam-committee-chief/custom-remuneration/delete/<int:form_id>', methods=['POST'])
     @login_required
     def exam_committee_chief_custom_remuneration_delete(form_id):

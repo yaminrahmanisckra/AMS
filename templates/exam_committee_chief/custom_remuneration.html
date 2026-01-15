@@ -1283,6 +1283,54 @@ function updateYearTermDropdowns() {
     });
 }
 
+// Load examination committee for specific session/year/term
+async function loadExaminationCommittee(session, year, term) {
+    if (!session || !year || !term) {
+        console.log('⚠️ Cannot load committee: session/year/term not all set');
+        return;
+    }
+    
+    try {
+        console.log(`🔄 Loading examination committee for: ${session} - ${year} - ${term}`);
+        const response = await fetch(`/exam-committee-chief/custom-remuneration/get-committee?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        const data = await response.json();
+        
+        if (data.success && data.committee) {
+            console.log(`✅ Loaded ${data.committee.length} committee members`);
+            // Clear existing rows (except header)
+            const table = document.getElementById('table_examination_committee');
+            if (table) {
+                const tbody = table.querySelector('tbody');
+                if (tbody) {
+                    // Remove all rows except header
+                    const rows = tbody.querySelectorAll('tr');
+                    rows.forEach(row => row.remove());
+                    
+                    // Add new rows for each committee member
+                    data.committee.forEach(member => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td><input type="text" class="form-control form-control-sm" name="examination_committee_name[]" value="${member.name || ''}"></td>
+                            <td><input type="text" class="form-control form-control-sm" name="examination_committee_designation[]" value="${member.designation || ''}"></td>
+                            <td><input type="text" class="form-control form-control-sm" name="examination_committee_position[]" value="${member.position || ''}"></td>
+                            <td>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="removeRow(this)">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                }
+            }
+        } else {
+            console.warn('⚠️ Failed to load committee:', data.message);
+        }
+    } catch (error) {
+        console.error('❌ Error loading examination committee:', error);
+    }
+}
+
 // Session/Year/Term change handlers - Auto-load theory courses
 async function handleSessionYearTermChange() {
     const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
@@ -1310,6 +1358,12 @@ async function handleSessionYearTermChange() {
                 document.getElementById('term').value = '';
             }
             return;
+        }
+        
+        // Reload examination committee for the new session/year/term (only if not in edit mode)
+        if (!isEditMode) {
+            console.log('🔄 Reloading examination committee for new session/year/term');
+            await loadExaminationCommittee(session, year, term);
         }
     }
     
