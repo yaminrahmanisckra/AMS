@@ -721,7 +721,7 @@
                     </table>
                 </div>
                 
-                <h6 class="mt-4 mb-3"><strong>18. Assessment Rubrics for Class Tests and Group Debate</strong></h6>
+                <h6 class="mt-4 mb-3"><strong>18. Assessment Rubrics</strong></h6>
                 <div id="rubricsContainer">
                     <!-- Rubrics will be added here -->
                 </div>
@@ -1112,9 +1112,54 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize rubrics
     const rubrics = {{ outline_data.rubrics|tojson }};
     if (rubrics && rubrics.length > 0) {
-        rubrics.forEach(rubric => addRubric(rubric));
+        // Group rubrics by type
+        const rubricsByType = {};
+        rubrics.forEach(rubric => {
+            const type = rubric.type || '';
+            if (!rubricsByType[type]) {
+                rubricsByType[type] = [];
+            }
+            rubricsByType[type].push(rubric);
+        });
+        
+        // Create rubric sections and add rows
+        Object.keys(rubricsByType).forEach(type => {
+            const rubricData = rubricsByType[type];
+            // Create rubric section with the type
+            const rubricId = addRubric({ type: type });
+            
+            // Add all criteria rows for this rubric type
+            rubricData.forEach((criteria, index) => {
+                if (index === 0) {
+                    // Update the first row that was auto-added
+                    const tbody = document.getElementById(rubricId + '_tbody');
+                    if (tbody) {
+                        const firstRow = tbody.querySelector('tr');
+                        if (firstRow) {
+                            const criteriaInput = firstRow.querySelector('input[name="rubric_criteria[]"]');
+                            const excellentTextarea = firstRow.querySelector('textarea[name="rubric_excellent[]"]');
+                            const goodTextarea = firstRow.querySelector('textarea[name="rubric_good[]"]');
+                            const satisfactoryTextarea = firstRow.querySelector('textarea[name="rubric_satisfactory[]"]');
+                            const poorTextarea = firstRow.querySelector('textarea[name="rubric_poor[]"]');
+                            
+                            if (criteriaInput) criteriaInput.value = criteria.criteria || '';
+                            if (excellentTextarea) excellentTextarea.value = criteria.excellent || '';
+                            if (goodTextarea) goodTextarea.value = criteria.good || '';
+                            if (satisfactoryTextarea) satisfactoryTextarea.value = criteria.satisfactory || '';
+                            if (poorTextarea) poorTextarea.value = criteria.poor || '';
+                        } else {
+                            // If no row exists, add one
+                            addRubricRow(rubricId, criteria);
+                        }
+                    }
+                } else {
+                    // Add additional rows
+                    addRubricRow(rubricId, criteria);
+                }
+            });
+        });
     } else {
-        addRubric(); // Add one empty row
+        addRubric(); // Add one empty rubric section
     }
     
     // Initialize grading policy
@@ -1464,43 +1509,81 @@ function addAssessmentTechnique(data = {}) {
 
 function addRubric(data = {}) {
     const container = document.getElementById('rubricsContainer');
+    const rubricId = 'rubric_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     const row = document.createElement('div');
     row.className = 'border rounded p-3 mb-3';
+    row.setAttribute('data-rubric-id', rubricId);
     row.innerHTML = `
-        <div class="mb-2">
+        <div class="mb-3">
             <label class="form-label small"><strong>Rubric Type:</strong></label>
             <input type="text" class="form-control form-control-sm" name="rubric_type[]" value="${data.type || ''}" placeholder="Class Tests, Group Debate, etc.">
         </div>
-        <div class="row g-2">
-            <div class="col-md-3">
-                <label class="form-label small">Criteria</label>
-                <input type="text" class="form-control form-control-sm" name="rubric_criteria[]" value="${data.criteria || ''}" placeholder="Conceptual Clarity">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small">Excellent (8-10)</label>
-                <textarea class="form-control form-control-sm" name="rubric_excellent[]" rows="2" placeholder="Description">${data.excellent || ''}</textarea>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small">Good (5-7)</label>
-                <textarea class="form-control form-control-sm" name="rubric_good[]" rows="2" placeholder="Description">${data.good || ''}</textarea>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small">Satisfactory (2-4)</label>
-                <textarea class="form-control form-control-sm" name="rubric_satisfactory[]" rows="2" placeholder="Description">${data.satisfactory || ''}</textarea>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small">Poor (0-1)</label>
-                <textarea class="form-control form-control-sm" name="rubric_poor[]" rows="2" placeholder="Description">${data.poor || ''}</textarea>
-            </div>
-            <div class="col-md-1">
-                <label class="form-label small">Actions</label>
-                <button type="button" class="btn btn-sm btn-outline-danger w-100" onclick="this.closest('.border').remove()">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm">
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">Criteria</th>
+                        <th style="width: 20%;">Excellent (8-10)</th>
+                        <th style="width: 20%;">Good (5-7)</th>
+                        <th style="width: 20%;">Satisfactory (2-4)</th>
+                        <th style="width: 15%;">Poor (0-1)</th>
+                        <th style="width: 5%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="${rubricId}_tbody">
+                    <!-- Rows will be added here -->
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-2 d-flex justify-content-between align-items-center">
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="addRubricRow('${rubricId}')">
+                <i class="fas fa-plus me-1"></i>Add Row
+            </button>
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="this.closest('.border').remove()">
+                <i class="fas fa-trash me-1"></i>Delete Rubric
+            </button>
         </div>
     `;
     container.appendChild(row);
+    
+    // Add initial row if data exists, otherwise add empty row
+    if (data.criteria || data.excellent || data.good || data.satisfactory || data.poor) {
+        addRubricRow(rubricId, data);
+    } else {
+        addRubricRow(rubricId);
+    }
+    
+    return rubricId;
+}
+
+function addRubricRow(rubricId, data = {}) {
+    const tbody = document.getElementById(rubricId + '_tbody');
+    if (!tbody) return;
+    
+    const row = document.createElement('tr');
+    row.innerHTML = `
+        <td>
+            <input type="text" class="form-control form-control-sm" name="rubric_criteria[]" value="${data.criteria || ''}" placeholder="e.g., 1. Conceptual Clarity (2 marks)">
+        </td>
+        <td>
+            <textarea class="form-control form-control-sm" name="rubric_excellent[]" rows="2" placeholder="Description">${data.excellent || ''}</textarea>
+        </td>
+        <td>
+            <textarea class="form-control form-control-sm" name="rubric_good[]" rows="2" placeholder="Description">${data.good || ''}</textarea>
+        </td>
+        <td>
+            <textarea class="form-control form-control-sm" name="rubric_satisfactory[]" rows="2" placeholder="Description">${data.satisfactory || ''}</textarea>
+        </td>
+        <td>
+            <textarea class="form-control form-control-sm" name="rubric_poor[]" rows="2" placeholder="Description">${data.poor || ''}</textarea>
+        </td>
+        <td>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('tr').remove()" title="Delete Row">
+                <i class="fas fa-trash"></i>
+            </button>
+        </td>
+    `;
+    tbody.appendChild(row);
 }
 
 function addGradingPolicyRow(data = {}) {
@@ -2415,24 +2498,43 @@ function saveCourseOutline(isAutoSave = false) {
         }
     }
     
-    // Collect rubrics
-    const rubricTypes = formData.getAll('rubric_type[]');
-    const rubricCriterias = formData.getAll('rubric_criteria[]');
-    const rubricExcellent = formData.getAll('rubric_excellent[]');
-    const rubricGood = formData.getAll('rubric_good[]');
-    const rubricSatisfactory = formData.getAll('rubric_satisfactory[]');
-    const rubricPoor = formData.getAll('rubric_poor[]');
-    for (let i = 0; i < rubricTypes.length; i++) {
-        if (rubricTypes[i]) {
-            data.rubrics.push({
-                type: rubricTypes[i] || '',
-                criteria: rubricCriterias[i] || '',
-                excellent: rubricExcellent[i] || '',
-                good: rubricGood[i] || '',
-                satisfactory: rubricSatisfactory[i] || '',
-                poor: rubricPoor[i] || ''
-            });
-        }
+    // Collect rubrics by iterating through DOM structure
+    const rubricsContainer = document.getElementById('rubricsContainer');
+    if (rubricsContainer) {
+        const rubricSections = rubricsContainer.querySelectorAll('.border.rounded');
+        rubricSections.forEach((section) => {
+            const rubricTypeInput = section.querySelector('input[name="rubric_type[]"]');
+            const rubricType = rubricTypeInput ? rubricTypeInput.value : '';
+            const tbody = section.querySelector('tbody');
+            if (tbody) {
+                const rows = tbody.querySelectorAll('tr');
+                rows.forEach((row) => {
+                    const criteriaInput = row.querySelector('input[name="rubric_criteria[]"]');
+                    const excellentTextarea = row.querySelector('textarea[name="rubric_excellent[]"]');
+                    const goodTextarea = row.querySelector('textarea[name="rubric_good[]"]');
+                    const satisfactoryTextarea = row.querySelector('textarea[name="rubric_satisfactory[]"]');
+                    const poorTextarea = row.querySelector('textarea[name="rubric_poor[]"]');
+                    
+                    const criteria = criteriaInput ? criteriaInput.value : '';
+                    const excellent = excellentTextarea ? excellentTextarea.value : '';
+                    const good = goodTextarea ? goodTextarea.value : '';
+                    const satisfactory = satisfactoryTextarea ? satisfactoryTextarea.value : '';
+                    const poor = poorTextarea ? poorTextarea.value : '';
+                    
+                    // Only add if at least criteria or one of the descriptions is filled
+                    if (criteria || excellent || good || satisfactory || poor) {
+                        data.rubrics.push({
+                            type: rubricType,
+                            criteria: criteria,
+                            excellent: excellent,
+                            good: good,
+                            satisfactory: satisfactory,
+                            poor: poor
+                        });
+                    }
+                });
+            }
+        });
     }
     
     // Collect grading policy
@@ -2446,9 +2548,6 @@ function saveCourseOutline(isAutoSave = false) {
             });
         }
     }
-    
-    // Debug: Log student_access_enabled value
-    console.log('Saving student_access_enabled:', data.student_access_enabled);
     
     fetch('{{ url_for("class_management.save_course_outline", session_id=session.id) }}', {
         method: 'POST',

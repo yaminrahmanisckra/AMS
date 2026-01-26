@@ -737,21 +737,65 @@
     </table>
     {% endif %}
     
-    <!-- 18. Assessment Rubrics for Class Tests and Group Debate -->
-    <div class="subsection-title">18. Assessment Rubrics for Class Tests and Group Debate</div>
-    {% if rubrics and rubrics|length > 0 %}
-        {% for rubric in rubrics %}
-            {% if rubric.get('type') %}
-            <p><strong>{{ rubric.get('type') }}</strong></p>
+    <!-- 18. Assessment Rubrics -->
+    <div class="subsection-title">18. Assessment Rubrics</div>
+    {% if rubrics_by_type and rubrics_by_type|length > 0 %}
+        {# Render each type group as a single table #}
+        {% for rubric_type, rubric_list in rubrics_by_type.items() %}
+            {% if rubric_type %}
+            <p style="margin-top: 0.15in; margin-bottom: 0.1in;"><strong>Rubric Type: {{ rubric_type }}</strong></p>
             {% endif %}
-            {% if rubric.get('criteria') %}
-            <ul>
-                {% for criterion in rubric.get('criteria') %}
-                <li>{{ criterion }}</li>
-                {% endfor %}
-            </ul>
-            {% endif %}
+            <table class="data-table" style="margin-bottom: 0.2in;">
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">Criteria</th>
+                        <th style="width: 20%;">Excellent (8-10)</th>
+                        <th style="width: 20%;">Good (5-7)</th>
+                        <th style="width: 20%;">Satisfactory (2-4)</th>
+                        <th style="width: 20%;">Poor (0-1)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rubric in rubric_list %}
+                        {% if rubric.get('criteria') or rubric.get('excellent') or rubric.get('good') or rubric.get('satisfactory') or rubric.get('poor') %}
+                        <tr>
+                            <td>{{ rubric.get('criteria', '') }}</td>
+                            <td>{{ rubric.get('excellent', '') }}</td>
+                            <td>{{ rubric.get('good', '') }}</td>
+                            <td>{{ rubric.get('satisfactory', '') }}</td>
+                            <td>{{ rubric.get('poor', '') }}</td>
+                        </tr>
+                        {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
         {% endfor %}
+    {% elif rubrics and rubrics|length > 0 %}
+        {# Fallback: if rubrics_by_type is not available, use old method #}
+        <table class="data-table" style="margin-bottom: 0.2in;">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Criteria</th>
+                    <th style="width: 20%;">Excellent (8-10)</th>
+                    <th style="width: 20%;">Good (5-7)</th>
+                    <th style="width: 20%;">Satisfactory (2-4)</th>
+                    <th style="width: 20%;">Poor (0-1)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rubric in rubrics %}
+                    {% if rubric.get('criteria') or rubric.get('excellent') or rubric.get('good') or rubric.get('satisfactory') or rubric.get('poor') %}
+                    <tr>
+                        <td>{{ rubric.get('criteria', '') }}</td>
+                        <td>{{ rubric.get('excellent', '') }}</td>
+                        <td>{{ rubric.get('good', '') }}</td>
+                        <td>{{ rubric.get('satisfactory', '') }}</td>
+                        <td>{{ rubric.get('poor', '') }}</td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
     {% else %}
     <p class="not-specified">Not specified</p>
     {% endif %}

@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, Response, jsonify
 from flask_login import login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from sqlalchemy import or_, text, func
 from .models import (
     db,
@@ -17,6 +18,9 @@ from .models import (
     StudentFeedbackLink,
     StudentFeedbackResponse,
     CourseOutline,
+    CourseQuestionThread,
+    CourseQuestionMessage,
+    CourseQuestionAttachment,
 )
 from models import User  # Import the User model from the new models file
 try:
@@ -343,7 +347,12 @@ def restrict_to_teaching_roles():
         'class_management.student_view_scores',
         'class_management.student_course_files',
         'class_management.student_download_course_outline_pdf',
-        'class_management.student_download_uploaded_file'
+        'class_management.student_download_uploaded_file',
+        'class_management.student_create_course_question',
+        'class_management.student_reply_course_question',
+        'class_management.download_course_question_attachment',
+        'class_management.delete_course_question_thread',
+        'class_management.delete_course_question_message'
     ]
     if request.endpoint in student_routes:
         return
@@ -785,6 +794,54 @@ UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
+# Q&A uploads folder (separate)
+QA_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'qa_questions')
+if not os.path.exists(QA_UPLOAD_FOLDER):
+    os.makedirs(QA_UPLOAD_FOLDER)
+
+
+def _get_qa_upload_dir(thread_id):
+    """Return (and create) per-thread upload folder."""
+    thread_dir = os.path.join(QA_UPLOAD_FOLDER, str(thread_id))
+    os.makedirs(thread_dir, exist_ok=True)
+    return thread_dir
+
+
+def _save_qa_attachments(files, thread_id):
+    """Save attachments and return metadata list."""
+    saved = []
+    if not files:
+        return saved
+    upload_dir = _get_qa_upload_dir(thread_id)
+    for file in files:
+        if not file or not file.filename:
+            continue
+        safe_name = secure_filename(file.filename)
+        if not safe_name:
+            continue
+        unique_name = f"{uuid4().hex}_{safe_name}"
+        file_path = os.path.join(upload_dir, unique_name)
+        file.save(file_path)
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
+        file_type = file.mimetype or os.path.splitext(safe_name)[1].lstrip('.')
+        saved.append({
+            'file_name': safe_name,
+            'file_path': file_path,
+            'file_size': file_size,
+            'file_type': file_type
+        })
+    return saved
+
+
+def _delete_qa_attachments(attachments):
+    """Delete attachment files from disk."""
+    for attachment in attachments:
+        try:
+            if attachment.file_path and os.path.exists(attachment.file_path):
+                os.remove(attachment.file_path)
+        except Exception:
+            pass
+
 @class_management_bp.route('/')
 @login_required
 def index():
@@ -1155,6 +1212,30 @@ def index():
             current_app.logger.error(f'Error building assignment map: {str(e)}', exc_info=True)
             db.session.rollback()
 
+    # Q&A notifications: count threads with latest message from student
+    qa_notification_map = {}
+    try:
+        from sqlalchemy.orm import selectinload
+        session_ids = [s.id for s in sessions]
+        if session_ids:
+            threads = CourseQuestionThread.query.options(
+                selectinload(CourseQuestionThread.messages)
+            ).filter(
+                CourseQuestionThread.session_id.in_(session_ids),
+                CourseQuestionThread.teacher_id == teacher.id
+            ).all()
+            for thread in threads:
+                last_message = None
+                if thread.messages:
+                    last_message = max(
+                        thread.messages,
+                        key=lambda m: m.created_at or datetime.min
+                    )
+                if last_message and last_message.sender_role == 'student':
+                    qa_notification_map[thread.session_id] = qa_notification_map.get(thread.session_id, 0) + 1
+    except Exception as e:
+        current_app.logger.warning(f'Error loading Q&A notifications: {e}')
+
     return render_template(
         'class_management/index.html',
         sessions=sessions,
@@ -1165,7 +1246,8 @@ def index():
         split_context_map=split_context_map,
         pending_split_invites=pending_split_invites,
         batches=batches,
-        assignment_map=assignment_map
+        assignment_map=assignment_map,
+        qa_notification_map=qa_notification_map
     )
 
 @class_management_bp.route('/create_session', methods=['POST'])
@@ -4068,6 +4150,14 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
     cie_breakdown = safe_json_parse(course_outline.cie_breakdown, []) if hasattr(course_outline, 'cie_breakdown') else []
     smee_breakdown = safe_json_parse(course_outline.smee_breakdown, []) if hasattr(course_outline, 'smee_breakdown') else []
     rubrics = safe_json_parse(course_outline.rubrics, [])
+    # Group rubrics by type for easier template rendering
+    rubrics_by_type = {}
+    for rubric in rubrics:
+        rubric_type = rubric.get('type', '') or ''
+        if rubric_type not in rubrics_by_type:
+            rubrics_by_type[rubric_type] = []
+        rubrics_by_type[rubric_type].append(rubric)
+    
     grading_policy = safe_json_parse(course_outline.grading_policy, [])
     evaluation_policy = safe_json_parse(course_outline.evaluation_policy, {})
     textbooks = safe_json_parse(course_outline.textbooks, [])
@@ -4102,6 +4192,7 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         cie_breakdown=cie_breakdown,
         smee_breakdown=smee_breakdown,
         rubrics=rubrics,
+        rubrics_by_type=rubrics_by_type,
         grading_policy=grading_policy,
         evaluation_policy=evaluation_policy,
         textbooks=textbooks,
@@ -5736,6 +5827,49 @@ def student_view_scores():
                         'marks': student_stats.get('marks', 0)
                     }
             
+            # Build teacher options (split courses may have multiple teachers)
+            teacher_options = []
+            try:
+                related_sessions = _get_related_sessions(session_obj)
+                for related_session in related_sessions:
+                    if related_session and related_session.teacher:
+                        teacher_options.append({
+                            'session_id': related_session.id,
+                            'teacher_id': related_session.teacher.id,
+                            'teacher_name': related_session.teacher.name,
+                            'teacher_short': related_session.teacher.short_name,
+                            'scope_label': COURSE_SCOPE_LABELS.get(related_session.course_scope, 'Part')
+                        })
+            except Exception as teacher_error:
+                current_app.logger.warning(f"Error building teacher options: {teacher_error}")
+
+            # Load Q&A threads for this course (student-specific)
+            qa_threads = []
+            qa_new_reply_count = 0
+            try:
+                from sqlalchemy.orm import selectinload
+                session_ids = list(course_data['session_ids'])
+                if session_ids:
+                    qa_threads = CourseQuestionThread.query.options(
+                        selectinload(CourseQuestionThread.messages).selectinload(CourseQuestionMessage.attachments)
+                    ).filter(
+                        CourseQuestionThread.session_id.in_(session_ids),
+                        CourseQuestionThread.student_id == student_id
+                    ).order_by(CourseQuestionThread.created_at.desc()).all()
+                    # Annotate threads with latest message role for notifications
+                    for thread in qa_threads:
+                        last_message = None
+                        if thread.messages:
+                            last_message = max(
+                                thread.messages,
+                                key=lambda m: m.created_at or datetime.min
+                            )
+                        thread.last_message_role = last_message.sender_role if last_message else None
+                        if thread.last_message_role == 'teacher':
+                            qa_new_reply_count += 1
+            except Exception as qa_error:
+                current_app.logger.warning(f"Error loading Q&A threads for student {student_id}: {qa_error}")
+
             courses_data.append({
                 'session': session_obj,
                 'student_record': primary_record,
@@ -5743,7 +5877,10 @@ def student_view_scores():
                 'best3_total': best3_total,
                 'pg_total': pg_total,
                 'attendance_data': attendance_data,
-                'reveal_status': reveal_status
+                'reveal_status': reveal_status,
+                'qa_threads': qa_threads,
+                'qa_new_reply_count': qa_new_reply_count,
+                'teacher_options': teacher_options
             })
         
         # Sort courses by course_name, then by year-term for consistent display
@@ -5763,6 +5900,322 @@ def student_view_scores():
         current_app.logger.error(f"Error loading student view scores: {e}", exc_info=True)
         flash(f'Error loading scores: {str(e)}', 'error')
         return redirect(url_for('index'))
+
+
+@class_management_bp.route('/student/course-questions/<int:session_id>/create', methods=['POST'])
+@login_required
+def student_create_course_question(session_id):
+    """Create a new Q&A thread from student."""
+    student_id = current_user.username if hasattr(current_user, 'username') else None
+    if not student_id:
+        flash('Student ID not found.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    session_obj = Session.query.get_or_404(session_id)
+    related_sessions = _get_related_sessions(session_obj)
+    related_session_ids = [s.id for s in related_sessions if s]
+
+    selected_session_id = request.form.get('selected_session_id', type=int) or session_id
+    if selected_session_id not in related_session_ids:
+        flash('Invalid teacher selection for this course.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    # Ensure student is enrolled in any related session
+    student_record = ClassStudent.query.filter(
+        ClassStudent.student_id == student_id,
+        ClassStudent.session_id.in_(related_session_ids)
+    ).first()
+    if not student_record:
+        flash('You are not enrolled in this course.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    selected_session = Session.query.get_or_404(selected_session_id)
+
+    subject = request.form.get('subject', '').strip()
+    message_body = request.form.get('message', '').strip()
+    files = request.files.getlist('attachments')
+
+    if not subject:
+        flash('Please provide a subject for your question.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    if not message_body and not files:
+        flash('Please write a message or attach a file.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    try:
+        thread = CourseQuestionThread(
+            session_id=selected_session_id,
+            student_id=student_id,
+            student_name=student_record.name or getattr(current_user, 'full_name', '') or student_id,
+            teacher_id=selected_session.teacher_id,
+            subject=subject,
+            status='open'
+        )
+        db.session.add(thread)
+        db.session.flush()
+
+        message = CourseQuestionMessage(
+            thread_id=thread.id,
+            sender_role='student',
+            sender_user_id=None,
+            body=message_body
+        )
+        db.session.add(message)
+        db.session.flush()
+
+        saved_attachments = _save_qa_attachments(files, thread.id)
+        for attachment in saved_attachments:
+            db.session.add(CourseQuestionAttachment(
+                message_id=message.id,
+                file_name=attachment['file_name'],
+                file_path=attachment['file_path'],
+                file_size=attachment.get('file_size'),
+                file_type=attachment.get('file_type')
+            ))
+
+        db.session.commit()
+        flash('Your question has been sent to the teacher.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating question thread: {e}", exc_info=True)
+        flash('Failed to send your question. Please try again.', 'error')
+
+    return redirect(url_for('class_management.student_view_scores'))
+
+
+@class_management_bp.route('/student/course-questions/<int:thread_id>/reply', methods=['POST'])
+@login_required
+def student_reply_course_question(thread_id):
+    """Reply to an existing Q&A thread from student."""
+    student_id = current_user.username if hasattr(current_user, 'username') else None
+    if not student_id:
+        flash('Student ID not found.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    thread = CourseQuestionThread.query.get_or_404(thread_id)
+    if thread.student_id != student_id:
+        flash('You are not authorized to reply to this thread.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    message_body = request.form.get('message', '').strip()
+    files = request.files.getlist('attachments')
+
+    if not message_body and not files:
+        flash('Please write a message or attach a file.', 'error')
+        return redirect(url_for('class_management.student_view_scores'))
+
+    try:
+        message = CourseQuestionMessage(
+            thread_id=thread.id,
+            sender_role='student',
+            sender_user_id=None,
+            body=message_body
+        )
+        db.session.add(message)
+        db.session.flush()
+
+        saved_attachments = _save_qa_attachments(files, thread.id)
+        for attachment in saved_attachments:
+            db.session.add(CourseQuestionAttachment(
+                message_id=message.id,
+                file_name=attachment['file_name'],
+                file_path=attachment['file_path'],
+                file_size=attachment.get('file_size'),
+                file_type=attachment.get('file_type')
+            ))
+
+        thread.updated_at = datetime.utcnow()
+        db.session.commit()
+        flash('Reply sent successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error replying to question thread: {e}", exc_info=True)
+        flash('Failed to send reply. Please try again.', 'error')
+
+    return redirect(url_for('class_management.student_view_scores'))
+
+
+@class_management_bp.route('/course-questions/<int:session_id>')
+@login_required
+def course_questions(session_id):
+    """Teacher view of course Q&A threads for a session."""
+    session_obj = Session.query.get_or_404(session_id)
+    teacher = _ensure_current_teacher()
+
+    if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
+        flash('You are not authorized to view these questions.', 'error')
+        return redirect(url_for('class_management.index'))
+
+    try:
+        from sqlalchemy.orm import selectinload
+        threads = CourseQuestionThread.query.options(
+            selectinload(CourseQuestionThread.messages).selectinload(CourseQuestionMessage.attachments)
+        ).filter_by(session_id=session_id).order_by(CourseQuestionThread.created_at.desc()).all()
+        for thread in threads:
+            last_message = None
+            if thread.messages:
+                last_message = max(
+                    thread.messages,
+                    key=lambda m: m.created_at or datetime.min
+                )
+            thread.last_message_role = last_message.sender_role if last_message else None
+    except Exception as e:
+        current_app.logger.error(f"Error loading course questions: {e}", exc_info=True)
+        threads = []
+
+    return render_template(
+        'class_management/course_questions.html',
+        session=session_obj,
+        threads=threads
+    )
+
+
+@class_management_bp.route('/course-questions/<int:thread_id>/reply', methods=['POST'])
+@login_required
+def teacher_reply_course_question(thread_id):
+    """Teacher reply to a Q&A thread."""
+    thread = CourseQuestionThread.query.get_or_404(thread_id)
+    session_obj = Session.query.get_or_404(thread.session_id)
+    teacher = _ensure_current_teacher()
+
+    if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
+        flash('You are not authorized to reply to this thread.', 'error')
+        return redirect(url_for('class_management.index'))
+
+    message_body = request.form.get('message', '').strip()
+    files = request.files.getlist('attachments')
+
+    if not message_body and not files:
+        flash('Please write a message or attach a file.', 'error')
+        return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
+
+    try:
+        message = CourseQuestionMessage(
+            thread_id=thread.id,
+            sender_role='teacher',
+            sender_user_id=teacher.id,
+            body=message_body
+        )
+        db.session.add(message)
+        db.session.flush()
+
+        saved_attachments = _save_qa_attachments(files, thread.id)
+        for attachment in saved_attachments:
+            db.session.add(CourseQuestionAttachment(
+                message_id=message.id,
+                file_name=attachment['file_name'],
+                file_path=attachment['file_path'],
+                file_size=attachment.get('file_size'),
+                file_type=attachment.get('file_type')
+            ))
+
+        thread.updated_at = datetime.utcnow()
+        db.session.commit()
+        flash('Reply sent successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error replying to question thread: {e}", exc_info=True)
+        flash('Failed to send reply. Please try again.', 'error')
+
+    return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
+
+
+@class_management_bp.route('/course-questions/attachments/<int:attachment_id>')
+@login_required
+def download_course_question_attachment(attachment_id):
+    """Download attachment for course Q&A."""
+    try:
+        attachment = CourseQuestionAttachment.query.get_or_404(attachment_id)
+        message = CourseQuestionMessage.query.get_or_404(attachment.message_id)
+        thread = CourseQuestionThread.query.get_or_404(message.thread_id)
+        session_obj = Session.query.get_or_404(thread.session_id)
+
+        student_id = current_user.username if hasattr(current_user, 'username') else None
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+
+        is_student_allowed = bool(student_id and thread.student_id == student_id)
+        is_teacher_allowed = bool(teacher and teacher.id == session_obj.teacher_id)
+        if not (is_student_allowed or is_teacher_allowed or is_admin(current_user)):
+            flash('You are not authorized to access this file.', 'error')
+            return redirect(url_for('index'))
+
+        if not os.path.exists(attachment.file_path):
+            flash('File not found.', 'error')
+            return redirect(url_for('index'))
+
+        return send_file(
+            attachment.file_path,
+            as_attachment=True,
+            download_name=attachment.file_name
+        )
+    except Exception as e:
+        current_app.logger.error(f"Error downloading question attachment: {e}", exc_info=True)
+        flash('Error downloading file.', 'error')
+        return redirect(url_for('index'))
+
+
+@class_management_bp.route('/course-questions/<int:thread_id>/delete', methods=['POST'])
+@login_required
+def delete_course_question_thread(thread_id):
+    """Delete a Q&A thread (question)."""
+    thread = CourseQuestionThread.query.get_or_404(thread_id)
+    session_obj = Session.query.get_or_404(thread.session_id)
+    student_id = current_user.username if hasattr(current_user, 'username') else None
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+
+    is_student_owner = bool(student_id and thread.student_id == student_id)
+    is_teacher_owner = bool(teacher and teacher.id == session_obj.teacher_id)
+    if not (is_student_owner or is_teacher_owner or is_admin(current_user)):
+        flash('You are not authorized to delete this question.', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        # Delete files for all attachments
+        for msg in thread.messages:
+            _delete_qa_attachments(msg.attachments)
+        db.session.delete(thread)
+        db.session.commit()
+        flash('Question deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting question thread: {e}", exc_info=True)
+        flash('Failed to delete question.', 'error')
+
+    if is_teacher_owner:
+        return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
+    return redirect(url_for('class_management.student_view_scores'))
+
+
+@class_management_bp.route('/course-questions/message/<int:message_id>/delete', methods=['POST'])
+@login_required
+def delete_course_question_message(message_id):
+    """Delete a single message in a Q&A thread."""
+    message = CourseQuestionMessage.query.get_or_404(message_id)
+    thread = CourseQuestionThread.query.get_or_404(message.thread_id)
+    session_obj = Session.query.get_or_404(thread.session_id)
+    student_id = current_user.username if hasattr(current_user, 'username') else None
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+
+    is_student_owner = bool(student_id and thread.student_id == student_id and message.sender_role == 'student')
+    is_teacher_owner = bool(teacher and message.sender_role == 'teacher' and message.sender_user_id == teacher.id)
+    if not (is_student_owner or is_teacher_owner or is_admin(current_user)):
+        flash('You are not authorized to delete this message.', 'error')
+        return redirect(url_for('index'))
+
+    try:
+        _delete_qa_attachments(message.attachments)
+        db.session.delete(message)
+        db.session.commit()
+        flash('Message deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting question message: {e}", exc_info=True)
+        flash('Failed to delete message.', 'error')
+
+    if is_teacher_owner:
+        return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
+    return redirect(url_for('class_management.student_view_scores'))
 
 @class_management_bp.route('/download_assessment_excel/<int:session_id>')
 @login_required
