@@ -209,7 +209,7 @@
         </span>
     </div>
 
-    <form id="courseOutlineForm">
+    <form id="courseOutlineForm" action="{{ url_for('class_management.save_course_outline', session_id=session.id) }}" method="POST">
         <input type="hidden" name="session_id" value="{{ session.id }}">
         
         <!-- Part A: Introduction -->
@@ -447,9 +447,10 @@
                                     <tr>
                                         <th style="width: 5%;">#</th>
                                         <th style="width: 5%;">Select</th>
-                                        <th style="width: 50%;">Content</th>
-                                        <th style="width: 10%;">Hrs</th>
-                                        <th style="width: 20%;">CLO</th>
+                                        <th style="width: 45%;">Content</th>
+                                        <th style="width: 8%;">Hrs</th>
+                                        <th style="width: 8%;">Classes</th>
+                                        <th style="width: 19%;">CLO</th>
                                         <th style="width: 5%;">Action</th>
                                     </tr>
                                 </thead>
@@ -477,9 +478,10 @@
                                     <tr>
                                         <th style="width: 5%;">#</th>
                                         <th style="width: 5%;">Select</th>
-                                        <th style="width: 50%;">Content</th>
-                                        <th style="width: 10%;">Hrs</th>
-                                        <th style="width: 20%;">CLO</th>
+                                        <th style="width: 45%;">Content</th>
+                                        <th style="width: 8%;">Hrs</th>
+                                        <th style="width: 8%;">Classes</th>
+                                        <th style="width: 19%;">CLO</th>
                                         <th style="width: 5%;">Action</th>
                                     </tr>
                                 </thead>
@@ -811,9 +813,9 @@
                 <button type="button" class="btn btn-secondary w-100 w-sm-auto" onclick="window.location.href='{{ url_for('class_management.course_file', session_id=session.id) }}'">
                     <i class="fas fa-times me-1"></i>Cancel
                 </button>
-                <button type="button" class="btn btn-primary w-100 w-sm-auto" onclick="saveCourseOutline(false)">
-                <i class="fas fa-save me-1"></i>Save Course Outline
-            </button>
+                <button type="submit" id="saveCourseOutlineBtn" class="btn btn-primary w-100 w-sm-auto">
+                    <i class="fas fa-save me-1"></i>Save Course Outline
+                </button>
             </div>
         </div>
     </form>
@@ -841,6 +843,8 @@ const curriculumContentsB = {{ course_contents_b|tojson }};
 {% else %}
 const curriculumContentsB = [];
 {% endif %}
+// Saved Classes per row (from course_content_classes): { section_a: [1,2,...], section_b: [1,1,...] }
+const existingClasses = {{ existing_classes|tojson|safe }};
 
 function importCLOsFromCourse() {
     if (!courseCLOs || courseCLOs.length === 0) {
@@ -1187,11 +1191,25 @@ document.addEventListener('DOMContentLoaded', function() {
         addGradingPolicy({range: 'Below 40', grade: 'F'});
     }
 
-    // Form submission
-    document.getElementById('courseOutlineForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        saveCourseOutline();
-    });
+    // Form submission: use saveCourseOutline() so all sections (lesson plan, assessment, etc.) save via JSON
+    const courseOutlineForm = document.getElementById('courseOutlineForm');
+    if (courseOutlineForm) {
+        courseOutlineForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            // Sync Section 13 summary to hidden field before save
+            if (typeof updateCourseContentSummary === 'function') {
+                try {
+                    updateCourseContentSummary();
+                } catch (err) {
+                    console.warn('updateCourseContentSummary before submit:', err);
+                }
+            }
+            // Use saveCourseOutline (fetch + JSON) - saves lesson plan, assessment, and all other sections
+            if (typeof saveCourseOutline === 'function') {
+                saveCourseOutline(false);  // false = manual save
+            }
+        });
+    }
 });
 
 function addLessonPlanRow(data = {}) {
@@ -1264,11 +1282,33 @@ function moveLessonPlanRow(button, direction) {
     const container = document.getElementById('lessonPlanContainer');
     if (!container) return;
     
+    // Get Week and Date inputs from current row
+    const currentWeekInput = row.querySelector('input[name="lesson_week[]"]');
+    const currentDateInput = row.querySelector('input[name="lesson_date[]"]');
+    
     if (direction === 'up') {
         // Move row up (swap with previous sibling)
         const prevRow = row.previousElementSibling;
         if (prevRow && prevRow.classList.contains('lesson-plan-row')) {
+            // Get Week and Date from previous row
+            const prevWeekInput = prevRow.querySelector('input[name="lesson_week[]"]');
+            const prevDateInput = prevRow.querySelector('input[name="lesson_date[]"]');
+            
+            // Store Week and Date values before swap
+            const currentWeek = currentWeekInput.value;
+            const currentDate = currentDateInput.value;
+            const prevWeek = prevWeekInput.value;
+            const prevDate = prevDateInput.value;
+            
+            // Swap rows
             container.insertBefore(row, prevRow);
+            
+            // Swap Week and Date values (keep position-based values)
+            currentWeekInput.value = prevWeek;
+            currentDateInput.value = prevDate;
+            prevWeekInput.value = currentWeek;
+            prevDateInput.value = currentDate;
+            
             // Add highlight animation
             row.style.transition = 'background-color 0.3s';
             row.style.backgroundColor = '#d4edda';
@@ -1280,7 +1320,25 @@ function moveLessonPlanRow(button, direction) {
         // Move row down (swap with next sibling)
         const nextRow = row.nextElementSibling;
         if (nextRow && nextRow.classList.contains('lesson-plan-row')) {
+            // Get Week and Date from next row
+            const nextWeekInput = nextRow.querySelector('input[name="lesson_week[]"]');
+            const nextDateInput = nextRow.querySelector('input[name="lesson_date[]"]');
+            
+            // Store Week and Date values before swap
+            const currentWeek = currentWeekInput.value;
+            const currentDate = currentDateInput.value;
+            const nextWeek = nextWeekInput.value;
+            const nextDate = nextDateInput.value;
+            
+            // Swap rows
             container.insertBefore(nextRow, row);
+            
+            // Swap Week and Date values (keep position-based values)
+            currentWeekInput.value = nextWeek;
+            currentDateInput.value = nextDate;
+            nextWeekInput.value = currentWeek;
+            nextDateInput.value = currentDate;
+            
             // Add highlight animation
             row.style.transition = 'background-color 0.3s';
             row.style.backgroundColor = '#d4edda';
@@ -1981,7 +2039,9 @@ function initializeCourseContentsSummary() {
                 existingContent.sectionA.forEach((item, idx) => {
                     if (item && (item.content || item.hrs || item.clo)) {
                         const selected = item.selected !== undefined ? item.selected : true;
-                        addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', idx, selected);
+                        // NEVER use num_classes/classes from curriculum - only from saved existingClasses or DB (course_content_summary)
+                        const numClasses = (existingClasses && existingClasses.section_a && existingClasses.section_a[idx] != null && existingClasses.section_a[idx] !== '') ? String(existingClasses.section_a[idx]) : ((item.num_classes !== undefined && item.num_classes !== null && item.num_classes !== '') ? String(item.num_classes) : ((item.classes !== undefined && item.classes !== null && item.classes !== '') ? String(item.classes) : '1'));
+                        addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', idx, selected, numClasses);
                         hasExistingData = true;
                     }
                 });
@@ -1990,7 +2050,9 @@ function initializeCourseContentsSummary() {
                 existingContent.sectionB.forEach((item, idx) => {
                     if (item && (item.content || item.hrs || item.clo)) {
                         const selected = item.selected !== undefined ? item.selected : true;
-                        addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', idx, selected);
+                        // NEVER use num_classes/classes from curriculum - only from saved existingClasses or DB (course_content_summary)
+                        const numClasses = (existingClasses && existingClasses.section_b && existingClasses.section_b[idx] != null && existingClasses.section_b[idx] !== '') ? String(existingClasses.section_b[idx]) : ((item.num_classes !== undefined && item.num_classes !== null && item.num_classes !== '') ? String(item.num_classes) : ((item.classes !== undefined && item.classes !== null && item.classes !== '') ? String(item.classes) : '1'));
+                        addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', idx, selected, numClasses);
                         hasExistingData = true;
                     }
                 });
@@ -2018,20 +2080,20 @@ function initializeCourseContentsSummary() {
     {% endif %}
     
     // Auto-import from curriculum if no existing data
+    // Classes: NEVER from curriculum - only from saved existingClasses; otherwise empty (user fills)
     if (!hasExistingData) {
-        // Import Section A from curriculum (selected=true by default)
         if (curriculumContentsA && Array.isArray(curriculumContentsA) && curriculumContentsA.length > 0) {
             curriculumContentsA.forEach((item, idx) => {
-                addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', idx, true);
+                const savedClasses = (existingClasses && existingClasses.section_a && existingClasses.section_a[idx] != null && existingClasses.section_a[idx] !== '') ? String(existingClasses.section_a[idx]) : '1';
+                addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', idx, true, savedClasses);
             });
         } else {
             addCourseContentRow('A');
         }
-        
-        // Import Section B from curriculum (selected=true by default)
         if (curriculumContentsB && Array.isArray(curriculumContentsB) && curriculumContentsB.length > 0) {
             curriculumContentsB.forEach((item, idx) => {
-                addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', idx, true);
+                const savedClasses = (existingClasses && existingClasses.section_b && existingClasses.section_b[idx] != null && existingClasses.section_b[idx] !== '') ? String(existingClasses.section_b[idx]) : '1';
+                addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', idx, true, savedClasses);
             });
         } else {
             addCourseContentRow('B');
@@ -2091,18 +2153,20 @@ function importCourseContentsFromCurriculum() {
         return;
     }
     
-    if (confirm('Import Course Contents from Curriculum? This will add them to the existing contents. All imported topics will be selected by default.')) {
+    if (confirm('Import Course Contents from Curriculum? This will add them to the existing contents. All imported topics will be selected by default. You must fill Classes manually.')) {
         // Import Section A (selected=true by default)
+        // NOTE: Classes field will be empty - user must fill manually
         if (curriculumContentsA && curriculumContentsA.length > 0) {
             curriculumContentsA.forEach((item) => {
-                addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', null, true);
+                addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', null, true, '1');
             });
         }
         
         // Import Section B (selected=true by default)
+        // NOTE: Classes field will be empty - user must fill manually
         if (curriculumContentsB && curriculumContentsB.length > 0) {
             curriculumContentsB.forEach((item) => {
-                addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', null, true);
+                addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', null, true, '1');
             });
         }
         
@@ -2111,7 +2175,7 @@ function importCourseContentsFromCurriculum() {
     }
 }
 
-function addCourseContentRow(section, content = '', hrs = '', clo = '', index = null, selected = true) {
+function addCourseContentRow(section, content = '', hrs = '', clo = '', index = null, selected = true, numClasses = '1') {
     const tbody = document.getElementById(`courseContentTableBody${section}`);
     if (!tbody) return;
     
@@ -2150,6 +2214,9 @@ function addCourseContentRow(section, content = '', hrs = '', clo = '', index = 
         </td>
         <td>
             <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_hrs[]" value="${hrs}" placeholder="Hrs" style="width: 70px;" onchange="updateCourseContentSummary()">
+        </td>
+        <td>
+            <input type="number" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_classes[]" value="${numClasses === '1' ? '' : numClasses}" placeholder="1" min="1" style="width: 70px;">
         </td>
         <td>
             <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_clo[]" value="${clo}" placeholder="e.g., 1, 2" style="width: 100px;" onchange="updateCourseContentSummary()">
@@ -2206,54 +2273,68 @@ function updateCourseContentSummary() {
     const sectionA = [];
     const sectionB = [];
     
-    // Collect Section A data
-    const tbodyA = document.getElementById('courseContentTableBodyA');
-    if (tbodyA) {
-        Array.from(tbodyA.children).forEach(row => {
+    try {
+        // Collect Section A data
+        const tbodyA = document.getElementById('courseContentTableBodyA');
+        if (tbodyA) {
+        Array.from(tbodyA.children).forEach((row, rowIdx) => {
             const checkbox = row.querySelector('.topic-select-checkbox');
             const selected = checkbox ? checkbox.checked : true;
-            const content = row.querySelector('input[name^="course_content_a_content"]')?.value || '';
-            const hrs = row.querySelector('input[name^="course_content_a_hrs"]')?.value || '';
-            const clo = row.querySelector('input[name^="course_content_a_clo"]')?.value || '';
-            
-            if (content.trim() || hrs.trim() || clo.trim()) {
-                sectionA.push({
-                    content: content.trim(),
-                    hrs: hrs.trim(),
-                    clo: clo.trim(),
-                    selected: selected
-                });
-            }
-        });
-    }
-    
-    // Collect Section B data
-    const tbodyB = document.getElementById('courseContentTableBodyB');
-    if (tbodyB) {
-        Array.from(tbodyB.children).forEach(row => {
+            const content = (row.querySelector('input[name^="course_content_a_content"]') || {}).value || '';
+            const hrs = (row.querySelector('input[name^="course_content_a_hrs"]') || {}).value || '';
+            // Note: num_classes will be merged from FormData during save, so we just use 1 as placeholder here
+            const num_classes = 1;
+            const clo = (row.querySelector('input[name^="course_content_a_clo"]') || {}).value || '';
+                
+                if ((content && content.trim()) || (hrs && hrs.trim()) || (clo && clo.trim())) {
+                    sectionA.push({
+                        content: (content || '').trim(),
+                        hrs: (hrs || '').trim(),
+                        clo: (clo || '').trim(),
+                        selected: selected,
+                        num_classes: num_classes
+                    });
+                }
+            });
+        }
+        
+        // Collect Section B data
+        const tbodyB = document.getElementById('courseContentTableBodyB');
+        if (tbodyB) {
+        Array.from(tbodyB.children).forEach((row, rowIdx) => {
             const checkbox = row.querySelector('.topic-select-checkbox');
             const selected = checkbox ? checkbox.checked : true;
-            const content = row.querySelector('input[name^="course_content_b_content"]')?.value || '';
-            const hrs = row.querySelector('input[name^="course_content_b_hrs"]')?.value || '';
-            const clo = row.querySelector('input[name^="course_content_b_clo"]')?.value || '';
-            
-            if (content.trim() || hrs.trim() || clo.trim()) {
-                sectionB.push({
-                    content: content.trim(),
-                    hrs: hrs.trim(),
-                    clo: clo.trim(),
-                    selected: selected
-                });
-            }
-        });
-    }
-    
+            const content = (row.querySelector('input[name^="course_content_b_content"]') || {}).value || '';
+            const hrs = (row.querySelector('input[name^="course_content_b_hrs"]') || {}).value || '';
+            // Note: num_classes will be merged from FormData during save, so we just use 1 as placeholder here
+            const num_classes = 1;
+            const clo = (row.querySelector('input[name^="course_content_b_clo"]') || {}).value || '';
+                
+                if ((content && content.trim()) || (hrs && hrs.trim()) || (clo && clo.trim())) {
+                    sectionB.push({
+                        content: (content || '').trim(),
+                        hrs: (hrs || '').trim(),
+                        clo: (clo || '').trim(),
+                        selected: selected,
+                        num_classes: num_classes
+                    });
+                }
+            });
+        }
+        
     courseContentsData = { sectionA, sectionB };
     
     // Update hidden field with JSON format
     const hiddenField = document.getElementById('course_content_summary_json');
     if (hiddenField) {
         hiddenField.value = JSON.stringify(courseContentsData);
+        console.log('updateCourseContentSummary: sectionA =', JSON.stringify(sectionA, null, 2));
+        console.log('updateCourseContentSummary: sectionB =', JSON.stringify(sectionB, null, 2));
+    } else {
+        console.warn('updateCourseContentSummary: Hidden field not found!');
+    }
+    } catch (err) {
+        console.warn('updateCourseContentSummary error:', err);
     }
 }
 
@@ -2335,12 +2416,34 @@ function autoSave() {
 }
 
 function saveCourseOutline(isAutoSave = false) {
-    // If already saving, skip
-    if (isSaving && !isAutoSave) {
-        return;
+    console.log('saveCourseOutline called, isAutoSave=', isAutoSave);
+    // Only skip when auto-save runs while a save is already in progress; manual Save always runs
+    if (isSaving && isAutoSave) return;
+    isSaving = true;
+    
+    var saveBtnEl = document.getElementById('saveCourseOutlineBtn');
+    var btnOriginalHtml = saveBtnEl ? saveBtnEl.innerHTML : '';
+    if (saveBtnEl && !isAutoSave) {
+        saveBtnEl.disabled = true;
+        saveBtnEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
     }
     
+    // Ensure Section 13 (course content + Classes) is up to date in hidden field before save
+    try {
+        if (typeof updateCourseContentSummary === 'function') {
+            updateCourseContentSummary();
+        }
+    } catch (err) {
+        console.warn('updateCourseContentSummary before save:', err);
+    }
+    
+    try {
     const form = document.getElementById('courseOutlineForm');
+    if (!form) {
+        isSaving = false;
+        if (!isAutoSave) alert('Form not found.');
+        return;
+    }
     const formData = new FormData(form);
     
     // Get student_access_enabled checkbox value (it's outside the form)
@@ -2374,6 +2477,36 @@ function saveCourseOutline(isAutoSave = false) {
     });
     
     // Convert form data to JSON structure
+    // Read Classes values directly from DOM at save time (most reliable - no FormData/cache issues)
+    const classesAInputs = form.querySelectorAll('input[name="course_content_a_classes[]"]');
+    const classesBInputs = form.querySelectorAll('input[name="course_content_b_classes[]"]');
+    const classesAFinal = Array.from(classesAInputs).map(function(inp) { return (inp && (inp.value !== '' && inp.value != null)) ? String(inp.value) : '1'; });
+    const classesBFinal = Array.from(classesBInputs).map(function(inp) { return (inp && (inp.value !== '' && inp.value != null)) ? String(inp.value) : '1'; });
+    console.log('Save: Classes from DOM =', { a: classesAFinal, b: classesBFinal });
+    
+    // Parse course_content_summary JSON and merge with Classes values
+    let courseContentSummaryValue = document.getElementById('course_content_summary_json')?.value || '';
+    try {
+        const contentData = JSON.parse(courseContentSummaryValue || '{"sectionA":[],"sectionB":[]}');
+        
+        if (contentData.sectionA && Array.isArray(contentData.sectionA)) {
+            contentData.sectionA.forEach((item, idx) => {
+                const v = classesAFinal[idx];
+                item.num_classes = Math.max(1, parseInt(v, 10) || 1);
+            });
+        }
+        if (contentData.sectionB && Array.isArray(contentData.sectionB)) {
+            contentData.sectionB.forEach((item, idx) => {
+                const v = classesBFinal[idx];
+                item.num_classes = Math.max(1, parseInt(v, 10) || 1);
+            });
+        }
+        
+        courseContentSummaryValue = JSON.stringify(contentData);
+    } catch (err) {
+        console.warn('saveCourseOutline: Failed to merge Classes values:', err);
+    }
+    
     const data = {
         course_objectives: formData.getAll('course_objectives')[0]?.split('\n').filter(l => l.trim()) || [],
         course_summary: formData.get('course_summary') || '',
@@ -2384,7 +2517,9 @@ function saveCourseOutline(isAutoSave = false) {
         credit_value: formData.get('credit_value') || '',
         course_type: formData.get('course_type') || '',
         level_term_section: formData.get('level_term_section') || '',
-        course_content_summary: document.getElementById('course_content_summary_json')?.value || '',
+        course_content_summary: courseContentSummaryValue,
+        classes_a: Array.isArray(classesAFinal) ? classesAFinal : [],
+        classes_b: Array.isArray(classesBFinal) ? classesBFinal : [],
         clo_data: cloDataArray,
         plo_mapping: ploMappingData,
         lesson_plan: [],
@@ -2445,7 +2580,8 @@ function saveCourseOutline(isAutoSave = false) {
     const totalMarks = formData.getAll('total_marks[]');
     
     // Get all CLO numbers from cloData
-    const cloNumbers = cloData.map(clo => clo.number || (cloData.indexOf(clo) + 1));
+    const cloDataForSave = (typeof cloData !== 'undefined' && Array.isArray(cloData)) ? cloData : cloDataArray;
+    const cloNumbers = cloDataForSave.map(clo => clo.number || (cloDataForSave.indexOf(clo) + 1));
     
     // Collect marks for each CLO dynamically
     const cloMarksData = {};
@@ -2554,36 +2690,41 @@ function saveCourseOutline(isAutoSave = false) {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) throw new Error('Server returned ' + response.status);
+        return response.json();
+    })
     .then(result => {
         isSaving = false;
-        // Update auto-save status
+        if (saveBtnEl && !isAutoSave) { saveBtnEl.disabled = false; saveBtnEl.innerHTML = btnOriginalHtml; }
         updateAutoSaveStatus(result.success, result.message || 'Course outline saved successfully!');
-        
         if (!isAutoSave) {
-            // Only show alert and reload for manual saves
-        if (result.success) {
+            if (result.success) {
                 const successMsg = document.createElement('div');
                 successMsg.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
                 successMsg.style.zIndex = '9999';
                 successMsg.innerHTML = '<i class="fas fa-check-circle me-2"></i>Course outline saved successfully!<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
                 document.body.appendChild(successMsg);
-                setTimeout(() => {
-                    window.location.reload();
-                }, 1000);
-        } else {
-            alert('Error saving: ' + (result.message || 'Unknown error'));
+                setTimeout(() => { window.location.reload(); }, 1000);
+            } else {
+                alert('Error saving: ' + (result.message || 'Unknown error'));
             }
         }
     })
     .catch(error => {
         isSaving = false;
+        if (saveBtnEl && !isAutoSave) { saveBtnEl.disabled = false; saveBtnEl.innerHTML = btnOriginalHtml; }
         console.error('Error:', error);
         updateAutoSaveStatus(false, 'Network error occurred');
-        if (!isAutoSave) {
-        alert('Error saving course outline');
-        }
-    });
+        if (!isAutoSave) alert('Error saving course outline: ' + (error.message || 'Network or server error'));
+    })
+    .finally(() => { isSaving = false; });
+    } catch (err) {
+        isSaving = false;
+        if (saveBtnEl && !isAutoSave) { saveBtnEl.disabled = false; saveBtnEl.innerHTML = btnOriginalHtml; }
+        console.error('Save error:', err);
+        if (!isAutoSave) alert('Error preparing save: ' + (err.message || String(err)));
+    }
 }
 
 // Handle collapse/expand for Part sections and set up auto-save

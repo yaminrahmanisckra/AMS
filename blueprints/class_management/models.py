@@ -122,6 +122,59 @@ class CourseFileUpload(db.Model):
     session = db.relationship('Session', backref=db.backref('uploaded_files', lazy='dynamic'))
     teacher = db.relationship('Teacher', backref=db.backref('uploaded_files', lazy='dynamic'))
 
+
+class CourseQuestionThread(db.Model):
+    """Student -> Teacher Q&A threads per course session."""
+    __tablename__ = 'course_question_thread'
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey('class_session.id'), nullable=False, index=True)
+    student_id = db.Column(db.String(50), nullable=False, index=True)
+    student_name = db.Column(db.String(100), nullable=False)
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False, index=True)
+    subject = db.Column(db.String(200), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='open')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    session = db.relationship('Session', backref=db.backref('question_threads', lazy='dynamic'))
+    teacher = db.relationship('Teacher', backref=db.backref('question_threads', lazy='dynamic'))
+    messages = db.relationship(
+        'CourseQuestionMessage',
+        backref='thread',
+        lazy='selectin',
+        cascade="all, delete-orphan"
+    )
+
+
+class CourseQuestionMessage(db.Model):
+    """Messages inside a Q&A thread."""
+    __tablename__ = 'course_question_message'
+    id = db.Column(db.Integer, primary_key=True)
+    thread_id = db.Column(db.Integer, db.ForeignKey('course_question_thread.id'), nullable=False, index=True)
+    sender_role = db.Column(db.String(20), nullable=False)  # student | teacher
+    sender_user_id = db.Column(db.Integer, nullable=True)   # teacher.id or student.id (optional)
+    body = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    attachments = db.relationship(
+        'CourseQuestionAttachment',
+        backref='message',
+        lazy='selectin',
+        cascade="all, delete-orphan"
+    )
+
+
+class CourseQuestionAttachment(db.Model):
+    """Attachment for a Q&A message."""
+    __tablename__ = 'course_question_attachment'
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey('course_question_message.id'), nullable=False, index=True)
+    file_name = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    file_size = db.Column(db.Integer, nullable=True)
+    file_type = db.Column(db.String(100), nullable=True)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 # Evaluation invitation for external/internal teacher to assess a course session
 class EvaluationInvite(db.Model):
     __tablename__ = 'evaluation_invite'
@@ -263,6 +316,7 @@ class CourseOutline(db.Model):
     
     # Part B: Course Content (if needed)
     course_content_summary = db.Column(db.Text, nullable=True)  # JSON: {section_a: [...], section_b: [...]}
+    course_content_classes = db.Column(db.Text, nullable=True)  # JSON: {section_a: [1,2,1,...], section_b: [1,1,3,...]}
     clo_plo_mapping = db.Column(db.Text, nullable=True)  # JSON: [{clo, plos, mapping_matrix}]
     
     # Part C: Assessment and Evaluation

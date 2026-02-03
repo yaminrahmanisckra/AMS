@@ -5,7 +5,12 @@ import pandas as pd
 from . import student_management_bp
 from .models import Student
 from extensions import db
-from blueprints.course_management.models import Curriculum
+from blueprints.course_management.models import (
+    Curriculum,
+    StudentCourseRegistration,
+    CourseRegistrationInvite,
+    DutyAssignment,
+)
 from user_models import User
 from role_utils import parse_roles, serialize_roles
 
@@ -216,6 +221,23 @@ def delete_student(student_id):
     try:
         name = student.name
         student_id_val = student.student_id
+
+        # 1) Delete course registrations (and cascaded invites) for this student
+        registrations = StudentCourseRegistration.query.filter_by(student_id=student.id).all()
+        for reg in registrations:
+            db.session.delete(reg)
+
+        # 2) Delete any remaining invites that reference this student directly
+        invites = CourseRegistrationInvite.query.filter_by(student_id=student.id).all()
+        for invite in invites:
+            db.session.delete(invite)
+
+        # 3) Detach the student from any duty assignments (set nullable FK to NULL)
+        duties = DutyAssignment.query.filter_by(student_id=student.id).all()
+        for duty in duties:
+            duty.student_id = None
+
+        # 4) Clean up linked login account / roles
         account = User.query.filter_by(username=student.student_id).first()
         if account:
             roles = parse_roles(account.role)

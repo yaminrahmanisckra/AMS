@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}Course Questions{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="mb-0">
+                <i class="fas fa-comments me-2 text-primary"></i>Course Questions
+            </h4>
+            <p class="text-muted mb-0">
+                {{ session.course_name or 'Course' }}
+                {% if session.course_code %}
+                    <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
+                {% endif %}
+            </p>
+        </div>
+        <a href="{{ url_for('class_management.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back to Courses
+        </a>
+    </div>
+
+    {% if threads %}
+        {% for thread in threads %}
+        <div class="card mb-3 shadow-sm">
+            <div class="card-header bg-light d-flex justify-content-between align-items-start">
+                <div>
+                    <strong>{{ thread.subject }}</strong>
+                    <div class="text-muted small">
+                        Student: {{ thread.student_name }} ({{ thread.student_id }})
+                        {% if thread.created_at %} • Asked: {{ thread.created_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+                    </div>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                    {% if thread.last_message_role == 'student' %}
+                        <span class="badge bg-warning text-dark">New Question</span>
+                    {% endif %}
+                    <span class="badge bg-secondary text-uppercase">{{ thread.status }}</span>
+                    <form method="POST" action="{{ url_for('class_management.delete_course_question_thread', thread_id=thread.id) }}" onsubmit="return confirm('Delete this question?');">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body">
+                {% for msg in thread.messages|sort(attribute='created_at') %}
+                <div class="mb-3">
+                    <div class="small text-muted d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge {% if msg.sender_role == 'teacher' %}bg-primary{% else %}bg-success{% endif %}">
+                                {{ 'Teacher' if msg.sender_role == 'teacher' else 'Student' }}
+                            </span>
+                            {% if msg.created_at %}
+                                <span class="ms-2">{{ msg.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                            {% endif %}
+                        </div>
+                        {% if msg.sender_role == 'teacher' %}
+                            <form method="POST" action="{{ url_for('class_management.delete_course_question_message', message_id=msg.id) }}" onsubmit="return confirm('Delete this message?');">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        {% endif %}
+                    </div>
+                    {% if msg.body %}
+                        <div class="mt-1">{{ msg.body | urlize | replace('\n', '<br>') | safe }}</div>
+                    {% endif %}
+                    {% if msg.attachments %}
+                        <div class="mt-2">
+                            {% for att in msg.attachments %}
+                                <a href="{{ url_for('class_management.download_course_question_attachment', attachment_id=att.id) }}" class="btn btn-sm btn-outline-secondary me-1 mb-1">
+                                    <i class="fas fa-paperclip me-1"></i>{{ att.file_name }}
+                                </a>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+                <form method="POST" action="{{ url_for('class_management.teacher_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data">
+                    <div class="mb-2">
+                        <label class="form-label mb-1">Reply</label>
+                        <textarea name="message" class="form-control form-control-sm" rows="3" placeholder="Write a reply..."></textarea>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label mb-1">Attachments (optional)</label>
+                        <input type="file" name="attachments" class="form-control form-control-sm" multiple>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="fas fa-reply me-1"></i>Send Reply
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>No questions yet for this course.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

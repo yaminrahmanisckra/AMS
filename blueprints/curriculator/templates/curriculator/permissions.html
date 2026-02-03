@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Manage permissions – Curriculator{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.index') }}">Curriculator</a></li>
+            <li class="breadcrumb-item active">Manage permissions</li>
+        </ol>
+    </nav>
+    <h2 class="mb-3"><i class="fas fa-user-shield me-2"></i>Manage full edit permission</h2>
+    <p class="text-muted mb-4">
+        Only Head can manage this list. Head can grant <strong>full edit (Head-equivalent)</strong> to teachers here. Users listed below can edit all syllabus parts (A, B, C, D), add/remove syllabus documents, assign Part A section owners, and assign or withdraw Part C course authors.
+    </p>
+
+    <div class="row">
+        <div class="col-lg-6">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">Grant full edit permission</div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('curriculator.permissions_add') }}">
+                        <div class="mb-3">
+                            <label for="user_id" class="form-label">Teacher</label>
+                            <select name="user_id" id="user_id" class="form-select" required>
+                                <option value="">— Select teacher —</option>
+                                {% for u in eligible_users %}
+                                <option value="{{ u.id }}">{{ u.full_name }} ({{ u.username }})</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Only teachers are listed. Excludes Head, Teaching Assistants, and users already granted.</small>
+                            {% if not eligible_users %}
+                            <small class="d-block text-muted mt-1">No teachers left to add. All eligible teachers either already have permission or are in the list.</small>
+                            {% endif %}
+                        </div>
+                        <button type="submit" class="btn btn-primary" {% if not eligible_users %}disabled{% endif %}>
+                            <i class="fas fa-plus me-1"></i>Grant full edit permission
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">Users with full edit permission</div>
+                <div class="card-body">
+                    <p class="text-muted small mb-2">Head always has full edit. Users below were granted by Head.</p>
+                    {% if not editors %}
+                    <p class="text-muted mb-0">No one has been granted yet.</p>
+                    {% else %}
+                    <ul class="list-group list-group-flush">
+                        {% for e in editors %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            <span>{{ e.user.full_name }} <small class="text-muted">({{ e.user.username }})</small></span>
+                            <form action="{{ url_for('curriculator.permissions_remove') }}" method="post" class="d-inline" onsubmit="return confirm('Revoke full edit permission from {{ e.user.full_name }}?');">
+                                <input type="hidden" name="user_id" value="{{ e.user_id }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm" title="Revoke permission">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </form>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <a href="{{ url_for('curriculator.index') }}" class="btn btn-outline-secondary">
+        <i class="fas fa-arrow-left me-1"></i>Back to Curriculator
+    </a>
+</div>
+{% endblock %}

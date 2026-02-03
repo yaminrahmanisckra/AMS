@@ -224,6 +224,14 @@
                                                         <i class="fas fa-folder me-2"></i>Course File
                                         </a>
                                                 </li>
+                                                <li>
+                                                    <a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('class_management.course_questions', session_id=session.id) }}">
+                                                        <span><i class="fas fa-comments me-2"></i>Questions</span>
+                                                        {% if qa_notification_map and qa_notification_map.get(session.id) %}
+                                                            <span class="badge bg-warning text-dark">{{ qa_notification_map.get(session.id) }}</span>
+                                                        {% endif %}
+                                                    </a>
+                                                </li>
                                                 <li><hr class="dropdown-divider"></li>
                                                 <li>
                                                     <form action="{{ url_for('class_management.archive_session', session_id=session.id) }}" method="POST" style="display:inline;">

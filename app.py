@@ -307,6 +307,8 @@ def create_app():
     app.register_blueprint(course_management_bp, url_prefix='/course-management')
     from blueprints.academic_calendar import academic_calendar_bp
     app.register_blueprint(academic_calendar_bp, url_prefix='/academic-calendar')
+    from blueprints.curriculator import curriculator_bp
+    app.register_blueprint(curriculator_bp, url_prefix='/curriculator')
     
     # Service Worker route for PWA
     @app.route('/sw.js')
@@ -5002,20 +5004,6 @@ def create_app():
         # Convert teachers to dictionaries for JSON serialization
         teachers_dict = [{'id': t.id, 'name': t.name} for t in teachers]
         
-        # Get assigned tabulators
-        tabulators = DutyAssignment.query.filter_by(
-            duty_type='tabulator',
-            status='active',
-            assigned_by_id=current_user.id
-        ).order_by(DutyAssignment.created_at.desc()).all()
-        
-        # Get assigned scrutinizers
-        scrutinizers = DutyAssignment.query.filter_by(
-            duty_type='scrutinizer',
-            status='active',
-            assigned_by_id=current_user.id
-        ).order_by(DutyAssignment.created_at.desc()).all()
-        
         # Get distinct academic sessions
         from blueprints.class_management.models import Session
         sessions = db.session.query(Session.academic_session).distinct().filter(
@@ -5032,6 +5020,36 @@ def create_app():
             current_session = chief_assignment_details.academic_session
             current_year = chief_assignment_details.year
             current_term = chief_assignment_details.term
+        
+        # Get assigned tabulators - filter by current committee's session/year/term
+        tabulators_query = DutyAssignment.query.filter_by(
+            duty_type='tabulator',
+            status='active',
+            assigned_by_id=current_user.id
+        )
+        # If we have current session/year/term from chief assignment, filter by them
+        if current_session and current_year and current_term:
+            tabulators_query = tabulators_query.filter_by(
+                academic_session=current_session,
+                year=current_year,
+                term=current_term
+            )
+        tabulators = tabulators_query.order_by(DutyAssignment.created_at.desc()).all()
+        
+        # Get assigned scrutinizers - filter by current committee's session/year/term
+        scrutinizers_query = DutyAssignment.query.filter_by(
+            duty_type='scrutinizer',
+            status='active',
+            assigned_by_id=current_user.id
+        )
+        # If we have current session/year/term from chief assignment, filter by them
+        if current_session and current_year and current_term:
+            scrutinizers_query = scrutinizers_query.filter_by(
+                academic_session=current_session,
+                year=current_year,
+                term=current_term
+            )
+        scrutinizers = scrutinizers_query.order_by(DutyAssignment.created_at.desc()).all()
         
         available_entries = []
         if chief_assignment_details and current_session and current_year and current_term:
@@ -5181,12 +5199,20 @@ def create_app():
                 'institute': institute
             }
         
-        # Get saved custom remuneration forms (only draft, not archived)
+        # Get saved custom remuneration forms (only draft, not archived) - filter by current committee's session/year/term
         from blueprints.remuneration_management.models import RemunerationForm
-        saved_remuneration_forms = RemunerationForm.query.filter_by(
+        remuneration_forms_query = RemunerationForm.query.filter_by(
             user_id=current_user.id,
             status='draft'
-        ).order_by(RemunerationForm.created_at.desc()).limit(20).all()
+        )
+        # If we have current session/year/term from chief assignment, filter by them
+        if current_session and current_year and current_term:
+            remuneration_forms_query = remuneration_forms_query.filter_by(
+                academic_year=current_session,
+                year=current_year,
+                term=current_term
+            )
+        saved_remuneration_forms = remuneration_forms_query.order_by(RemunerationForm.created_at.desc()).limit(20).all()
         
         # Prepare member assignments data for cards (only internal members)
         member_assignments_data = []
@@ -8294,27 +8320,31 @@ def create_app():
     @app.route('/exam-committee-chief/get-student-count', methods=['GET'])
     @login_required
     def exam_committee_chief_get_student_count():
-        """Get student count for a course - accessible by exam committee chief and members"""
-        course_code = request.args.get('course_code', '').strip()
-        academic_session = request.args.get('academic_session', '').strip()
-        year = request.args.get('year', '').strip()
-        term = request.args.get('term', '').strip()
-        
+        """Get total registered students (by batch) for Statement of Remuneration.
+
+        Statement টেবিল ৪/৬/৭–এ আমরা Section A/B আলাদা না করে,
+        নির্দিষ্ট batch এবং course-এর জন্য মোট ছাত্র-সংখ্যা চাই।
+        """
+        course_code = request.args.get('course_code')
+        academic_session = request.args.get('academic_session')
+        year = request.args.get('year')
+        term = request.args.get('term')
+        batch = request.args.get('batch')
+
         if not course_code or not academic_session:
             return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
-        
+
         try:
             from blueprints.course_management.models import StudentCourseRegistration
-            from sqlalchemy import func, or_
-            
-            # Extract course code (remove course name if present)
+            from blueprints.student_management.models import Student
+            from sqlalchemy import func
+
+            # Extract bare course code (e.g. "0421 28 Law 3201 - ..." → "0421 28 Law 3201")
             if ' - ' in course_code:
                 parts = course_code.split(' - ', 1)
                 course_code = parts[0].strip()
-            
-            course_code = course_code.strip()
-            
-            # Normalize year/term labels
+            course_code = (course_code or '').strip()
+
             def normalize_label(label):
                 if not label:
                     return ''
@@ -8323,86 +8353,41 @@ def create_app():
                     if label.lower().endswith(suffix.lower()):
                         label = label[:-len(suffix)].strip()
                 return label
-            
+
             normalized_year = normalize_label(year) if year else None
             normalized_term = normalize_label(term) if term else None
-            
-            # Start with simplest query - just course_code and session
+
+            # Build query: course_code + session + (year/term) + status=finalized [+ batch]
             base_query = db.session.query(
                 func.count(func.distinct(StudentCourseRegistration.student_id))
             ).filter(
-                StudentCourseRegistration.academic_session == academic_session
+                StudentCourseRegistration.course_code == course_code,
+                StudentCourseRegistration.academic_session == academic_session,
+                StudentCourseRegistration.status == 'finalized'
             )
-            
-            # Try multiple strategies to find matching course code
-            count = 0
-            
-            # Strategy 1: Exact course code match
-            query1 = base_query.filter(StudentCourseRegistration.course_code == course_code)
-            count = query1.scalar() or 0
+
+            if normalized_year:
+                base_query = base_query.filter(StudentCourseRegistration.year == normalized_year)
+            if normalized_term:
+                base_query = base_query.filter(StudentCourseRegistration.term == normalized_term)
+            if batch:
+                base_query = base_query.join(
+                    Student,
+                    Student.id == StudentCourseRegistration.student_id
+                ).filter(Student.batch == batch)
+
+            total_registered = base_query.scalar() or 0
+
             current_app.logger.info(
-                f'Strategy 1 (exact code): course_code={course_code}, session={academic_session}, count={count}'
+                f'[Chief student-count] course={course_code}, session={academic_session}, '
+                f'year={normalized_year}, term={normalized_term}, batch={batch}, '
+                f'total_registered={total_registered}'
             )
-            
-            # Strategy 2: Case-insensitive match
-            if count == 0:
-                query2 = base_query.filter(
-                    func.lower(StudentCourseRegistration.course_code) == func.lower(course_code)
-                )
-                count = query2.scalar() or 0
-                current_app.logger.info(f'Strategy 2 (case-insensitive): count={count}')
-            
-            # Strategy 3: Partial match (course code contains)
-            if count == 0:
-                query3 = base_query.filter(
-                    StudentCourseRegistration.course_code.like(f'%{course_code}%')
-                )
-                count = query3.scalar() or 0
-                current_app.logger.info(f'Strategy 3 (contains): count={count}')
-            
-            # Strategy 4: Reverse partial match - skip this as it requires checking if Python string contains DB column
-            # This is difficult to do efficiently in SQLAlchemy. Strategy 3 should handle most cases.
-            # If needed, this could be implemented by fetching all course codes and checking in Python,
-            # but that would be inefficient for large datasets.
-            if False:  # Disabled for now
-                pass
-            
-            # Strategy 5: Match by numbers in course code
-            if count == 0:
-                import re
-                course_numbers = re.findall(r'\d+', course_code)
-                if course_numbers:
-                    # Get the longest number sequence (usually the course number)
-                    main_number = max(course_numbers, key=len)
-                    if len(main_number) >= 4:  # At least 4 digits
-                        query5 = base_query.filter(
-                            StudentCourseRegistration.course_code.like(f'%{main_number}%')
-                        )
-                        count = query5.scalar() or 0
-                        current_app.logger.info(f'Strategy 5 (number match {main_number}): count={count}')
-            
-            # Debug: Show sample course codes in this session
-            if count == 0:
-                sample_regs = StudentCourseRegistration.query.filter(
-                    StudentCourseRegistration.academic_session == academic_session
-                ).limit(5).all()
-                sample_info = [(r.course_code, r.year, r.term) for r in sample_regs]
-                current_app.logger.info(
-                    f'DEBUG: Sample registrations in session {academic_session}: {sample_info}'
-                )
-            
-            current_app.logger.info(
-                f'FINAL COUNT: course_code={course_code}, session={academic_session}, '
-                f'year={year}, term={term}, COUNT={count}'
-            )
-            
-            return jsonify({
-                'success': True,
-                'student_count': count
-            })
-            
+
+            return jsonify({'success': True, 'student_count': total_registered})
+
         except Exception as e:
-            current_app.logger.error(f'Error fetching student count: {str(e)}', exc_info=True)
+            current_app.logger.error(f'Error fetching student count (chief): {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error fetching student count: {str(e)}'}), 500
 
     @app.route('/api/get-teacher-info/<int:teacher_id>', methods=['GET'])
@@ -8982,7 +8967,7 @@ def create_app():
             ],
             '4': [  # ক্লাস টেস্ট/টার্ম পেপার/ হোম ওয়ার্ক/ এ্যাসাইনমেন্ট
                 {'label': 'স্নাতক - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী)', 'value': '30'},
-                {'label': 'স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী)', 'value': '80'}
+                {'label': 'স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী)', 'value': '40'}
             ],
             '5': [  # সেশনাল
                 {'label': 'প্রজেক্ট পেপার/এ্যাসাইনমেন্ট (প্রতি পরীক্ষার্থী)', 'value': '230'},
@@ -9003,13 +8988,13 @@ def create_app():
             ],
             '9': [  # টেবুলেশন
                 {'label': 'কোর্স ভিত্তিক (প্রতি কোর্স)', 'value': '200'},
-                {'label': 'পরীক্ষার্থী ভিত্তিক (প্রতি পরীক্ষার্থী)', 'value': '80'}
+                {'label': 'পরীক্ষার্থী ভিত্তিক (প্রতি পরীক্ষার্থী)', 'value': '40'}
             ],
             '9a': [  # টেবুলেশন - কোর্স ভিত্তিক
                 {'label': 'কোর্স ভিত্তিক (প্রতি কোর্স)', 'value': '200'}
             ],
             '9b': [  # টেবুলেশন - পরীক্ষার্থী ভিত্তিক
-                {'label': 'পরীক্ষার্থী ভিত্তিক (প্রতি পরীক্ষার্থী)', 'value': '80'}
+                {'label': 'পরীক্ষার্থী ভিত্তিক (প্রতি পরীক্ষার্থী)', 'value': '40'}
             ],
             '10': [  # প্রশ্নপত্র প্রস্তুতকরণ
                 {'label': 'অংকনসহ অন্যান্য কাজ (প্রতি প্রশ্নপত্র)', 'value': '250'},
@@ -9032,13 +9017,13 @@ def create_app():
                 {'label': 'অন্যান্য তদারকী (প্রতি ঘন্টা)', 'value': '500'}
             ],
             '12a': [  # চীফ ইনভিজিলেশন
-                {'label': 'চীফ ইনভিজিলেশন', 'value': '3000'}
+                {'label': 'চীফ ইনভিজিলেশন', 'value': '1800'}
             ],
             '12b': [  # ইনভিজিলেশন
-                {'label': 'ইনভিজিলেশন', 'value': '2000'}
+                {'label': 'ইনভিজিলেশন', 'value': '1500'}
             ],
             '15': [  # কোডিং/ডিকোডিং
-                {'label': 'পরীক্ষার্থী প্রতি', 'value': '50'}
+                {'label': 'পরীক্ষার্থী প্রতি', 'value': '30'}
             ],
             '13': [  # থিসিস
                 # পরীক্ষণ
@@ -9426,10 +9411,10 @@ def create_app():
                 '10a': [{'label': 'অংকনসহ অন্যান্য কাজ (প্রতি প্রশ্নপত্র)', 'value': '250'}],
                 '10b': [{'label': 'ফটোকপি (প্রতি প্রশ্নপত্র)', 'value': '7'}],
                 '11': [{'label': 'সভাপতি', 'value': '5000'}, {'label': 'সদস্য', 'value': '3000'}],
-                '12': [{'label': 'চীফ ইনভিজিলেশন', 'value': '3000'}, {'label': 'ইনভিজিলেশন', 'value': '2000'}],
-                '12a': [{'label': 'চীফ ইনভিজিলেশন', 'value': '3000'}],
-                '12b': [{'label': 'ইনভিজিলেশন', 'value': '2000'}],
-                '15': [{'label': 'পরীক্ষার্থী প্রতি', 'value': '50'}],
+                '12': [{'label': 'চীফ ইনভিজিলেশন', 'value': '1800'}, {'label': 'ইনভিজিলেশন', 'value': '1500'}],
+                '12a': [{'label': 'চীফ ইনভিজিলেশন', 'value': '1800'}],
+                '12b': [{'label': 'ইনভিজিলেশন', 'value': '1500'}],
+                '15': [{'label': 'পরীক্ষার্থী প্রতি', 'value': '30'}],
                 '13': [{'label': 'কাস্টম হার', 'value': ''}],
                 '13a': [{'label': 'কাস্টম হার', 'value': ''}],
                 '13b': [{'label': 'কাস্টম হার', 'value': ''}],
@@ -9960,6 +9945,7 @@ def create_app():
         academic_session = request.args.get('academic_session')
         year = request.args.get('year')
         term = request.args.get('term')
+        batch = request.args.get('batch')  # Optional: restrict to specific batch
         section = request.args.get('section', '').strip().upper()  # A, B, Full, or empty
         
         if not course_code or not academic_session:
@@ -9980,6 +9966,7 @@ def create_app():
         try:
             # Import models
             from blueprints.course_management.models import StudentCourseRegistration
+            from blueprints.student_management.models import Student
             from blueprints.class_management.models import Teacher, Session, ClassStudent
             from sqlalchemy import func, or_
             import re
@@ -10010,7 +9997,8 @@ def create_app():
             normalized_term = normalize_label(term) if term else None
             
             # PRIMARY: Count registered students from StudentCourseRegistration
-            # Filter by course_code, academic_session, year, term, and status='finalized'
+            # Filter by course_code, academic_session, year, term, status='finalized'
+            # and (optionally) student.batch when batch is provided.
             base_query = db.session.query(
                 func.count(func.distinct(StudentCourseRegistration.student_id))
             ).filter(
@@ -10018,6 +10006,12 @@ def create_app():
                 StudentCourseRegistration.academic_session == academic_session,
                 StudentCourseRegistration.status == 'finalized'
             )
+
+            if batch:
+                base_query = base_query.join(
+                    Student,
+                    Student.id == StudentCourseRegistration.student_id
+                ).filter(Student.batch == batch)
             
             # Add year filter if provided
             if normalized_year:
@@ -10114,6 +10108,12 @@ def create_app():
                         StudentCourseRegistration.academic_session == academic_session,
                         StudentCourseRegistration.status == 'finalized'
                     )
+
+                    if batch:
+                        name_query = name_query.join(
+                            Student,
+                            Student.id == StudentCourseRegistration.student_id
+                        ).filter(Student.batch == batch)
                     
                     if normalized_year:
                         name_query = name_query.filter(StudentCourseRegistration.year == normalized_year)
@@ -10139,6 +10139,12 @@ def create_app():
                     StudentCourseRegistration.academic_session == academic_session,
                     StudentCourseRegistration.status == 'finalized'
                 )
+
+                if batch:
+                    fallback_query = fallback_query.join(
+                        Student,
+                        Student.id == StudentCourseRegistration.student_id
+                    ).filter(Student.batch == batch)
                 
                 count = fallback_query.scalar() or 0
                 
@@ -11325,6 +11331,2167 @@ def create_app():
             # Clean up memory after PDF generation to prevent memory accumulation
             import gc
             gc.collect()
+
+    @app.route('/remuneration/api/teachers', methods=['GET'])
+    @login_required
+    def remuneration_get_teachers():
+        """Get list of teachers for bulk download selection - filtered by statement participants"""
+        restriction = _require_teacher_privileges()
+        if restriction:
+            return restriction
+        
+        session_val = request.args.get('session', '').strip()
+        year_val = request.args.get('year', '').strip()
+        term_val = request.args.get('term', '').strip()
+        
+        if not session_val or not year_val or not term_val:
+            return jsonify({
+                'success': False,
+                'message': 'সেশন, বর্ষ ও টার্ম সিলেক্ট করুন'
+            }), 400
+        
+        try:
+            from blueprints.class_management.models import Teacher
+            from role_utils import get_teachers_excluding_head
+            
+            # Fetch statement data
+            statement_data = _get_remuneration_statement_data(session_val, year_val, term_val)
+            if not statement_data:
+                # If no statement data, return empty list with message
+                return jsonify({
+                    'success': True,
+                    'teachers': [],
+                    'message': 'এই সেশন, বর্ষ ও টার্মের জন্য Statement of Remuneration পাওয়া যায়নি'
+                })
+            
+            # Collect all teacher names from statement data
+            teacher_names_in_statement = set()
+            
+            # Check all relevant statement sections
+            sections_to_check = [
+                'question_preparation',
+                'moderation_committee',  # For Row 2
+                'script_examination',
+                'class_test',
+                'sessional_assessment',
+                'sessional_viva',
+                'professional_attachment',
+                'script_scrutiny',
+                'tabulation',
+                'invigilation',
+                'question_typing',
+                'question_photocopy',
+                'examination_committee',
+                'thesis_supervision',
+                'viva',
+                'coding_decoding'  # For Row 15
+            ]
+            
+            for section in sections_to_check:
+                items = statement_data.get(section, [])
+                if not items:
+                    continue
+                
+                for item in items:
+                    # Extract teacher name from various field names
+                    teacher_name = (
+                        item.get('teacher') or
+                        item.get('name') or
+                        item.get('teacher_name') or
+                        ''
+                    )
+                    if teacher_name:
+                        teacher_names_in_statement.add(str(teacher_name).strip())
+            
+            if not teacher_names_in_statement:
+                return jsonify({
+                    'success': True,
+                    'teachers': [],
+                    'message': 'Statement-এ কোনো শিক্ষকের তথ্য পাওয়া যায়নি'
+                })
+            
+            current_app.logger.info(
+                f'Found {len(teacher_names_in_statement)} teachers in statement: {session_val}/{year_val}/{term_val}'
+            )
+            
+            # Get all teachers (excluding head)
+            all_teachers = get_teachers_excluding_head()
+            
+            # Filter teachers that appear in statement
+            teachers_list = []
+            for teacher in all_teachers:
+                teacher_name = (teacher.name or '').strip()
+                if not teacher_name:
+                    continue
+                
+                # Check if this teacher matches any name in statement (flexible matching)
+                matches = False
+                for stmt_name in teacher_names_in_statement:
+                    if _matches_teacher_name(stmt_name, teacher_name):
+                        matches = True
+                        break
+                
+                if matches:
+                    teachers_list.append({
+                        'id': teacher.id,
+                        'name': teacher.name,
+                        'designation': teacher.designation or '',
+                        'institute': teacher.institute or ''
+                    })
+            
+            current_app.logger.info(
+                f'Filtered to {len(teachers_list)} teachers matching statement data'
+            )
+            
+            return jsonify({
+                'success': True,
+                'teachers': teachers_list
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error fetching teachers: {str(e)}', exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': 'শিক্ষক লোড করতে সমস্যা হয়েছে'
+            }), 500
+
+    def _get_remuneration_statement_data(session, year, term):
+        """Fetch Exam Committee Chief's remuneration statement data for session/year/term."""
+        try:
+            from blueprints.remuneration_management.models import RemunerationForm
+            from blueprints.course_management.models import DutyAssignment
+            import json
+
+            chief_assignment = DutyAssignment.query.filter_by(
+                duty_type='exam_committee_chief',
+                academic_session=session,
+                year=year,
+                term=term,
+                status='active'
+            ).first()
+
+            if chief_assignment and chief_assignment.assigned_teacher:
+                chief_user = User.query.filter_by(full_name=chief_assignment.assigned_teacher.name).first()
+                if chief_user:
+                    form_entry = RemunerationForm.query.filter_by(
+                        user_id=chief_user.id,
+                        academic_year=session,
+                        year=year,
+                        term=term
+                    ).order_by(RemunerationForm.id.desc()).first()
+
+                    if form_entry and form_entry.form_data:
+                        return json.loads(form_entry.form_data)
+        except Exception as exc:
+            current_app.logger.error(f'Failed to load statement data: {exc}', exc_info=True)
+        return None
+
+    def _has_remuneration_line_items(form_data):
+        """Return True if any row quantities/amounts exist in form_data (non-zero)."""
+        if not isinstance(form_data, dict):
+            return False
+
+        def _has_value(val):
+            if val is None:
+                return False
+            text = str(val).strip()
+            if text == '' or text == '0' or text == '0.0' or text == '0.00':
+                return False
+            # If numeric and > 0, treat as value
+            try:
+                return float(text) > 0
+            except Exception:
+                return True
+
+        for idx in range(1, 17):
+            qty = form_data.get(f'quantity_{idx}', '')
+            amt = form_data.get(f'amount_{idx}', '')
+            rate = form_data.get(f'rate_{idx}', '')
+            if _has_value(qty) or _has_value(amt) or _has_value(rate):
+                return True
+
+        # Handle split rows (12a/12b, 10a/10b, etc.)
+        for key in ['quantity_12a', 'quantity_12b', 'amount_12a', 'amount_12b',
+                    'quantity_10a', 'quantity_10b', 'amount_10a', 'amount_10b']:
+            if _has_value(form_data.get(key, '')):
+                return True
+        return False
+
+    def _auto_populate_remuneration_data(teacher, session, year, term):
+        """Auto-populate remuneration form data from statement or assignments"""
+        form_data = {}
+        total_amount = 0
+        jobs_rows = []
+        
+        try:
+            from blueprints.class_management.models import ExamPaperEvaluatorAssignment, ExamPaperEvaluation
+            from blueprints.course_management.models import Course, DutyAssignment
+            import json
+
+            current_app.logger.info(
+                f'Auto-populating remuneration data for {teacher.name}, session={session}, year={year}, term={term}'
+            )
+
+            statement_data = _get_remuneration_statement_data(session, year, term)
+
+            def matches_teacher(item_teacher):
+                if not item_teacher:
+                    return False
+                item_teacher = str(item_teacher).strip().lower()
+                target = (teacher.name or '').strip().lower()
+                return item_teacher == target or item_teacher in target or target in item_teacher
+
+            def safe_int(value, default=0):
+                try:
+                    return int(float(value))
+                except Exception:
+                    return default
+
+            def is_postgraduate():
+                yr = (year or '').upper()
+                return any(token in yr for token in ['LLM', 'MASTER', 'M.PHIL', 'MPHIL', 'PHD'])
+
+            is_pg = is_postgraduate()
+
+            if statement_data:
+                # Pass through exam dates if available in statement data
+                if statement_data.get('exam_start_date'):
+                    form_data['exam_start_date'] = statement_data.get('exam_start_date')
+                if statement_data.get('exam_end_date'):
+                    form_data['exam_end_date'] = statement_data.get('exam_end_date')
+
+                # Row 1: Question Preparation - use course-level PG/UG, not year-level
+                items = [i for i in statement_data.get('question_preparation', []) if matches_teacher(i.get('teacher'))]
+                if items:
+                    courses = []
+                    qty = 0
+                    for i in items:
+                        course = i.get('course') or i.get('course_code') or ''
+                        section = i.get('section') or ''
+                        if course:
+                            course_text = f"{course} ({section})" if section else course
+                            courses.append(course_text)
+                        qty += max(safe_int(i.get('questions', 1)), 1)
+                    # Determine rate by course code (e.g. 042 = UG), not by program year (LLM)
+                    first_course = (items[0].get('course') or items[0].get('course_code') or '').strip()
+                    if ' - ' in first_course:
+                        first_course = first_course.split(' - ')[0].strip()
+                    is_pg_row1 = _is_postgraduate_course(first_course, year=None) if first_course else is_pg
+                    rate = 2400 if is_pg_row1 else 2300
+                    amount = qty * rate
+                    form_data['course_section_1'] = ', '.join(courses)
+                    form_data['quantity_1'] = str(qty)
+                    form_data['rate_1'] = str(rate)
+                    form_data['amount_1'] = str(amount)
+                    total_amount += amount
+                    jobs_rows.append({
+                        'description': 'প্রশ্নপত্র প্রণয়ন',
+                        'courses': form_data.get('course_section_1', ''),
+                        'quantity': form_data.get('quantity_1', ''),
+                        'paper_type': '',
+                        'rate': form_data.get('rate_1', ''),
+                        'amount': form_data.get('amount_1', '')
+                    })
+
+                # Row 3: Script Examination
+                items = [i for i in statement_data.get('script_examination', []) if matches_teacher(i.get('teacher'))]
+                if items:
+                    courses = []
+                    total_scripts = 0
+                    per_course_amounts = []
+                    rate = 100 if is_pg else 80
+                    for i in items:
+                        course = i.get('course') or i.get('course_code') or ''
+                        section = i.get('section') or ''
+                        scripts = safe_int(i.get('scripts', 0))
+                        if course:
+                            course_text = f"{course} ({section})" if section else course
+                            courses.append(course_text)
+                        total_scripts += scripts
+                        if scripts > 0:
+                            amount = scripts * rate
+                            per_course_amounts.append(max(amount, 600))
+                    if total_scripts > 0:
+                        form_data['course_section_3'] = ', '.join(courses)
+                        form_data['quantity_3'] = str(total_scripts)
+                        form_data['rate_3'] = str(rate)
+                        amount = sum(per_course_amounts) if per_course_amounts else total_scripts * rate
+                        form_data['amount_3'] = str(amount)
+                        total_amount += amount
+                        jobs_rows.append({
+                            'description': 'উত্তরপত্র পরীক্ষণ',
+                            'courses': form_data.get('course_section_3', ''),
+                            'quantity': form_data.get('quantity_3', ''),
+                            'paper_type': '',
+                            'rate': form_data.get('rate_3', ''),
+                            'amount': form_data.get('amount_3', '')
+                        })
+
+                # Row 4: Class Test
+                items = [i for i in statement_data.get('class_test', []) if matches_teacher(i.get('teacher') or i.get('teacher_name'))]
+                if items:
+                    courses = []
+                    total_students = 0
+                    for i in items:
+                        course = i.get('course') or i.get('course_code') or ''
+                        section = i.get('section') or ''
+                        students = safe_int(i.get('students', 0))
+                        if course:
+                            course_text = f"{course} ({section})" if section else course
+                            courses.append(course_text)
+                        total_students += students
+                    rate = 80 if is_pg else 30
+                    amount = total_students * rate
+                    form_data['course_section_4'] = ', '.join(courses)
+                    form_data['quantity_4'] = str(total_students)
+                    form_data['rate_4'] = str(rate)
+                    form_data['amount_4'] = str(amount)
+                    total_amount += amount
+                    jobs_rows.append({
+                        'description': 'ক্লাস টেস্ট/টার্ম পেপার/ হোম ওয়ার্ক/ এ্যাসাইনমেন্ট',
+                        'courses': form_data.get('course_section_4', ''),
+                        'quantity': form_data.get('quantity_4', ''),
+                        'paper_type': '',
+                        'rate': form_data.get('rate_4', ''),
+                        'amount': form_data.get('amount_4', '')
+                    })
+
+                # Row 5: Sessional Assessment
+                items = [i for i in statement_data.get('sessional_assessment', []) if matches_teacher(i.get('teacher'))]
+                if items:
+                    courses = []
+                    total_students = 0
+                    for i in items:
+                        course = i.get('course') or ''
+                        students = safe_int(i.get('students', 0))
+                        if course:
+                            courses.append(course)
+                        total_students += students
+                    rate = 230  # default rate
+                    amount = total_students * rate
+                    form_data['course_section_5'] = ', '.join(courses)
+                    form_data['quantity_5'] = str(total_students)
+                    form_data['rate_5'] = str(rate)
+                    form_data['amount_5'] = str(amount)
+                    total_amount += amount
+                    jobs_rows.append({
+                        'description': 'সেশনাল',
+                        'courses': form_data.get('course_section_5', ''),
+                        'quantity': form_data.get('quantity_5', ''),
+                        'paper_type': '',
+                        'rate': form_data.get('rate_5', ''),
+                        'amount': form_data.get('amount_5', '')
+                    })
+
+                # Row 6: Sessional Viva
+                items = [i for i in statement_data.get('sessional_viva', []) if matches_teacher(i.get('teacher'))]
+                if items:
+                    courses = []
+                    total_students = 0
+                    for i in items:
+                        course = i.get('course') or ''
+                        students = safe_int(i.get('students', 0))
+                        if course:
+                            courses.append(course)
+                        total_students += students
+                    rate = 50
+                    amount = total_students * rate
+                    form_data['course_section_6'] = ', '.join(courses)
+                    form_data['quantity_6'] = str(total_students)
+                    form_data['rate_6'] = str(rate)
+                    form_data['amount_6'] = str(amount)
+                    total_amount += amount
+                    jobs_rows.append({
+                        'description': 'সেশনাল মৌখিক পরীক্ষা',
+                        'courses': form_data.get('course_section_6', ''),
+                        'quantity': form_data.get('quantity_6', ''),
+                        'paper_type': '',
+                        'rate': form_data.get('rate_6', ''),
+                        'amount': form_data.get('amount_6', '')
+                    })
+
+                # Row 8: Script Scrutiny
+                items = [i for i in statement_data.get('script_scrutiny', []) if matches_teacher(i.get('name'))]
+                if items:
+                    total_scripts = sum(safe_int(i.get('scripts', 0)) for i in items)
+                    if total_scripts > 0:
+                        rate = 8
+                        amount = total_scripts * rate
+                        form_data['quantity_8'] = str(total_scripts)
+                        form_data['rate_8'] = str(rate)
+                        form_data['amount_8'] = str(amount)
+                        total_amount += amount
+                        jobs_rows.append({
+                            'description': 'উত্তরপত্র নিরীক্ষণ',
+                            'courses': '',
+                            'quantity': form_data.get('quantity_8', ''),
+                            'paper_type': '',
+                            'rate': form_data.get('rate_8', ''),
+                            'amount': form_data.get('amount_8', '')
+                        })
+
+                # Row 9: Tabulation
+                items = [i for i in statement_data.get('tabulation', []) if matches_teacher(i.get('name'))]
+                if items:
+                    course_count = 0
+                    courses = []
+                    for i in items:
+                        course_wise = safe_int(i.get('course_wise', 0))
+                        course_count += course_wise if course_wise > 0 else 1
+                        if i.get('course_wise'):
+                            courses.append(i.get('course_wise'))
+                    rate = 200
+                    amount = course_count * rate
+                    form_data['quantity_9'] = str(course_count)
+                    form_data['rate_9'] = str(rate)
+                    form_data['amount_9'] = str(amount)
+                    total_amount += amount
+                    jobs_rows.append({
+                        'description': 'টেবুলেশন',
+                        'courses': '',
+                        'quantity': form_data.get('quantity_9', ''),
+                        'paper_type': '',
+                        'rate': form_data.get('rate_9', ''),
+                        'amount': form_data.get('amount_9', '')
+                    })
+
+                # Row 12: Invigilation
+                items = [i for i in statement_data.get('invigilation', []) if matches_teacher(i.get('name'))]
+                if items:
+                    chief_count = sum(safe_int(i.get('chief', 0)) for i in items)
+                    inv_count = sum(safe_int(i.get('invigilation', 0)) for i in items)
+                    if chief_count > 0:
+                        form_data['quantity_12a'] = str(chief_count)
+                        form_data['rate_12a'] = '1800'
+                        chief_amount = chief_count * 1800
+                        form_data['amount_12a'] = str(chief_amount)
+                        total_amount += chief_amount
+                    if inv_count > 0:
+                        form_data['quantity_12b'] = str(inv_count)
+                        form_data['rate_12b'] = '1500'
+                        inv_amount = inv_count * 1500
+                        form_data['amount_12b'] = str(inv_amount)
+                        total_amount += inv_amount
+                    if chief_count > 0 or inv_count > 0:
+                        jobs_rows.append({
+                            'description': 'চীফ ইনভিজিলেশন / ইনভিজিলেশন',
+                            'courses': '',
+                            'quantity': f"চীফ: {chief_count}, ইনভি: {inv_count}" if chief_count and inv_count else (f"চীফ: {chief_count}" if chief_count else f"ইনভি: {inv_count}"),
+                            'paper_type': '',
+                            'rate': '1800/1500',
+                            'amount': str((chief_count * 1800) + (inv_count * 1500))
+                        })
+
+            else:
+                # Fallback: use evaluator assignments if statement data is not available
+                assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+                    academic_session=session,
+                    year=year,
+                    term=term
+                ).all()
+
+                # Row 1 and 3 from evaluator assignments
+                question_courses = []
+                script_courses = []
+                total_scripts = 0
+                rate_1 = 2400 if is_pg else 2300
+                rate_3 = 100 if is_pg else 80
+
+                for assignment in assignments:
+                    course = Course.query.get(assignment.course_id)
+                    if not course:
+                        continue
+                    course_code = course.course_code or ''
+                    part = assignment.part or ''
+                    course_text = f"{course_code} (Part {part})"
+
+                    if assignment.question_setter_id == teacher.id:
+                        question_courses.append(course_text)
+                    if assignment.assigned_teacher_id == teacher.id:
+                        script_courses.append(course_text)
+
+                        # Script count
+                        submitted_entries = ExamPaperEvaluation.query.filter(
+                            ExamPaperEvaluation.owner_teacher_id == assignment.assigned_teacher_id,
+                            ExamPaperEvaluation.course_code == course_code,
+                            ExamPaperEvaluation.section == f"Part {part}",
+                            ExamPaperEvaluation.academic_session == session,
+                            ExamPaperEvaluation.year == year,
+                            ExamPaperEvaluation.term == term,
+                            ExamPaperEvaluation.submitted_to_committee == True
+                        ).all()
+
+                        for entry in submitted_entries:
+                            if entry.marks_data:
+                                try:
+                                    marks_data = json.loads(entry.marks_data) if isinstance(entry.marks_data, str) else entry.marks_data
+                                    if isinstance(marks_data, dict):
+                                        if 'rows' in marks_data and isinstance(marks_data['rows'], list):
+                                            total_scripts += len(marks_data['rows'])
+                                        else:
+                                            student_keys = [k for k in marks_data.keys() if k not in ['questions', 'rows']]
+                                            total_scripts += len(student_keys)
+                                except Exception:
+                                    pass
+
+                if question_courses:
+                    qty = len(question_courses)
+                    amount = qty * rate_1
+                    form_data['course_section_1'] = ', '.join(question_courses)
+                    form_data['quantity_1'] = str(qty)
+                    form_data['rate_1'] = str(rate_1)
+                    form_data['amount_1'] = str(amount)
+                    total_amount += amount
+
+                if script_courses and total_scripts > 0:
+                    amount = total_scripts * rate_3
+                    form_data['course_section_3'] = ', '.join(script_courses)
+                    form_data['quantity_3'] = str(total_scripts)
+                    form_data['rate_3'] = str(rate_3)
+                    form_data['amount_3'] = str(amount)
+                    total_amount += amount
+            
+            # Store total amount
+            form_data['total_amount'] = str(total_amount)
+            
+            # Convert total to words (simple conversion)
+            if total_amount > 0:
+                form_data['total_in_words'] = _number_to_words_bengali(total_amount)
+            
+            # Store jobs rows for direct PDF rendering
+            if jobs_rows:
+                form_data['_jobs_data'] = jobs_rows
+
+            current_app.logger.info(f'Auto-populated form data for {teacher.name}: {len(jobs_rows)} rows with data, total={total_amount}')
+            
+        except Exception as e:
+            current_app.logger.error(f'Error auto-populating remuneration data for {teacher.name}: {str(e)}', exc_info=True)
+            # Return empty form_data on error
+            form_data = {}
+        
+        return form_data
+    
+    def _number_to_words_bengali(num):
+        """Convert number to Bengali words (matches JavaScript numberToBengaliWords)"""
+        try:
+            if not num or num == 0:
+                return 'শূন্য টাকা'
+            
+            # Convert to float to handle decimals
+            num_float = float(num)
+            
+            ones = ['', 'এক', 'দুই', 'তিন', 'চার', 'পাঁচ', 'ছয়', 'সাত', 'আট', 'নয়', 'দশ', 
+                   'এগারো', 'বারো', 'তেরো', 'চৌদ্দ', 'পনেরো', 'ষোল', 'সতেরো', 'আঠারো', 'উনিশ', 'বিশ']
+            tens = ['', '', 'বিশ', 'ত্রিশ', 'চল্লিশ', 'পঞ্চাশ', 'ষাট', 'সত্তর', 'আশি', 'নব্বই']
+            
+            # Special words for numbers 21-99
+            special_numbers = {
+                21: 'একুশ', 22: 'বাইশ', 23: 'তেইশ', 24: 'চব্বিশ', 25: 'পঁচিশ', 26: 'ছাব্বিশ', 
+                27: 'সাতাশ', 28: 'আটাশ', 29: 'ঊনত্রিশ',
+                31: 'একত্রিশ', 32: 'বত্রিশ', 33: 'তেত্রিশ', 34: 'চৌত্রিশ', 35: 'পঁয়ত্রিশ', 
+                36: 'ছত্রিশ', 37: 'সাঁইত্রিশ', 38: 'আটত্রিশ', 39: 'ঊনচল্লিশ',
+                41: 'একচল্লিশ', 42: 'বিয়াল্লিশ', 43: 'তেতাল্লিশ', 44: 'চুয়াল্লিশ', 45: 'পঁয়তাল্লিশ', 
+                46: 'ছেচল্লিশ', 47: 'সাতচল্লিশ', 48: 'আটচল্লিশ', 49: 'ঊনপঞ্চাশ',
+                51: 'একান্ন', 52: 'বায়ান্ন', 53: 'তিপ্পান্ন', 54: 'চুয়ান্ন', 55: 'পঞ্চান্ন', 
+                56: 'ছাপ্পান্ন', 57: 'সাতান্ন', 58: 'আটান্ন', 59: 'ঊনষাট',
+                61: 'একষট্টি', 62: 'বাষট্টি', 63: 'তেষট্টি', 64: 'চৌষট্টি', 65: 'পঁয়ষট্টি', 
+                66: 'ছেষট্টি', 67: 'সাতষট্টি', 68: 'আটষট্টি', 69: 'ঊনসত্তর',
+                71: 'একাত্তর', 72: 'বাহাত্তর', 73: 'তিয়াত্তর', 74: 'চুয়াত্তর', 75: 'পঁচাত্তর', 
+                76: 'ছিয়াত্তর', 77: 'সাতাত্তর', 78: 'আটাত্তর', 79: 'ঊনআশি',
+                81: 'একাশি', 82: 'বিরাশি', 83: 'তিরাশি', 84: 'চুরাশি', 85: 'পঁচাশি', 
+                86: 'ছিয়াশি', 87: 'সাতাশি', 88: 'আটাশি', 89: 'ঊননব্বই',
+                91: 'একানব্বই', 92: 'বিরানব্বই', 93: 'তিরানব্বই', 94: 'চুরানব্বই', 95: 'পঁচানব্বই', 
+                96: 'ছিয়ানব্বই', 97: 'সাতানব্বই', 98: 'আটানব্বই', 99: 'নিরানব্বই'
+            }
+            
+            def convert_under_100(n):
+                """Convert numbers less than 100"""
+                if n == 0:
+                    return ''
+                if n <= 20:
+                    return ones[n]
+                if n in special_numbers:
+                    return special_numbers[n]
+                ten = n // 10
+                one = n % 10
+                if ten > 0 and one > 0:
+                    return tens[ten] + ' ' + ones[one]
+                elif ten > 0:
+                    return tens[ten]
+                else:
+                    return ones[one]
+            
+            def convert_under_1000(n):
+                """Convert numbers less than 1000"""
+                if n == 0:
+                    return ''
+                hundred = n // 100
+                remainder = n % 100
+                result = ''
+                if hundred > 0:
+                    result += convert_under_100(hundred) + 'শত'
+                    if remainder > 0:
+                        result += ' '
+                if remainder > 0:
+                    result += convert_under_100(remainder)
+                return result
+            
+            # Handle decimal part (paise)
+            num_str = str(num_float)
+            parts = num_str.split('.')
+            integer_part = int(float(parts[0]))
+            decimal_part = 0
+            if len(parts) > 1:
+                decimal_str = parts[1].ljust(2, '0')[:2]
+                decimal_part = int(decimal_str)
+            
+            if integer_part == 0 and decimal_part == 0:
+                return 'শূন্য টাকা'
+            
+            result = ''
+            n = integer_part
+            
+            # Crore (1,00,00,000)
+            if n >= 10000000:
+                crore = n // 10000000
+                result += convert_under_100(crore) + ' কোটি'
+                n %= 10000000
+                if n > 0:
+                    result += ' '
+            
+            # Lakh (1,00,000)
+            if n >= 100000:
+                lakh = n // 100000
+                result += convert_under_100(lakh) + ' লক্ষ'
+                n %= 100000
+                if n > 0:
+                    result += ' '
+            
+            # Thousand (1,000)
+            if n >= 1000:
+                thousand = n // 1000
+                result += convert_under_100(thousand) + ' হাজার'
+                n %= 1000
+                if n > 0:
+                    result += ' '
+            
+            # Hundreds and below
+            if n > 0:
+                result += convert_under_1000(n)
+            
+            result = result.strip()
+            if not result:
+                result = 'শূন্য'
+            
+            result += ' টাকা'
+            
+            # Add paise if decimal part exists
+            if decimal_part > 0:
+                result += ' এবং '
+                paise_words = convert_under_100(decimal_part)
+                result += paise_words + ' পয়সা'
+            
+            return result
+        except Exception as e:
+            current_app.logger.error(f'Error converting number to Bengali words: {e}', exc_info=True)
+            # Fallback to number if conversion fails
+            try:
+                return f'{int(float(num))} টাকা'
+            except:
+                return ''
+
+    def _is_postgraduate_course(course_value, year=None):
+        """Check if a course is postgraduate (mirrors JS isPostgraduateCourse logic)"""
+        if not course_value:
+            return False
+        
+        course_code = str(course_value).split(' - ')[0].strip()
+        
+        # Method 1: Check course code pattern - year digit 5 typically means LLM (PG)
+        import re
+        digits = re.findall(r'\d+', course_code)
+        if digits and len(digits) > 0:
+            last_digits = digits[-1]
+            # IMPORTANT: UG course codes are often 3 digits (e.g. "042").
+            # In that case, don't let program year (e.g. LLM) force PG.
+            if len(last_digits) <= 3:
+                return False
+            if len(last_digits) >= 4:
+                year_digit = int(last_digits[-4]) if len(last_digits) >= 4 else None
+                if year_digit == 5:
+                    return True
+        
+        # Method 2: Check if course code contains PG indicators
+        # IMPORTANT: don't use generic '5' substring here (causes false positives).
+        pg_indicators = ['LLM', 'MPHIL', 'M.PHIL', 'PHD', 'PG']
+        upper_code = course_code.upper()
+        if any(indicator in upper_code for indicator in pg_indicators):
+            return True
+        
+        # Method 3: Check year field if provided
+        if year:
+            year_upper = str(year).upper()
+            if any(token in year_upper for token in ['LLM', 'PG', 'MPHIL', 'PHD']):
+                return True
+        
+        return False
+
+    def _matches_teacher_name(item_teacher, teacher_name):
+        """Flexible teacher name matching (mirrors JS logic)"""
+        if not item_teacher or not teacher_name:
+            return False
+        item_teacher = str(item_teacher).strip()
+        teacher_name = str(teacher_name).strip()
+        item_lower = item_teacher.lower()
+        teacher_lower = teacher_name.lower()
+        return (item_teacher == teacher_name or
+                item_lower == teacher_lower or
+                item_lower in teacher_lower or
+                teacher_lower in item_lower)
+
+    def _build_jobs_from_statement(statement_data, teacher_name, year, term, session):
+        """Build jobs_data list from statement data, mirroring JS auto-populate logic"""
+        if not statement_data:
+            return [], 0.0
+        
+        # Debug: Log statement data structure
+        try:
+            current_app.logger.info(f'_build_jobs_from_statement called for teacher: {teacher_name}')
+            current_app.logger.info(f'Statement data keys: {list(statement_data.keys()) if isinstance(statement_data, dict) else "Not a dict"}')
+            if isinstance(statement_data, dict) and 'invigilation' in statement_data:
+                invigilation_data = statement_data.get('invigilation', [])
+                current_app.logger.info(f'Invigilation array exists with {len(invigilation_data)} items')
+                # Log first few items for debugging
+                for idx, inv_item in enumerate(invigilation_data[:3]):  # Log first 3 items
+                    inv_name = inv_item.get('name') or inv_item.get('teacher') or 'Unknown'
+                    inv_chief = inv_item.get('chief')
+                    inv_invig = inv_item.get('invigilation')
+                    current_app.logger.info(f'  Sample item {idx}: name="{inv_name}", chief={repr(inv_chief)}, invigilation={repr(inv_invig)}')
+            else:
+                current_app.logger.warning(f'Invigilation array NOT found in statement data!')
+        except Exception as e:
+            current_app.logger.error(f'Error logging statement data structure: {e}', exc_info=True)
+        
+        jobs_data = []
+        total_amount = 0.0
+        
+        def safe_int(value, default=0):
+            """Safely convert value to int, handling None, empty strings, dashes, and various formats"""
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return int(value)
+            if isinstance(value, str):
+                value = value.strip()
+                # Handle empty string, dash, or other non-numeric values
+                if not value or value == '' or value == '-' or value.lower() == 'none':
+                    return default
+                try:
+                    return int(float(value))
+                except (ValueError, TypeError):
+                    return default
+            try:
+                return int(float(value))
+            except (ValueError, TypeError):
+                return default
+        
+        def safe_float(value, default=0.0):
+            try:
+                return float(value)
+            except Exception:
+                return default
+        
+        def is_pg_year():
+            yr = (year or '').upper()
+            return any(token in yr for token in ['LLM', 'MASTER', 'M.PHIL', 'MPHIL', 'PHD'])
+        
+        is_pg = is_pg_year()
+        
+        # Row 1: প্রশ্নপত্র প্রণয়ন (Question Preparation)
+        items = [i for i in statement_data.get('question_preparation', []) 
+                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        if items:
+            courses = []
+            qty = 0
+            for i in items:
+                course = i.get('course') or i.get('course_code') or ''
+                # Extract course code only (remove course name if present in "CODE - Name" format)
+                if ' - ' in course:
+                    course = course.split(' - ')[0].strip()
+                section = i.get('section') or ''
+                if course:
+                    course_text = f"{course} ({section})" if section else course
+                    courses.append(course_text)
+                qty += max(safe_int(i.get('questions', 1)), 1)
+            
+            # Determine rate based on first course (PG/UG)
+            first_course = items[0].get('course') or items[0].get('course_code') or ''
+            is_pg_course = _is_postgraduate_course(first_course, year)
+            rate = 2400 if is_pg_course else 2300
+            amount = qty * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'প্রশ্নপত্র প্রণয়ন',
+                'courses': ', '.join(courses),
+                'quantity': str(qty),
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # Row 2: প্রশ্নপত্র মডারেশন (Question Moderation) - Only for moderation committee members
+        # Check if teacher is in moderation committee (mirrors JS isTeacherInModerationCommittee)
+        moderation_committee = statement_data.get('moderation_committee', [])
+        is_in_moderation_committee = any(
+            _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)
+            for i in moderation_committee
+        )
+        if is_in_moderation_committee:
+            # When "All" is selected, quantity is 1 (via data-actual-quantity in JS)
+            qty = 1
+            rate = 2400  # সর্বোচ্চ
+            amount = qty * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'প্রশ্নপত্র মডারেশন',
+                'courses': 'All',  # "All" courses
+                'quantity': 'All',  # Display as "All", but calculated as 1
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # Row 3: উত্তরপত্র পরীক্ষণ (Script Examination) - with minimum 600 per course
+        items = [i for i in statement_data.get('script_examination', []) 
+                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        if items:
+            courses = []
+            total_scripts = 0
+            per_course_amounts = []
+            
+            # Group by course-section for minimum calculation
+            course_section_map = {}
+            for i in items:
+                course = i.get('course') or i.get('course_code') or ''
+                # Extract course code only (remove course name if present in "CODE - Name" format)
+                if ' - ' in course:
+                    course = course.split(' - ')[0].strip()
+                section = (i.get('section') or 'Full').upper()
+                key = f"{course}_{section}"
+                if key not in course_section_map:
+                    course_section_map[key] = {
+                        'course': course,
+                        'section': section,
+                        'scripts': 0
+                    }
+                course_section_map[key]['scripts'] += safe_int(i.get('scripts', 0))
+            
+            for key, data in course_section_map.items():
+                course = data['course']
+                section = data['section']
+                scripts = data['scripts']
+                if scripts == 0:
+                    continue
+                
+                if course:
+                    course_text = f"{course} ({section})" if section and section != 'FULL' else course
+                    courses.append(course_text)
+                
+                total_scripts += scripts
+                
+                # Determine rate based on course (PG/UG) and section
+                is_pg_course = _is_postgraduate_course(course, year)
+                if section == 'FULL' or section == '':
+                    rate = 160 if is_pg_course else 80  # Full paper: PG 160, UG 80
+                else:
+                    rate = 100 if is_pg_course else 80  # Half paper: PG 100, UG 80
+                
+                # Calculate with minimum 600 per course
+                calculated_amount = scripts * rate
+                course_amount = max(calculated_amount, 600)
+                per_course_amounts.append(course_amount)
+            
+            if total_scripts > 0:
+                amount = sum(per_course_amounts) if per_course_amounts else 0
+                total_amount += amount
+                
+                # Build breakdown string like single PDF: "4 × 80 = 320" for each course
+                breakdowns = []
+                rates_used = {}  # Track rates and their script counts
+                for key, data in course_section_map.items():
+                    if data['scripts'] == 0:
+                        continue
+                    scripts = data['scripts']
+                    is_pg_course = _is_postgraduate_course(data['course'], year)
+                    section = data['section']
+                    if section == 'FULL' or section == '':
+                        rate = 160 if is_pg_course else 80
+                    else:
+                        rate = 100 if is_pg_course else 80
+                    # Track rate usage with script count
+                    if rate not in rates_used:
+                        rates_used[rate] = 0
+                    rates_used[rate] += scripts
+                    calculated = scripts * rate
+                    final_amount = max(calculated, 600)
+                    if calculated < 600:
+                        breakdowns.append(f'{scripts} × {rate} = {calculated} < 600 → 600')
+                    else:
+                        breakdowns.append(f'{scripts} × {rate} = {final_amount}')
+                
+                quantity_display = ' '.join(breakdowns) if breakdowns else str(total_scripts)
+                
+                # For rate display: if all courses use same rate, show that rate; otherwise show primary rate
+                # Match single PDF format - show actual rate used, not "80/100/160"
+                if len(rates_used) == 1:
+                    rate_display = str(list(rates_used.keys())[0])
+                else:
+                    # Multiple rates used - show the rate used for the majority of scripts
+                    primary_rate = max(rates_used.items(), key=lambda x: x[1])[0]
+                    rate_display = str(primary_rate)
+                
+                jobs_data.append({
+                    'description': 'উত্তরপত্র পরীক্ষণ',
+                    'courses': ', '.join(courses),
+                    'quantity': quantity_display,
+                    'paper_type': '',
+                    'rate': rate_display,  # Show actual rate used, matching single PDF format
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Row 4: ক্লাস টেস্ট/টার্ম পেপার (Class Test)
+        # Row 4 uses multiplier: Full = 4, A or B = 2
+        items = [i for i in statement_data.get('class_test', []) 
+                 if _matches_teacher_name(i.get('teacher') or i.get('teacher_name'), teacher_name)]
+        if items:
+            courses = []
+            total_quantity = 0  # This will be sum of (students × multiplier) for each course-section
+            
+            # Group by course-section to handle duplicates properly
+            course_section_map = {}
+            for i in items:
+                course = i.get('course') or i.get('course_code') or ''
+                # Extract course code only (remove course name if present in "CODE - Name" format)
+                if ' - ' in course:
+                    course = course.split(' - ')[0].strip()
+                section = (i.get('section') or 'Full').upper()
+                students = safe_int(i.get('students') or i.get('student_count', 0))
+                
+                if not course or students == 0:
+                    continue
+                
+                key = f"{course}_{section}"
+                if key not in course_section_map:
+                    course_section_map[key] = {
+                        'course': course,
+                        'section': section,
+                        'students': 0
+                    }
+                # Sum students if same course-section appears multiple times
+                course_section_map[key]['students'] += students
+            
+            # Process each course-section pair
+            for key, data in course_section_map.items():
+                course = data['course']
+                section = data['section']
+                students = data['students']
+                
+                # Determine multiplier based on section
+                if section == 'FULL' or section == '':
+                    multiplier = 4  # Full section
+                else:
+                    multiplier = 2  # A or B section
+                
+                # Calculate quantity for this course-section: students × multiplier
+                course_quantity = students * multiplier
+                total_quantity += course_quantity
+                
+                # Add to courses list
+                if section and section != 'FULL':
+                    course_text = f"{course} ({section})"
+                else:
+                    course_text = course
+                courses.append(course_text)
+            
+            if total_quantity > 0:
+                # Determine rate based on first course (PG/UG)
+                first_item = items[0]
+                first_course = first_item.get('course') or first_item.get('course_code') or ''
+                is_pg_course = _is_postgraduate_course(first_course, year)
+                rate = 40 if is_pg_course else 30
+                
+                # Calculate amount: total_quantity × rate
+                amount = total_quantity * rate
+                total_amount += amount
+                
+                # Build breakdown string like single PDF: "10 × 4 = 40" for each course-section
+                breakdowns = []
+                for key, data in course_section_map.items():
+                    if data['students'] == 0:
+                        continue
+                    students = data['students']
+                    section = data['section']
+                    multiplier = 4 if (section == 'FULL' or section == '') else 2
+                    product = students * multiplier
+                    breakdowns.append(f'{students} × {multiplier} = {product}')
+                
+                quantity_display = ' '.join(breakdowns) if breakdowns else str(total_quantity)
+                
+                jobs_data.append({
+                    'description': 'ক্লাস টেস্ট/টার্ম পেপার/ হোম ওয়ার্ক/ এ্যাসাইনমেন্ট',
+                    'courses': ', '.join(courses),
+                    'quantity': quantity_display,  # Show breakdown like "10 × 4 = 40"
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Row 5: সেশনাল (Sessional Assessment)
+        items = [i for i in statement_data.get('sessional_assessment', []) 
+                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        if items:
+            courses = []
+            total_students = 0
+            for i in items:
+                course = i.get('course') or i.get('course_code') or ''
+                # Extract course code only (remove course name if present in "CODE - Name" format)
+                if ' - ' in course:
+                    course = course.split(' - ')[0].strip()
+                students = safe_int(i.get('students', 0))
+                if course:
+                    courses.append(course)
+                total_students += students
+            
+            rate = 230  # Default: প্রজেক্ট পেপার/এ্যাসাইনমেন্ট
+            amount = total_students * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'সেশনাল',
+                'courses': ', '.join(courses),
+                'quantity': str(total_students),
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # Row 6: সেশনাল মৌখিক পরীক্ষা (Sessional Viva)
+        items = [i for i in statement_data.get('sessional_viva', []) 
+                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        if items:
+            courses = []
+            total_students = 0
+            for i in items:
+                course = i.get('course') or i.get('course_code') or ''
+                # Extract course code only (remove course name if present in "CODE - Name" format)
+                if ' - ' in course:
+                    course = course.split(' - ')[0].strip()
+                students = safe_int(i.get('students', 0))
+                if course:
+                    courses.append(course)
+                total_students += students
+            
+            rate = 50
+            amount = total_students * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'সেশনাল মৌখিক পরীক্ষা',
+                'courses': ', '.join(courses),
+                'quantity': str(total_students),
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # Row 7: প্রফেশনাল এ্যাটাসমেন্ট (Professional Attachment)
+        items = [i for i in statement_data.get('professional_attachment', []) 
+                 if _matches_teacher_name(i.get('teacher') or i.get('name'), teacher_name)]
+        if items:
+            courses = []
+            total_count = 0
+            for i in items:
+                course = i.get('course') or i.get('course_code') or ''
+                # Extract course code only (remove course name if present in "CODE - Name" format)
+                if ' - ' in course:
+                    course = course.split(' - ')[0].strip()
+                count = safe_int(i.get('count', 0))
+                if course:
+                    courses.append(course)
+                total_count += count
+            
+            rate = 100  # সুপারভিশন ও রিপোর্ট পরীক্ষণ
+            amount = total_count * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'প্রফেশনাল এ্যাটাসমেন্ট/ইন্ডাস্ট্রিয়াল (ট্রেনিং/এ্যাটাসমেন্ট)',
+                'courses': ', '.join(courses),
+                'quantity': str(total_count),
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # Row 8: উত্তরপত্র নিরীক্ষণ (Script Scrutiny)
+        items = [i for i in statement_data.get('script_scrutiny', []) 
+                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        if items:
+            total_scripts = sum(safe_int(i.get('scripts', 0)) for i in items)
+            if total_scripts > 0:
+                rate = 8
+                amount = total_scripts * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'উত্তরপত্র নিরীক্ষণ',
+                    'courses': '',
+                    'quantity': str(total_scripts),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Row 9: টেবুলেশন (Tabulation) - course_wise and student_wise separately
+        items = [i for i in statement_data.get('tabulation', []) 
+                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        if items:
+            total_course_wise = sum(safe_int(i.get('course_wise', 0)) for i in items)
+            total_student_wise = sum(safe_int(i.get('student_wise', 0)) for i in items)
+            
+            if total_course_wise > 0:
+                rate = 200
+                amount = total_course_wise * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'টেবুলেশন (কোর্স ভিত্তিক)',
+                    'courses': '',
+                    'quantity': str(total_course_wise),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+            
+            if total_student_wise > 0:
+                rate = 40
+                amount = total_student_wise * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'টেবুলেশন (পরীক্ষার্থী ভিত্তিক)',
+                    'courses': '',
+                    'quantity': str(total_student_wise),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Row 10: প্রশ্নপত্র প্রস্তুতকরণ (Question Typing/Photocopy)
+        # 10a: Drawing
+        items = [i for i in statement_data.get('question_typing', []) 
+                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        total_drawing = sum(safe_int(i.get('questions', 0)) for i in items)
+        if total_drawing > 0:
+            rate = 250
+            amount = total_drawing * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'প্রশ্নপত্র প্রস্তুতকরণ (অংকন)',
+                'courses': '',
+                'quantity': str(total_drawing),
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # 10b: Photocopy
+        photocopy_items = statement_data.get('question_photocopy', [])
+        if not photocopy_items:
+            # If question_photocopy doesn't exist, use question_typing
+            photocopy_items = items
+        photocopy_items = [i for i in photocopy_items 
+                          if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        total_photocopy = sum(safe_int(i.get('questions', 0)) for i in photocopy_items)
+        if total_photocopy > 0:
+            rate = 7
+            amount = total_photocopy * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'প্রশ্নপত্র প্রস্তুতকরণ (ফটোকপি)',
+                'courses': '',
+                'quantity': str(total_photocopy),
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # Row 11: পরীক্ষা কমিটির সভাপতি/সদস্য (Exam Committee)
+        items = [i for i in statement_data.get('examination_committee', []) 
+                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        if items:
+            # Check if teacher is chairman/chief
+            position = (items[0].get('position') or '').lower()
+            is_chairman = any(keyword in position for keyword in ['chief', 'chairman', 'সভাপতি', 'চীফ'])
+            
+            qty = 1
+            if is_pg and is_chairman:
+                rate = 3000  # স্নাতকোত্তর - সভাপতি
+            elif is_pg and not is_chairman:
+                rate = 1000  # স্নাতকোত্তর - সদস্য
+            elif not is_pg and is_chairman:
+                rate = 2500  # স্নাতক - সভাপতি
+            else:
+                rate = 1000  # স্নাতক - সদস্য
+            
+            amount = qty * rate
+            total_amount += amount
+            jobs_data.append({
+                'description': 'পরীক্ষা কমিটির সভাপতি/সদস্য',
+                'courses': '',
+                'quantity': str(qty),
+                'paper_type': '',
+                'rate': str(rate),
+                'amount': f'{amount:.2f}'
+            })
+        
+        # Row 12: চীফ ইনভিজিলেশন / ইনভিজিলেশন (Invigilation)
+        # Match individual download logic exactly: use 'name' or 'teacher' field, handle chief and invigilation separately
+        invigilation_data = statement_data.get('invigilation', [])
+        
+        # Debug: Log all invigilation data first
+        try:
+            current_app.logger.info(f'Row 12 for {teacher_name}: Total invigilation items in statement: {len(invigilation_data)}')
+            if invigilation_data:
+                for idx, inv_item in enumerate(invigilation_data):
+                    inv_name = inv_item.get('name') or inv_item.get('teacher') or 'Unknown'
+                    inv_chief = inv_item.get('chief')
+                    inv_invig = inv_item.get('invigilation')
+                    current_app.logger.info(f'  Statement item {idx}: name="{inv_name}", chief={repr(inv_chief)} (type={type(inv_chief).__name__}), invigilation={repr(inv_invig)} (type={type(inv_invig).__name__})')
+            else:
+                current_app.logger.warning(f'Row 12 for {teacher_name}: No invigilation data found in statement!')
+        except Exception as e:
+            current_app.logger.error(f'Error logging all invigilation data: {e}', exc_info=True)
+        
+        items = [i for i in invigilation_data 
+                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        
+        # Debug: Log matching results
+        try:
+            current_app.logger.info(f'Row 12 for {teacher_name}: Matched {len(items)} items after name matching (searching for: "{teacher_name}")')
+            if len(items) == 0 and invigilation_data:
+                # Log all names for debugging
+                all_names = [i.get('name') or i.get('teacher') or 'Unknown' for i in invigilation_data]
+                current_app.logger.info(f'  Available names in statement: {all_names}')
+        except Exception:
+            pass
+        
+        if items:
+            # Debug: Log raw values before conversion
+            try:
+                current_app.logger.info(f'Row 12 for {teacher_name}: Processing {len(items)} matched invigilation items')
+                for idx, item in enumerate(items):
+                    raw_chief = item.get('chief')
+                    raw_invig = item.get('invigilation')
+                    item_name = item.get('name') or item.get('teacher') or 'Unknown'
+                    current_app.logger.info(f'  Matched item {idx} ({item_name}): chief={repr(raw_chief)} (type={type(raw_chief).__name__}), invigilation={repr(raw_invig)} (type={type(raw_invig).__name__})')
+            except Exception as e:
+                current_app.logger.error(f'Error logging matched invigilation items: {e}')
+            
+            # Calculate chief count - EXACTLY mirror JS: parseInt(item.chief || 0) || 0
+            # JS logic: totalChief += parseInt(item.chief || 0) || 0;
+            chief_count = 0
+            for i in items:
+                chief_val = i.get('chief')
+                # Step 1: item.chief || 0 (in JS, this means: if falsy, use 0)
+                # Falsy values in JS: null, undefined, '', 0, false, NaN
+                if not chief_val or chief_val == '' or chief_val == '-' or chief_val == 0:
+                    chief_val = 0
+                else:
+                    # Step 2: parseInt(value) - convert to int
+                    # Step 3: result || 0 - if result is falsy (0, NaN), use 0
+                    parsed = safe_int(chief_val, 0)
+                    chief_val = parsed if parsed > 0 else 0
+                
+                # Add to total (JS does: totalChief += ...)
+                chief_count += chief_val
+                
+                try:
+                    original = i.get('chief')
+                    current_app.logger.info(f'  Chief calculation: original={repr(original)}, parsed={chief_val}, total_chief={chief_count}')
+                except:
+                    pass
+            
+            # Calculate invigilation count - EXACTLY mirror JS: parseInt(item.invigilation || 0) || 0
+            # JS logic: totalInvigilation += parseInt(item.invigilation || 0) || 0;
+            inv_count = 0
+            for i in items:
+                inv_val = i.get('invigilation')
+                # Step 1: item.invigilation || 0
+                if not inv_val or inv_val == '' or inv_val == '-' or inv_val == 0:
+                    inv_val = 0
+                else:
+                    # Step 2: parseInt(value), Step 3: result || 0
+                    parsed = safe_int(inv_val, 0)
+                    inv_val = parsed if parsed > 0 else 0
+                
+                # Add to total
+                inv_count += inv_val
+            
+            # Debug: Log calculated counts
+            try:
+                current_app.logger.info(f'Row 12 for {teacher_name}: FINAL - chief_count={chief_count}, inv_count={inv_count}')
+            except Exception:
+                pass
+            
+            if chief_count > 0:
+                rate = 1800
+                amount = chief_count * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'চীফ ইনভিজিলেশন',
+                    'courses': '',
+                    'quantity': str(chief_count),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+                try:
+                    current_app.logger.info(f'Row 12: Added chief invigilation for {teacher_name}: {chief_count} × {rate} = {amount:.2f}')
+                except Exception:
+                    pass
+            
+            if inv_count > 0:
+                rate = 1500
+                amount = inv_count * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'ইনভিজিলেশন',
+                    'courses': '',
+                    'quantity': str(inv_count),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Row 13: থিসিস (Thesis Supervision)
+        items = [i for i in statement_data.get('thesis_supervision', []) 
+                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        if items:
+            total_examine = sum(safe_int(i.get('examine', 0)) for i in items)
+            total_supervision = sum(safe_int(i.get('supervision', 0)) for i in items)
+            total_co_supervision = sum(safe_int(i.get('co_supervision', 0)) for i in items)
+            total_viva = sum(safe_int(i.get('viva', 0)) for i in items)
+            
+            # 13a: পরীক্ষণ (Examine)
+            if total_examine > 0:
+                rate = 2500 if is_pg else 1200
+                amount = total_examine * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'থিসিস পরীক্ষণ',
+                    'courses': '',
+                    'quantity': str(total_examine),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+            
+            # 13b: সুপারভিশন (Supervision)
+            if total_supervision > 0:
+                rate = 5000 if is_pg else 2000
+                amount = total_supervision * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'থিসিস সুপারভিশন',
+                    'courses': '',
+                    'quantity': str(total_supervision),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+            
+            # 13c: কো-সুপারভিশন (Co-Supervision) - Only PG
+            if total_co_supervision > 0 and is_pg:
+                rate = 1500
+                amount = total_co_supervision * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'থিসিস কো-সুপারভিশন',
+                    'courses': '',
+                    'quantity': str(total_co_supervision),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+            
+            # 13d: মৌখিক পরীক্ষা (Viva)
+            if total_viva > 0:
+                rate = 500 if is_pg else 120
+                amount = total_viva * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'থিসিস মৌখিক পরীক্ষা',
+                    'courses': '',
+                    'quantity': str(total_viva),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Row 14: ভাইভা (Viva)
+        items = [i for i in statement_data.get('viva', []) 
+                 if _matches_teacher_name(i.get('teacher') or i.get('name'), teacher_name)]
+        if items:
+            total_students = sum(safe_int(i.get('students', 0)) for i in items)
+            if total_students > 0:
+                rate = 50
+                amount = total_students * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'ভাইভা',
+                    'courses': '',
+                    'quantity': str(total_students),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Row 15: কোডিং/ডিকোডিং (Coding/Decoding)
+        items = [i for i in statement_data.get('coding_decoding', []) 
+                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        if items:
+            total_scripts = sum(safe_int(i.get('scripts', 0)) for i in items)
+            if total_scripts > 0:
+                rate = 30  # পরীক্ষার্থী প্রতি
+                amount = total_scripts * rate
+                total_amount += amount
+                jobs_data.append({
+                    'description': 'কোডিং/ডিকোডিং',
+                    'courses': '',
+                    'quantity': str(total_scripts),
+                    'paper_type': '',
+                    'rate': str(rate),
+                    'amount': f'{amount:.2f}'
+                })
+        
+        # Format jobs_data to match single PDF structure (with main rows and sub-items)
+        formatted_jobs_data = []
+        serial = 1
+        
+        # Define job order and structure - matching single PDF exactly
+        job_structure = [
+            {'row': 1, 'desc': 'প্রশ্নপত্র প্রণয়ন'},
+            {'row': 2, 'desc': 'প্রশ্নপত্র মডারেশন'},
+            {'row': 3, 'desc': 'উত্তরপত্র পরীক্ষণ'},
+            {'row': 4, 'desc': 'ক্লাস টেস্ট/টার্ম পেপার/ হোম ওয়ার্ক/ এ্যাসাইনমেন্ট'},
+            {'row': 5, 'desc': 'সেশনাল'},
+            {'row': 6, 'desc': 'সেশনাল মৌখিক পরীক্ষা'},
+            {'row': 7, 'desc': 'প্রফেশনাল এ্যাটাসমেন্ট/ইন্ডাস্ট্রিয়াল (ট্রেনিং/এ্যাটাসমেন্ট)'},
+            {'row': 8, 'desc': 'উত্তরপত্র নিরীক্ষণ'},
+            {'row': 9, 'desc': 'টেবুলেশন', 'has_subs': True, 'subs': [
+                {'key': '9a', 'desc': 'কোর্স ভিত্তিক'},
+                {'key': '9b', 'desc': 'পরীক্ষার্থী ভিত্তিক'}
+            ]},
+            {'row': 10, 'desc': 'প্রশ্নপত্র প্রস্তুতকরণ (অংকন, স্টেনসিল কাটা ও ঘুরানো)', 'has_subs': True, 'subs': [
+                {'key': '10a', 'desc': 'অংকন'},
+                {'key': '10b', 'desc': 'ফটোকপি'}
+            ]},
+            {'row': 11, 'desc': 'পরীক্ষা কমিটির সভাপতি/সদস্য'},
+            {'row': 12, 'desc': 'চীফ ইনভিজিলেশন / ইনভিজিলেশন', 'has_subs': True, 'subs': [
+                {'key': '12a', 'desc': 'চীফ ইনভিজিলেশন'},
+                {'key': '12b', 'desc': 'ইনভিজিলেশন'}
+            ]},
+            {'row': 13, 'desc': 'থিসিস', 'has_subs': True, 'subs': [
+                {'key': '13a', 'desc': 'পরীক্ষণ'},
+                {'key': '13b', 'desc': 'সুপারভিশন (থিসিস/প্রজেক্ট থিসিস/ইন্টার্নশীপ রিপোর্ট)'},
+                {'key': '13c', 'desc': 'কো-সুপারভিশন'},
+                {'key': '13d', 'desc': 'মৌখিক পরীক্ষা'}
+            ]},
+            {'row': 14, 'desc': 'ভাইভা'},
+            {'row': 15, 'desc': 'কোডিং/ডিকোডিং'},
+            {'row': 16, 'desc': 'অন্যান্য'}
+        ]
+        
+        # Create a map of current jobs_data by description/key
+        jobs_map = {}
+        for job in jobs_data:
+            desc = job.get('description', '').strip()
+            # Handle sub-items (they have specific descriptions)
+            if 'কোর্স ভিত্তিক' in desc:
+                jobs_map['9a'] = job
+            elif 'পরীক্ষার্থী ভিত্তিক' in desc:
+                jobs_map['9b'] = job
+            elif 'অংকন' in desc and 'প্রশ্নপত্র প্রস্তুতকরণ' in desc:
+                jobs_map['10a'] = job
+            elif 'ফটোকপি' in desc and 'প্রশ্নপত্র প্রস্তুতকরণ' in desc:
+                jobs_map['10b'] = job
+            elif desc == 'চীফ ইনভিজিলেশন':
+                jobs_map['12a'] = job
+            elif desc == 'ইনভিজিলেশন':
+                jobs_map['12b'] = job
+            elif 'থিসিস পরীক্ষণ' in desc:
+                jobs_map['13a'] = job
+            elif 'থিসিস সুপারভিশন' in desc:
+                jobs_map['13b'] = job
+            elif 'থিসিস কো-সুপারভিশন' in desc:
+                jobs_map['13c'] = job
+            elif 'থিসিস মৌখিক পরীক্ষা' in desc:
+                jobs_map['13d'] = job
+            else:
+                # Main items - use description as key (exact match)
+                jobs_map[desc] = job
+        
+        # Log all jobs_data for debugging
+        try:
+            current_app.logger.debug(f'Jobs data for {teacher_name}: {[j.get("description") for j in jobs_data]}')
+            current_app.logger.debug(f'Jobs map keys for {teacher_name}: {list(jobs_map.keys())}')
+        except Exception:
+            pass
+        
+        # Build formatted jobs_data matching single PDF structure
+        for job_def in job_structure:
+            row_num = job_def['row']
+            main_desc = job_def['desc']
+            has_subs = job_def.get('has_subs', False)
+            
+            # Check if we have data for this row
+            has_data = False
+            if has_subs:
+                # Check if any sub-item has data
+                for sub in job_def.get('subs', []):
+                    if sub['key'] in jobs_map:
+                        has_data = True
+                        break
+            else:
+                # Check if main item has data - try exact match first, then flexible matching
+                if main_desc in jobs_map:
+                    has_data = True
+                else:
+                    # Try flexible matching (strip whitespace)
+                    for key in list(jobs_map.keys()):
+                        if key.strip() == main_desc.strip():
+                            # Update jobs_map with correct key
+                            jobs_map[main_desc] = jobs_map.pop(key)
+                            has_data = True
+                            break
+            
+            # Log for Row 15 specifically for debugging
+            if row_num == 15:
+                try:
+                    current_app.logger.info(
+                        f'Row 15 check for {teacher_name}: main_desc="{main_desc}", '
+                        f'has_data={has_data}, in_jobs_map={main_desc in jobs_map}, '
+                        f'all_keys={list(jobs_map.keys())}'
+                    )
+                except Exception:
+                    pass
+            
+            if not has_data:
+                continue  # Skip rows with no data
+            
+            # Add main row (for rows 9, 10, 12, 13, main row has empty fields)
+            if has_subs:
+                formatted_jobs_data.append({
+                    'serial': str(serial),
+                    'description': main_desc,
+                    'courses': '',
+                    'quantity': '',
+                    'paper_type': '',
+                    'rate': '',
+                    'amount': ''
+                })
+            else:
+                # Regular row - use data from jobs_map
+                job = jobs_map.get(main_desc, {})
+                formatted_jobs_data.append({
+                    'serial': str(serial),
+                    'description': main_desc,
+                    'courses': job.get('courses', ''),
+                    'quantity': job.get('quantity', ''),
+                    'paper_type': job.get('paper_type', ''),
+                    'rate': job.get('rate', ''),
+                    'amount': job.get('amount', '')
+                })
+            
+            serial += 1
+            
+            # Add sub-items if applicable
+            if has_subs:
+                for sub in job_def.get('subs', []):
+                    sub_key = sub['key']
+                    sub_desc = sub['desc']
+                    if sub_key in jobs_map:
+                        sub_job = jobs_map[sub_key]
+                        formatted_jobs_data.append({
+                            'serial': '',  # Sub-items have empty serial
+                            'description': sub_desc,
+                            'courses': sub_job.get('courses', ''),
+                            'quantity': sub_job.get('quantity', ''),
+                            'paper_type': sub_job.get('paper_type', ''),
+                            'rate': sub_job.get('rate', ''),
+                            'amount': sub_job.get('amount', '')
+                        })
+        
+        try:
+            current_app.logger.info(
+                f'Built {len(formatted_jobs_data)} formatted jobs from statement for {teacher_name}, total={total_amount:.2f}'
+            )
+        except Exception:
+            # If logger is not available, continue without logging
+            pass
+        
+        return formatted_jobs_data, total_amount
+
+    @app.route('/remuneration/bulk-download', methods=['POST'])
+    @login_required
+    def remuneration_bulk_download():
+        """Bulk download auto-generated remuneration forms for selected teachers as a ZIP file"""
+        try:
+            restriction = _require_teacher_privileges()
+            if restriction:
+                return restriction
+            
+            import zipfile
+            import io
+            import os
+            from datetime import datetime
+            import json
+            
+            # Get data from POST request
+            try:
+                data = request.get_json()
+            except Exception as e:
+                current_app.logger.error(f'Error parsing JSON request: {e}', exc_info=True)
+                return jsonify({
+                    'success': False,
+                    'message': 'Invalid request data format'
+                }), 400
+            
+            if not data:
+                return jsonify({
+                    'success': False,
+                    'message': 'Invalid request data'
+                }), 400
+            
+            session_val = data.get('session', '').strip()
+            year_val = data.get('year', '').strip()
+            term_val = data.get('term', '').strip()
+            teacher_ids = data.get('teacher_ids', [])
+            
+            if not session_val or not year_val or not term_val:
+                return jsonify({
+                    'success': False,
+                    'message': 'সেশন, বর্ষ ও টার্ম সিলেক্ট করুন'
+                }), 400
+            
+            if not teacher_ids or len(teacher_ids) == 0:
+                return jsonify({
+                    'success': False,
+                    'message': 'অন্তত একজন শিক্ষক নির্বাচন করুন'
+                }), 400
+            
+            try:
+                from blueprints.remuneration_management.models import RemunerationForm
+                from blueprints.class_management.models import Teacher
+                from sqlalchemy import or_, func
+                
+                # Normalize values
+                session_val_clean = session_val.strip()
+                year_val_clean = year_val.strip()
+                term_val_clean = term_val.strip()
+                
+                current_app.logger.info(f'Bulk download: session="{session_val_clean}", year="{year_val_clean}", term="{term_val_clean}", teachers={teacher_ids}')
+                
+                # Fetch selected teachers
+                try:
+                    teacher_ids_int = [int(tid) for tid in teacher_ids]
+                    teachers = Teacher.query.filter(Teacher.id.in_(teacher_ids_int)).all()
+                except (ValueError, TypeError) as e:
+                    current_app.logger.error(f'Invalid teacher IDs: {e}')
+                    return jsonify({
+                        'success': False,
+                        'message': 'অবৈধ শিক্ষক ID'
+                    }), 400
+                
+                if not teachers:
+                    return jsonify({
+                        'success': False,
+                        'message': 'নির্বাচিত শিক্ষক পাওয়া যায়নি'
+                    }), 404
+                
+                current_app.logger.info(f'Found {len(teachers)} teachers to generate forms for')
+                
+                # Fetch statement data first - required for bulk download
+                statement_data = _get_remuneration_statement_data(session_val_clean, year_val_clean, term_val_clean)
+                if not statement_data:
+                    return jsonify({
+                        'success': False,
+                        'message': 'এই সেশন, বর্ষ ও টার্মের জন্য পরীক্ষা কমিটির চীফের Statement of Remuneration ফর্ম সেভ করা হয়নি। অনুগ্রহ করে প্রথমে Statement ফর্মটি সেভ করুন।'
+                    }), 400
+                
+                current_app.logger.info(f'Using statement data for bulk download: session={session_val_clean}, year={year_val_clean}, term={term_val_clean}')
+                
+                # Check if WeasyPrint is available
+                try:
+                    from weasyprint import HTML, CSS
+                except ImportError as import_err:
+                    current_app.logger.error(f'WeasyPrint import error: {str(import_err)}', exc_info=True)
+                    return jsonify({
+                        'success': False,
+                        'message': 'PDF জেনারেশন উপলব্ধ নেই'
+                    }), 500
+                
+                # Create ZIP buffer
+                zip_buffer = io.BytesIO()
+                
+                # Use ZIP_STORED for better compatibility, or ZIP_DEFLATED with compression level
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
+                    successful_pdfs = 0
+                    
+                    for teacher in teachers:
+                        try:
+                            applicant_name = teacher.name
+                            
+                            # Build jobs_data from statement (ignoring saved forms for bulk output)
+                            try:
+                                jobs_data, total_amount = _build_jobs_from_statement(
+                                    statement_data, teacher.name, year_val_clean, term_val_clean, session_val_clean
+                                )
+                            except Exception as build_error:
+                                current_app.logger.error(
+                                    f'Error building jobs from statement for {teacher.name}: {build_error}',
+                                    exc_info=True
+                                )
+                                # Skip this teacher if we can't build their data
+                                continue
+                            
+                            # If no jobs data, skip this teacher
+                            if not jobs_data:
+                                current_app.logger.info(f'No statement items found for {teacher.name}, skipping')
+                                continue
+                            
+                            # jobs_data already has serial numbers from _build_jobs_from_statement
+                            
+                            # Get exam dates from statement
+                            exam_start_date = statement_data.get('exam_start_date', '')
+                            exam_end_date = statement_data.get('exam_end_date', '')
+                            
+                            # Get bank account from teacher
+                            bank_account = teacher.bank_account_no or ''
+                            
+                            # Convert total to words
+                            total_in_words = _number_to_words_bengali(total_amount) if total_amount > 0 else ''
+                            
+                            # Get font file path for Bengali font - same as single PDF
+                            import os
+                            font_path_absolute = None
+                            font_paths_to_try = [
+                                os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf'),
+                                os.path.join(current_app.root_path, 'static', 'fonts', 'kalpurush.ttf'),
+                                os.path.join(current_app.root_path, 'static', 'Fonts', 'Kalpurush.ttf'),
+                                os.path.join(current_app.root_path, 'static', 'fonts', 'Kalpurush.ttf'),
+                            ]
+                            
+                            for font_path in font_paths_to_try:
+                                if os.path.exists(font_path):
+                                    font_path_absolute = os.path.abspath(font_path)
+                                    break
+                            
+                            # Get logo file path and convert to data URI - same as single PDF
+                            logo_path_absolute = None
+                            logo_paths_to_try = [
+                                os.path.join(current_app.root_path, 'static', 'Images', 'KU_logo_2.png'),
+                                os.path.join(current_app.root_path, 'static', 'images', 'KU_logo_2.png'),
+                            ]
+                            
+                            for logo_path in logo_paths_to_try:
+                                if os.path.exists(logo_path):
+                                    logo_path_absolute = os.path.abspath(logo_path)
+                                    break
+                            
+                            # Convert logo to base64 data URI if found
+                            logo_data_uri = None
+                            if logo_path_absolute:
+                                try:
+                                    import base64
+                                    with open(logo_path_absolute, 'rb') as logo_file:
+                                        logo_data = logo_file.read()
+                                        logo_base64 = base64.b64encode(logo_data).decode('utf-8')
+                                        logo_data_uri = f'data:image/png;base64,{logo_base64}'
+                                except Exception as e:
+                                    current_app.logger.error(f'Error converting logo to data URI: {e}')
+                                    logo_data_uri = None
+                            
+                            # Prepare context for template - same as single PDF
+                            context = {
+                                'font_path': font_path_absolute,
+                                'logo_data_uri': logo_data_uri,
+                                'voucher_no': '',
+                                'voucher_date': '',
+                                'applicant_name': applicant_name,
+                                'designation': teacher.designation or '',
+                                'discipline': 'Law',
+                                'address': teacher.institute or 'Law Discipline, KU',
+                                'exam_discipline': 'Law',
+                                'year': year_val_clean,
+                                'academic_year': session_val_clean,
+                                'term': term_val_clean,
+                                'exam_start_date': exam_start_date,
+                                'exam_end_date': exam_end_date,
+                                'jobs_data': jobs_data,
+                                'total_amount': str(total_amount),
+                                'total_in_words': total_in_words,
+                                'bank_account': bank_account,
+                                'auditor_sign': '',
+                                'deputy_sign': '',
+                                'controller_sign': '',
+                                'finance_amount': '',
+                                'finance_amount_words': '',
+                                'section_officer_sign': '',
+                                'deputy_director_sign': '',
+                                'director_sign': '',
+                                'audit_amount': '',
+                                'audit_assistant_sign': '',
+                                'audit_head_sign': '',
+                                'bank_advice_no': '',
+                                'payment_date': ''
+                            }
+                            
+                            # Render HTML template
+                            html_content = render_template('remuneration_pdf_template.html', **context)
+                            
+                            if not html_content:
+                                current_app.logger.warning(f'Empty HTML content for {applicant_name}, skipping')
+                                continue
+                            
+                            # Initialize html_content for font injection - same as single PDF
+                            html_content_final = html_content
+                            
+                            # Inject font as base64 - same as single PDF
+                            if font_path_absolute:
+                                try:
+                                    import base64
+                                    with open(font_path_absolute, 'rb') as font_file:
+                                        font_data = font_file.read()
+                                        font_base64 = base64.b64encode(font_data).decode('utf-8')
+                                    
+                                    font_face_rule = f"""
+        <style>
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url(data:application/font-sfnt;base64,{font_base64}) format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }}
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url(data:application/font-sfnt;base64,{font_base64}) format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }}
+        </style>
+        """
+                                    
+                                    if '</head>' in html_content_final:
+                                        html_content_final = html_content_final.replace('</head>', font_face_rule + '</head>')
+                                    elif '<head>' in html_content_final:
+                                        html_content_final = html_content_final.replace('<head>', '<head>' + font_face_rule)
+                                    else:
+                                        html_content_final = font_face_rule + html_content_final
+                                    
+                                except Exception as e:
+                                    current_app.logger.error(f'Failed to embed font as base64: {e}', exc_info=True)
+                            
+                            # Use the final HTML content (with font injected)
+                            html_content = html_content_final
+                            
+                            # Generate PDF - same CSS as single PDF
+                            pdf_buffer = io.BytesIO()
+                            try:
+                                html_obj = HTML(string=html_content, base_url=request.url_root)
+                                
+                                # CSS for legal size page - EXACT same as single PDF
+                                css_string = """
+            @page {
+                size: 8.5in 14in; /* Legal size */
+                margin: 0.18in 0.28in; /* Slightly increased margins */
+            }
+            * {
+                page-break-inside: avoid !important;
+                page-break-after: avoid !important;
+                page-break-before: avoid !important;
+            }
+            body {
+                margin: 0 !important;
+                padding: 0 !important;
+                font-size: 0.64rem !important; /* Increased from 0.56rem (7pt) to 0.64rem (8pt) */
+                line-height: 1.18 !important; /* Slightly more breathing room */
+                font-family: 'Kalpurush', sans-serif !important;
+            }
+            .rem-wrapper {
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            .rem-sheet {
+                padding: 10px 17px !important; /* Slightly increased padding */
+                margin: 0 !important;
+                border: none !important;
+                border-radius: 0 !important;
+            }
+            .rem-heading {
+                margin-bottom: 0.15rem !important;
+                gap: 0.7rem !important;
+            }
+            .rem-heading-logo img {
+                height: 38px !important; /* Larger logo */
+            }
+            .rem-heading-content .text-muted {
+                font-size: 0.62rem !important;
+                margin-bottom: 0.04rem !important;
+            }
+            .rem-heading h4 {
+                font-size: 0.78rem !important;
+                margin-bottom: 0.015rem !important;
+            }
+            .rem-heading-content > div {
+                font-size: 0.72rem !important;
+                margin-bottom: 0.015rem !important;
+            }
+            .rem-heading-content small {
+                font-size: 0.56rem !important;
+                margin-top: 0.04rem !important;
+            }
+            .voucher-box {
+                padding: 0.12rem 0.35rem 0.015rem 0.35rem !important;
+                font-size: 0.56rem !important;
+                width: 210px !important;
+            }
+            .voucher-box div {
+                padding: 0.04rem 0 !important;
+            }
+            .voucher-box span {
+                min-width: 52px !important;
+                font-size: 0.56rem !important;
+            }
+            .voucher-box input {
+                font-size: 0.56rem !important;
+                padding: 0.06rem 0.16rem !important;
+            }
+            .meta-grid {
+                margin-top: 0.25rem !important;
+                margin-bottom: 0.25rem !important;
+            }
+            .meta-grid td {
+                padding: 0.18rem 0.32rem !important;
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
+            }
+            .meta-label {
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
+                width: 142px !important;
+            }
+            .meta-grid input,
+            .meta-grid select {
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
+                padding: 0.11rem 0.22rem !important;
+            }
+            .rem-table {
+                margin: 0.25rem 0 !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
+            }
+            .rem-table th,
+            .rem-table td {
+                padding: 0.18rem 0.27rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
+                line-height: 1.12 !important;
+            }
+            .rem-table th {
+                padding: 0.22rem 0.27rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
+            }
+            .section-title {
+                margin-top: 0.65rem !important;
+                margin-bottom: 0.35rem !important;
+                font-size: 0.71rem !important;
+            }
+            .signature-box {
+                min-height: 38px !important;
+                padding: 0.22rem !important;
+                font-size: 0.56rem !important;
+            }
+            .signature-box span {
+                margin-top: 0.55rem !important;
+                padding-top: 0.18rem !important;
+            }
+            .controller-signature-section,
+            .finance-signature-section,
+            .audit-approval-section {
+                margin-top: 0.25rem !important;
+                margin-bottom: 0.28rem !important;
+                gap: 0.25rem !important;
+            }
+            .controller-signature-box,
+            .finance-signature-box,
+            .audit-signature-box-single {
+                min-height: 32px !important;
+                padding: 0.17rem 0.16rem !important;
+            }
+            .controller-designation,
+            .finance-designation,
+            .audit-designation {
+                font-size: 0.51rem !important;
+                margin-bottom: 0.27rem !important;
+                padding-bottom: 0.16rem !important;
+            }
+            .controller-signature-line,
+            .finance-signature-line,
+            .audit-signature-line {
+                margin-top: 0.22rem !important;
+                font-size: 0.51rem !important;
+            }
+            .foot-table {
+                margin: 0.25rem 0 0.18rem 0 !important;
+            }
+            .foot-table td {
+                padding: 0.18rem 0.32rem !important;
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
+            }
+            .foot-table input {
+                font-size: 0.56rem !important; /* Reverted to original 7pt */
+                padding: 0.11rem 0.22rem !important;
+            }
+            .info-note,
+            .statement-note,
+            .finance-release-note,
+            .audit-approval-text {
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
+                margin: 0.18rem 0 !important;
+                line-height: 1.22 !important;
+            }
+            .info-note input,
+            .statement-note input {
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
+                padding: 0.04rem 0.11rem !important;
+            }
+            .bank-declaration {
+                padding: 0.27rem !important;
+                margin-top: 0.25rem !important;
+                font-size: 0.51rem !important; /* Reverted to original 6pt */
+                line-height: 1.22 !important;
+            }
+            .revenue-ticket {
+                width: 18mm !important;
+                height: 18mm !important;
+                margin-left: 0.35rem !important;
+            }
+            * {
+                font-family: 'Kalpurush', sans-serif !important;
+            }
+            body {
+                font-family: 'Kalpurush', sans-serif !important;
+            }
+            .english-text {
+                font-family: 'Tahoma', 'Arial', sans-serif !important;
+            }
+            """
+                                
+                                css_obj = CSS(string=css_string)
+                                html_obj.write_pdf(pdf_buffer, stylesheets=[css_obj], presentational_hints=True)
+                                
+                                # Reset buffer position
+                                pdf_buffer.seek(0)
+                                
+                                # Get PDF content
+                                pdf_content = pdf_buffer.getvalue()
+                                
+                                # Validate PDF content
+                                if not pdf_content or len(pdf_content) == 0:
+                                    current_app.logger.warning(f'Empty PDF generated for {applicant_name}, skipping')
+                                    continue
+                                
+                                # Check if it's a valid PDF (should start with %PDF)
+                                if not pdf_content.startswith(b'%PDF'):
+                                    current_app.logger.warning(f'Invalid PDF content for {applicant_name} (starts with: {pdf_content[:20]}), skipping')
+                                    continue
+                                
+                            except Exception as pdf_error:
+                                current_app.logger.error(f'Error generating PDF for {applicant_name}: {str(pdf_error)}', exc_info=True)
+                                continue
+                            
+                            # Sanitize filename - ensure it's valid for ZIP
+                            safe_name = ''.join(c if c.isalnum() or c in ' _-' else '_' for c in applicant_name)
+                            filename = f"{safe_name}_{session_val_clean}_{year_val_clean}_{term_val_clean}.pdf"
+                            
+                            # Add to ZIP - use writestr directly (simpler and more reliable)
+                            zip_file.writestr(filename, pdf_content)
+                            successful_pdfs += 1
+                            
+                            current_app.logger.info(f'Added PDF to ZIP: {filename} ({len(pdf_content)} bytes)')
+                            
+                            current_app.logger.info(f'Generated PDF for {applicant_name}: {len(jobs_data)} jobs, total={total_amount:.2f}')
+                            
+                        except Exception as form_error:
+                            current_app.logger.error(f'Error generating PDF for {applicant_name}: {str(form_error)}', exc_info=True)
+                            continue
+                    
+                    if successful_pdfs == 0:
+                        return jsonify({
+                            'success': False,
+                            'message': 'কোনো PDF জেনারেট করা যায়নি'
+                        }), 500
+                
+                # ZIP file is automatically closed and finalized when exiting the 'with' block
+                # Reset buffer position to beginning before reading
+                zip_buffer.seek(0)
+                
+                # Get the ZIP content
+                zip_content = zip_buffer.getvalue()
+                
+                # Generate filename for ZIP
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                zip_filename = f"Remuneration_{session_val_clean}_{year_val_clean}_{term_val_clean}_{timestamp}.zip"
+                
+                zip_size = len(zip_content)
+                
+                current_app.logger.info(f'Bulk download: Generated {successful_pdfs} PDFs in {zip_filename}, size={zip_size} bytes')
+                
+                if not zip_content or len(zip_content) == 0:
+                    current_app.logger.error('ZIP buffer is empty!')
+                    return jsonify({
+                        'success': False,
+                        'message': 'ZIP ফাইল তৈরি করতে সমস্যা হয়েছে'
+                    }), 500
+                
+                # Validate ZIP file (should start with PK signature)
+                if not zip_content.startswith(b'PK'):
+                    current_app.logger.error(f'Invalid ZIP file! Starts with: {zip_content[:10]}')
+                    return jsonify({
+                        'success': False,
+                        'message': 'ZIP ফাইল করাপ্ট হয়েছে'
+                    }), 500
+                
+                return Response(
+                    zip_content,
+                    mimetype='application/zip',
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                        'Content-Length': str(zip_size),
+                        'Content-Type': 'application/zip',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                )
+                
+            except Exception as e:
+                current_app.logger.error(f'Bulk download error: {str(e)}', exc_info=True)
+                return jsonify({
+                    'success': False,
+                    'message': f'বাল্ক ডাউনলোড ব্যর্থ: {str(e)}'
+                }), 500
+            finally:
+                import gc
+                gc.collect()
+        except Exception as outer_error:
+            # Catch any errors that occur before the inner try block
+            current_app.logger.error(f'Bulk download outer error: {str(outer_error)}', exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': f'বাল্ক ডাউনলোড ব্যর্থ: {str(outer_error)}'
+            }), 500
 
     @app.route('/admin/delete_user/<int:user_id>', methods=['POST'])
     @login_required

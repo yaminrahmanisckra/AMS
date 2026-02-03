@@ -57,6 +57,53 @@
     .btn-remove-row:hover {
         color: #c82333;
     }
+    
+    /* Auto-populated field styles */
+    .auto-field-wrapper {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        width: 100%;
+    }
+    .auto-field-wrapper input,
+    .auto-field-wrapper select {
+        flex: 1;
+    }
+    .auto-badge {
+        display: none;
+        position: absolute;
+        right: 5px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 3px;
+        cursor: pointer;
+        z-index: 10;
+        white-space: nowrap;
+    }
+    .auto-badge.manual {
+        display: inline-block;
+        background-color: #ffc107;
+        color: #212529;
+        border: 1px solid #e0a800;
+    }
+    .auto-badge.manual:hover {
+        background-color: #e0a800;
+    }
+    .auto-badge.auto {
+        display: inline-block;
+        background-color: #28a745;
+        color: white;
+        border: 1px solid #1e7e34;
+        cursor: default;
+    }
+    .auto-field-wrapper input.has-badge {
+        padding-right: 75px;
+    }
+    .auto-field-wrapper select.has-badge {
+        padding-right: 75px;
+    }
 </style>
 {% endblock %}
 
@@ -624,12 +671,14 @@
                 {% else %}
                     <tr>
                         <td>
-                            <select class="form-select form-select-sm teacher-name-select" name="script_scrutiny_name[]" onchange="onNameChange(this, 'script_scrutiny')">
+                            <select class="form-select form-select-sm teacher-name-select" name="script_scrutiny_name_select[]" onchange="onNameChange(this, 'script_scrutiny')">
                                 <option value="">Select Name</option>
+                                <option value="__CUSTOM__">Custom...</option>
                                 {% for teacher in teachers %}
                                 <option value="{{ teacher.name }}">{{ teacher.name }}</option>
                                 {% endfor %}
                             </select>
+                            <input type="text" class="form-control form-control-sm mt-1 script-scrutiny-custom-name" name="script_scrutiny_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
                         <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
                         <td><input type="number" class="form-control form-control-sm" name="script_scrutiny_scripts[]" value="" min="0" onfocus="this.select();"></td>
@@ -659,12 +708,14 @@
                     {% for item in saved_data.tabulation %}
                     <tr>
                         <td>
-                            <select class="form-select form-select-sm teacher-name-select" name="tabulation_name[]" onchange="onNameChange(this, 'tabulation')">
+                            <select class="form-select form-select-sm teacher-name-select" name="tabulation_name_select[]" onchange="onNameChange(this, 'tabulation')">
                                 <option value="">Select Name</option>
+                                <option value="__CUSTOM__">Custom...</option>
                                 {% for teacher in teachers %}
                                 <option value="{{ teacher.name }}" {% if item.name == teacher.name %}selected{% endif %}>{{ teacher.name }}</option>
                                 {% endfor %}
                             </select>
+                            <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" value="{% if item.name and item.name not in teachers|map(attribute='name')|list %}{{ item.name }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.name and item.name not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
                         <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
                         <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="{{ item.course_wise or '0' }}" min="0" onfocus="this.select();"></td>
@@ -675,12 +726,14 @@
                 {% else %}
                     <tr>
                         <td>
-                            <select class="form-select form-select-sm teacher-name-select" name="tabulation_name[]" onchange="onNameChange(this, 'tabulation')">
+                            <select class="form-select form-select-sm teacher-name-select" name="tabulation_name_select[]" onchange="onNameChange(this, 'tabulation')">
                                 <option value="">Select Name</option>
+                                <option value="__CUSTOM__">Custom...</option>
                                 {% for teacher in teachers %}
                                 <option value="{{ teacher.name }}">{{ teacher.name }}</option>
                                 {% endfor %}
                             </select>
+                            <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
                         <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
                         <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="" min="0" onfocus="this.select();"></td>
@@ -690,7 +743,7 @@
                 {% endif %}
             </tbody>
         </table>
-        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addRowWithNameDesignation('table_tabulation', ['name', 'designation', 'number', 'number'], 'tabulation')">Add Row</button>
+        <button type="button" class="btn btn-sm btn-primary btn-add-row" onclick="addTabulationRow()">Add Row</button>
     </div>
     
     <!-- Section 10: Coding & Decoding -->
@@ -1030,6 +1083,236 @@ const allowedCombinations = {{ allowed_combinations|tojson if allowed_combinatio
 
 // Edit mode flag - if true, auto-load is disabled
 let isEditMode = false;
+
+// ========================================
+// Auto-populated field management system
+// ========================================
+
+// Store auto-fetched values for fields
+const autoFieldValues = new Map();
+
+// Wrap an input/select with auto-field wrapper and setup listeners
+function setupAutoField(element, fieldId) {
+    if (!element || element.dataset.autoFieldSetup === 'true') return;
+    
+    // Mark as setup
+    element.dataset.autoFieldSetup = 'true';
+    element.dataset.autoFieldId = fieldId;
+    
+    // Create wrapper if not already wrapped
+    let wrapper = element.closest('.auto-field-wrapper');
+    if (!wrapper) {
+        wrapper = document.createElement('span');
+        wrapper.className = 'auto-field-wrapper';
+        element.parentNode.insertBefore(wrapper, element);
+        wrapper.appendChild(element);
+    }
+    
+    // Create badge if not exists
+    let badge = wrapper.querySelector('.auto-badge');
+    if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'auto-badge';
+        badge.title = 'Click to restore auto-fetched value';
+        wrapper.appendChild(badge);
+        
+        // Badge click handler
+        badge.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (this.classList.contains('manual')) {
+                restoreAutoValue(element);
+            }
+        });
+    }
+    
+    // Add input listener to detect manual changes
+    element.addEventListener('input', function() {
+        checkManualChange(this);
+    });
+    element.addEventListener('change', function() {
+        checkManualChange(this);
+    });
+}
+
+// Set auto-fetched value for a field
+function setAutoValue(element, value, showAutoBadge = true) {
+    if (!element) return;
+    
+    const fieldId = element.dataset.autoFieldId || generateFieldId(element);
+    
+    // Setup the field if not already done
+    if (element.dataset.autoFieldSetup !== 'true') {
+        setupAutoField(element, fieldId);
+    }
+    
+    // Store the auto value
+    autoFieldValues.set(fieldId, value);
+    element.dataset.autoValue = value;
+    
+    // Set the value
+    element.value = value;
+    
+    // Update badge
+    updateFieldBadge(element, showAutoBadge ? 'auto' : 'none');
+}
+
+// Check if value was manually changed
+function checkManualChange(element) {
+    const autoValue = element.dataset.autoValue;
+    const currentValue = element.value;
+    
+    // If no auto value stored, nothing to compare
+    if (autoValue === undefined) return;
+    
+    // Compare values
+    if (currentValue !== autoValue && currentValue.trim() !== '') {
+        updateFieldBadge(element, 'manual');
+    } else if (currentValue === autoValue) {
+        updateFieldBadge(element, 'auto');
+    }
+}
+
+// Update field badge
+function updateFieldBadge(element, state) {
+    const wrapper = element.closest('.auto-field-wrapper');
+    if (!wrapper) return;
+    
+    const badge = wrapper.querySelector('.auto-badge');
+    if (!badge) return;
+    
+    badge.classList.remove('manual', 'auto');
+    element.classList.remove('has-badge');
+    
+    if (state === 'manual') {
+        badge.classList.add('manual');
+        badge.innerHTML = '<i class="fas fa-undo me-1"></i>Restore';
+        badge.title = 'Click to restore auto-fetched value';
+        element.classList.add('has-badge');
+    } else if (state === 'auto') {
+        badge.classList.add('auto');
+        badge.innerHTML = '<i class="fas fa-magic me-1"></i>Auto';
+        badge.title = 'Auto-populated value';
+        element.classList.add('has-badge');
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+// Restore auto-fetched value
+function restoreAutoValue(element) {
+    const autoValue = element.dataset.autoValue;
+    if (autoValue !== undefined) {
+        // Clear the saved value marker so auto-fetch can work again
+        clearSavedValueMarker(element);
+        element.value = autoValue;
+        updateFieldBadge(element, 'auto');
+        // Trigger change event
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+}
+
+// Generate a unique field ID
+function generateFieldId(element) {
+    const name = element.name || '';
+    const row = element.closest('tr');
+    const rowIndex = row ? Array.from(row.parentNode.children).indexOf(row) : 0;
+    return `${name}_${rowIndex}_${Date.now()}`;
+}
+
+// Setup auto-field for existing elements in a row
+function setupAutoFieldsInRow(row, fieldNames) {
+    fieldNames.forEach(fieldName => {
+        const element = row.querySelector(`[name="${fieldName}"]`);
+        if (element) {
+            const fieldId = `${fieldName}_${Array.from(row.parentNode.children).indexOf(row)}`;
+            setupAutoField(element, fieldId);
+        }
+    });
+}
+
+// Mark a field as having a saved/manual value that should not be overwritten by auto-fetch
+function markAsSavedValue(element, value = null) {
+    if (!element) return;
+    
+    const val = value !== null ? value : element.value;
+    element.dataset.savedValue = 'true';
+    element.dataset.savedValueData = val;
+    
+    // Setup the field wrapper and show manual badge
+    const fieldId = element.dataset.autoFieldId || generateFieldId(element);
+    if (element.dataset.autoFieldSetup !== 'true') {
+        setupAutoField(element, fieldId);
+    }
+    
+    // Show "Manual" badge for saved values (can be restored to auto later)
+    if (val && val.trim() !== '') {
+        // Don't show badge initially for saved values, only show when auto-value is available
+        element.dataset.hasSavedValue = 'true';
+    }
+}
+
+// Check if field has a saved value that should not be overwritten
+function hasSavedValue(element) {
+    return element && element.dataset.savedValue === 'true' && element.value && element.value.trim() !== '';
+}
+
+// Clear saved value marker (call this when user explicitly wants to restore auto)
+function clearSavedValueMarker(element) {
+    if (element) {
+        delete element.dataset.savedValue;
+        delete element.dataset.savedValueData;
+        delete element.dataset.hasSavedValue;
+    }
+}
+
+// Mark all auto-populated fields from Jinja templates as saved values
+// This is called when loading a saved form in edit mode
+function markAllSavedAutoPopulatedFields() {
+    console.log('🔒 Marking all saved auto-populated fields...');
+    
+    // Mark script_examination scripts inputs
+    document.querySelectorAll('input[name="script_examination_scripts[]"]').forEach(input => {
+        if (input.value && input.value.trim() !== '' && input.value !== '0') {
+            markAsSavedValue(input, input.value);
+            console.log(`📝 Marked script count: ${input.value}`);
+        }
+    });
+    
+    // Mark script_examination teacher selects
+    document.querySelectorAll('select[name="script_examination_teacher_select[]"]').forEach(select => {
+        if (select.value && select.value.trim() !== '') {
+            markAsSavedValue(select, select.value);
+        }
+    });
+    
+    // Mark question_preparation teacher selects
+    document.querySelectorAll('select[name="question_preparation_teacher_select[]"]').forEach(select => {
+        if (select.value && select.value.trim() !== '') {
+            markAsSavedValue(select, select.value);
+        }
+    });
+    
+    // Mark class_test students inputs
+    document.querySelectorAll('input[name="class_test_students[]"]').forEach(input => {
+        if (input.value && input.value.trim() !== '' && input.value !== '0') {
+            markAsSavedValue(input, input.value);
+            console.log(`📝 Marked class test students: ${input.value}`);
+        }
+    });
+    
+    // Mark script_scrutiny_scripts inputs
+    document.querySelectorAll('input[name="script_scrutiny_scripts[]"]').forEach(input => {
+        if (input.value && input.value.trim() !== '' && input.value !== '0') {
+            markAsSavedValue(input, input.value);
+        }
+    });
+    
+    console.log('✅ All saved auto-populated fields marked');
+}
+
+// ========================================
+// End of auto-populated field management
+// ========================================
 
 // Validate session/year/term combination
 function isValidCombination(session, year, term) {
@@ -2123,6 +2406,12 @@ async function autoLoadScrutinizers() {
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
             `;
             table8Tbody.appendChild(row);
+            
+            // Setup auto-field tracking for the scripts input
+            const scriptsInput = row.querySelector('input[name="script_scrutiny_scripts[]"]');
+            if (scriptsInput && scrutinizer.script_count) {
+                setTimeout(() => setAutoValue(scriptsInput, String(scrutinizer.script_count || 0)), 100);
+            }
         });
         
         console.log(`✅ Table 8 loaded with ${data.scrutinizers.length} scrutinizers`);
@@ -2160,7 +2449,7 @@ async function autoLoadTabulators() {
     
     const existingRows = Array.from(table9Tbody.querySelectorAll('tr'));
     const rowsWithNames = existingRows.filter(row => {
-        const nameSelect = row.querySelector('select[name="tabulation_name[]"]');
+        const nameSelect = row.querySelector('select[name="tabulation_name_select[]"], select[name="tabulation_name[]"]');
         return nameSelect && nameSelect.value && nameSelect.value.trim() !== '';
     }).length;
     
@@ -2208,7 +2497,7 @@ async function autoLoadTabulators() {
             const teacherOption = teachersData.find(t => t.name === tabulator.name);
             
             // Build name options
-            let nameOptions = '<option value="">Select Name</option>';
+            let nameOptions = '<option value="">Select Name</option><option value="__CUSTOM__">Custom...</option>';
             if (teacherOption) {
                 nameOptions += `<option value="${tabulator.name}" selected>${tabulator.name}</option>`;
             } else {
@@ -2228,9 +2517,10 @@ async function autoLoadTabulators() {
             
             row.innerHTML = `
                 <td>
-                    <select class="form-select form-select-sm teacher-name-select" name="tabulation_name[]" onchange="onNameChange(this, 'tabulation')">
+                    <select class="form-select form-select-sm teacher-name-select" name="tabulation_name_select[]" onchange="onNameChange(this, 'tabulation')">
                         ${nameOptions}
                     </select>
+                    <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" placeholder="Enter custom name" style="display: none;">
                 </td>
                 <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" value="${designationValue}" placeholder="Law Discipline, KU"></td>
                 <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="" min="0" onfocus="this.select();"></td>
@@ -2821,23 +3111,45 @@ function autoPopulateTeacherFromAssignment(row, tableType) {
     }
     
     if (teacherName && teacherSelect) {
-        // Check if teacher name exists in dropdown
-        const option = Array.from(teacherSelect.options).find(opt => opt.value === teacherName);
-        if (option) {
-            teacherSelect.value = teacherName;
-            // Trigger change event to handle custom name field visibility
-            if (typeof onQuestionPreparationTeacherChange === 'function' && tableType === 'question_preparation') {
-                onQuestionPreparationTeacherChange(teacherSelect);
-            } else if (typeof onScriptExaminationTeacherChange === 'function' && tableType === 'script_examination') {
-                onScriptExaminationTeacherChange(teacherSelect);
-            }
+        // Check if field has a saved value from database - if so, don't overwrite
+        if (hasSavedValue(teacherSelect)) {
+            console.log(`⏭️ Skipping auto-populate for teacher - saved value detected`);
+            // Store the auto value for potential restore later
+            teacherSelect.dataset.autoValue = teacherName;
+            updateFieldBadge(teacherSelect, 'manual');
+        }
+        // Check if user has manually modified the value - if so, don't overwrite
+        else if (teacherSelect.dataset.autoValue !== undefined && 
+            teacherSelect.value !== teacherSelect.dataset.autoValue && 
+            teacherSelect.value !== '' && 
+            teacherSelect.value !== teacherName) {
+            console.log(`⏭️ Skipping auto-populate for teacher - manual value detected`);
         } else {
-            // Teacher not in dropdown, use custom name field
-            const customNameInput = row.querySelector(`input[name="${tableType}_teacher[]"]`);
-            if (customNameInput) {
-                customNameInput.value = teacherName;
-                customNameInput.style.display = 'block';
-                teacherSelect.value = '__CUSTOM__';
+            // Check if teacher name exists in dropdown
+            const option = Array.from(teacherSelect.options).find(opt => opt.value === teacherName);
+            if (option) {
+                // Use setAutoValue for tracking
+                setAutoValue(teacherSelect, teacherName);
+                // Trigger change event to handle custom name field visibility
+                if (typeof onQuestionPreparationTeacherChange === 'function' && tableType === 'question_preparation') {
+                    onQuestionPreparationTeacherChange(teacherSelect);
+                } else if (typeof onScriptExaminationTeacherChange === 'function' && tableType === 'script_examination') {
+                    onScriptExaminationTeacherChange(teacherSelect);
+                }
+            } else {
+                // Teacher not in dropdown, use custom name field
+                const customNameInput = row.querySelector(`input[name="${tableType}_teacher[]"]`);
+                if (customNameInput) {
+                    if (hasSavedValue(customNameInput)) {
+                        console.log(`⏭️ Skipping auto-populate for custom teacher - saved value detected`);
+                        customNameInput.dataset.autoValue = teacherName;
+                        updateFieldBadge(customNameInput, 'manual');
+                    } else {
+                        setAutoValue(customNameInput, teacherName);
+                        customNameInput.style.display = 'block';
+                        teacherSelect.value = '__CUSTOM__';
+                    }
+                }
             }
         }
         
@@ -2845,8 +3157,22 @@ function autoPopulateTeacherFromAssignment(row, tableType) {
         if (tableType === 'script_examination' && scriptCount > 0) {
             const scriptsInput = row.querySelector(`input[name="${tableType}_scripts[]"]`);
             if (scriptsInput) {
-                scriptsInput.value = scriptCount;
-                console.log(`✅ Auto-populated script count: ${scriptCount}`);
+                // Check if field has a saved value from database
+                if (hasSavedValue(scriptsInput)) {
+                    console.log(`⏭️ Skipping auto-populate for scripts - saved value detected`);
+                    scriptsInput.dataset.autoValue = String(scriptCount);
+                    updateFieldBadge(scriptsInput, 'manual');
+                }
+                // Check if user has manually modified - if so, don't overwrite
+                else if (scriptsInput.dataset.autoValue !== undefined && 
+                    scriptsInput.value !== scriptsInput.dataset.autoValue && 
+                    scriptsInput.value !== '' && 
+                    scriptsInput.value !== String(scriptCount)) {
+                    console.log(`⏭️ Skipping auto-populate for scripts - manual value detected`);
+                } else {
+                    setAutoValue(scriptsInput, String(scriptCount));
+                    console.log(`✅ Auto-populated script count: ${scriptCount}`);
+                }
             }
         }
     }
@@ -3075,6 +3401,7 @@ async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryC
     const session = document.getElementById('session')?.value || document.getElementById('session_hidden')?.value;
     const year = document.getElementById('year')?.value || document.getElementById('year_hidden')?.value;
     const term = document.getElementById('term')?.value || document.getElementById('term_hidden')?.value;
+    const batch = document.getElementById('batch')?.value || document.getElementById('batch_hidden')?.value;
     const courseCode = courseSelect.value.split(' - ')[0];
     const section = courseSelect.closest('tr')?.querySelector('input[name="class_test_section[]"]')?.value || '';
     
@@ -3092,10 +3419,10 @@ async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryC
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
-        // Build URL with section parameter
-        let url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
-        if (section) {
-            url += `&section=${encodeURIComponent(section)}`;
+        // Build URL with batch parameter (use chief-specific endpoint)
+        let url = `/exam-committee-chief/get-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        if (batch) {
+            url += `&batch=${encodeURIComponent(batch)}`;
         }
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
@@ -3106,9 +3433,23 @@ async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryC
         
         const data = await response.json();
         if (data.success && data.student_count !== undefined) {
-            // Always update with correct count (section-based)
-            studentsInput.value = data.student_count || '';
-            console.log(`✅ Class Test: Fetched ${data.student_count} students for ${courseCode} (section: ${section || 'Full'})`);
+            const fetchedValue = String(data.student_count || '');
+            // Check if field has a saved value from database
+            if (hasSavedValue(studentsInput)) {
+                console.log(`⏭️ Skipping auto-populate for students - saved value detected`);
+                studentsInput.dataset.autoValue = fetchedValue;
+                updateFieldBadge(studentsInput, 'manual');
+            }
+            // Check if user has manually modified - if so, don't overwrite
+            else if (studentsInput.dataset.autoValue !== undefined && 
+                studentsInput.value !== studentsInput.dataset.autoValue && 
+                studentsInput.value !== '' && 
+                studentsInput.value !== fetchedValue) {
+                console.log(`⏭️ Skipping auto-populate for students - manual value detected (current: ${studentsInput.value}, auto: ${studentsInput.dataset.autoValue})`);
+            } else {
+                setAutoValue(studentsInput, fetchedValue);
+                console.log(`✅ Class Test: Fetched ${data.student_count} students for ${courseCode} (section: ${section || 'Full'})`);
+            }
         } else {
             throw new Error(data.message || 'No student count returned');
         }
@@ -3160,6 +3501,7 @@ async function onSessionalCourseChange(selectElement, tableType, retryCount = 0)
     const session = document.getElementById('session')?.value || document.getElementById('session_hidden')?.value;
     const year = document.getElementById('year')?.value || document.getElementById('year_hidden')?.value;
     const term = document.getElementById('term')?.value || document.getElementById('term_hidden')?.value;
+    const batch = document.getElementById('batch')?.value || document.getElementById('batch_hidden')?.value;
     const courseCode = selectElement.value.split(' - ')[0];
     
     if (!session || !year || !term || !courseCode) {
@@ -3177,7 +3519,11 @@ async function onSessionalCourseChange(selectElement, tableType, retryCount = 0)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
-        const url = `/remuneration/api/student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        // Use chief-specific endpoint so Statement uses total batch size
+        let url = `/exam-committee-chief/get-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        if (batch) {
+            url += `&batch=${encodeURIComponent(batch)}`;
+        }
         const response = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
         
@@ -3187,9 +3533,21 @@ async function onSessionalCourseChange(selectElement, tableType, retryCount = 0)
         
         const data = await response.json();
         if (data.success && data.student_count !== undefined) {
-            // Only auto-fill if field is empty, don't overwrite user input
-            if (!studentsInput.value || studentsInput.value.trim() === '') {
-                studentsInput.value = data.student_count || '';
+            const fetchedValue = String(data.student_count || '');
+            // Check if field has a saved value from database
+            if (hasSavedValue(studentsInput)) {
+                console.log(`⏭️ Skipping auto-populate for ${tableType} students - saved value detected`);
+                studentsInput.dataset.autoValue = fetchedValue;
+                updateFieldBadge(studentsInput, 'manual');
+            }
+            // Check if user has manually modified - if so, don't overwrite
+            else if (studentsInput.dataset.autoValue !== undefined && 
+                studentsInput.value !== studentsInput.dataset.autoValue && 
+                studentsInput.value !== '' && 
+                studentsInput.value !== fetchedValue) {
+                console.log(`⏭️ Skipping auto-populate for ${tableType} students - manual value detected`);
+            } else {
+                setAutoValue(studentsInput, fetchedValue);
                 console.log(`✅ ${tableType}: Fetched ${data.student_count} students for ${courseCode}`);
             }
         } else {
@@ -3257,6 +3615,8 @@ function onNameChange(selectElement, tableType) {
     let customInput = null;
     if (tableType === 'script_scrutiny') {
         customInput = row.querySelector('input.script-scrutiny-custom-name');
+    } else if (tableType === 'tabulation') {
+        customInput = row.querySelector('input.tabulation-custom-name');
     }
     
     if (customInput) {
@@ -3741,6 +4101,26 @@ function autoLoadTeachersForTable(tableId, columnTypes, prefix) {
     addRowWithNameDesignation(tableId, columnTypes, prefix);
 }
 
+function addTabulationRow() {
+    const tbody = document.querySelector('#table_tabulation tbody');
+    const newRow = document.createElement('tr');
+    newRow.innerHTML = `
+        <td>
+            <select class="form-select form-select-sm teacher-name-select" name="tabulation_name_select[]" onchange="onNameChange(this, 'tabulation')">
+                <option value="">Select Name</option>
+                <option value="__CUSTOM__">Custom...</option>
+                ${teachersData.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
+            </select>
+            <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" placeholder="Enter custom name" style="display: none;">
+        </td>
+        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+        <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="" min="0" onfocus="this.select();"></td>
+        <td><input type="number" class="form-control form-control-sm" name="tabulation_student_wise[]" value="" min="0" onfocus="this.select();"></td>
+        <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(newRow);
+}
+
 function addVivaRow() {
     const tbody = document.querySelector('#table_viva tbody');
     const newRow = document.createElement('tr');
@@ -3915,8 +4295,11 @@ function collectFormData() {
     // Section 8: Script Scrutiny
     formData.script_scrutiny = [];
     document.querySelectorAll('#table_script_scrutiny tbody tr').forEach(row => {
-        const nameSelect = row.querySelector('select[name="script_scrutiny_name_select[]"]')?.value || '';
-        const nameInput = row.querySelector('input.script-scrutiny-custom-name')?.value || '';
+        // Check for both _name_select[] and _name[] patterns (handles different row creation methods)
+        const nameSelect = row.querySelector('select[name="script_scrutiny_name_select[]"]')?.value || 
+                          row.querySelector('select[name="script_scrutiny_name[]"]')?.value || '';
+        const nameInput = row.querySelector('input.script-scrutiny-custom-name')?.value || 
+                         row.querySelector('input[name="script_scrutiny_name[]"]')?.value || '';
         const name = (nameSelect === '__CUSTOM__' || !nameSelect) ? nameInput : nameSelect;
         const designation = row.querySelector('input[name="script_scrutiny_designation[]"]')?.value || '';
         const scripts = row.querySelector('input[name="script_scrutiny_scripts[]"]')?.value || '0';
@@ -3928,7 +4311,12 @@ function collectFormData() {
     // Section 9: Tabulation
     formData.tabulation = [];
     document.querySelectorAll('#table_tabulation tbody tr').forEach(row => {
-        const name = row.querySelector('select[name="tabulation_name[]"]')?.value || row.querySelector('input[name="tabulation_name[]"]')?.value || '';
+        // Check for both _name_select[] and _name[] patterns (handles different row creation methods)
+        const nameSelect = row.querySelector('select[name="tabulation_name_select[]"]')?.value || 
+                          row.querySelector('select[name="tabulation_name[]"]')?.value || '';
+        const nameInput = row.querySelector('input.tabulation-custom-name')?.value || 
+                         row.querySelector('input[name="tabulation_name[]"]')?.value || '';
+        const name = (nameSelect === '__CUSTOM__' || !nameSelect) ? nameInput : nameSelect;
         const designation = row.querySelector('input[name="tabulation_designation[]"]')?.value || '';
         const course_wise = row.querySelector('input[name="tabulation_course_wise[]"]')?.value || '0';
         const student_wise = row.querySelector('input[name="tabulation_student_wise[]"]')?.value || '0';
@@ -4436,7 +4824,11 @@ function populateTableData(data) {
                         }
                         if (item.scripts) {
                             const scriptsInput = row.querySelector('input[name="script_examination_scripts[]"]');
-                            if (scriptsInput) scriptsInput.value = item.scripts;
+                            if (scriptsInput) {
+                                scriptsInput.value = item.scripts;
+                                // Mark as saved value to prevent auto-fetch from overwriting
+                                markAsSavedValue(scriptsInput, item.scripts);
+                            }
                         }
                         if (item.teacher) {
                             const teacherSelect = row.querySelector('select[name="script_examination_teacher_select[]"]');
@@ -4455,7 +4847,11 @@ function populateTableData(data) {
                                     teacherSelect.value = '__CUSTOM__';
                                     teacherInput.style.display = 'block';
                                     teacherInput.value = item.teacher;
+                                    // Mark custom input as saved value
+                                    markAsSavedValue(teacherInput, item.teacher);
                                 }
+                                // Mark teacher select as saved value
+                                markAsSavedValue(teacherSelect, teacherSelect.value);
                                 if (typeof onScriptExaminationTeacherChange === 'function') {
                                     onScriptExaminationTeacherChange(teacherSelect);
                                 }
@@ -4616,6 +5012,8 @@ function populateTableData(data) {
                     const studentsInput = row.querySelector('input[name="sessional_assessment_students[]"]');
                     if (studentsInput && item.students) {
                         studentsInput.value = item.students;
+                        // Mark as saved value to prevent auto-fetch from overwriting
+                        markAsSavedValue(studentsInput, item.students);
                     }
                 });
                     updateTableCounts();
@@ -4707,6 +5105,8 @@ function populateTableData(data) {
                     const studentsInput = row.querySelector('input[name="sessional_viva_students[]"]');
                     if (studentsInput && item.students) {
                         studentsInput.value = item.students;
+                        // Mark as saved value to prevent auto-fetch from overwriting
+                        markAsSavedValue(studentsInput, item.students);
                     }
                 });
                     updateTableCounts();
@@ -4862,6 +5262,7 @@ function populateTableData(data) {
                     data.sessional_assessment.forEach((item, index) => {
                         if (rows[index] && item.course) {
                             const courseSelect = rows[index].querySelector('select[name="sessional_assessment_course[]"]');
+                            const studentsInput = rows[index].querySelector('input[name="sessional_assessment_students[]"]');
                             if (courseSelect) {
                                 const options = Array.from(courseSelect.options);
                                 for (let opt of options) {
@@ -4870,6 +5271,12 @@ function populateTableData(data) {
                                         break;
                                     }
                                 }
+                            }
+                            // Auto-fetch and auto-populate student count like other tables
+                            if (courseSelect && courseSelect.value && studentsInput) {
+                                setTimeout(() => {
+                                    onSessionalCourseChange(courseSelect, 'sessional_assessment');
+                                }, 200);
                             }
                         }
                     });
@@ -4884,6 +5291,7 @@ function populateTableData(data) {
                     data.sessional_viva.forEach((item, index) => {
                         if (rows[index] && item.course) {
                             const courseSelect = rows[index].querySelector('select[name="sessional_viva_course[]"]');
+                            const studentsInput = rows[index].querySelector('input[name="sessional_viva_students[]"]');
                             if (courseSelect) {
                                 const options = Array.from(courseSelect.options);
                                 for (let opt of options) {
@@ -4892,6 +5300,12 @@ function populateTableData(data) {
                                         break;
                                     }
                                 }
+                            }
+                            // Auto-fetch and auto-populate student count like other tables
+                            if (courseSelect && courseSelect.value && studentsInput) {
+                                setTimeout(() => {
+                                    onSessionalCourseChange(courseSelect, 'sessional_viva');
+                                }, 200);
                             }
                         }
                     });
@@ -5303,6 +5717,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     populateFormData(data.data);
                     
+                    // Mark all auto-populated fields as saved to prevent auto-fetch from overwriting
+                    setTimeout(() => {
+                        markAllSavedAutoPopulatedFields();
+                    }, 1000);
+                    
                     // Also save to localStorage as backup
                     localStorage.setItem('custom_remuneration_form_id', formIdFromUrl);
                     localStorage.setItem('custom_remuneration_saved_data', JSON.stringify(data.data));
@@ -5342,6 +5761,11 @@ document.addEventListener('DOMContentLoaded', function() {
         {% endif %}
         
         populateFormData({{ saved_data|tojson }});
+        
+        // Mark all auto-populated fields as saved to prevent auto-fetch from overwriting
+        setTimeout(() => {
+            markAllSavedAutoPopulatedFields();
+        }, 1000);
         {% else %}
         // No saved data from backend, form is empty
         console.log('📝 No saved data found, starting with empty form');
@@ -5383,6 +5807,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 isEditMode = true;
                 console.log('🔒 Edit mode enabled - auto-load disabled');
                 populateFormData(parsedData);
+                
+                // Mark all auto-populated fields as saved to prevent auto-fetch from overwriting
+                setTimeout(() => {
+                    markAllSavedAutoPopulatedFields();
+                }, 1000);
+                
                 console.log('✅ Form data restored from localStorage backup');
                 
                 // Update URL if not already set

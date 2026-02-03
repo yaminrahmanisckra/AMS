@@ -38,6 +38,10 @@
     --radius-sm: 4px;
     --radius-lg: 12px;
     --transition: all 0.2s ease;
+    --topbar-height: 56px;
+    /* Panel starts below site navbar + margin (aligns with main content) */
+    --routine-content-top: 120px;
+    --course-panel-width: 280px;
 }
 
 * {
@@ -59,11 +63,16 @@ body {
 .routine-app {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    min-height: 70vh;
+    max-height: calc(100vh - 120px);
     overflow: hidden;
     background: var(--bg);
     position: relative;
-    /* Panel is outside routine-main, so it won't scroll with table */
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    border-radius: var(--radius-lg);
 }
 
 /* ============================================
@@ -73,7 +82,7 @@ body {
 .routine-topbar {
     background: var(--bg-card);
     border-bottom: 1px solid var(--border);
-    padding: 12px 24px;
+    padding: 10px 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -82,6 +91,9 @@ body {
     z-index: 1000;
     position: sticky;
     top: 0;
+    height: var(--topbar-height);
+    flex-shrink: 0;
+    box-sizing: border-box;
 }
 
 .topbar-left {
@@ -228,10 +240,10 @@ body {
     flex: 1;
     overflow: hidden;
     position: relative;
-    /* Panel is now outside, so no isolation needed */
     width: 100%;
-    margin-left: 0;
-    padding-left: 0;
+    margin: 0;
+    padding: 0;
+    min-height: 0;
 }
 
 /* ============================================
@@ -239,41 +251,43 @@ body {
    ============================================ */
 
 .course-panel {
-    width: 320px;
+    width: var(--course-panel-width);
+    min-width: var(--course-panel-width);
+    max-width: var(--course-panel-width);
     background: var(--bg-card);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    transition: transform 0.3s ease;
-    z-index: 999;
-    box-shadow: var(--shadow-md);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    z-index: 900;
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.06);
     position: fixed !important;
-    top: 120px !important;
+    top: var(--routine-content-top) !important;
     bottom: 0 !important;
     left: 0 !important;
     overflow-y: auto;
     overflow-x: hidden;
-    height: calc(100vh - 120px) !important;
+    height: calc(100vh - var(--routine-content-top)) !important;
     will-change: auto;
-    /* Ensure panel doesn't overlap table */
-    max-width: 320px;
     box-sizing: border-box;
+    border-radius: 0 var(--radius-lg) 0 0;
 }
 
 .course-panel.collapsed {
     transform: translateX(-100%) !important;
     position: fixed !important;
-    height: calc(100vh - 120px) !important;
-    top: 120px !important;
+    height: calc(100vh - var(--routine-content-top)) !important;
+    top: var(--routine-content-top) !important;
 }
 
 .course-panel-header {
-    padding: 16px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: var(--bg);
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-card) 100%);
+    flex-shrink: 0;
 }
 
 .course-panel-title {
@@ -555,10 +569,11 @@ body {
 
 /* When panel is visible, add left margin to prevent overlap */
 .routine-table-area-with-panel {
-    margin-left: 320px !important;
-    padding-left: 0 !important;
-    width: calc(100vw - 320px) !important;
-    max-width: calc(100vw - 320px) !important;
+    margin-left: var(--course-panel-width) !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    width: calc(100% - var(--course-panel-width)) !important;
+    max-width: none !important;
     min-width: 0;
     position: relative;
     z-index: 1;
@@ -569,13 +584,16 @@ body {
     flex: 1;
     overflow: auto;
     position: relative;
-    padding: 16px;
-    /* Ensure proper scrolling context */
+    padding: 12px 16px;
     -webkit-overflow-scrolling: touch;
-    /* Create stacking context for sticky elements */
     isolation: isolate;
-    /* Ensure touch scrolling works on mobile */
     touch-action: pan-x pan-y;
+    min-height: 0;
+    /* Ensure table can scroll horizontally so right columns are not cut off */
+    overflow-x: auto;
+    overflow-y: auto;
+    border-radius: var(--radius-lg);
+    background: var(--bg);
 }
 
 .routine-table {
@@ -584,13 +602,11 @@ body {
     border-spacing: 0;
     background: var(--bg-card);
     border-radius: var(--radius-lg);
-    /* Remove overflow hidden - it breaks sticky positioning */
     box-shadow: var(--shadow);
-    /* Ensure table doesn't shrink */
     min-width: max-content;
-    /* Ensure table is properly contained for sticky positioning */
     display: table;
     table-layout: auto;
+    border: 1px solid var(--border-light);
 }
 
 .routine-table thead {
@@ -605,18 +621,17 @@ body {
 .routine-table thead th {
     background: var(--bg-card);
     color: var(--text);
-        font-weight: 600;
-    font-size: 12px;
+    font-weight: 600;
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 12px 8px;
+    letter-spacing: 0.4px;
+    padding: 10px 8px;
     text-align: center;
     border-bottom: 2px solid var(--border);
     border-right: 1px solid var(--border-light);
     position: sticky;
     top: 0;
     z-index: 101;
-    /* Ensure background covers content when scrolling */
     background-clip: padding-box;
 }
 
@@ -634,21 +649,25 @@ body {
 
 .routine-table thead th.room-col {
     background: var(--bg);
-    min-width: 80px;
-    width: 80px;
+    min-width: 88px;
+    width: 88px;
     position: sticky;
     left: 100px;
     z-index: 102;
-    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.08);
+    border-left: 1px solid var(--border-light);
 }
 
 .routine-table thead th.time-col {
-    min-width: 120px;
+    min-width: 110px;
     white-space: nowrap;
     background: var(--bg-card);
     z-index: 101;
-    /* Ensure background is solid */
     background-color: var(--bg-card) !important;
+    font-size: 11px;
+    line-height: 1.3;
+    padding: 10px 6px;
+    border-left: 1px solid var(--border-light);
 }
 
 .routine-table tbody td {
@@ -725,11 +744,12 @@ body {
     }
     
 .routine-table tbody td.slot-cell.lunch-cell {
-    background: var(--bg);
+    background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
     font-weight: 600;
     font-size: 11px;
-    color: var(--text-muted);
+    color: #854d0e;
     text-transform: uppercase;
+    border-left: 1px solid #fde047;
 }
 
 .routine-table tbody td.slot-cell.drag-over {
@@ -828,11 +848,13 @@ body.fullscreen-active .routine-table {
 .slot-content {
     width: 100%;
     height: 100%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     justify-content: center;
     gap: 2px;
+    padding: 4px;
+    box-sizing: border-box;
 }
 
 .slot-course-code {
@@ -1088,13 +1110,14 @@ body.fullscreen-active .routine-table {
     .course-panel {
         position: fixed !important;
         left: 0 !important;
-        top: 120px !important;
+        top: var(--routine-content-top) !important;
         bottom: 0 !important;
         z-index: 200;
         transform: translateX(-100%) !important;
-        transition: transform 0.3s ease;
+        transition: transform 0.25s ease;
         box-shadow: var(--shadow-lg);
-        height: calc(100vh - 120px) !important;
+        height: calc(100vh - var(--routine-content-top)) !important;
+        width: var(--course-panel-width) !important;
     }
     
     .course-panel:not(.collapsed) {
@@ -1104,18 +1127,20 @@ body.fullscreen-active .routine-table {
     .routine-table-area-with-panel {
         width: 100% !important;
         margin-left: 0 !important;
+        padding-left: 16px !important;
     }
     
     .course-panel-toggle {
         display: block !important;
         position: fixed;
         left: 16px;
-        top: 80px;
+        top: calc(var(--routine-content-top) + 8px);
         z-index: 150;
         background: var(--primary);
         color: white;
         border: none;
         box-shadow: var(--shadow-md);
+        border-radius: var(--radius);
     }
     
     .routine-topbar {
@@ -1644,23 +1669,18 @@ const RoutineManager = {
         // Setup responsive panel toggle
         this.setupResponsive();
         
-        // Force panel fixed position on init
+        // Panel and table area layout are controlled by CSS (--topbar-height, --course-panel-width)
         if (this.config.canEdit && this.elements.coursePanel) {
-            this.elements.coursePanel.style.position = 'fixed';
-            this.elements.coursePanel.style.top = '120px';
-            this.elements.coursePanel.style.bottom = '0';
-            this.elements.coursePanel.style.left = '0';
-            this.elements.coursePanel.style.zIndex = '999';
-            this.elements.coursePanel.style.width = '320px';
-            this.elements.coursePanel.style.maxWidth = '320px';
-            this.elements.coursePanel.style.height = 'calc(100vh - 120px)';
-            
-            // Ensure table area has proper margin
+            this.elements.coursePanel.style.position = '';
+            this.elements.coursePanel.style.top = '';
+            this.elements.coursePanel.style.width = '';
+            this.elements.coursePanel.style.maxWidth = '';
+            this.elements.coursePanel.style.height = '';
             const tableArea = document.querySelector('.routine-table-area-with-panel');
             if (tableArea) {
-                tableArea.style.marginLeft = '320px';
-                tableArea.style.width = 'calc(100vw - 320px)';
-                tableArea.style.maxWidth = 'calc(100vw - 320px)';
+                tableArea.style.marginLeft = '';
+                tableArea.style.width = '';
+                tableArea.style.maxWidth = '';
             }
         }
 
@@ -1800,30 +1820,11 @@ const RoutineManager = {
             return;
         }
         
-        // Force panel to stay fixed - prevent any movement
+        // Layout is controlled by CSS; only ensure transform when panel is open
         const enforceFixedPosition = () => {
             if (this.elements.coursePanel) {
-                // Force fixed position via JavaScript
-                // Top position accounts for navbar + topbar (approximately 120px)
-                this.elements.coursePanel.style.position = 'fixed';
-                this.elements.coursePanel.style.top = '120px';
-                this.elements.coursePanel.style.bottom = '0';
-                this.elements.coursePanel.style.left = '0';
-                this.elements.coursePanel.style.zIndex = '999';
-                this.elements.coursePanel.style.width = '320px';
-                this.elements.coursePanel.style.maxWidth = '320px';
-                this.elements.coursePanel.style.height = 'calc(100vh - 120px)';
-                // Prevent transform from moving panel
                 if (!this.elements.coursePanel.classList.contains('collapsed')) {
                     this.elements.coursePanel.style.transform = 'translateX(0)';
-                }
-                
-                // Ensure table area has proper margin
-                const tableArea = document.querySelector('.routine-table-area-with-panel');
-                if (tableArea) {
-                    tableArea.style.marginLeft = '320px';
-                    tableArea.style.width = 'calc(100vw - 320px)';
-                    tableArea.style.maxWidth = 'calc(100vw - 320px)';
                 }
             }
         };

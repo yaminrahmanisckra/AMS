@@ -2720,6 +2720,23 @@ def save_course_outline(session_id):
                     # Try to parse as JSON
                     content_data = json.loads(content_summary)
                     if isinstance(content_data, dict):
+                        # Merge Classes values from request if provided (fallback when frontend sends classes_a/classes_b)
+                        classes_a = data.get('classes_a')
+                        classes_b = data.get('classes_b')
+                        if isinstance(classes_a, list) and classes_a and content_data.get('sectionA'):
+                            for idx, item in enumerate(content_data['sectionA']):
+                                if idx < len(classes_a) and classes_a[idx] not in (None, ''):
+                                    try:
+                                        item['num_classes'] = max(1, int(classes_a[idx]) if isinstance(classes_a[idx], int) else int(classes_a[idx], 10))
+                                    except (TypeError, ValueError):
+                                        pass
+                        if isinstance(classes_b, list) and classes_b and content_data.get('sectionB'):
+                            for idx, item in enumerate(content_data['sectionB']):
+                                if idx < len(classes_b) and classes_b[idx] not in (None, ''):
+                                    try:
+                                        item['num_classes'] = max(1, int(classes_b[idx]) if isinstance(classes_b[idx], int) else int(classes_b[idx], 10))
+                                    except (TypeError, ValueError):
+                                        pass
                         course_outline.course_content_summary = json.dumps(content_data)
                     else:
                         # Store as text if not valid JSON
@@ -2729,6 +2746,31 @@ def save_course_outline(session_id):
                     course_outline.course_content_summary = content_summary
             else:
                 course_outline.course_content_summary = None
+        # Handle Classes: save to course_content_classes (separate column)
+        # JSON save (fetch) sends classes_a, classes_b; traditional form sends course_content_*_classes[]
+        if request.method == 'POST':
+            if request.is_json:
+                classes_a = data.get('classes_a', [])
+                classes_b = data.get('classes_b', [])
+                if isinstance(classes_a, list) and isinstance(classes_b, list):
+                    try:
+                        classes_data = {
+                            'section_a': [max(1, int(v) if isinstance(v, (int, float)) else int(v or '1', 10)) for v in classes_a],
+                            'section_b': [max(1, int(v) if isinstance(v, (int, float)) else int(v or '1', 10)) for v in classes_b]
+                        }
+                        course_outline.course_content_classes = json.dumps(classes_data)
+                        current_app.logger.info("Saved Classes (JSON): A=%s, B=%s", len(classes_a), len(classes_b))
+                    except (TypeError, ValueError) as e:
+                        current_app.logger.warning("Could not parse classes_a/classes_b: %s", e)
+            else:
+                classes_a_raw = request.form.getlist('course_content_a_classes[]')
+                classes_b_raw = request.form.getlist('course_content_b_classes[]')
+                classes_data = {
+                    'section_a': [max(1, int(v or '1')) for v in classes_a_raw],
+                    'section_b': [max(1, int(v or '1')) for v in classes_b_raw]
+                }
+                course_outline.course_content_classes = json.dumps(classes_data)
+                current_app.logger.info("Saved Classes (form): A=%s, B=%s", len(classes_a_raw), len(classes_b_raw))
         if 'clo_plo_mapping' in data:
             course_outline.clo_plo_mapping = data.get('clo_plo_mapping')
         if 'evaluation_policy' in data:
@@ -3313,8 +3355,12 @@ def generate_weekly_plan_ai(session_id):
                 'message': 'Semester End Date must be after Semester Start Date.'
             }), 400
         
-        # Calculate weekly classes based on credit (1 credit = 1 class per week)
-        # For split courses, divide classes equally between Part A and Part B
+        # ========================================
+        # NEW LOGIC: Generate Plan with Week Ranges
+        # ========================================
+        
+        # Step 1: Calculate classes_per_week based on credit
+        # Credit = Classes per week (e.g., 3 credit = 3 classes/week)
         if part in ['A', 'B']:
             # Split course: each part gets half the classes
             classes_per_week = int(credit) // 2
@@ -3324,70 +3370,272 @@ def generate_weekly_plan_ai(session_id):
             # Full course: all classes
             classes_per_week = int(credit)
         
-        # Calculate total working days (excluding holidays)
+        # Also load Classes data from course_content_classes (separate column)
+        # This is where the teacher's manual Classes input is stored
+        classes_data = {'section_a': [], 'section_b': []}
+        course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
+        if course_outline and getattr(course_outline, 'course_content_classes', None):
+            try:
+                classes_data = json.loads(course_outline.course_content_classes)
+                if not isinstance(classes_data, dict):
+                    classes_data = {'section_a': [], 'section_b': []}
+                classes_data.setdefault('section_a', [])
+                classes_data.setdefault('section_b', [])
+            except (TypeError, ValueError):
+                pass
+        
+        # Step 2: Build topic_slots with classes count from Section 13
+        # Each topic gets its num_classes from the saved classes_data
+        topic_slots = []
+        total_topic_classes = 0
+        
+        # Process based on part (A, B, or full course)
+        if part == 'A':
+            section_items = course_contents  # Already filtered to sectionA
+            section_classes = classes_data.get('section_a', [])
+        elif part == 'B':
+            section_items = course_contents  # Already filtered to sectionB
+            section_classes = classes_data.get('section_b', [])
+        else:
+            # Full course - need to process both sections
+            # Re-parse to get section info if available
+            section_a_items = []
+            section_b_items = []
+            if course_content_summary:
+                try:
+                    content_data = json.loads(course_content_summary) if isinstance(course_content_summary, str) else course_content_summary
+                    if isinstance(content_data, dict):
+                        section_a_items = [item for item in content_data.get('sectionA', []) if item.get('selected', True)]
+                        section_b_items = [item for item in content_data.get('sectionB', []) if item.get('selected', True)]
+                except:
+                    pass
+            section_items = section_a_items + section_b_items
+            section_classes = classes_data.get('section_a', []) + classes_data.get('section_b', [])
+        
+        # Build topic slots - each topic with its classes count
+        for idx, content_item in enumerate(course_contents if part else section_items):
+            if isinstance(content_item, dict) and content_item.get('selected', True):
+                content_text = (content_item.get('content') or '').strip()
+                if not content_text:
+                    continue
+                
+                # Get num_classes: first from classes_data (saved separately), then from item itself
+                if part:
+                    if idx < len(section_classes):
+                        num_classes = max(1, int(section_classes[idx] or 1))
+                    else:
+                        num_classes = max(1, int(content_item.get('num_classes') or content_item.get('classes') or 1))
+                else:
+                    if idx < len(section_classes):
+                        num_classes = max(1, int(section_classes[idx] or 1))
+                    else:
+                        num_classes = max(1, int(content_item.get('num_classes') or content_item.get('classes') or 1))
+                
+                clo_val = content_item.get('clo') or ''
+                clo_str = str(clo_val).strip() if clo_val is not None else ''
+                
+                topic_slots.append({
+                    'topic': content_text,
+                    'clo': clo_str,
+                    'classes': num_classes
+                })
+                total_topic_classes += num_classes
+        
+        # Step 3: Add 3 Assessments (Class Tests only, no Mid-term)
+        TOTAL_ASSESSMENTS = 4
+        total_classes_needed = total_topic_classes + TOTAL_ASSESSMENTS
+        
+        current_app.logger.info(f"Generate Plan: {total_topic_classes} topic classes + {TOTAL_ASSESSMENTS} assessments = {total_classes_needed} total classes")
+        
+        # Step 4: Collect working days (excluding Friday, Saturday, and holidays)
         working_days = []
         check_date = semester_start_date
         while check_date <= semester_end_date:
-            if check_date not in holidays:
+            # Skip Friday (4) and Saturday (5) - Bangladesh weekend
+            if check_date.weekday() not in (4, 5) and check_date not in holidays:
                 working_days.append(check_date)
             check_date += timedelta(days=1)
         
-        # Group working days into weeks
-        week_groups = []
+        # Step 5: Group working days into weeks with date ranges
+        # Bangladesh: Week starts on Sunday (weekday 6), ends on Thursday (weekday 3)
+        # Friday (4) and Saturday (5) are holidays
+        weeks = []
         current_week_days = []
         current_week_start = None
         
         for day in working_days:
-            if day.weekday() == 0 or current_week_start is None:
-                if current_week_days:
-                    week_groups.append(current_week_days)
-                current_week_days = [day]
+            if not current_week_days:
+                # First working day
                 current_week_start = day
-            elif (day - current_week_start).days >= 7:
-                if current_week_days:
-                    week_groups.append(current_week_days)
-                current_week_days = [day]
+                current_week_days.append(day)
+            elif day.weekday() == 6:
+                # Sunday = new week starts in Bangladesh
+                # Save current week first
+                weeks.append({
+                    'week_num': len(weeks) + 1,
+                    'start_date': current_week_start,
+                    'end_date': current_week_days[-1],
+                    'working_days': current_week_days.copy(),
+                    'date_range': f"{current_week_start.strftime('%d %b %Y')} to {current_week_days[-1].strftime('%d %b %Y')}"
+                })
+                # Start new week
                 current_week_start = day
+                current_week_days = [day]
             else:
+                # Same week - add to current week
                 current_week_days.append(day)
         
+        # Add last week
         if current_week_days:
-            week_groups.append(current_week_days)
+            weeks.append({
+                'week_num': len(weeks) + 1,
+                'start_date': current_week_start,
+                'end_date': current_week_days[-1],
+                'working_days': current_week_days.copy(),
+                'date_range': f"{current_week_start.strftime('%d %b %Y')} to {current_week_days[-1].strftime('%d %b %Y')}"
+            })
         
-        total_weeks = len(week_groups)
+        total_weeks = len(weeks)
         
-        # Limit to maximum 14 weeks for generation
-        MAX_WEEKS = 14
+        # Limit to maximum 18 weeks
+        MAX_WEEKS = 18
         if total_weeks > MAX_WEEKS:
-            current_app.logger.info(f"Semester has {total_weeks} weeks, limiting to {MAX_WEEKS} weeks for class plan generation")
+            current_app.logger.info(f"Semester has {total_weeks} weeks, limiting to {MAX_WEEKS} weeks")
             total_weeks = MAX_WEEKS
-            # Actually limit the week_groups array to 14 weeks
-            week_groups = week_groups[:MAX_WEEKS]
+            weeks = weeks[:MAX_WEEKS]
         
-        # Prepare course content topics (parse semicolons) - Only from selected topics
-        all_topics = []
-        for content_item in course_contents:
-            if isinstance(content_item, dict):
-                # Only process if selected (should already be filtered, but double-check)
-                if content_item.get('selected', True):
-                    content_text = content_item.get('content', '')
-                    if content_text:
-                        topics = [t.strip() for t in content_text.split(';') if t.strip()]
-                        all_topics.extend(topics)
+        # Step 6: Calculate assessment positions (3 Class Tests evenly distributed)
+        assessment_positions = []
+        if total_weeks >= 3:
+            # Distribute 3 assessments evenly across semester
+            # Assessment at approximately 25%, 50%, 75% of semester
+            interval = total_weeks // 4
+            assessment_positions = [
+                interval,           # ~25% - CT1
+                interval * 2,       # ~50% - CT2
+                interval * 3        # ~75% - CT3
+            ]
+            # Ensure positions are valid
+            assessment_positions = [min(p, total_weeks) for p in assessment_positions]
+            assessment_positions = list(set(assessment_positions))  # Remove duplicates
+            assessment_positions.sort()
+            # If we have fewer than 3 unique positions, adjust
+            while len(assessment_positions) < 3 and assessment_positions[-1] < total_weeks:
+                assessment_positions.append(assessment_positions[-1] + 1)
+        else:
+            # Less than 3 weeks - spread assessments across available weeks
+            assessment_positions = list(range(1, min(total_weeks + 1, 4)))
         
-        # Generate lesson plan using rule-based logic (always within 14 weeks)
-        # For split courses, both parts start from Week 1 and run simultaneously
-        lesson_plan = _generate_rule_based_plan(
-            session, credit, course_contents, week_groups, 
-            holidays, semester_start_date, semester_end_date, 
-            classes_per_week, total_weeks, all_topics, clos, part=part
-        )
+        current_app.logger.info(f"Assessment positions (weeks): {assessment_positions}")
+        
+        # Step 7: Generate lesson plan with topics distributed by week
+        lesson_plan = []
+        topic_index = 0
+        classes_used_for_current_topic = 0
+        assessment_labels = ['Assessment 1', 'Assessment 2', 'Assessment 3', 'Assessment 4']
+        assessment_idx = 0
+        
+        for week in weeks:
+            week_num = week['week_num']
+            date_range = week['date_range']
+            available_classes = min(classes_per_week, len(week['working_days']))
+            
+            # Check if this week has an assessment
+            is_assessment_week = week_num in assessment_positions and assessment_idx < len(assessment_labels)
+            
+            if is_assessment_week:
+                # Add assessment entry
+                lesson_plan.append({
+                    'week': f"Week {week_num}",
+                    'date': date_range,
+                    'topic': assessment_labels[assessment_idx],
+                    'outcome': '',
+                    'teaching_assessment': '',
+                    'clo_alignment': '',
+                    'is_assessment': True
+                })
+                assessment_idx += 1
+                available_classes -= 1  # Assessment takes 1 class slot
+            
+            # Fill remaining classes with topics
+            if available_classes > 0 and topic_index < len(topic_slots):
+                classes_filled = 0
+                topics_this_week = []
+                
+                while classes_filled < available_classes and topic_index < len(topic_slots):
+                    current_topic = topic_slots[topic_index]
+                    remaining_for_topic = current_topic['classes'] - classes_used_for_current_topic
+                    classes_to_use = min(remaining_for_topic, available_classes - classes_filled)
+                    
+                    topics_this_week.append({
+                        'topic': current_topic['topic'],
+                        'clo': current_topic['clo'],
+                        'classes': classes_to_use
+                    })
+                    
+                    classes_filled += classes_to_use
+                    classes_used_for_current_topic += classes_to_use
+                    
+                    if classes_used_for_current_topic >= current_topic['classes']:
+                        topic_index += 1
+                        classes_used_for_current_topic = 0
+                
+                # Combine topics for this week into single entry
+                if topics_this_week:
+                    # Format: "Topic A (2 classes), Topic B (1 class)"
+                    combined_topic = ', '.join([
+                        f"{t['topic']} ({t['classes']} class{'es' if t['classes'] > 1 else ''})" 
+                        for t in topics_this_week
+                    ])
+                    combined_clo = ', '.join(sorted(set(t['clo'] for t in topics_this_week if t['clo'])))
+                    
+                    lesson_plan.append({
+                        'week': f"Week {week_num}",
+                        'date': date_range,
+                        'topic': combined_topic,
+                        'outcome': '',
+                        'teaching_assessment': '',
+                        'clo_alignment': combined_clo or '1',
+                        'is_assessment': False
+                    })
+            elif available_classes > 0 and topic_index >= len(topic_slots):
+                # No more topics - add buffer/revision
+                lesson_plan.append({
+                    'week': f"Week {week_num}",
+                    'date': date_range,
+                    'topic': 'Revision / Buffer',
+                    'outcome': '',
+                    'teaching_assessment': '',
+                    'clo_alignment': '1',
+                    'is_assessment': False
+                })
+        
+        # Ensure remaining assessments are added if not all were placed
+        while assessment_idx < len(assessment_labels):
+            lesson_plan.append({
+                'week': f"Week {total_weeks}",
+                'date': weeks[-1]['date_range'] if weeks else '',
+                'topic': assessment_labels[assessment_idx],
+                'outcome': '',
+                'teaching_assessment': '',
+                'clo_alignment': '',
+                'is_assessment': True
+            })
+            assessment_idx += 1
         
         part_text = f" (Part {part})" if part else ""
+        topics_scheduled = topic_index
+        topics_remaining = len(topic_slots) - topic_index
+        
+        msg = f'Generated plan{part_text}: {total_topic_classes} topic classes + {TOTAL_ASSESSMENTS} assessments distributed across {total_weeks} weeks ({classes_per_week} classes/week based on {int(credit)} credit). Semester: {semester_start_date.strftime("%d %b %Y")} to {semester_end_date.strftime("%d %b %Y")}'
+        
+        if topics_remaining > 0:
+            msg += f'. Warning: {topics_remaining} topics could not be scheduled within the semester.'
+        
         return jsonify({
             'success': True,
             'lesson_plan': lesson_plan,
-            'message': f'Generated {len(lesson_plan)} classes{part_text} within {total_weeks} weeks (maximum 14 weeks) based on {credit} credits, Course Content, and Academic Calendar (Semester: {semester_start_date.strftime("%d-%b-%Y")} to {semester_end_date.strftime("%d-%b-%Y")})'
+            'message': msg
         })
     except Exception as e:
         current_app.logger.error(f"Error generating AI plan: {e}", exc_info=True)
@@ -3395,6 +3643,31 @@ def generate_weekly_plan_ai(session_id):
             'success': False,
             'message': f'Error generating plan: {str(e)}'
         }), 500
+
+
+def _build_lesson_plan_from_topic_slots_and_dates(slot_dates_with_week, topic_slots):
+    """Build lesson_plan by mapping topic_slots (content, clo) to calendar slot_dates.
+    slot_dates_with_week: list of (date, week_num). topic_slots: list of (content, clo).
+    If more slots than topics, fill with 'Revision / Buffer'. If more topics than slots, use only first len(slot_dates) topics."""
+    lesson_plan = []
+    for i, (slot_date, week_num) in enumerate(slot_dates_with_week):
+        if i < len(topic_slots):
+            content_text, clo_str = topic_slots[i]
+            topic = content_text
+            clo_alignment = clo_str if clo_str else '1'
+        else:
+            topic = 'Revision / Buffer'
+            clo_alignment = '1'
+        date_str = slot_date.strftime('%d-%b-%Y')
+        lesson_plan.append({
+            'week': f'Week {week_num}',
+            'date': date_str,
+            'topic': topic,
+            'outcome': '',
+            'teaching_assessment': '',
+            'clo_alignment': clo_alignment
+        })
+    return lesson_plan
 
 
 def _generate_rule_based_plan(session, credit, course_contents, week_groups, holidays, 
@@ -3912,7 +4185,19 @@ def edit_course_outline(session_id):
             existing_content_summary = json.loads(course_outline.course_content_summary)
         except:
             existing_content_summary = course_outline.course_content_summary
-    
+
+    # Load Classes separately (stored in course_content_classes)
+    existing_classes = {'section_a': [], 'section_b': []}
+    if getattr(course_outline, 'course_content_classes', None):
+        try:
+            existing_classes = json.loads(course_outline.course_content_classes)
+            if not isinstance(existing_classes, dict):
+                existing_classes = {'section_a': [], 'section_b': []}
+            existing_classes.setdefault('section_a', [])
+            existing_classes.setdefault('section_b', [])
+        except (TypeError, ValueError):
+            pass
+
     # Parse JSON fields
     outline_data = {
         'course_objectives': json.loads(course_outline.course_objectives) if course_outline.course_objectives else [],
@@ -3939,6 +4224,7 @@ def edit_course_outline(session_id):
                          course_outline=course_outline,
                          course_data=course_data,
                          outline_data=outline_data,
+                         existing_classes=existing_classes,
                          course_contents_a=course_contents_a,
                          course_contents_b=course_contents_b,
                          course_teachers=course_teachers)
@@ -4145,6 +4431,28 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
                 clo_entry['plos'] = []
         clo_data.append(clo_entry)
     course_content_summary = safe_json_parse(course_outline.course_content_summary, {})
+    # Merge Classes from course_content_classes into content summary for PDF
+    classes_data = {'section_a': [], 'section_b': []}
+    if getattr(course_outline, 'course_content_classes', None):
+        try:
+            classes_data = json.loads(course_outline.course_content_classes)
+            if not isinstance(classes_data, dict):
+                classes_data = {'section_a': [], 'section_b': []}
+            classes_data.setdefault('section_a', [])
+            classes_data.setdefault('section_b', [])
+        except (TypeError, ValueError):
+            pass
+    if course_content_summary and isinstance(course_content_summary, dict):
+        section_a = course_content_summary.get('sectionA', [])
+        if section_a:
+            for idx, item in enumerate(section_a):
+                if isinstance(item, dict):
+                    item['num_classes'] = classes_data.get('section_a', [])[idx] if idx < len(classes_data.get('section_a', [])) else item.get('num_classes', 1)
+        section_b = course_content_summary.get('sectionB', [])
+        if section_b:
+            for idx, item in enumerate(section_b):
+                if isinstance(item, dict):
+                    item['num_classes'] = classes_data.get('section_b', [])[idx] if idx < len(classes_data.get('section_b', [])) else item.get('num_classes', 1)
     assessment_strategy = safe_json_parse(course_outline.assessment_strategy, {})
     assessment_techniques = safe_json_parse(course_outline.assessment_techniques, [])
     cie_breakdown = safe_json_parse(course_outline.cie_breakdown, []) if hasattr(course_outline, 'cie_breakdown') else []

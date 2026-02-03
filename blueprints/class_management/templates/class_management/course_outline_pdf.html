@@ -422,6 +422,7 @@
                         <th>Course Contents</th>
                         <th></th>
                         <th class="center">Hrs</th>
+                        <th class="center">Classes</th>
                         <th class="center">CLOs</th>
                     </tr>
                 </thead>
@@ -432,12 +433,13 @@
                             <td>{{ loop.index }}.</td>
                             <td>{{ item.get('content', '') }}</td>
                             <td class="center">{{ item.get('hrs', '') }}</td>
+                            <td class="center">{{ item.get('num_classes', item.get('classes', '')) }}</td>
                             <td class="center">{{ item.get('clo', '') }}</td>
                         </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="4"></td>
+                            <td colspan="5"></td>
                         </tr>
                     {% endif %}
                 </tbody>
@@ -453,6 +455,7 @@
                         <th>Course Contents</th>
                         <th></th>
                         <th class="center">Hrs</th>
+                        <th class="center">Classes</th>
                         <th class="center">CLOs</th>
                     </tr>
                 </thead>
@@ -463,12 +466,13 @@
                             <td>{{ loop.index }}.</td>
                             <td>{{ item.get('content', '') }}</td>
                             <td class="center">{{ item.get('hrs', '') }}</td>
+                            <td class="center">{{ item.get('num_classes', item.get('classes', '')) }}</td>
                             <td class="center">{{ item.get('clo', '') }}</td>
                         </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="4"></td>
+                            <td colspan="5"></td>
                         </tr>
                     {% endif %}
                 </tbody>
@@ -484,12 +488,13 @@
                         <th>Course Contents</th>
                         <th></th>
                         <th class="center">Hrs</th>
+                        <th class="center">Classes</th>
                         <th class="center">CLOs</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td colspan="4"></td>
+                        <td colspan="5"></td>
                     </tr>
                 </tbody>
             </table>
@@ -502,12 +507,13 @@
                         <th>Course Contents</th>
                         <th></th>
                         <th class="center">Hrs</th>
+                        <th class="center">Classes</th>
                         <th class="center">CLOs</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td colspan="4"></td>
+                        <td colspan="5"></td>
                     </tr>
                 </tbody>
             </table>

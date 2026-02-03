@@ -1,0 +1,1387 @@
+{% extends "base.html" %}
+{% block title %}Part {{ part.part_key }} – {{ document.name }}{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.index') }}">Curriculator</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.document_detail', doc_id=document.id) }}">{{ document.name }}</a></li>
+            <li class="breadcrumb-item active">Part {{ part.part_key }}</li>
+        </ol>
+    </nav>
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <h2 class="mb-0">Part {{ part.part_key }}{% if part.title %} – {{ part.title }}{% endif %}</h2>
+        <div>
+            <a href="{{ url_for('curriculator.document_detail', doc_id=document.id) }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back
+            </a>
+            <a href="{{ url_for('curriculator.export', doc_id=document.id) }}" class="btn btn-primary ms-2">
+                <i class="fas fa-download me-1"></i>Download
+            </a>
+        </div>
+    </div>
+
+    {% if part.part_key == 'C' %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>Course entries</span>
+            <div>
+                {% if can_edit %}
+                <button type="button" class="btn btn-sm btn-outline-success me-2" data-bs-toggle="modal" data-bs-target="#addEntryModal">
+                    <i class="fas fa-plus me-1"></i>Add entry
+                </button>
+                {% endif %}
+                {% if can_assign %}
+                <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#assignModal">
+                    <i class="fas fa-user-plus me-1"></i>Assign authors
+                </button>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-body">
+            {% if not course_entries %}
+            <p class="text-muted mb-0">No Part C course entries yet. Add entries (e.g. from Curriculum) or create manually.</p>
+            {% else %}
+            <div class="list-group list-group-flush">
+                {% for e in course_entries %}
+                {% set content = e.get_content_dict() or {} %}
+                {% set prereq_display = (content.get('prerequisite') or '')|trim or ((e.prerequisite_entry.course_code or 'None') if e.prerequisite_entry_id and e.prerequisite_entry else 'None') %}
+                <div class="list-group-item" id="entry-{{ e.id }}">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="flex-grow-1">
+                            <strong>{{ e.course_code or '—' }}</strong> {{ e.course_name or '—' }} ({{ e.credit or '—' }} cr.)
+                            {% if e.year or e.term %}<span class="text-muted small"> · {{ e.year or '' }} {{ e.term or '' }}</span>{% elif e.year_term %}<span class="text-muted small"> · {{ e.year_term }}</span>{% endif %}
+                            {% if e.entry_type %}<span class="badge bg-secondary ms-1">{{ e.entry_type }}</span>{% endif %}
+                            {% if e.status %}<span class="badge bg-light text-dark ms-1">{{ e.status }}</span>{% endif %}
+                            {% if can_assign and e.author_assignments %}
+                            <div class="mt-1 small text-muted">
+                                Authors: {% for a in e.author_assignments %}<span class="me-2">{{ a.teacher.name }}{% if can_assign %}<button type="button" class="btn btn-link btn-sm p-0 ms-1 withdraw-author-btn" data-entry-id="{{ e.id }}" data-teacher-id="{{ a.teacher_id }}" title="Withdraw">×</button>{% endif %}</span>{% endfor %}
+                            </div>
+                            {% elif e.author_assignments %}
+                            <div class="mt-1 small text-muted">Authors: {% for a in e.author_assignments %}{{ a.teacher.name }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary me-1" data-bs-toggle="collapse" data-bs-target="#view-entry-{{ e.id }}" aria-expanded="false">View</button>
+                            <a href="#" class="btn btn-sm btn-outline-primary edit-entry-btn" data-id="{{ e.id }}"
+                               data-code="{{ e.course_code or '' }}" data-name="{{ e.course_name or '' }}"
+                               data-credit="{{ e.credit or '' }}" data-year="{{ e.year or '' }}" data-term="{{ e.term or '' }}"
+                               data-type="{{ e.entry_type or 'Theory' }}" data-status="{{ e.status or 'Core' }}"
+                               data-prereq="{{ e.prerequisite_entry_id or '' }}">Edit</a>
+                        </div>
+                    </div>
+                    <div id="view-entry-{{ e.id }}" class="collapse mt-3">
+                        <div class="small">
+                            <h6 class="mt-2 mb-1">Course information</h6>
+                            <table class="table table-bordered table-sm mb-3">
+                                <tr><th style="width:12em;">Course No.</th><td>{{ e.course_code or '—' }}</td><th>Credit</th><td>{{ e.credit or '—' }}</td><th>Year</th><td>{{ e.year or '—' }}</td><th>Term</th><td>{{ e.term or '—' }}</td></tr>
+                                <tr><th>Course Title</th><td colspan="3">{{ e.course_name or '—' }}</td><th>Course Status</th><td colspan="3">{{ e.status or '—' }}</td></tr>
+                                <tr><th>Prerequisite</th><td colspan="7">{{ prereq_display }}</td></tr>
+                                <tr><th>Rationale</th><td colspan="7">{{ content.get('rationale') or '—' }}</td></tr>
+                            </table>
+                            <h6 class="mt-2 mb-1">COURSE CONTENTS</h6>
+                            <table class="table table-bordered table-sm mb-3">
+                                <tr class="table-light"><th colspan="3" class="text-center">COURSE CONTENTS</th></tr>
+                                <tr class="table-light"><th colspan="2">Section A</th><th class="text-end">CLOs</th></tr>
+                                {% if content.get('section_a_items') or content.get('section_b_items') %}
+                                {% for item in (content.get('section_a_items') or []) %}
+                                <tr><td>{{ loop.index }}</td><td>{{ item.get('content') or '—' }}</td><td class="text-end">{{ item.get('clos') or '' }}</td></tr>
+                                {% else %}
+                                <tr><td>1</td><td>—</td><td class="text-end"></td></tr>
+                                {% endfor %}
+                                <tr class="table-light"><th colspan="2">Section B</th><th class="text-end">CLOs</th></tr>
+                                {% for item in (content.get('section_b_items') or []) %}
+                                <tr><td>{{ (content.get('section_a_items') or [])|length + loop.index }}</td><td>{{ item.get('content') or '—' }}</td><td class="text-end">{{ item.get('clos') or '' }}</td></tr>
+                                {% else %}
+                                <tr><td>{{ (content.get('section_a_items') or [])|length + 1 }}</td><td>—</td><td class="text-end"></td></tr>
+                                {% endfor %}
+                                {% else %}
+                                {% set ns = namespace(items_a=[], items_b=[]) %}
+                                {% for line in (content.get('section_a') or '').split('\n') %}
+                                    {% if line.strip() %}{% set _ = ns.items_a.append(line.strip()) %}{% endif %}
+                                {% endfor %}
+                                {% for line in (content.get('section_b') or '').split('\n') %}
+                                    {% if line.strip() %}{% set _ = ns.items_b.append(line.strip()) %}{% endif %}
+                                {% endfor %}
+                                {% if not ns.items_a %}{% set _ = ns.items_a.append('—') %}{% endif %}
+                                {% if not ns.items_b %}{% set _ = ns.items_b.append('—') %}{% endif %}
+                                {% for item in ns.items_a %}
+                                <tr><td>{{ loop.index }}</td><td>{{ item }}</td><td class="text-end"></td></tr>
+                                {% endfor %}
+                                <tr class="table-light"><th colspan="2">Section B</th><th class="text-end">CLOs</th></tr>
+                                {% for item in ns.items_b %}
+                                <tr><td>{{ ns.items_a|length + loop.index }}</td><td>{{ item }}</td><td class="text-end"></td></tr>
+                                {% endfor %}
+                                {% endif %}
+                            </table>
+                            <h6 class="mt-2 mb-1">Course Learning Outcomes (CLOs)</h6>
+                            <table class="table table-bordered table-sm mb-3">
+                                <thead><tr><th>CLO</th><th>Upon completion of this course…</th><th>Mapping with PLO</th></tr></thead>
+                                <tbody>
+                                {% for c in (content.get('clos') or []) %}
+                                <tr><td>CLO {{ loop.index }}</td><td>{{ c.get('text') or c.get('upon_completion') or '—' }}</td><td>{{ c.get('plo') or '—' }}</td></tr>
+                                {% else %}
+                                <tr><td>—</td><td>—</td><td>—</td></tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            <h6 class="mt-2 mb-1">MAPPING CLOs WITH THE TEACHING-LEARNING STRATEGY AND ASSESSMENT STRATEGY</h6>
+                            <table class="table table-bordered table-sm mb-3">
+                                <thead><tr><th>CLOs</th><th>Teaching-Learning Strategy</th><th>Assessment Strategy</th></tr></thead>
+                                <tbody>
+                                {% for m in (content.get('mapping_clos') or []) %}
+                                <tr><td>{{ loop.index }}</td><td>{{ m.get('teaching_learning') or '—' }}</td><td>{{ m.get('assessment') or '—' }}</td></tr>
+                                {% else %}
+                                <tr><td>—</td><td>—</td><td>—</td></tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                            <h6 class="mt-2 mb-1">INDICATIVE LEARNING MATERIALS</h6>
+                            <table class="table table-bordered table-sm mb-3">
+                                <tr><th style="width:12em;">Recommended Readings</th><td>{{ content.get('recommended_readings') or '—' }}</td></tr>
+                                <tr><th>Supplementary Readings</th><td>{{ content.get('supplementary_readings') or '—' }}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if part.part_key == 'A' %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>Part A sections</span>
+            {% if can_assign %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#assignSectionModal" title="Assign section owner">
+                <i class="fas fa-user-plus me-1"></i>Assign section owner
+            </button>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">Head, Dean, TA, or full-edit editors can assign section owners. Only the owner or full-edit role can edit a section.</p>
+            <div class="list-group list-group-flush">
+                {% for s in part_a_section_list %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ s.label }}</strong>
+                        {% if s.has_data %}<span class="badge bg-success ms-2">Has data</span>{% else %}<span class="badge bg-light text-dark ms-2">Empty</span>{% endif %}
+                        {% if s.owner_name %}<span class="text-muted small ms-2">· Owner: {{ s.owner_name }}</span>{% endif %}
+                    </div>
+                    <div>
+                        <a href="{{ url_for('curriculator.part_a_section_edit', doc_id=document.id, section_key=s.key) }}" class="btn btn-sm {% if s.can_edit %}btn-outline-primary{% else %}btn-outline-secondary{% endif %}">
+                            {% if s.can_edit %}Edit{% else %}View{% endif %}
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% elif part.part_key == 'B' %}
+    {# Part B: Manual = Structure of Curriculum + Term duration. From Part C = Area-wise, Category, Course Distribution. #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header"><span class="badge bg-secondary me-2">Manual</span>Structure of the Curriculum</div>
+        <div class="card-body">
+            <p class="text-muted small">Enter program-level info (duration, admission, credits, CGPA, etc.). Add/remove columns and rows as needed.</p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="pb-structure-table">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            {% for h in (part_b_structure_table.column_headers if part_b_structure_table else ['Value 1', 'Value 2']) %}
+                            <th class="pb-struct-col-header">{% if can_edit %}<span class="d-flex align-items-center gap-1"><input type="text" class="form-control form-control-sm pb-struct-header-inp" value="{{ h }}" placeholder="Column"> <button type="button" class="btn btn-sm btn-outline-danger pb-rm-col" title="Remove column"><i class="fas fa-times"></i></button></span>{% else %}{{ h }}{% endif %}</th>
+                            {% endfor %}
+                            {% if can_edit %}<th style="width: 2.5em;"><button type="button" class="btn btn-sm btn-outline-success" id="pb-add-col" title="Add column"><i class="fas fa-plus"></i></button></th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ncols = (part_b_structure_table.column_headers|length) if part_b_structure_table else 2 %}
+                        {% for r in (part_b_structure_table.rows if part_b_structure_table else []) %}
+                        <tr>
+                            <td><input type="text" class="form-control form-control-sm pb-struct-label" value="{{ r.get('label', '') }}" {% if not can_edit %}readonly{% endif %} placeholder="e.g. Duration of the Program"></td>
+                            {% set row_vals = r.get('values', []) or [] %}
+                            {% for i in range(ncols) %}
+                            <td><input type="text" class="form-control form-control-sm pb-struct-val" value="{{ row_vals[i] if i < row_vals|length else '' }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% endfor %}
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger pb-rm-struct"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-outline-success mt-2" id="pb-add-structure"><i class="fas fa-plus me-1"></i>Add row</button>{% endif %}
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header"><span class="badge bg-secondary me-2">Manual</span>Term Duration (weeks)</div>
+        <div class="card-body">
+            <p class="text-muted small">Teaching and Learning, Preparatory Leave, Term Final Examination, Term Break, Total.</p>
+            <div class="row g-2">
+                {% set td = part_b_config.get('term_duration') or {} %}
+                <div class="col-md-2"><label class="form-label small">Teaching and Learning</label><input type="number" class="form-control form-control-sm pb-term" id="pb-teaching" value="{{ td.get('teaching', 14) }}" {% if not can_edit %}readonly{% endif %}></div>
+                <div class="col-md-2"><label class="form-label small">Preparatory Leave</label><input type="number" class="form-control form-control-sm pb-term" id="pb-preparatory" value="{{ td.get('preparatory', 1) }}" {% if not can_edit %}readonly{% endif %}></div>
+                <div class="col-md-2"><label class="form-label small">Term Final Examination</label><input type="number" class="form-control form-control-sm pb-term" id="pb-exam" value="{{ td.get('exam', 2) }}" {% if not can_edit %}readonly{% endif %}></div>
+                <div class="col-md-2"><label class="form-label small">Term Break</label><input type="number" class="form-control form-control-sm pb-term" id="pb-break" value="{{ td.get('break', 1) }}" {% if not can_edit %}readonly{% endif %}></div>
+                <div class="col-md-2"><label class="form-label small">Total</label><input type="number" class="form-control form-control-sm pb-term" id="pb-total" value="{{ td.get('total', 18) }}" {% if not can_edit %}readonly{% endif %}></div>
+            </div>
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span><span class="badge bg-info me-2">From Part C or manual</span>Area-wise Credit Distribution</span>
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="pb-reset-area" title="Fill from Part C course entries">Reset from Part C</button>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <p class="text-muted small">Area | Type | Number of Courses | Credits | Total Credit. Edit manually or use &quot;Reset from Part C&quot; to import from course list.</p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="pb-area-table">
+                    <thead><tr><th>Area</th><th>Type</th><th>Number of Courses</th><th>Credits</th><th>Total Credit</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for r in part_b_area_wise %}
+                        <tr>
+                            <td><input type="text" class="form-control form-control-sm pb-area-a" value="{{ r.get('area', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pb-area-t" value="{{ r.get('type', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="number" class="form-control form-control-sm pb-area-n" value="{{ r.get('num_courses', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="number" step="0.5" class="form-control form-control-sm pb-area-c" value="{{ r.get('credits', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="number" step="0.5" class="form-control form-control-sm pb-area-tc" value="{{ r.get('total_credit', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger pb-rm-area"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-outline-success mt-2" id="pb-add-area"><i class="fas fa-plus me-1"></i>Add row</button>{% endif %}
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span><span class="badge bg-info me-2">From Part C or manual</span>Category of Courses</span>
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="pb-reset-category" title="Fill from Part C course entries">Reset from Part C</button>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            <p class="text-muted small">Area | Course Type | Course Title | Credit. Edit manually or use &quot;Reset from Part C&quot; to import one row per course.</p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="pb-category-table">
+                    <thead><tr><th>Area</th><th>Course Type</th><th>Course Title</th><th>Credit</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for r in part_b_category %}
+                        <tr>
+                            <td><input type="text" class="form-control form-control-sm pb-cat-a" value="{{ r.get('area', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pb-cat-t" value="{{ r.get('course_type', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pb-cat-title" value="{{ r.get('course_title', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="number" step="0.5" class="form-control form-control-sm pb-cat-c" value="{{ r.get('credit', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger pb-rm-cat"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-outline-success mt-2" id="pb-add-category"><i class="fas fa-plus me-1"></i>Add row</button>{% endif %}
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header"><span class="badge bg-success me-2">From Part C</span>Course Distribution by Term</div>
+        <div class="card-body">
+            <p class="text-muted small">Read-only; imported from Part C. Set Year and Term on each course in Part C.</p>
+            {% if not part_b_course_distribution %}
+            <p class="text-muted mb-0">No courses by term yet.</p>
+            {% else %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm">
+                    <thead><tr><th>Year–Term</th><th>Courses</th></tr></thead>
+                    <tbody>
+                        {% for g in part_b_course_distribution %}
+                        <tr>
+                            <td>{{ g.year }} {{ g.term }}</td>
+                            <td>{% for e in g.entries %}{{ e.course_code or '—' }} {{ e.course_name or '—' }}{% if not loop.last %}; {% endif %}{% endfor %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% if can_edit and part.part_key == 'B' %}
+    <script>
+    (function() {
+        const partId = {{ part.id }};
+        const saveUrl = {{ url_for('curriculator.part_b_config_save', part_id=part.id)|tojson }};
+        const resetUrl = {{ url_for('curriculator.part_b_reset_from_c', part_id=part.id)|tojson }};
+
+        function collectConfig() {
+            const td = {};
+            document.querySelectorAll('.pb-term').forEach(function(inp) {
+                const v = parseInt(inp.value, 10);
+                if (inp.id && inp.id.startsWith('pb-')) td[inp.id.replace('pb-', '')] = isNaN(v) ? 0 : v;
+            });
+            return {
+                term_duration: { teaching: td.teaching || 14, preparatory: td.preparatory || 1, exam: td.exam || 2, break: td.break || 1, total: td.total || 18 }
+            };
+        }
+        function collectStructureCurriculum() {
+            const table = document.getElementById('pb-structure-table');
+            if (!table) return { column_headers: ['Value 1', 'Value 2'], rows: [] };
+            const headerInputs = table.querySelectorAll('thead .pb-struct-header-inp');
+            const column_headers = Array.from(headerInputs).map(function(inp) { return inp.value.trim() || 'Column'; });
+            const rows = [];
+            table.querySelectorAll('tbody tr').forEach(function(tr) {
+                const lbl = tr.querySelector('.pb-struct-label');
+                const vals = tr.querySelectorAll('.pb-struct-val');
+                if (!lbl) return;
+                const values = Array.from(vals).map(function(inp) { return inp.value.trim(); });
+                rows.push({ label: lbl.value.trim(), values: values });
+            });
+            return { column_headers: column_headers, rows: rows };
+        }
+        function pbStructureNumCols() {
+            const table = document.getElementById('pb-structure-table');
+            return table ? table.querySelectorAll('thead .pb-struct-header-inp').length : 2;
+        }
+        function collectAreaWise() {
+            const rows = [];
+            document.querySelectorAll('#pb-area-table tbody tr').forEach(function(tr) {
+                const a = tr.querySelector('.pb-area-a'); const t = tr.querySelector('.pb-area-t');
+                const n = tr.querySelector('.pb-area-n'); const c = tr.querySelector('.pb-area-c'); const tc = tr.querySelector('.pb-area-tc');
+                if (a && t && n && c && tc) rows.push({ area: a.value.trim(), type: t.value.trim(), num_courses: parseInt(n.value, 10) || 0, credits: parseFloat(c.value) || 0, total_credit: parseFloat(tc.value) || 0 });
+            });
+            return rows;
+        }
+        function collectCategory() {
+            const rows = [];
+            document.querySelectorAll('#pb-category-table tbody tr').forEach(function(tr) {
+                const a = tr.querySelector('.pb-cat-a'); const t = tr.querySelector('.pb-cat-t');
+                const ti = tr.querySelector('.pb-cat-title'); const c = tr.querySelector('.pb-cat-c');
+                if (a && t && ti && c) rows.push({ area: a.value.trim(), course_type: t.value.trim(), course_title: ti.value.trim(), credit: parseFloat(c.value) || 0 });
+            });
+            return rows;
+        }
+        function saveConfigOnly() {
+            return fetch(saveUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(collectConfig()) }).then(r => r.json());
+        }
+        function savePartB() {
+            const payload = Object.assign(collectConfig(), {
+                structure_curriculum: collectStructureCurriculum(),
+                area_wise_override: collectAreaWise(),
+                category_override: collectCategory()
+            });
+            return fetch(saveUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(payload) }).then(r => r.json());
+        }
+
+        document.getElementById('pb-add-structure')?.addEventListener('click', function() {
+            const tbody = document.querySelector('#pb-structure-table tbody');
+            const n = pbStructureNumCols();
+            let cells = '<td><input type="text" class="form-control form-control-sm pb-struct-label" placeholder="Label"></td>';
+            for (let i = 0; i < n; i++) cells += '<td><input type="text" class="form-control form-control-sm pb-struct-val"></td>';
+            cells += '<td><button type="button" class="btn btn-sm btn-outline-danger pb-rm-struct"><i class="fas fa-trash"></i></button></td>';
+            const tr = document.createElement('tr');
+            tr.innerHTML = cells;
+            tbody.appendChild(tr);
+            tr.querySelector('.pb-rm-struct').addEventListener('click', function() { tr.remove(); });
+        });
+        document.querySelectorAll('.pb-rm-struct').forEach(function(btn) { btn.addEventListener('click', function() { btn.closest('tr').remove(); }); });
+
+        document.getElementById('pb-add-col')?.addEventListener('click', function() {
+            const table = document.getElementById('pb-structure-table');
+            const theadTr = table?.querySelector('thead tr');
+            const headerInputs = table?.querySelectorAll('thead .pb-struct-header-inp');
+            const n = headerInputs ? headerInputs.length : 0;
+            const newLabel = 'Value ' + (n + 1);
+            const th = document.createElement('th');
+            th.className = 'pb-struct-col-header';
+            th.innerHTML = '<span class="d-flex align-items-center gap-1"><input type="text" class="form-control form-control-sm pb-struct-header-inp" value="' + newLabel + '" placeholder="Column"> <button type="button" class="btn btn-sm btn-outline-danger pb-rm-col" title="Remove column"><i class="fas fa-times"></i></button></span>';
+            const addColTh = theadTr?.querySelector('th:last-child');
+            if (theadTr && addColTh) theadTr.insertBefore(th, addColTh);
+            table.querySelectorAll('tbody tr').forEach(function(tr) {
+                const td = document.createElement('td');
+                td.innerHTML = '<input type="text" class="form-control form-control-sm pb-struct-val">';
+                const rmBtn = tr.querySelector('td:last-child');
+                if (rmBtn) tr.insertBefore(td, rmBtn);
+            });
+            th.querySelector('.pb-rm-col').addEventListener('click', function() {
+                const idx = Array.from(theadTr.querySelectorAll('.pb-struct-col-header')).indexOf(th);
+                if (theadTr.querySelectorAll('.pb-struct-col-header').length <= 1) return;
+                th.remove();
+                table.querySelectorAll('tbody tr').forEach(function(tr) {
+                    const valCells = tr.querySelectorAll('.pb-struct-val');
+                    if (valCells[idx]) valCells[idx].closest('td').remove();
+                });
+            });
+        });
+        document.querySelectorAll('.pb-rm-col').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const th = btn.closest('th');
+                const table = document.getElementById('pb-structure-table');
+                const theadTr = table?.querySelector('thead tr');
+                const cols = theadTr ? theadTr.querySelectorAll('.pb-struct-col-header') : [];
+                if (cols.length <= 1) return;
+                const idx = Array.from(cols).indexOf(th);
+                if (idx < 0) return;
+                th.remove();
+                table.querySelectorAll('tbody tr').forEach(function(tr) {
+                    const valCells = tr.querySelectorAll('.pb-struct-val');
+                    if (valCells[idx]) valCells[idx].closest('td').remove();
+                });
+            });
+        });
+
+        document.getElementById('pb-reset-area')?.addEventListener('click', function() {
+            fetch(resetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ target: 'area_wise' }) })
+                .then(r => r.json()).then(d => { if (d.success) window.location.reload(); else alert(d.message || 'Failed.'); }).catch(() => alert('Failed.'));
+        });
+        document.getElementById('pb-reset-category')?.addEventListener('click', function() {
+            fetch(resetUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ target: 'category' }) })
+                .then(r => r.json()).then(d => { if (d.success) window.location.reload(); else alert(d.message || 'Failed.'); }).catch(() => alert('Failed.'));
+        });
+
+        document.getElementById('pb-add-area')?.addEventListener('click', function() {
+            const tbody = document.querySelector('#pb-area-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td><input type="text" class="form-control form-control-sm pb-area-a"></td><td><input type="text" class="form-control form-control-sm pb-area-t"></td><td><input type="number" class="form-control form-control-sm pb-area-n"></td><td><input type="number" step="0.5" class="form-control form-control-sm pb-area-c"></td><td><input type="number" step="0.5" class="form-control form-control-sm pb-area-tc"></td><td><button type="button" class="btn btn-sm btn-outline-danger pb-rm-area"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.pb-rm-area').addEventListener('click', function() { tr.remove(); });
+        });
+        document.querySelectorAll('.pb-rm-area').forEach(function(btn) { btn.addEventListener('click', function() { btn.closest('tr').remove(); }); });
+
+        document.getElementById('pb-add-category')?.addEventListener('click', function() {
+            const tbody = document.querySelector('#pb-category-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td><input type="text" class="form-control form-control-sm pb-cat-a"></td><td><input type="text" class="form-control form-control-sm pb-cat-t"></td><td><input type="text" class="form-control form-control-sm pb-cat-title"></td><td><input type="number" step="0.5" class="form-control form-control-sm pb-cat-c"></td><td><button type="button" class="btn btn-sm btn-outline-danger pb-rm-cat"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.pb-rm-cat').addEventListener('click', function() { tr.remove(); });
+        });
+        document.querySelectorAll('.pb-rm-cat').forEach(function(btn) { btn.addEventListener('click', function() { btn.closest('tr').remove(); }); });
+
+        const saveAllBtn = document.createElement('button');
+        saveAllBtn.type = 'button';
+        saveAllBtn.className = 'btn btn-primary mt-3';
+        saveAllBtn.id = 'pb-save-all';
+        saveAllBtn.innerHTML = '<i class="fas fa-save me-1"></i>Save Part B';
+        saveAllBtn.onclick = function() { savePartB().then(d => { if (d.success) alert('Saved.'); else alert(d.message || 'Save failed.'); }).catch(() => alert('Save failed.')); };
+        document.querySelector('#pb-category-table')?.closest('.card-body')?.appendChild(saveAllBtn);
+    })();
+    </script>
+    {% endif %}
+
+    {% elif part.part_key == 'D' %}
+    {# Part D: 20 Grading and Evaluation — reference LLB layout #}
+    <div class="mb-4">
+        <h2 class="mb-3 d-flex align-items-center">
+            <span class="bg-secondary text-white rounded px-2 py-1 me-2" style="font-size: 1.1rem;">20</span>
+            Grading and Evaluation
+        </h2>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-bold">20.1 Grading Scale</div>
+        <div class="card-body">
+            <p class="mb-2"><strong>a)</strong> Letter Grades and corresponding Grade Points will be awarded following provisions shown below:</p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="pd-grading-table">
+                    <thead><tr><th>Numerical Grade</th><th>Letter Grade</th><th>Grade Point</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for r in part_d_grading_scale %}
+                        <tr>
+                            <td><input type="text" class="form-control form-control-sm pd-g-num" value="{{ r.get('numerical', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pd-g-letter" value="{{ r.get('letter', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pd-g-point" value="{{ r.get('grade_point', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-g"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-outline-success mt-2" id="pd-add-grading"><i class="fas fa-plus me-1"></i>Add row</button>{% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-bold">20.1.1 Evaluation of Theory Courses</div>
+        <div class="card-body">
+            <p class="mb-2"><strong>a)</strong> All theory courses will be evaluated out of 100 marks, the distribution of which is given below:</p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="pd-theory-table">
+                    <thead><tr><th>Sl. No.</th><th>Items</th><th>Marks</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for r in part_d_theory_eval %}
+                        <tr>
+                            <td><input type="text" class="form-control form-control-sm pd-t-sn" value="{{ r.get('sl_no', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pd-t-items" value="{{ r.get('items', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pd-t-marks" value="{{ r.get('marks', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-t"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-outline-success mt-2" id="pd-add-theory"><i class="fas fa-plus me-1"></i>Add row</button>{% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-bold">20.1.2 Evaluation of Sessional Courses</div>
+        <div class="card-body">
+            <p class="mb-2"><strong>a)</strong> All sessional courses will be evaluated out of 100 marks, the distribution of which is given below:</p>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="pd-sessional-table">
+                    <thead><tr><th>Sl. No.</th><th>Items</th><th>Marks</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for r in part_d_sessional_eval %}
+                        <tr>
+                            <td><input type="text" class="form-control form-control-sm pd-s-sn" value="{{ r.get('sl_no', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pd-s-items" value="{{ r.get('items', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm pd-s-marks" value="{{ r.get('marks', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-s"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-outline-success mt-2" id="pd-add-sessional"><i class="fas fa-plus me-1"></i>Add row</button>{% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-bold">Approval Records</div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="pd-approval-table">
+                    <thead><tr><th>Approving Authority</th><th>Date of Approval</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for r in part_d_approval_records %}
+                        <tr>
+                            <td><input type="text" class="form-control form-control-sm pd-ar-authority" value="{{ r.get('authority', '') }}" {% if not can_edit %}readonly{% endif %} placeholder="e.g. Curriculum Committee"></td>
+                            <td><input type="text" class="form-control form-control-sm pd-ar-date" value="{{ r.get('date', '') }}" {% if not can_edit %}readonly{% endif %} placeholder="e.g. August 14, 2022"></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-ar"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}<button type="button" class="btn btn-sm btn-outline-success mt-2" id="pd-add-approval"><i class="fas fa-plus me-1"></i>Add row</button>{% endif %}
+        </div>
+    </div>
+    {% if can_edit and part.part_key == 'D' %}
+    <script>
+    (function() {
+        const partId = {{ part.id }};
+        const saveUrl = {{ url_for('curriculator.part_section_save', part_id=part.id)|tojson }};
+        function saveSection(sectionKey, data) {
+            return fetch(saveUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify({ section_key: sectionKey, data: data }) }).then(r => r.json());
+        }
+        function collectGrading() {
+            const rows = [];
+            document.querySelectorAll('#pd-grading-table tbody tr').forEach(function(tr) {
+                const n = tr.querySelector('.pd-g-num'); const l = tr.querySelector('.pd-g-letter'); const p = tr.querySelector('.pd-g-point');
+                if (n && l && p) rows.push({ numerical: n.value.trim(), letter: l.value.trim(), grade_point: p.value.trim() });
+            });
+            return rows;
+        }
+        function collectTheory() {
+            const rows = [];
+            document.querySelectorAll('#pd-theory-table tbody tr').forEach(function(tr) {
+                const sn = tr.querySelector('.pd-t-sn'); const it = tr.querySelector('.pd-t-items'); const m = tr.querySelector('.pd-t-marks');
+                if (sn && it && m) rows.push({ sl_no: sn.value.trim(), items: it.value.trim(), marks: m.value.trim() });
+            });
+            return rows;
+        }
+        function collectSessional() {
+            const rows = [];
+            document.querySelectorAll('#pd-sessional-table tbody tr').forEach(function(tr) {
+                const sn = tr.querySelector('.pd-s-sn'); const it = tr.querySelector('.pd-s-items'); const m = tr.querySelector('.pd-s-marks');
+                if (sn && it && m) rows.push({ sl_no: sn.value.trim(), items: it.value.trim(), marks: m.value.trim() });
+            });
+            return rows;
+        }
+        function collectApproval() {
+            const rows = [];
+            document.querySelectorAll('#pd-approval-table tbody tr').forEach(function(tr) {
+                const a = tr.querySelector('.pd-ar-authority'); const d = tr.querySelector('.pd-ar-date');
+                if (a && d) rows.push({ authority: a.value.trim(), date: d.value.trim() });
+            });
+            return rows;
+        }
+        function savePartD() {
+            return Promise.all([
+                saveSection('grading_scale', collectGrading()),
+                saveSection('theory_evaluation', collectTheory()),
+                saveSection('sessional_evaluation', collectSessional()),
+                saveSection('approval_records', collectApproval())
+            ]).then(function(res) { return res.every(function(r) { return r.success; }) ? { success: true } : { success: false, message: 'Save failed.' }; });
+        }
+        document.getElementById('pd-add-grading')?.addEventListener('click', function() {
+            const tbody = document.querySelector('#pd-grading-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td><input type="text" class="form-control form-control-sm pd-g-num"></td><td><input type="text" class="form-control form-control-sm pd-g-letter"></td><td><input type="text" class="form-control form-control-sm pd-g-point"></td><td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-g"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.pd-rm-g').addEventListener('click', function() { tr.remove(); });
+        });
+        document.querySelectorAll('.pd-rm-g').forEach(function(btn) { btn.addEventListener('click', function() { btn.closest('tr').remove(); }); });
+        document.getElementById('pd-add-theory')?.addEventListener('click', function() {
+            const tbody = document.querySelector('#pd-theory-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td><input type="text" class="form-control form-control-sm pd-t-sn"></td><td><input type="text" class="form-control form-control-sm pd-t-items"></td><td><input type="text" class="form-control form-control-sm pd-t-marks"></td><td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-t"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.pd-rm-t').addEventListener('click', function() { tr.remove(); });
+        });
+        document.querySelectorAll('.pd-rm-t').forEach(function(btn) { btn.addEventListener('click', function() { btn.closest('tr').remove(); }); });
+        document.getElementById('pd-add-sessional')?.addEventListener('click', function() {
+            const tbody = document.querySelector('#pd-sessional-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td><input type="text" class="form-control form-control-sm pd-s-sn"></td><td><input type="text" class="form-control form-control-sm pd-s-items"></td><td><input type="text" class="form-control form-control-sm pd-s-marks"></td><td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-s"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.pd-rm-s').addEventListener('click', function() { tr.remove(); });
+        });
+        document.querySelectorAll('.pd-rm-s').forEach(function(btn) { btn.addEventListener('click', function() { btn.closest('tr').remove(); }); });
+        document.getElementById('pd-add-approval')?.addEventListener('click', function() {
+            const tbody = document.querySelector('#pd-approval-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td><input type="text" class="form-control form-control-sm pd-ar-authority" placeholder="e.g. Curriculum Committee"></td><td><input type="text" class="form-control form-control-sm pd-ar-date" placeholder="e.g. August 14, 2022"></td><td><button type="button" class="btn btn-sm btn-outline-danger pd-rm-ar"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.pd-rm-ar').addEventListener('click', function() { tr.remove(); });
+        });
+        document.querySelectorAll('.pd-rm-ar').forEach(function(btn) { btn.addEventListener('click', function() { btn.closest('tr').remove(); }); });
+        const saveD = document.createElement('button');
+        saveD.type = 'button';
+        saveD.className = 'btn btn-primary mt-2';
+        saveD.textContent = 'Save Part D';
+        saveD.onclick = function() {
+            saveD.disabled = true;
+            savePartD().then(function(d) {
+                saveD.disabled = false;
+                if (d.success) alert('Saved.'); else alert(d.message || 'Save failed.');
+            }).catch(function() { saveD.disabled = false; alert('Save failed.'); });
+        };
+        document.querySelector('#pd-approval-table')?.closest('.card-body')?.appendChild(saveD);
+    })();
+    </script>
+    {% endif %}
+    {% endif %}
+
+    {% if part.part_key == 'C' %}
+    <div class="card shadow-sm">
+        <div class="card-header">Content</div>
+        <div class="card-body">
+            <p class="text-muted">Part C content is built from course entries above.</p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+{% if can_edit and part.part_key == 'C' %}
+<div class="modal fade" id="addEntryModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add course entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Course code</label>
+                    <input type="text" class="form-control" id="add-code" placeholder="e.g. 0421 28 Law 1101">
+                    <small class="text-muted">Year, Term ও Type অটো পূরণ হবে।</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Course name</label>
+                    <input type="text" class="form-control" id="add-name" placeholder="e.g. Jurisprudence">
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Credit</label>
+                        <input type="number" step="0.5" class="form-control" id="add-credit" placeholder="4">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Year</label>
+                        <input type="text" class="form-control" id="add-year" placeholder="First" readonly>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Term</label>
+                        <input type="text" class="form-control" id="add-term" placeholder="First" readonly>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Type</label>
+                        <select class="form-select" id="add-type">
+                            <option value="Theory">Theory</option>
+                            <option value="Sessional">Sessional</option>
+                            <option value="Viva">Viva</option>
+                            <option value="Capstone">Capstone</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="add-status">
+                            <option value="Core">Core</option>
+                            <option value="Optional">Optional</option>
+                            <option value="Non-Credit">Non-Credit</option>
+                        </select>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Prerequisite</label>
+                        <select class="form-select" id="add-prereq">
+                            <option value="">None</option>
+                            {% for e in course_entries %}
+                            <option value="{{ e.id }}" data-entry-id="{{ e.id }}">{{ e.course_code or '—' }} – {{ e.course_name or '—' }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="add-entry-submit">Add</button>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="editEntryModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit course entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-entry-id">
+                <div class="mb-3">
+                    <label class="form-label">Course code</label>
+                    <input type="text" class="form-control" id="edit-code">
+                    <small class="text-muted">Year, Term ও Type অটো পূরণ হবে।</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Course name</label>
+                    <input type="text" class="form-control" id="edit-name">
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Credit</label>
+                        <input type="number" step="0.5" class="form-control" id="edit-credit">
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Year</label>
+                        <input type="text" class="form-control" id="edit-year" readonly>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Term</label>
+                        <input type="text" class="form-control" id="edit-term" readonly>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Type</label>
+                        <select class="form-select" id="edit-type">
+                            <option value="Theory">Theory</option>
+                            <option value="Sessional">Sessional</option>
+                            <option value="Viva">Viva</option>
+                            <option value="Capstone">Capstone</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="edit-status">
+                            <option value="Core">Core</option>
+                            <option value="Optional">Optional</option>
+                            <option value="Non-Credit">Non-Credit</option>
+                        </select>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label">Prerequisite</label>
+                        <select class="form-select" id="edit-prereq">
+                            <option value="">None</option>
+                            {% for e in course_entries %}
+                            <option value="{{ e.id }}" data-entry-id="{{ e.id }}">{{ e.course_code or '—' }} – {{ e.course_name or '—' }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Rationale</label>
+                    <textarea class="form-control" id="edit-rationale" rows="2" placeholder="Rationale for the course…"></textarea>
+                </div>
+                <hr class="my-3">
+                <h6 class="mb-2 fw-bold">COURSE CONTENTS</h6>
+                <p class="text-muted small mb-2">Section A / Section B / CLOs — একই টেবিলে সিরিয়াল, কনটেন্ট ও ডানপাশে CLO</p>
+                <div class="table-responsive mb-2">
+                    <table class="table table-bordered table-sm" id="edit-course-contents-table">
+                        <thead>
+                            <tr class="table-light"><th colspan="4" class="text-center">COURSE CONTENTS</th></tr>
+                            <tr class="table-light"><th colspan="2">Section A</th><th class="text-end">CLOs</th><th style="width:3rem;"></th></tr>
+                        </thead>
+                        <tbody id="edit-section-a-rows"></tbody>
+                        <thead>
+                            <tr class="table-light"><th colspan="2">Section B</th><th class="text-end">CLOs</th><th></th></tr>
+                        </thead>
+                        <tbody id="edit-section-b-rows"></tbody>
+                    </table>
+                </div>
+                <div class="d-flex gap-2 mb-3">
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="edit-add-section-a-row"><i class="fas fa-plus me-1"></i>Section A এ সারি যোগ করুন</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="edit-add-section-b-row"><i class="fas fa-plus me-1"></i>Section B এ সারি যোগ করুন</button>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Course Learning Outcomes (CLOs)</label>
+                    <p class="text-muted small mb-2">Upon completion of this course, the student will be able to:</p>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm" id="edit-clos-table">
+                            <thead><tr><th class="text-nowrap">CLO</th><th>Upon completion of this course…</th><th>Mapping with PLO</th><th style="width:3rem;"></th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-success mt-1" id="edit-add-clo"><i class="fas fa-plus me-1"></i>Add CLO</button>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">MAPPING CLOs WITH THE TEACHING-LEARNING STRATEGY AND ASSESSMENT STRATEGY</label>
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm" id="edit-mapping-clos-table">
+                            <thead><tr><th>CLOs</th><th>Teaching-Learning Strategy</th><th>Assessment Strategy</th><th></th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <p class="text-muted small mb-0">Rows sync with CLO count. Add/remove CLOs first, then fill this table.</p>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">INDICATIVE LEARNING MATERIALS</label>
+                    <div class="mb-2">
+                        <label class="form-label small">Recommended Readings</label>
+                        <textarea class="form-control font-monospace" id="edit-recommended-readings" rows="3" placeholder="Recommended readings…"></textarea>
+                    </div>
+                    <div>
+                        <label class="form-label small">Supplementary Readings</label>
+                        <textarea class="form-control font-monospace" id="edit-supplementary-readings" rows="2" placeholder="Supplementary readings…"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="edit-entry-save">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if can_assign and part.part_key == 'C' %}
+<div class="modal fade" id="assignModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Assign author</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Course entry</label>
+                    <select class="form-select" id="assign-entry">
+                        {% for e in course_entries %}
+                        <option value="{{ e.id }}">{{ e.course_code or '—' }} – {{ e.course_name or '—' }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Teacher</label>
+                    <select class="form-select" id="assign-teacher">
+                        <option value="">— Select —</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="assign-submit">Assign</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if part.part_key == 'A' and can_assign %}
+<div class="modal fade" id="assignSectionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Assign section owner</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Section</label>
+                    <select class="form-select" id="assign-section-key">
+                        {% for s in part_a_section_list %}
+                        <option value="{{ s.key }}">{{ s.label }}{% if s.owner_name %} ({{ s.owner_name }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Owner</label>
+                    <select class="form-select" id="assign-section-user">
+                        <option value="">— None (revoke) —</option>
+                        {% for u in part_a_eligible_users %}
+                        <option value="{{ u.id }}">{{ u.full_name }} ({{ u.username }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="assign-section-submit">Assign</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    const btn = document.getElementById('assign-section-submit');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        const sectionKey = document.getElementById('assign-section-key')?.value;
+        const userId = document.getElementById('assign-section-user')?.value || null;
+        if (!sectionKey) return;
+        btn.disabled = true;
+        fetch('{{ url_for("curriculator.part_section_assign", part_id=part.id) }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ section_key: sectionKey, user_id: userId })
+        }).then(r => r.json()).then(function(d) {
+            btn.disabled = false;
+            if (d.success) { window.location.reload(); }
+            else { alert(d.message || 'Failed.'); }
+        }).catch(function() { btn.disabled = false; alert('Failed.'); });
+    });
+})();
+</script>
+{% endif %}
+
+{% if can_assign and part.part_key == 'C' %}
+<script>
+(function() {
+    document.querySelectorAll('.withdraw-author-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const entryId = btn.getAttribute('data-entry-id');
+            const teacherId = btn.getAttribute('data-teacher-id');
+            if (!entryId || !teacherId || !confirm('Withdraw this author from the course?')) return;
+            btn.disabled = true;
+            fetch('{{ url_for("curriculator.withdraw_author") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ course_entry_id: entryId, teacher_id: teacherId })
+            }).then(r => r.json()).then(function(d) {
+                if (d.success) window.location.reload();
+                else { btn.disabled = false; alert(d.message || 'Failed.'); }
+            }).catch(function() { btn.disabled = false; alert('Failed.'); });
+        });
+    });
+})();
+</script>
+{% endif %}
+
+{% if can_edit and part.part_key == 'C' %}
+<script>
+(function() {
+    const courseCodeInfoUrl = '{{ url_for("curriculator.api_course_code_info") }}';
+    function fetchAndFillYearTermType(codeInputId, yearId, termId, typeId) {
+        const code = document.getElementById(codeInputId)?.value?.trim();
+        if (!code) return;
+        fetch(courseCodeInfoUrl + '?code=' + encodeURIComponent(code))
+            .then(r => r.json())
+            .then(function(d) {
+                if (!d.success) return;
+                const yEl = document.getElementById(yearId);
+                const tEl = document.getElementById(termId);
+                const typEl = document.getElementById(typeId);
+                if (yEl) yEl.value = d.year || '';
+                if (tEl) tEl.value = d.term || '';
+                if (typEl && d.type) typEl.value = d.type;
+            })
+            .catch(function() {});
+    }
+    ['add-code', 'edit-code'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('blur', function() {
+            const isAdd = id === 'add-code';
+            fetchAndFillYearTermType(id, isAdd ? 'add-year' : 'edit-year', isAdd ? 'add-term' : 'edit-term', isAdd ? 'add-type' : 'edit-type');
+        });
+    });
+    const addModal = document.getElementById('addEntryModal');
+    if (addModal) {
+        addModal.addEventListener('show.bs.modal', function() {
+            document.getElementById('add-code').value = '';
+            document.getElementById('add-name').value = '';
+            document.getElementById('add-credit').value = '';
+            document.getElementById('add-year').value = '';
+            document.getElementById('add-term').value = '';
+            document.getElementById('add-type').value = 'Theory';
+            document.getElementById('add-status').value = 'Core';
+            document.getElementById('add-prereq').value = '';
+        });
+    }
+
+    const addSubmit = document.getElementById('add-entry-submit');
+    if (addSubmit) {
+        addSubmit.addEventListener('click', function() {
+            const code = document.getElementById('add-code')?.value?.trim() || null;
+            const name = document.getElementById('add-name')?.value?.trim() || null;
+            const credit = document.getElementById('add-credit')?.value?.trim() || null;
+            const year = document.getElementById('add-year')?.value?.trim() || null;
+            const term = document.getElementById('add-term')?.value?.trim() || null;
+            const typ = document.getElementById('add-type')?.value || null;
+            const status = document.getElementById('add-status')?.value || null;
+            const prereq = document.getElementById('add-prereq')?.value || null;
+            const payload = { course_code: code, course_name: name, credit: credit || null, year_term: (year && term) ? (year + ' ' + term) : null, year: year || null, term: term || null, entry_type: typ || null, status: status || null, prerequisite_entry_id: prereq || null };
+            fetch('{{ url_for("curriculator.course_entry_add", part_id=part.id) }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(payload)
+            }).then(r => r.json()).then(d => {
+                if (d.success) { window.location.reload(); } else { alert(d.message || 'Failed.'); }
+            }).catch(() => alert('Failed.'));
+        });
+    }
+    const contentUrlBase = '{{ url_for("curriculator.api_entry_content", entry_id=0) }}'.replace(/\/0\/content$/, '');
+    function fetchContent(entryId) {
+        return fetch((contentUrlBase + '/' + entryId + '/content')).then(r => r.json()).catch(function() { return {}; });
+    }
+    function renderCourseContentsItems(section_a_items, section_b_items) {
+        const tbodyA = document.getElementById('edit-section-a-rows');
+        const tbodyB = document.getElementById('edit-section-b-rows');
+        if (!tbodyA || !tbodyB) return;
+        tbodyA.innerHTML = '';
+        tbodyB.innerHTML = '';
+        (section_a_items || []).forEach(function(item, i) {
+            const tr = makeCourseContentsRow(i + 1, item.content || '', item.clos || '', 'a');
+            tbodyA.appendChild(tr);
+        });
+        const nA = (section_a_items || []).length;
+        (section_b_items || []).forEach(function(item, i) {
+            const tr = makeCourseContentsRow(nA + i + 1, item.content || '', item.clos || '', 'b');
+            tbodyB.appendChild(tr);
+        });
+    }
+    function makeCourseContentsRow(serial, content, clos, section) {
+        const tr = document.createElement('tr');
+        const td1 = document.createElement('td');
+        td1.className = 'align-middle text-center';
+        td1.textContent = serial;
+        const td2 = document.createElement('td');
+        const inpContent = document.createElement('input');
+        inpContent.type = 'text';
+        inpContent.className = 'form-control form-control-sm cc-content';
+        inpContent.placeholder = section === 'a' ? 'Section A কনটেন্ট…' : 'Section B কনটেন্ট…';
+        inpContent.value = content;
+        td2.appendChild(inpContent);
+        const td3 = document.createElement('td');
+        const inpClos = document.createElement('input');
+        inpClos.type = 'text';
+        inpClos.className = 'form-control form-control-sm cc-clos text-end';
+        inpClos.placeholder = 'e.g. 1, 2';
+        inpClos.value = clos;
+        td3.appendChild(inpClos);
+        const td4 = document.createElement('td');
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'btn btn-sm btn-danger cc-rm';
+        rm.title = 'সারি মুছুন';
+        rm.innerHTML = '<i class="fas fa-trash"></i>';
+        td4.appendChild(rm);
+        tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+        rm.addEventListener('click', function() {
+            tr.remove();
+            renumberCourseContentsRows();
+        });
+        return tr;
+    }
+    function renumberCourseContentsRows() {
+        const tbodyA = document.getElementById('edit-section-a-rows');
+        const tbodyB = document.getElementById('edit-section-b-rows');
+        if (!tbodyA || !tbodyB) return;
+        tbodyA.querySelectorAll('tr').forEach(function(tr, i) {
+            const td = tr.querySelector('td:first-child');
+            if (td) td.textContent = i + 1;
+        });
+        const nA = tbodyA.querySelectorAll('tr').length;
+        tbodyB.querySelectorAll('tr').forEach(function(tr, i) {
+            const td = tr.querySelector('td:first-child');
+            if (td) td.textContent = nA + i + 1;
+        });
+    }
+    function collectCourseContentsItems() {
+        const section_a_items = [];
+        const section_b_items = [];
+        document.querySelectorAll('#edit-section-a-rows tr').forEach(function(tr) {
+            const content = tr.querySelector('.cc-content');
+            const clos = tr.querySelector('.cc-clos');
+            if (content && clos) section_a_items.push({ content: content.value.trim(), clos: clos.value.trim() });
+        });
+        document.querySelectorAll('#edit-section-b-rows tr').forEach(function(tr) {
+            const content = tr.querySelector('.cc-content');
+            const clos = tr.querySelector('.cc-clos');
+            if (content && clos) section_b_items.push({ content: content.value.trim(), clos: clos.value.trim() });
+        });
+        return { section_a_items, section_b_items };
+    }
+    function collectClos() {
+        const rows = [];
+        document.querySelectorAll('#edit-clos-table tbody tr').forEach(function(tr) {
+            const upon = tr.querySelector('.clo-upon');
+            const plo = tr.querySelector('.clo-plo');
+            if (upon && plo) {
+                const u = upon.value.trim();
+                rows.push({ text: u, upon_completion: u, plo: plo.value.trim() });
+            }
+        });
+        return rows;
+    }
+    function renumberCloRows() {
+        document.querySelectorAll('#edit-clos-table tbody tr').forEach(function(tr, i) {
+            const td = tr.querySelector('td:first-child');
+            if (td) td.textContent = i + 1;
+        });
+    }
+    function collectMappingClos() {
+        const rows = [];
+        document.querySelectorAll('#edit-mapping-clos-table tbody tr').forEach(function(tr) {
+            const tl = tr.querySelector('.mapping-teaching');
+            const ass = tr.querySelector('.mapping-assessment');
+            if (tl && ass) rows.push({ teaching_learning: tl.value.trim(), assessment: ass.value.trim() });
+        });
+        return rows;
+    }
+    function renderClos(clos) {
+        const tbody = document.querySelector('#edit-clos-table tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        (clos || []).forEach(function(c, idx) {
+            const tr = document.createElement('tr');
+            const t1 = document.createElement('td');
+            t1.className = 'align-middle text-center';
+            t1.textContent = idx + 1;
+            const t2 = document.createElement('td');
+            const i2 = document.createElement('input');
+            i2.type = 'text'; i2.className = 'form-control form-control-sm clo-upon'; i2.placeholder = 'Upon completion…'; i2.value = c.upon_completion || c.text || '';
+            t2.appendChild(i2);
+            const t3 = document.createElement('td');
+            const i3 = document.createElement('input');
+            i3.type = 'text'; i3.className = 'form-control form-control-sm clo-plo'; i3.placeholder = 'e.g. 1, 2'; i3.value = c.plo || '';
+            t3.appendChild(i3);
+            const t4 = document.createElement('td');
+            const rm = document.createElement('button');
+            rm.type = 'button'; rm.className = 'btn btn-sm btn-danger clo-rm'; rm.title = 'Remove CLO';
+            rm.innerHTML = '<i class="fas fa-trash"></i>';
+            t4.appendChild(rm);
+            tr.appendChild(t1); tr.appendChild(t2); tr.appendChild(t3); tr.appendChild(t4);
+            tbody.appendChild(tr);
+            rm.addEventListener('click', function() { tr.remove(); renumberCloRows(); syncMappingRowsToClos(); });
+        });
+    }
+    function renderMappingClos(mapping_clos, numRows) {
+        const tbody = document.querySelector('#edit-mapping-clos-table tbody');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        const n = Math.max(1, numRows || 0);
+        for (let i = 0; i < n; i++) {
+            const row = (mapping_clos && mapping_clos[i]) || {};
+            const tr = document.createElement('tr');
+            const td1 = document.createElement('td');
+            td1.className = 'align-middle';
+            td1.textContent = i + 1;
+            const td2 = document.createElement('td');
+            const inp1 = document.createElement('input');
+            inp1.type = 'text';
+            inp1.className = 'form-control form-control-sm mapping-teaching';
+            inp1.placeholder = 'Teaching-Learning Strategy';
+            inp1.value = row.teaching_learning || '';
+            td2.appendChild(inp1);
+            const td3 = document.createElement('td');
+            const inp2 = document.createElement('input');
+            inp2.type = 'text';
+            inp2.className = 'form-control form-control-sm mapping-assessment';
+            inp2.placeholder = 'Assessment Strategy';
+            inp2.value = row.assessment || '';
+            td3.appendChild(inp2);
+            const td4 = document.createElement('td');
+            const rmBtn = document.createElement('button');
+            rmBtn.type = 'button';
+            rmBtn.className = 'btn btn-sm btn-outline-secondary mapping-rm';
+            rmBtn.title = 'Remove row';
+            rmBtn.innerHTML = '<i class="fas fa-times"></i>';
+            rmBtn.addEventListener('click', function() { tr.remove(); });
+            td4.appendChild(rmBtn);
+            tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+            tbody.appendChild(tr);
+        }
+    }
+    function syncMappingRowsToClos() {
+        const cloRows = document.querySelectorAll('#edit-clos-table tbody tr').length;
+        const mapRows = document.querySelectorAll('#edit-mapping-clos-table tbody tr').length;
+        if (cloRows === 0 && mapRows === 0) renderMappingClos([], 1);
+        else if (cloRows !== mapRows) {
+            const mapping = collectMappingClos();
+            renderMappingClos(mapping, Math.max(1, cloRows));
+        }
+    }
+    document.getElementById('edit-add-clo')?.addEventListener('click', function() {
+        const tbody = document.querySelector('#edit-clos-table tbody');
+        if (!tbody) return;
+        const tr = document.createElement('tr');
+        const n = tbody.querySelectorAll('tr').length + 1;
+        tr.innerHTML = '<td class="align-middle text-center">' + n + '</td><td><input type="text" class="form-control form-control-sm clo-upon" placeholder="Upon completion…"></td><td><input type="text" class="form-control form-control-sm clo-plo" placeholder="e.g. 1, 2"></td><td><button type="button" class="btn btn-sm btn-danger clo-rm" title="Remove CLO"><i class="fas fa-trash"></i></button></td>';
+        tbody.appendChild(tr);
+        tr.querySelector('.clo-rm').addEventListener('click', function() { tr.remove(); renumberCloRows(); syncMappingRowsToClos(); });
+        syncMappingRowsToClos();
+    });
+
+    document.getElementById('edit-add-section-a-row')?.addEventListener('click', function() {
+        const tbody = document.getElementById('edit-section-a-rows');
+        if (!tbody) return;
+        const n = tbody.querySelectorAll('tr').length + 1;
+        const tr = makeCourseContentsRow(n, '', '', 'a');
+        tbody.appendChild(tr);
+        renumberCourseContentsRows();
+    });
+    document.getElementById('edit-add-section-b-row')?.addEventListener('click', function() {
+        const tbodyA = document.getElementById('edit-section-a-rows');
+        const tbodyB = document.getElementById('edit-section-b-rows');
+        if (!tbodyB) return;
+        const nA = tbodyA ? tbodyA.querySelectorAll('tr').length : 0;
+        const n = tbodyB.querySelectorAll('tr').length + nA + 1;
+        const tr = makeCourseContentsRow(n, '', '', 'b');
+        tbodyB.appendChild(tr);
+        renumberCourseContentsRows();
+    });
+
+    document.querySelectorAll('.edit-entry-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const id = btn.dataset.id;
+            document.getElementById('edit-entry-id').value = id;
+            document.getElementById('edit-code').value = btn.dataset.code || '';
+            document.getElementById('edit-name').value = btn.dataset.name || '';
+            document.getElementById('edit-credit').value = btn.dataset.credit || '';
+            document.getElementById('edit-year').value = btn.dataset.year || '';
+            document.getElementById('edit-term').value = btn.dataset.term || '';
+            document.getElementById('edit-type').value = btn.dataset.type || 'Theory';
+            document.getElementById('edit-status').value = btn.dataset.status || 'Core';
+            const prereqVal = btn.dataset.prereq || '';
+            document.getElementById('edit-prereq').value = prereqVal;
+            document.querySelectorAll('#edit-prereq option[data-entry-id]').forEach(function(opt) {
+                opt.disabled = (opt.getAttribute('data-entry-id') === id);
+            });
+            if (prereqVal === id) document.getElementById('edit-prereq').value = '';
+            document.getElementById('edit-rationale').value = '';
+            document.getElementById('edit-recommended-readings').value = '';
+            document.getElementById('edit-supplementary-readings').value = '';
+            renderCourseContentsItems([], []);
+            renderClos([]);
+            renderMappingClos([], 1);
+            fetchContent(id).then(function(c) {
+                document.getElementById('edit-rationale').value = c.rationale || '';
+                document.getElementById('edit-recommended-readings').value = c.recommended_readings || '';
+                document.getElementById('edit-supplementary-readings').value = c.supplementary_readings || '';
+                var itemsA = c.section_a_items || [];
+                var itemsB = c.section_b_items || [];
+                if (itemsA.length === 0 && itemsB.length === 0) {
+                    var rawA = (c.section_a || '').trim().split('\n').filter(function(l) { return l.trim(); }).map(function(l) { return { content: l.trim(), clos: '' }; });
+                    var rawB = (c.section_b || '').trim().split('\n').filter(function(l) { return l.trim(); }).map(function(l) { return { content: l.trim(), clos: '' }; });
+                    if (rawA.length === 0) rawA = [{ content: '', clos: '' }];
+                    if (rawB.length === 0) rawB = [{ content: '', clos: '' }];
+                    itemsA = rawA;
+                    itemsB = rawB;
+                }
+                renderCourseContentsItems(itemsA, itemsB);
+                const clos = c.clos || [];
+                renderClos(clos);
+                renderMappingClos(c.mapping_clos || [], Math.max(1, clos.length));
+            });
+            new bootstrap.Modal(document.getElementById('editEntryModal')).show();
+        });
+    });
+    document.getElementById('edit-entry-save')?.addEventListener('click', function() {
+        const id = document.getElementById('edit-entry-id')?.value;
+        if (!id) return;
+        const year = document.getElementById('edit-year')?.value ?? '';
+        const term = document.getElementById('edit-term')?.value ?? '';
+        const payload = {
+            course_code: document.getElementById('edit-code')?.value ?? '',
+            course_name: document.getElementById('edit-name')?.value ?? '',
+            credit: document.getElementById('edit-credit')?.value ?? '',
+            year_term: (year && term) ? (year + ' ' + term) : '',
+            year: year,
+            term: term,
+            entry_type: document.getElementById('edit-type')?.value ?? '',
+            status: document.getElementById('edit-status')?.value ?? '',
+            prerequisite_entry_id: document.getElementById('edit-prereq')?.value || null,
+            content_json: (function() {
+                var cc = collectCourseContentsItems();
+                var section_a = (cc.section_a_items || []).map(function(i) { return i.content; }).join('\n');
+                var section_b = (cc.section_b_items || []).map(function(i) { return i.content; }).join('\n');
+                return {
+                    section_a: section_a,
+                    section_b: section_b,
+                    section_a_items: cc.section_a_items || [],
+                    section_b_items: cc.section_b_items || [],
+                    rationale: document.getElementById('edit-rationale')?.value ?? '',
+                    recommended_readings: document.getElementById('edit-recommended-readings')?.value ?? '',
+                    supplementary_readings: document.getElementById('edit-supplementary-readings')?.value ?? '',
+                    clos: collectClos(),
+                    mapping_clos: collectMappingClos()
+                };
+            })()
+        };
+        var u = '{{ url_for("curriculator.course_entry_save", entry_id=0) }}';
+        fetch(u.replace(/\/0\/save$/, '/' + id + '/save'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify(payload)
+        }).then(r => r.json()).then(d => {
+            if (d.success) { window.location.reload(); } else { alert(d.message || 'Save failed.'); }
+        }).catch(() => alert('Save failed.'));
+    });
+})();
+</script>
+{% endif %}
+
+{% if can_assign and part.part_key == 'C' %}
+<script>
+(function() {
+    const sel = document.getElementById('assign-teacher');
+    if (sel) {
+        fetch('{{ url_for("curriculator.api_teachers") }}').then(r => r.json()).catch(() => ({ success: false, teachers: [] })).then(d => {
+            const list = (d.teachers || []);
+            list.forEach(t => {
+                const o = document.createElement('option');
+                o.value = t.id;
+                o.textContent = t.name || ('ID ' + t.id);
+                sel.appendChild(o);
+            });
+        });
+    }
+    document.getElementById('assign-submit')?.addEventListener('click', function() {
+        const eid = document.getElementById('assign-entry')?.value;
+        const tid = document.getElementById('assign-teacher')?.value;
+        if (!eid || !tid) { alert('Select entry and teacher.'); return; }
+        fetch('{{ url_for("curriculator.assign_author") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: JSON.stringify({ course_entry_id: eid, teacher_id: tid })
+        }).then(r => r.json()).then(d => {
+            if (d.success) { alert('Assigned.'); document.querySelector('[data-bs-dismiss="modal"]')?.click(); }
+            else { alert(d.message || 'Failed.'); }
+        }).catch(() => alert('Failed.'));
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

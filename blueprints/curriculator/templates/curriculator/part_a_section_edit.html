@@ -1,0 +1,738 @@
+{% extends "base.html" %}
+{% block title %}{{ section_cfg.label }} – Part A – {{ document.name }}{% endblock %}
+{% block content %}
+<style>
+.drag-handle { cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
+.plos-llb-table .plo-category-empty { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+.plos-llb-table .plo-category-empty .plo-category { font-size: 0.875rem; }
+</style>
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.index') }}">Curriculator</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.document_detail', doc_id=document.id) }}">{{ document.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.part_view', doc_id=document.id, part_key='A') }}">Part A</a></li>
+            <li class="breadcrumb-item active">{{ section_cfg.label }}</li>
+        </ol>
+    </nav>
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <h2 class="mb-0">{{ section_cfg.label }}</h2>
+        <div>
+            <a href="{{ url_for('curriculator.part_view', doc_id=document.id, part_key='A') }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back
+            </a>
+            {% if can_edit %}
+            <button type="button" id="save-section-btn" class="btn btn-primary ms-2">
+                <i class="fas fa-save me-1"></i>Save
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    {% if not can_edit %}
+    <p class="text-muted">You can view this section only. Only the section owner or Head/TA can edit.</p>
+    {% endif %}
+
+    {# key_value: [{key, value}, ...] #}
+    {% if section_cfg.type == 'key_value' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="key-value-table">
+                    <thead><tr>{% if can_edit %}<th style="width: 2em;" aria-label="Reorder"></th>{% endif %}<th>Key</th><th>Value</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for row in (data or []) %}
+                        <tr>
+                            {% if can_edit %}<td class="align-middle"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td>{% endif %}
+                            <td><input type="text" class="form-control form-control-sm kv-key" value="{{ row.get('key', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm kv-value" value="{{ row.get('value', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger rm-row"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-success mt-2" id="add-kv-row"><i class="fas fa-plus me-1"></i>Add row</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# text: {text: "..."} or legacy string #}
+    {% if section_cfg.type == 'text' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <textarea id="text-content" class="form-control font-monospace" rows="12" {% if not can_edit %}readonly{% endif %}>{{ (data.get('text', '') if data is mapping else (data or '')) }}</textarea>
+        </div>
+    </div>
+    {% endif %}
+
+    {# graduate_attributes: [{category?, id, description, domain}, ...] — LLB-style: two-column table (Graduate Attributes | Domain), category headers #}
+    {% if section_cfg.type == 'graduate_attributes' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            {% if can_edit %}<p class="text-muted small mb-2">Category (optional), GA ID (e.g. GA1), Description, Domain (e.g. Fundamental, Personal, Thinking, Social).</p>{% endif %}
+            {% set ga_data = data if (data is defined and data is sequence) else [] %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm ga-llb-table" id="ga-table">
+                    <thead>
+                        <tr class="table-light">
+                            {% if can_edit %}<th style="width: 2rem;" class="border-end-0"></th>{% endif %}
+                            <th{% if can_edit %} class="border-start-0"{% endif %}>Graduate Attributes</th>
+                            <th class="text-end" style="width: 9rem;">Domain</th>
+                            {% if can_edit %}<th style="width: 2.5rem;"></th>{% endif %}
+                        </tr>
+                    </thead>
+                    {% for row in (ga_data if ga_data else []) %}
+                    <tbody class="ga-entry" data-ga-row>
+                        <tr class="ga-category-row">
+                            <td colspan="{% if can_edit %}4{% else %}2{% endif %}" class="border-0 border-bottom border-secondary pt-2 pb-1 {% if not row.get('category') %}ga-category-empty{% endif %}"><strong><input type="text" class="form-control form-control-sm border-0 p-0 ga-category fw-bold bg-transparent" value="{{ row.get('category', '') }}" {% if not can_edit %}readonly{% endif %} placeholder="e.g. Legal Knowledge (optional)"></strong></td>
+                        </tr>
+                        <tr class="ga-data-row">
+                            {% if can_edit %}<td class="align-top pt-2 border-end-0"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td>{% endif %}
+                            <td class="align-top pt-2{% if can_edit %} border-start-0{% endif %}">
+                                {% if can_edit %}
+                                <span class="ga-id-inline fw-bold"><input type="text" class="form-control form-control-sm border-0 p-0 d-inline-block ga-id bg-transparent" style="width: 3.5rem;" value="{{ row.get('id', '') }}" placeholder="GA1"></span>: <input type="text" class="form-control form-control-sm border-0 border-bottom rounded-0 d-inline-block ga-desc bg-transparent" style="min-width: 12rem;" value="{{ row.get('description', '') }}" placeholder="Description…">
+                                {% else %}
+                                <span class="ga-view-cell">{% if row.get('id') %}{{ row.get('id') }}: {% endif %}{{ row.get('description', '') or '—' }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="align-top pt-2 text-end">{% if can_edit %}<input type="text" class="form-control form-control-sm ga-domain text-end border-0 border-bottom rounded-0 bg-transparent" value="{{ row.get('domain', '') }}" placeholder="e.g. Fundamental">{% else %}{{ row.get('domain', '') or '—' }}{% endif %}</td>
+                            {% if can_edit %}<td class="align-top pt-2"><button type="button" class="btn btn-sm btn-outline-danger ga-rm" title="Remove"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                    </tbody>
+                    {% endfor %}
+                </table>
+            </div>
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-success mt-2" id="add-ga-row"><i class="fas fa-plus me-1"></i>Add row</button>
+            {% endif %}
+            <p class="text-muted small mt-2 mb-0">GA = Graduate Attributes</p>
+        </div>
+    </div>
+    {% endif %}
+
+    {# serial_description: [{serial_no, description}, ...] #}
+    {% if section_cfg.type == 'serial_description' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="serial-desc-table">
+                    <thead><tr>{% if can_edit %}<th style="width: 2em;" aria-label="Reorder"></th>{% endif %}<th>Serial No.</th><th>Description</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for row in (data or []) %}
+                        <tr>
+                            {% if can_edit %}<td class="align-middle"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td>{% endif %}
+                            <td><input type="text" class="form-control form-control-sm sd-serial" value="{{ row.get('serial_no', row.get('serial', '')) }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm sd-desc" value="{{ row.get('description', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger rm-row"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-success mt-2" id="add-sd-row"><i class="fas fa-plus me-1"></i>Add row</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# peos: [{serial, description, domains}, ...] #}
+    {% if section_cfg.type == 'peos' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered" id="peos-table">
+                    <thead><tr>{% if can_edit %}<th style="width: 2em;" aria-label="Reorder"></th>{% endif %}<th>Serial No.</th><th>Description</th><th>Domains</th>{% if can_edit %}<th></th>{% endif %}</tr></thead>
+                    <tbody>
+                        {% for row in (data or []) %}
+                        <tr>
+                            {% if can_edit %}<td class="align-middle"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td>{% endif %}
+                            <td><input type="text" class="form-control form-control-sm peo-serial" value="{{ row.get('serial', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm peo-desc" value="{{ row.get('description', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            <td><input type="text" class="form-control form-control-sm peo-domains" value="{{ row.get('domains', '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger rm-row"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-success mt-2" id="add-peo-row"><i class="fas fa-plus me-1"></i>Add row</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# plos: [{id, text, category?}, ...] — LLB-style: two-column table (PLO ID | Description), optional category headings #}
+    {% if section_cfg.type == 'plos' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <p class="mb-3 text-dark">After successful completion of the degree, the learners will be able to:</p>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 plos-llb-table" id="plos-table-llb">
+                    {% for row in (data or []) %}
+                    <tbody class="plo-entry" data-plo-row>
+                        <tr class="plo-category-row">
+                            <td colspan="{% if can_edit %}4{% else %}2{% endif %}" class="border-0 pt-2 pb-1 {% if not row.get('category') %}plo-category-empty{% endif %}"><strong><input type="text" class="form-control form-control-sm border-0 p-0 plo-category fw-bold bg-transparent" value="{{ row.get('category', '') }}" {% if not can_edit %}readonly{% endif %} placeholder="e.g. A. Fundamental Skills (optional)"></strong></td>
+                        </tr>
+                        <tr class="plo-data-row">
+                            {% if can_edit %}<td class="align-top pt-2" style="width: 2rem;"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td>{% endif %}
+                            <td class="align-top pt-2 plo-id-cell" style="width: 6rem;"><input type="text" class="form-control form-control-sm border-0 border-bottom rounded-0 p-0 plo-id fw-bold" value="{{ row.get('id', '') }}" {% if not can_edit %}readonly{% endif %} placeholder="PLO1"></td>
+                            <td class="align-top pt-2"><input type="text" class="form-control form-control-sm border-0 border-bottom rounded-0 px-0 plo-text" value="{{ row.get('text', '') }}" {% if not can_edit %}readonly{% endif %} placeholder="Description of this learning outcome…"></td>
+                            {% if can_edit %}<td class="align-top pt-2" style="width: 2.5rem;"><button type="button" class="btn btn-sm btn-outline-danger rm-row" title="Remove"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                    </tbody>
+                    {% endfor %}
+                </table>
+            </div>
+            {% if can_edit %}
+            <button type="button" class="btn btn-sm btn-outline-success mt-3" id="add-plo-row"><i class="fas fa-plus me-1"></i>Add row</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# mapping: row_labels, col_labels, cells #}
+    {% if section_cfg.type == 'mapping' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            {% if section_key == 'mapping_mission_peo' %}
+            {# LLB-style: Mapping Mission of the University with PEOs — columns PEOs | Missions | UM 1 | UM 2 | UM 3 #}
+            <p class="text-muted small mb-2">Rows = PEOs, Columns = Missions and University Missions (UM). Fill level 1, 2, or 3.</p>
+            {% if not peos_data %}
+            <p class="text-warning">Define PEOs first (Part A → PEOs section).</p>
+            {% else %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="mapping-table">
+                    <thead>
+                        <tr>
+                            <th class="align-middle">PEOs</th>
+                            <th class="align-middle"><input type="text" class="form-control form-control-sm mapping-col-label border-0 bg-transparent" value="Missions" {% if not can_edit %}readonly{% endif %}</th>
+                            {% for um in (mission_um_labels or ['UM 1', 'UM 2', 'UM 3']) %}
+                            <th class="align-middle text-center" style="min-width: 3.5rem;"><input type="text" class="form-control form-control-sm mapping-col-label text-center" value="{{ um }}" {% if not can_edit %}readonly{% endif %}></th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set cells = (data.get('cells', []) if data else []) %}
+                        {% set col_count = (mission_um_labels or ['UM 1', 'UM 2', 'UM 3'])|length %}
+                        {% for peo in peos_data %}
+                        {% set row_idx = loop.index0 %}
+                        {% set row_cells = (cells[row_idx] if row_idx < cells|length else []) %}
+                        <tr data-row-idx="{{ row_idx }}">
+                            <td class="align-middle"><input type="text" class="form-control form-control-sm mapping-row-label fw-bold border-0 bg-transparent" value="{{ peo.get('serial', 'PEO' ~ loop.index) }}" readonly></td>
+                            <td class="align-middle"><input type="text" class="form-control form-control-sm mapping-cell border-0" value="{{ row_cells[0] if 0 < row_cells|length else '' }}" {% if not can_edit %}readonly{% endif %} placeholder="—"></td>
+                            {% for j in range(col_count) %}
+                            <td class="align-middle text-center"><input type="text" class="form-control form-control-sm mapping-cell text-center" value="{{ row_cells[j+1] if (j+1) < row_cells|length else '' }}" {% if not can_edit %}readonly{% endif %} placeholder="1–3" maxlength="1" style="max-width: 3rem;"></td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted small mt-2 mb-0"><strong>Level of association: 3=High, 2=Medium, 1=Low</strong></p>
+            {% endif %}
+            {% elif section_key == 'mapping_plo_peo' %}
+            {# LLB-style: Program Learning Outcomes (PLOs) | Program Educational Objectives (PEOs); Domains column (merged by group); binary • in cells #}
+            {% if not plos_data %}
+            <p class="text-warning">Define PLOs first (Part A → PLOs section).</p>
+            {% elif not peos_data %}
+            <p class="text-warning">Define PEOs first (Part A → PEOs section).</p>
+            {% else %}
+            <p class="text-muted small mb-2">Rows: PLOs. Columns: PEOs. Mark mapping with a dot (•).</p>
+            {% set plo_peo_cells = (data.get('cells', []) if data else []) %}
+            {% set plo_peo_domains = (data.get('row_domains', []) if data else []) %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="mapping-plo-peo-table">
+                    <thead>
+                        <tr class="table-light">
+                            <th colspan="2" class="align-middle text-center">Program Learning Outcomes (PLOs)</th>
+                            <th colspan="{{ (peos_data|length) if peos_data else 1 }}" class="align-middle text-center">Program Educational Objectives (PEOs)</th>
+                        </tr>
+                        <tr class="table-light">
+                            <th class="align-middle" style="min-width: 7rem;">Domains</th>
+                            <th class="align-middle" style="min-width: 4rem;">PLO</th>
+                            {% for peo in peos_data %}
+                            <th class="align-middle text-center" style="min-width: 3rem;">{{ peo.get('serial', 'PEO' ~ loop.index) }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for plo in plos_data %}
+                        {% set row_idx = loop.index0 %}
+                        {% set row_domain = (plo_peo_domains[row_idx] if row_idx < plo_peo_domains|length else '') or (plo.get('category', '') or '') %}
+                        {% set row_cells = (plo_peo_cells[row_idx] if row_idx < plo_peo_cells|length else []) %}
+                        <tr data-row-idx="{{ row_idx }}">
+                            <td class="align-middle">{% if can_edit %}<input type="text" class="form-control form-control-sm mapping-plo-peo-domain border-0 bg-transparent" value="{{ row_domain }}" placeholder="e.g. Fundamental Domain">{% else %}{{ row_domain or '—' }}{% endif %}</td>
+                            <td class="align-middle fw-bold">{{ plo.get('id', 'PLO' ~ loop.index) }}</td>
+                            {% for peo in peos_data %}
+                            {% set col_idx = loop.index0 %}
+                            {% set cell_val = (row_cells[col_idx] if col_idx < row_cells|length else '') %}
+                            {% set has_dot = cell_val and (cell_val == '•' or cell_val.strip() != '') %}
+                            <td class="align-middle text-center">
+                                {% if can_edit %}
+                                <input type="checkbox" class="form-check-input mapping-plo-peo-cell" {% if has_dot %}checked{% endif %} title="Map PLO to PEO" aria-label="Map">
+                                {% else %}
+                                {% if has_dot %}•{% endif %}
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+            {% else %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="mapping-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            {% for col in (data.get('col_labels', []) if data else []) %}
+                            <th><input type="text" class="form-control form-control-sm mapping-col-label" value="{{ col }}" {% if not can_edit %}readonly{% endif %}></th>
+                            {% endfor %}
+                            {% if can_edit and (not data or not data.get('col_labels')) %}
+                            <th><input type="text" class="form-control form-control-sm mapping-col-label" placeholder="Col"></th>
+                            {% endif %}
+                            {% if can_edit %}<th><button type="button" class="btn btn-sm btn-outline-secondary" id="add-mapping-col"><i class="fas fa-plus"></i></button></th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set rows = (data.get('row_labels', []) if data else []) %}
+                        {% set cells = (data.get('cells', []) if data else []) %}
+                        {% for i in range(rows|length) %}
+                        <tr data-row-idx="{{ i }}">
+                            <td><input type="text" class="form-control form-control-sm mapping-row-label" value="{{ rows[i] if i < rows|length else '' }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% for j in range((cells[i] if i < cells|length else [])|length) %}
+                            <td><input type="text" class="form-control form-control-sm mapping-cell" value="{{ (cells[i][j] if i < cells|length and j < (cells[i]|length) else '') }}" {% if not can_edit %}readonly{% endif %}></td>
+                            {% endfor %}
+                            {% if can_edit %}<td><button type="button" class="btn btn-sm btn-outline-danger rm-mapping-row"><i class="fas fa-trash"></i></button></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                        {% if can_edit %}
+                        <tr id="mapping-add-row-tr">
+                            <td colspan="100"><button type="button" class="btn btn-sm btn-outline-success" id="add-mapping-row"><i class="fas fa-plus me-1"></i>Add row</button></td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# mapping_course_plo: cells[row=course][col=plo]; LLB-style: Course Code and Title | PLOs with domain sub-headers; binary • #}
+    {% if section_cfg.type == 'mapping_course_plo' %}
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <p class="text-muted small mb-2">Courses in this year–term (from Part C). Mark mapping with a dot (•). PLOs grouped by domain (from PLO category).</p>
+            {% if not part_c_entries %}
+            <p class="text-warning">No Part C courses for this year–term. Add courses in Part C with matching Year/Term.</p>
+            {% endif %}
+            {% if not plos_data %}
+            <p class="text-warning">Define PLOs first (Part A → PLOs section).</p>
+            {% endif %}
+            {% if part_c_entries and plos_data %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm" id="course-plo-table">
+                    <thead>
+                        <tr class="table-light">
+                            <th rowspan="3" class="align-middle">Course Code and Course Title</th>
+                            <th colspan="{{ plos_data|length }}" class="align-middle text-center">Program Learning Outcomes (PLOs)</th>
+                        </tr>
+                        <tr class="table-light">
+                            {% for domain_label, indices in (plo_domain_groups or []) %}
+                            <th colspan="{{ indices|length }}" class="align-middle text-center">{{ domain_label }}</th>
+                            {% endfor %}
+                            {% if not plo_domain_groups %}
+                            <th colspan="{{ plos_data|length }}" class="align-middle text-center">—</th>
+                            {% endif %}
+                        </tr>
+                        <tr class="table-light">
+                            {% for plo in plos_data %}
+                            <th class="align-middle text-center" style="min-width: 2.5rem;" title="{{ plo.get('text', '')[:80] }}">{{ plo.get('id', '') }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set stored = (data.get('cells', []) if data else []) %}
+                        {% for e in part_c_entries %}
+                        {% set ei = loop.index0 %}
+                        {% set row_cells = (stored[ei] if ei < stored|length else []) %}
+                        <tr data-entry-id="{{ e.id }}">
+                            <td><span class="text-muted">{{ e.course_code or '—' }}</span> {{ e.course_name or '—' }}</td>
+                            {% for plo in plos_data %}
+                            {% set col_idx = loop.index0 %}
+                            {% set cell_val = (row_cells[col_idx] if col_idx < row_cells|length else '') %}
+                            {% set has_dot = cell_val and (cell_val == '•' or cell_val.strip() != '') %}
+                            <td class="align-middle text-center">
+                                {% if can_edit %}
+                                <input type="checkbox" class="form-check-input course-plo-cell" {% if has_dot %}checked{% endif %} title="Map course to PLO" aria-label="Map">
+                                {% else %}
+                                {% if has_dot %}•{% endif %}
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+(function() {
+    const sectionKey = {{ section_key|tojson }};
+    const sectionType = {{ section_cfg.type|tojson }};
+    const canEdit = {{ can_edit|lower }};
+    const saveUrl = {{ url_for('curriculator.part_section_save', part_id=part.id)|tojson }};
+    const partId = {{ part.id }};
+
+    function collectPayload() {
+        let data = null;
+        if (sectionType === 'key_value') {
+            const rows = [];
+            document.querySelectorAll('#key-value-table tbody tr').forEach(function(tr) {
+                const key = tr.querySelector('.kv-key');
+                const val = tr.querySelector('.kv-value');
+                if (key && val) rows.push({ key: key.value.trim(), value: val.value.trim() });
+            });
+            data = rows;
+        } else if (sectionType === 'text') {
+            const el = document.getElementById('text-content');
+            data = el ? { text: el.value } : { text: '' };
+        } else if (sectionType === 'serial_description') {
+            const rows = [];
+            document.querySelectorAll('#serial-desc-table tbody tr').forEach(function(tr) {
+                const serial = tr.querySelector('.sd-serial');
+                const desc = tr.querySelector('.sd-desc');
+                if (serial && desc) rows.push({ serial_no: serial.value.trim(), description: desc.value.trim() });
+            });
+            data = rows;
+        } else if (sectionType === 'peos') {
+            const rows = [];
+            document.querySelectorAll('#peos-table tbody tr').forEach(function(tr) {
+                const s = tr.querySelector('.peo-serial');
+                const d = tr.querySelector('.peo-desc');
+                const dom = tr.querySelector('.peo-domains');
+                if (s && d && dom) rows.push({ serial: s.value.trim(), description: d.value.trim(), domains: dom.value.trim() });
+            });
+            data = rows;
+        } else if (sectionType === 'plos') {
+            const rows = [];
+            document.querySelectorAll('#plos-table-llb tbody.plo-entry').forEach(function(entry) {
+                const cat = entry.querySelector('.plo-category');
+                const id = entry.querySelector('.plo-id');
+                const txt = entry.querySelector('.plo-text');
+                if (id && txt) rows.push({ category: (cat && cat.value.trim()) || '', id: id.value.trim(), text: txt.value.trim() });
+            });
+            data = rows;
+        } else if (sectionType === 'mapping') {
+            if (sectionKey === 'mapping_plo_peo') {
+                const rowDomains = [];
+                const cells = [];
+                document.querySelectorAll('#mapping-plo-peo-table tbody tr').forEach(function(tr) {
+                    const domainInp = tr.querySelector('.mapping-plo-peo-domain');
+                    if (domainInp) rowDomains.push(domainInp.value.trim());
+                    const rowCells = [];
+                    tr.querySelectorAll('.mapping-plo-peo-cell').forEach(function(cb) { rowCells.push(cb.checked ? '•' : ''); });
+                    cells.push(rowCells);
+                });
+                data = { row_domains: rowDomains, cells: cells };
+            } else {
+                const rowLabels = [];
+                const colLabels = [];
+                const thead = document.querySelector('#mapping-table thead tr');
+                if (thead) {
+                    thead.querySelectorAll('.mapping-col-label').forEach(function(inp) { colLabels.push(inp.value.trim()); });
+                }
+                const cells = [];
+                document.querySelectorAll('#mapping-table tbody tr').forEach(function(tr) {
+                    if (tr.id === 'mapping-add-row-tr') return;
+                    const rl = tr.querySelector('.mapping-row-label');
+                    if (rl) rowLabels.push(rl.value.trim());
+                    const rowCells = [];
+                    tr.querySelectorAll('.mapping-cell').forEach(function(inp) { rowCells.push(inp.value.trim()); });
+                    cells.push(rowCells);
+                });
+                data = { row_labels: rowLabels, col_labels: colLabels, cells: cells };
+            }
+        } else if (sectionType === 'mapping_course_plo') {
+            const rows = [];
+            document.querySelectorAll('#course-plo-table tbody tr').forEach(function(tr) {
+                const r = [];
+                tr.querySelectorAll('.course-plo-cell').forEach(function(cb) { r.push(cb.checked ? '•' : ''); });
+                rows.push(r);
+            });
+            data = { cells: rows };
+        } else if (sectionType === 'graduate_attributes') {
+            const rows = [];
+            document.querySelectorAll('#ga-table tbody.ga-entry').forEach(function(entry) {
+                const cat = entry.querySelector('.ga-category');
+                const id = entry.querySelector('.ga-id');
+                const desc = entry.querySelector('.ga-desc');
+                const domain = entry.querySelector('.ga-domain');
+                if (id && desc && domain) rows.push({
+                    category: (cat && cat.value.trim()) || '',
+                    id: id.value.trim(),
+                    description: desc.value.trim(),
+                    domain: domain.value.trim()
+                });
+            });
+            data = rows;
+        }
+        return { section_key: sectionKey, data: data };
+    }
+
+    const saveBtn = document.getElementById('save-section-btn');
+    if (saveBtn && canEdit) {
+        saveBtn.addEventListener('click', function() {
+            saveBtn.disabled = true;
+            fetch(saveUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify(collectPayload())
+            }).then(function(r) { return r.json(); }).then(function(d) {
+                saveBtn.disabled = false;
+                if (d.success) alert('Saved.'); else alert(d.message || 'Save failed.');
+            }).catch(function() { saveBtn.disabled = false; alert('Save failed.'); });
+        });
+    }
+
+    if (!canEdit) return;
+
+    // Drag-and-drop reorder for tbody rows (delegated on tbody)
+    function initDraggableTable(tableId) {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        tbody.addEventListener('dragstart', function(e) {
+            if (!e.target.closest('.drag-handle')) return;
+            const tr = e.target.closest('tr');
+            if (!tr) return;
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const idx = rows.indexOf(tr);
+            e.dataTransfer.setData('text/plain', String(idx));
+            e.dataTransfer.effectAllowed = 'move';
+            tr.classList.add('table-secondary');
+        });
+        tbody.addEventListener('dragend', function(e) {
+            e.target.closest('tr') && e.target.closest('tr').classList.remove('table-secondary');
+        });
+        tbody.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+        tbody.addEventListener('drop', function(e) {
+            e.preventDefault();
+            const sourceIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const sourceRow = rows[sourceIdx];
+            const targetRow = e.target.closest('tr');
+            if (!targetRow || !tbody.contains(targetRow) || sourceRow === targetRow) return;
+            tbody.insertBefore(sourceRow, targetRow);
+        });
+    }
+    ['key-value-table', 'serial-desc-table', 'peos-table'].forEach(initDraggableTable);
+    // PLOs: drag tbody.plo-entry inside #plos-table-llb
+    (function() {
+        const table = document.getElementById('plos-table-llb');
+        if (!table) return;
+        table.addEventListener('dragstart', function(e) {
+            if (!e.target.closest('.drag-handle')) return;
+            const entry = e.target.closest('tbody.plo-entry');
+            if (!entry) return;
+            const entries = Array.from(table.querySelectorAll('tbody.plo-entry'));
+            const idx = entries.indexOf(entry);
+            e.dataTransfer.setData('text/plain', String(idx));
+            e.dataTransfer.effectAllowed = 'move';
+            entry.classList.add('bg-light');
+        });
+        table.addEventListener('dragend', function(e) {
+            const entry = e.target.closest('tbody.plo-entry');
+            if (entry) entry.classList.remove('bg-light');
+        });
+        table.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+        table.addEventListener('drop', function(e) {
+            e.preventDefault();
+            const sourceIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            const entries = Array.from(table.querySelectorAll('tbody.plo-entry'));
+            const sourceEl = entries[sourceIdx];
+            const targetEl = e.target.closest('tbody.plo-entry');
+            if (!targetEl || !table.contains(targetEl) || sourceEl === targetEl) return;
+            table.insertBefore(sourceEl, targetEl);
+        });
+    })();
+
+    // key_value add/remove
+    const addKv = document.getElementById('add-kv-row');
+    if (addKv) {
+        addKv.addEventListener('click', function() {
+            const tbody = document.querySelector('#key-value-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td class="align-middle"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td><td><input type="text" class="form-control form-control-sm kv-key"></td><td><input type="text" class="form-control form-control-sm kv-value"></td><td><button type="button" class="btn btn-sm btn-outline-danger rm-row"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.rm-row').addEventListener('click', function() { tr.remove(); });
+        });
+    }
+    document.querySelectorAll('#key-value-table .rm-row').forEach(function(btn) {
+        btn.addEventListener('click', function() { btn.closest('tr').remove(); });
+    });
+
+    // serial_description add/remove
+    const addSd = document.getElementById('add-sd-row');
+    if (addSd) {
+        addSd.addEventListener('click', function() {
+            const tbody = document.querySelector('#serial-desc-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td class="align-middle"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td><td><input type="text" class="form-control form-control-sm sd-serial"></td><td><input type="text" class="form-control form-control-sm sd-desc"></td><td><button type="button" class="btn btn-sm btn-outline-danger rm-row"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.rm-row').addEventListener('click', function() { tr.remove(); });
+        });
+    }
+    document.querySelectorAll('#serial-desc-table .rm-row').forEach(function(btn) {
+        btn.addEventListener('click', function() { btn.closest('tr').remove(); });
+    });
+
+    // peos add/remove
+    const addPeo = document.getElementById('add-peo-row');
+    if (addPeo) {
+        addPeo.addEventListener('click', function() {
+            const tbody = document.querySelector('#peos-table tbody');
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td class="align-middle"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td><td><input type="text" class="form-control form-control-sm peo-serial"></td><td><input type="text" class="form-control form-control-sm peo-desc"></td><td><input type="text" class="form-control form-control-sm peo-domains"></td><td><button type="button" class="btn btn-sm btn-outline-danger rm-row"><i class="fas fa-trash"></i></button></td>';
+            tbody.appendChild(tr);
+            tr.querySelector('.rm-row').addEventListener('click', function() { tr.remove(); });
+        });
+    }
+    document.querySelectorAll('#peos-table .rm-row').forEach(function(btn) {
+        btn.addEventListener('click', function() { btn.closest('tr').remove(); });
+    });
+
+    // plos add/remove (LLB-style two-column table)
+    const addPlo = document.getElementById('add-plo-row');
+    if (addPlo) {
+        addPlo.addEventListener('click', function() {
+            const table = document.getElementById('plos-table-llb');
+            if (!table) return;
+            const tbody = document.createElement('tbody');
+            tbody.className = 'plo-entry';
+            tbody.setAttribute('data-plo-row', '');
+            tbody.innerHTML = '<tr class="plo-category-row"><td colspan="4" class="border-0 pt-2 pb-1 plo-category-empty"><strong><input type="text" class="form-control form-control-sm border-0 p-0 plo-category fw-bold bg-transparent" placeholder="e.g. A. Fundamental Skills (optional)"></strong></td></tr><tr class="plo-data-row"><td class="align-top pt-2" style="width: 2rem;"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td><td class="align-top pt-2 plo-id-cell" style="width: 6rem;"><input type="text" class="form-control form-control-sm border-0 border-bottom rounded-0 p-0 plo-id fw-bold" placeholder="PLO1"></td><td class="align-top pt-2"><input type="text" class="form-control form-control-sm border-0 border-bottom rounded-0 px-0 plo-text" placeholder="Description of this learning outcome…"></td><td class="align-top pt-2" style="width: 2.5rem;"><button type="button" class="btn btn-sm btn-outline-danger rm-row" title="Remove"><i class="fas fa-trash"></i></button></td></tr>';
+            table.appendChild(tbody);
+            tbody.querySelector('.rm-row').addEventListener('click', function() { tbody.remove(); });
+        });
+    }
+    document.querySelectorAll('#plos-table-llb .rm-row').forEach(function(btn) {
+        btn.addEventListener('click', function() { btn.closest('tbody.plo-entry').remove(); });
+    });
+
+    // Graduate Attributes: drag tbody.ga-entry inside #ga-table
+    (function() {
+        const table = document.getElementById('ga-table');
+        if (!table) return;
+        table.addEventListener('dragstart', function(e) {
+            if (!e.target.closest('.drag-handle')) return;
+            const entry = e.target.closest('tbody.ga-entry');
+            if (!entry) return;
+            const entries = Array.from(table.querySelectorAll('tbody.ga-entry'));
+            const idx = entries.indexOf(entry);
+            e.dataTransfer.setData('text/plain', String(idx));
+            e.dataTransfer.effectAllowed = 'move';
+            entry.classList.add('bg-light');
+        });
+        table.addEventListener('dragend', function(e) {
+            const entry = e.target.closest('tbody.ga-entry');
+            if (entry) entry.classList.remove('bg-light');
+        });
+        table.addEventListener('dragover', function(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+        table.addEventListener('drop', function(e) {
+            e.preventDefault();
+            const sourceIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+            const entries = Array.from(table.querySelectorAll('tbody.ga-entry'));
+            const sourceEl = entries[sourceIdx];
+            const targetEl = e.target.closest('tbody.ga-entry');
+            if (!targetEl || !table.contains(targetEl) || sourceEl === targetEl) return;
+            table.insertBefore(sourceEl, targetEl);
+        });
+    })();
+    // Graduate Attributes add/remove
+    const addGa = document.getElementById('add-ga-row');
+    if (addGa) {
+        addGa.addEventListener('click', function() {
+            const table = document.getElementById('ga-table');
+            if (!table) return;
+            const tbody = document.createElement('tbody');
+            tbody.className = 'ga-entry';
+            tbody.setAttribute('data-ga-row', '');
+            tbody.innerHTML = '<tr class="ga-category-row"><td colspan="4" class="border-0 border-bottom border-secondary pt-2 pb-1 ga-category-empty"><strong><input type="text" class="form-control form-control-sm border-0 p-0 ga-category fw-bold bg-transparent" placeholder="e.g. Legal Knowledge (optional)"></strong></td></tr><tr class="ga-data-row"><td class="align-top pt-2 border-end-0"><span class="drag-handle cursor-grab" draggable="true" title="Drag to reorder"><i class="fas fa-grip-vertical text-muted"></i></span></td><td class="align-top pt-2 border-start-0"><span class="ga-id-inline fw-bold"><input type="text" class="form-control form-control-sm border-0 p-0 d-inline-block ga-id bg-transparent" style="width: 3.5rem;" placeholder="GA1"></span>: <input type="text" class="form-control form-control-sm border-0 border-bottom rounded-0 d-inline-block ga-desc bg-transparent" style="min-width: 12rem;" placeholder="Description…"></td><td class="align-top pt-2 text-end"><input type="text" class="form-control form-control-sm ga-domain text-end border-0 border-bottom rounded-0 bg-transparent" placeholder="e.g. Fundamental"></td><td class="align-top pt-2"><button type="button" class="btn btn-sm btn-outline-danger ga-rm" title="Remove"><i class="fas fa-trash"></i></button></td></tr>';
+            table.appendChild(tbody);
+            tbody.querySelector('.ga-rm').addEventListener('click', function() { tbody.remove(); });
+        });
+    }
+    document.querySelectorAll('#ga-table .ga-rm').forEach(function(btn) {
+        btn.addEventListener('click', function() { btn.closest('tbody.ga-entry').remove(); });
+    });
+
+    // mapping add row/col
+    const mappingTable = document.getElementById('mapping-table');
+    if (mappingTable) {
+        const addRowBtn = document.getElementById('add-mapping-row');
+        const addColBtn = document.getElementById('add-mapping-col');
+        const addRowTr = document.getElementById('mapping-add-row-tr');
+        const theadTr = mappingTable.querySelector('thead tr');
+        const numCols = function() {
+            const nh = mappingTable.querySelectorAll('thead .mapping-col-label');
+            return nh ? nh.length : 0;
+        };
+        if (addRowBtn && addRowTr) {
+            addRowBtn.addEventListener('click', function() {
+                const n = numCols();
+                let inner = '<td><input type="text" class="form-control form-control-sm mapping-row-label"></td>';
+                for (let i = 0; i < n; i++) inner += '<td><input type="text" class="form-control form-control-sm mapping-cell"></td>';
+                inner += '<td><button type="button" class="btn btn-sm btn-outline-danger rm-mapping-row"><i class="fas fa-trash"></i></button></td>';
+                const tr = document.createElement('tr');
+                tr.innerHTML = inner;
+                addRowTr.parentNode.insertBefore(tr, addRowTr);
+                tr.querySelector('.rm-mapping-row').addEventListener('click', function() { tr.remove(); });
+            });
+        }
+        if (addColBtn && theadTr) {
+            addColBtn.addEventListener('click', function() {
+                const newTh = document.createElement('th');
+                const inp = document.createElement('input');
+                inp.type = 'text';
+                inp.className = 'form-control form-control-sm mapping-col-label';
+                inp.placeholder = 'Col';
+                newTh.appendChild(inp);
+                const addCell = theadTr.querySelector('th:last-child');
+                theadTr.insertBefore(newTh, addCell);
+                mappingTable.querySelectorAll('tbody tr').forEach(function(tr) {
+                    if (tr.id === 'mapping-add-row-tr') return;
+                    const td = document.createElement('td');
+                    const ci = document.createElement('input');
+                    ci.type = 'text';
+                    ci.className = 'form-control form-control-sm mapping-cell';
+                    td.appendChild(ci);
+                    const rm = tr.querySelector('td:last-child');
+                    tr.insertBefore(td, rm);
+                });
+            });
+        }
+        document.querySelectorAll('.rm-mapping-row').forEach(function(btn) {
+            btn.addEventListener('click', function() { btn.closest('tr').remove(); });
+        });
+    }
+})();
+</script>
+{% endblock %}

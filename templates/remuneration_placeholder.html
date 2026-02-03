@@ -812,6 +812,9 @@
             <button class="btn btn-danger print-btn" onclick="exportToPdf()">
                 <i class="fas fa-file-pdf me-2"></i>Download PDF
             </button>
+            <button class="btn btn-success print-btn" onclick="openBulkDownloadModal()">
+                <i class="fas fa-download me-2"></i>Bulk Download
+            </button>
         </div>
     </div>
     <div class="rem-sheet shadow-sm">
@@ -943,8 +946,8 @@
                                     <select class="form-select form-select-sm course-select" name="course_no_{{ loop.index }}[]" style="border: 1px solid #ddd; font-size: 0.85rem; flex: 1;" disabled>
                                         <option value="">Select Session/Year/Term first</option>
                                         {% if loop.index == 2 %}
-                                        {# Row 2: Add "All" option in dropdown and select it by default #}
-                                        <option value="ALL" selected>All</option>
+                                        {# Row 2: Add "All" option in dropdown #}
+                                        <option value="ALL">All</option>
                                         {% endif %}
                                     </select>
                                     <select class="form-select form-select-sm section-select" name="section_{{ loop.index }}[]" id="section_{{ loop.index }}_0" style="border: 1px solid #ddd; font-size: 0.85rem; width: 60px;" {% if loop.index == 4 %}onchange="updateRow4Calculation()"{% endif %}>
@@ -1445,6 +1448,77 @@
     </div>
 </div>
 
+<!-- Bulk Download Modal -->
+<div class="modal fade" id="bulkDownloadModal" tabindex="-1" aria-labelledby="bulkDownloadModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="bulkDownloadModalLabel">
+                    <i class="fas fa-download me-2"></i>সকল শিক্ষকের রেমুনারেশন বাল্ক ডাউনলোড
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="bulk_session" class="form-label">সেশন <span class="text-danger">*</span></label>
+                    <select class="form-select" id="bulk_session" required onchange="loadTeachersForBulkDownload()">
+                        <option value="">সেশন সিলেক্ট করুন</option>
+                        {% for sess in academic_sessions %}
+                        <option value="{{ sess }}">{{ sess }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="bulk_year" class="form-label">বর্ষ <span class="text-danger">*</span></label>
+                    <select class="form-select" id="bulk_year" required onchange="loadTeachersForBulkDownload()">
+                        <option value="">বর্ষ সিলেক্ট করুন</option>
+                        {% for y in all_years %}
+                        <option value="{{ y }}">{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="bulk_term" class="form-label">টার্ম <span class="text-danger">*</span></label>
+                    <select class="form-select" id="bulk_term" required onchange="loadTeachersForBulkDownload()">
+                        <option value="">টার্ম সিলেক্ট করুন</option>
+                        {% for t in all_terms %}
+                        <option value="{{ t }}">{{ t }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3" id="teacherSelectionSection" style="display: none;">
+                    <label class="form-label">শিক্ষক নির্বাচন করুন <span class="text-danger">*</span></label>
+                    <div class="border rounded p-2" style="max-height: 200px; overflow-y: auto; background: #f8f9fa;">
+                        <div class="mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="selectAllTeachers()">সব নির্বাচন</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="deselectAllTeachers()">সব বাতিল</button>
+                        </div>
+                        <div id="teacherCheckboxes">
+                            <div class="text-muted">সেশন, বর্ষ ও টার্ম সিলেক্ট করুন</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="bulkDownloadStatus" class="alert alert-info d-none">
+                    <i class="fas fa-spinner fa-spin me-2"></i>
+                    <span id="bulkDownloadStatusText">ডাউনলোড প্রস্তুত হচ্ছে...</span>
+                </div>
+                <div id="bulkDownloadResult" class="d-none">
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <span id="bulkDownloadResultText"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">বাতিল</button>
+                <button type="button" class="btn btn-success" id="bulkDownloadBtn" onclick="if(typeof window.startBulkDownload === 'function') { window.startBulkDownload(); } else { alert('Download function not available. Please refresh the page.'); }">
+                    <i class="fas fa-download me-2"></i>ডাউনলোড শুরু করুন
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 // Ensure logo loads properly
 (function() {
@@ -1476,6 +1550,295 @@
         loadLogo();
     }
 })();
+
+// ========================================
+// Bulk Download Functions
+// ========================================
+
+let bulkDownloadInProgress = false;
+
+// Load teachers for bulk download
+async function loadTeachersForBulkDownload() {
+    const session = document.getElementById('bulk_session')?.value;
+    const year = document.getElementById('bulk_year')?.value;
+    const term = document.getElementById('bulk_term')?.value;
+    const teacherSection = document.getElementById('teacherSelectionSection');
+    const teacherCheckboxes = document.getElementById('teacherCheckboxes');
+    
+    if (!session || !year || !term) {
+        if (teacherSection) teacherSection.style.display = 'none';
+        return;
+    }
+    
+    try {
+        teacherCheckboxes.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> শিক্ষক লোড হচ্ছে...</div>';
+        if (teacherSection) teacherSection.style.display = 'block';
+        
+        const response = await fetch(`/remuneration/api/teachers?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        const data = await response.json();
+        
+        if (data.success && data.teachers && data.teachers.length > 0) {
+            let html = '';
+            data.teachers.forEach(teacher => {
+                html += `
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="${teacher.id}" id="teacher_${teacher.id}" name="selected_teachers[]" checked>
+                        <label class="form-check-label" for="teacher_${teacher.id}">
+                            ${teacher.name}${teacher.designation ? ' - ' + teacher.designation : ''}
+                        </label>
+                    </div>
+                `;
+            });
+            teacherCheckboxes.innerHTML = html;
+        } else {
+            teacherCheckboxes.innerHTML = '<div class="text-muted">কোনো শিক্ষক পাওয়া যায়নি</div>';
+        }
+    } catch (error) {
+        console.error('Error loading teachers:', error);
+        teacherCheckboxes.innerHTML = '<div class="text-danger">শিক্ষক লোড করতে সমস্যা হয়েছে</div>';
+    }
+}
+
+function selectAllTeachers() {
+    document.querySelectorAll('#teacherCheckboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+}
+
+function deselectAllTeachers() {
+    document.querySelectorAll('#teacherCheckboxes input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+}
+
+// Make function globally accessible
+window.openBulkDownloadModal = function() {
+    try {
+        console.log('Opening bulk download modal...');
+        
+        // Reset modal state
+        const statusDiv = document.getElementById('bulkDownloadStatus');
+        const resultDiv = document.getElementById('bulkDownloadResult');
+        const downloadBtn = document.getElementById('bulkDownloadBtn');
+        
+        if (!statusDiv || !resultDiv || !downloadBtn) {
+            console.error('Modal elements not found');
+            alert('Modal elements not found. Please refresh the page.');
+            return;
+        }
+        
+        statusDiv.classList.add('d-none');
+        resultDiv.classList.add('d-none');
+        downloadBtn.disabled = false;
+        
+        // Reset form values
+        document.getElementById('bulk_session').value = '';
+        document.getElementById('bulk_year').value = '';
+        document.getElementById('bulk_term').value = '';
+        document.getElementById('teacherSelectionSection').style.display = 'none';
+        document.getElementById('teacherCheckboxes').innerHTML = '<div class="text-muted">সেশন, বর্ষ ও টার্ম সিলেক্ট করুন</div>';
+        
+        // Add change handlers for session and year
+        const sessionSelect = document.getElementById('bulk_session');
+        const yearSelect = document.getElementById('bulk_year');
+        
+        if (sessionSelect) {
+            sessionSelect.onchange = loadTeachersForBulkDownload;
+        }
+        if (yearSelect) {
+            yearSelect.onchange = loadTeachersForBulkDownload;
+        }
+        
+        // Open modal
+        const modalElement = document.getElementById('bulkDownloadModal');
+        if (!modalElement) {
+            console.error('Modal element not found');
+            alert('Modal not found. Please refresh the page.');
+            return;
+        }
+        
+        // Check if Bootstrap is available
+        if (typeof bootstrap === 'undefined') {
+            console.error('Bootstrap is not loaded');
+            alert('Bootstrap is not loaded. Please refresh the page.');
+            return;
+        }
+        
+        const modal = new bootstrap.Modal(modalElement);
+        modal.show();
+        console.log('Modal opened successfully');
+    } catch (error) {
+        console.error('Error opening modal:', error);
+        alert('Modal খোলার সময় সমস্যা হয়েছে: ' + error.message);
+    }
+};
+
+// Make function globally accessible
+window.startBulkDownload = async function() {
+    if (bulkDownloadInProgress) {
+        console.warn('Bulk download already in progress, ignoring duplicate click');
+        return;
+    }
+    bulkDownloadInProgress = true;
+
+    console.log('startBulkDownload called');
+    
+    // Try to find modal first
+    const modal = document.getElementById('bulkDownloadModal');
+    const modalBody = modal ? modal.querySelector('.modal-body') : null;
+    
+    // Get form values
+    const sessionEl = document.getElementById('bulk_session');
+    const yearEl = document.getElementById('bulk_year');
+    const termEl = document.getElementById('bulk_term');
+    
+    if (!sessionEl || !yearEl || !termEl) {
+        console.error('Form fields not found');
+        alert('ফর্ম ফিল্ড পাওয়া যায়নি। অনুগ্রহ করে পেজ রিফ্রেশ করুন।');
+        return;
+    }
+    
+    const session = sessionEl.value;
+    const year = yearEl.value;
+    const term = termEl.value;
+    
+    console.log('Selected values:', { session, year, term });
+    
+    // Validate
+    if (!session || !year || !term) {
+        alert('অনুগ্রহ করে সেশন, বর্ষ ও টার্ম সিলেক্ট করুন।');
+        return;
+    }
+    
+    // Get selected teachers
+    const selectedTeachers = Array.from(document.querySelectorAll('#teacherCheckboxes input[type="checkbox"]:checked')).map(cb => cb.value);
+    
+    if (selectedTeachers.length === 0) {
+        alert('অনুগ্রহ করে অন্তত একজন শিক্ষক নির্বাচন করুন।');
+        return;
+    }
+    
+    console.log('Selected teachers:', selectedTeachers);
+    
+    // Show loading status - find elements within modal or document
+    const statusDiv = modalBody ? modalBody.querySelector('#bulkDownloadStatus') : document.getElementById('bulkDownloadStatus');
+    const statusText = modalBody ? modalBody.querySelector('#bulkDownloadStatusText') : document.getElementById('bulkDownloadStatusText');
+    const resultDiv = modalBody ? modalBody.querySelector('#bulkDownloadResult') : document.getElementById('bulkDownloadResult');
+    const resultText = modalBody ? modalBody.querySelector('#bulkDownloadResultText') : document.getElementById('bulkDownloadResultText');
+    const downloadBtn = modal ? modal.querySelector('#bulkDownloadBtn') : document.getElementById('bulkDownloadBtn');
+    
+    // Only check for critical elements
+    if (!downloadBtn) {
+        console.error('Download button not found');
+        alert('Download button not found. Please refresh the page.');
+        return;
+    }
+    
+    // Show loading status if elements exist
+    if (statusDiv) statusDiv.classList.remove('d-none');
+    if (resultDiv) resultDiv.classList.add('d-none');
+    if (downloadBtn) downloadBtn.disabled = true;
+    if (statusText) statusText.textContent = 'রেমুনারেশন ফর্ম খুঁজছি...';
+    
+    try {
+        // Call API to generate bulk PDF with selected teachers
+        const response = await fetch('/remuneration/bulk-download', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                session: session,
+                year: year,
+                term: term,
+                teacher_ids: selectedTeachers
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.message || `HTTP ${response.status}: ডাউনলোড ব্যর্থ হয়েছে`);
+        }
+        
+        // Check content type
+        const contentType = response.headers.get('content-type');
+        
+        if (contentType && contentType.includes('application/json')) {
+            // Error response
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'ডাউনলোড ব্যর্থ হয়েছে');
+        }
+        
+        // Get filename from header
+        const contentDisposition = response.headers.get('content-disposition');
+        let filename = `remuneration_${session}_${year}_${term}.zip`;
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+            if (match && match[1]) {
+                filename = match[1].replace(/['"]/g, '');
+            }
+        }
+        
+        // Download file
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+        
+        // Show success
+        if (statusDiv) statusDiv.classList.add('d-none');
+        if (resultDiv) resultDiv.classList.remove('d-none');
+        if (resultText) resultText.textContent = `সফলভাবে ডাউনলোড হয়েছে: ${filename}`;
+        
+        // Also show alert for user feedback
+        alert(`সফলভাবে ডাউনলোড হয়েছে: ${filename}`);
+        
+    } catch (error) {
+        console.error('Bulk download error:', error);
+        
+        // Determine error message
+        let errorMessage = 'ডাউনলোড করতে সমস্যা হয়েছে। পরে আবার চেষ্টা করুন।';
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            errorMessage = 'সার্ভারের সাথে সংযোগ করতে পারছি না। অনুগ্রহ করে সার্ভার চালু আছে কিনা পরীক্ষা করুন এবং আবার চেষ্টা করুন।';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+        
+        if (statusDiv) statusDiv.classList.add('d-none');
+        if (resultDiv) {
+            resultDiv.classList.remove('d-none');
+            const alertDiv = resultDiv.querySelector('.alert');
+            if (alertDiv) {
+                alertDiv.classList.remove('alert-success');
+                alertDiv.classList.add('alert-danger');
+                const icon = alertDiv.querySelector('i');
+                if (icon) {
+                    icon.classList.remove('fa-check-circle');
+                    icon.classList.add('fa-exclamation-circle');
+                }
+            }
+        }
+        if (resultText) {
+            resultText.textContent = errorMessage;
+        }
+        // Also show alert for user feedback
+        alert('ডাউনলোড ব্যর্থ: ' + errorMessage);
+    } finally {
+        bulkDownloadInProgress = false;
+        if (downloadBtn) {
+            downloadBtn.disabled = false;
+        }
+    }
+};
+
+// ========================================
+// End Bulk Download Functions
+// ========================================
 
 // Helper function for fetch with timeout
 function fetchWithTimeout(url, options = {}, timeout = 10000) {
@@ -2079,19 +2442,11 @@ function isPostgraduateCourse(courseValue, courseData = null) {
     }
     
     // Method 3: Check if course code contains PG indicators
-    const pgIndicators = ['LLM', 'MPhil', 'PhD', 'PG', '5'];
+    // IMPORTANT: Don't use generic '5' substring checks here, it misclassifies UG codes.
+    const pgIndicators = ['LLM', 'MPHIL', 'M.PHIL', 'PHD', 'PG'];
     const upperCode = courseCode.toUpperCase();
     if (pgIndicators.some(indicator => upperCode.includes(indicator))) {
         return true;
-    }
-    
-    // Method 4: Check year field from form (if available)
-    const yearField = document.getElementById('year');
-    if (yearField && yearField.value) {
-        const yearValue = yearField.value.toString().toUpperCase();
-        if (yearValue.includes('LLM') || yearValue.includes('PG') || yearValue.includes('MPhil') || yearValue.includes('PhD')) {
-            return true;
-        }
     }
     
     return false;
@@ -2255,6 +2610,49 @@ function autoSelectRateForRow4(container) {
     }
 }
 
+function isTeacherInModerationCommittee(teacherName = null) {
+    if (!globalRemunerationStatementData || !Array.isArray(globalRemunerationStatementData.moderation_committee)) {
+        return false;
+    }
+    
+    const currentTeacherName = teacherName || getCurrentTeacherName();
+    if (!currentTeacherName) return false;
+    
+    return globalRemunerationStatementData.moderation_committee.some(member => {
+        const memberName = (member.name || member.teacher || '').toString().trim();
+        if (!memberName) return false;
+        
+        const currentTeacher = currentTeacherName.trim();
+        return memberName === currentTeacher ||
+               memberName.toLowerCase() === currentTeacher.toLowerCase() ||
+               memberName.toLowerCase().includes(currentTeacher.toLowerCase()) ||
+               currentTeacher.toLowerCase().includes(memberName.toLowerCase());
+    });
+}
+
+function clearRow2ModerationFields() {
+    const container2 = document.getElementById('container_2');
+    const courseSelect = container2 ? container2.querySelector('.course-select') : null;
+    const quantityInput = document.querySelector('input[name="quantity_2"]');
+    const rateSelect = document.getElementById('rate_2');
+    const amountInput = document.querySelector('input[name="amount_2"]');
+    
+    if (courseSelect) {
+        courseSelect.value = '';
+    }
+    if (quantityInput) {
+        quantityInput.value = '';
+        quantityInput.removeAttribute('data-actual-quantity');
+    }
+    if (rateSelect) {
+        rateSelect.value = '';
+    }
+    if (amountInput) {
+        amountInput.value = '';
+    }
+    calculateRow(2);
+}
+
 // Auto-populate Row 2: প্রশ্নপত্র মডারেশন - Set quantity and rate when "All" is selected
 function autoPopulateRow2() {
     const container2 = document.getElementById('container_2');
@@ -2262,6 +2660,15 @@ function autoPopulateRow2() {
     
     const courseSelect = container2.querySelector('.course-select');
     if (!courseSelect) return;
+    
+    if (!isTeacherInModerationCommittee()) {
+        clearRow2ModerationFields();
+        return;
+    }
+    
+    if (!courseSelect.value) {
+        courseSelect.value = 'ALL';
+    }
     
     // Check if "All" is selected (either by default or manually)
     if (courseSelect.value === 'ALL') {
@@ -2288,6 +2695,14 @@ function autoPopulateRow2() {
             // Calculate row total
             calculateRow(2);
         }, 300);
+    } else {
+        const quantityInput = document.querySelector('input[name="quantity_2"]');
+        if (quantityInput) {
+            quantityInput.removeAttribute('data-actual-quantity');
+            if (quantityInput.value === 'All') {
+                quantityInput.value = '';
+            }
+        }
     }
 }
 
@@ -2571,11 +2986,11 @@ function autoPopulateRow4(teacherName) {
             const isPG = isPostgraduateCourse(courseValue, firstCourse);
             
             if (isPG) {
-                // PG: স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী) - 80
-                const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '80');
+                // PG: স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী) - 40
+                const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '40');
                 if (pgOption) {
-                    rateSelect.value = '80';
-                    console.log('✅ Row 4: Selected PG rate (80) for course:', courseValue);
+                    rateSelect.value = '40';
+                    console.log('✅ Row 4: Selected PG rate (40) for course:', courseValue);
                 }
             } else {
                 // UG: স্নাতক - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী) - 30
@@ -2789,6 +3204,9 @@ function populateExistingSelections() {
                 loadQuestionCountForRow1(courseSelect);
             }
         }
+
+    // Row 2: Question Moderation - only if teacher is in moderation committee
+    autoPopulateRow2();
     
     // Row 3: Check if course and section are already selected
     const container3 = document.getElementById('container_3');
@@ -3542,11 +3960,11 @@ function loadDataForRow9(container) {
             if (totalStudentWise > 0) {
                 const rateSelect9b = document.getElementById('rate_9b');
                 if (rateSelect9b && !rateSelect9b.value) {
-                    const rateOption9b = Array.from(rateSelect9b.options).find(opt => opt.value === '80');
+                    const rateOption9b = Array.from(rateSelect9b.options).find(opt => opt.value === '40');
                     if (rateOption9b) {
-                        rateSelect9b.value = '80';
+                        rateSelect9b.value = '40';
                         rateSelect9b.dispatchEvent(new Event('change', { bubbles: true }));
-                        console.log('✅ Row 9b: Auto-selected rate (80 - পরীক্ষার্থী ভিত্তিক)');
+                        console.log('✅ Row 9b: Auto-selected rate (40 - পরীক্ষার্থী ভিত্তিক)');
                     }
                 }
             }
@@ -4051,8 +4469,8 @@ function loadDataForRow12() {
         }
     };
     
-    setValue('quantity_12a', totalChief, 'চীফ ইনভিজিলেশন', '12a', '3000');
-    setValue('quantity_12b', totalInvigilation, 'ইনভিজিলেশন', '12b', '2000');
+    setValue('quantity_12a', totalChief, 'চীফ ইনভিজিলেশন', '12a', '1800');
+    setValue('quantity_12b', totalInvigilation, 'ইনভিজিলেশন', '12b', '1500');
     
     if (matchingItems.length === 0) {
         console.log(`❌ Row 12: No matching data found for teacher ${currentTeacherName}`);
@@ -4307,11 +4725,11 @@ function loadDataForRow15() {
             if (totalScripts > 0) {
                 const rateSelect = document.getElementById('rate_15');
                 if (rateSelect && !rateSelect.value) {
-                    const rateOption = Array.from(rateSelect.options).find(opt => opt.value === '50');
+                    const rateOption = Array.from(rateSelect.options).find(opt => opt.value === '30');
                     if (rateOption) {
-                        rateSelect.value = '50';
+                        rateSelect.value = '30';
                         rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                        console.log('✅ Row 15: Auto-selected rate (50 - পরীক্ষার্থী প্রতি)');
+                        console.log('✅ Row 15: Auto-selected rate (30 - পরীক্ষার্থী প্রতি)');
                     }
                 }
                 // Calculate row total
@@ -5352,6 +5770,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.log('Courses received:', data.courses?.length || 0);
                     // Populate all course dropdowns
                     const courseSelects = document.querySelectorAll('.course-select');
+                    const canAutoSelectModerationAll = isTeacherInModerationCommittee();
                     console.log('Found course-select elements:', courseSelects.length);
                     
                     courseSelects.forEach(select => {
@@ -5384,36 +5803,41 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Always enable the dropdown - never disable after selection
                         select.disabled = false;
                         
-                        // For row 2, select "All" by default if no previous value
+                        // For row 2, select "All" by default only if teacher is in moderation committee
                         if (rowId === '2') {
-                            if (!currentValue || currentValue === '') {
-                                select.value = 'ALL';
-                                // Trigger change event to update calculations and auto-select quantity/rate
-                                setTimeout(() => {
-                                    select.dispatchEvent(new Event('change', { bubbles: true }));
-                                    
-                                    // Auto-set quantity and rate
-                                    const quantityInput = document.querySelector('input[name="quantity_2"]');
-                                    if (quantityInput) {
-                                        quantityInput.value = 'All';
-                                        quantityInput.setAttribute('data-actual-quantity', '1');
-                                    }
-                                    
-                                    const rateSelect = document.getElementById('rate_2');
-                                    if (rateSelect && !rateSelect.value) {
-                                        const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
-                                        if (maxOption) {
-                                            rateSelect.value = '2400';
-                                            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                                            console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
+                            if (canAutoSelectModerationAll) {
+                                if (!currentValue || currentValue === '') {
+                                    select.value = 'ALL';
+                                    // Trigger change event to update calculations and auto-select quantity/rate
+                                    setTimeout(() => {
+                                        select.dispatchEvent(new Event('change', { bubbles: true }));
+                                        
+                                        // Auto-set quantity and rate
+                                        const quantityInput = document.querySelector('input[name="quantity_2"]');
+                                        if (quantityInput) {
+                                            quantityInput.value = 'All';
+                                            quantityInput.setAttribute('data-actual-quantity', '1');
                                         }
-                                    }
-                                    
-                                    // Calculate row total
-                                    calculateRow(2);
-                                }, 200);
+                                        
+                                        const rateSelect = document.getElementById('rate_2');
+                                        if (rateSelect && !rateSelect.value) {
+                                            const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
+                                            if (maxOption) {
+                                                rateSelect.value = '2400';
+                                                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                                                console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
+                                            }
+                                        }
+                                        
+                                        // Calculate row total
+                                        calculateRow(2);
+                                    }, 200);
+                                } else {
+                                    select.value = currentValue;
+                                }
                             } else {
-                                select.value = currentValue;
+                                select.value = '';
+                                clearRow2ModerationFields();
                             }
                         } else {
                             // Restore previous value if it exists for other rows
@@ -5692,6 +6116,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 if (rowId === '2') {
+                    if (!isTeacherInModerationCommittee()) {
+                        clearRow2ModerationFields();
+                        return;
+                    }
                     const quantityInput = document.querySelector(`input[name="quantity_${rowId}"]`);
                     if (quantityInput) {
                         if (e.target.value === 'ALL') {
@@ -6453,7 +6881,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Clear designation if no teacher selected
                 designationInput.value = '';
             }
+            
+            // Re-evaluate moderation eligibility for Row 2
+            setTimeout(() => {
+                autoPopulateRow2();
+            }, 200);
         });
+        
+        // Setup bulk download button (fallback if onclick doesn't work)
+        const bulkDownloadBtn = document.querySelector('button[onclick="openBulkDownloadModal()"]');
+        if (bulkDownloadBtn) {
+            bulkDownloadBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                console.log('Bulk download button clicked via event listener');
+                if (typeof window.openBulkDownloadModal === 'function') {
+                    window.openBulkDownloadModal();
+                } else {
+                    console.error('openBulkDownloadModal function not found');
+                    alert('Bulk download function not available. Please refresh the page.');
+                }
+            });
+        }
+        
+        // Modal download uses inline onclick to avoid duplicate requests
     }
 });
 </script>

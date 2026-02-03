@@ -108,6 +108,9 @@
                                     {% if show_curriculum_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum Management</a></li>
                                     {% endif %}
+                                    {% if show_curriculum_management %}
+                                    <li><a class="dropdown-item" href="{{ url_for('curriculator.index') }}"><i class="fas fa-book-open me-2"></i>Curriculator</a></li>
+                                    {% endif %}
                                     {% if show_course_registration %}
                                     <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
                                     {% endif %}
@@ -187,8 +190,11 @@
                                 {% endif %}
                                 {% if show_curriculum_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
-                                {% endif %}
-                                {% if show_course_registration %}
+                                    {% endif %}
+                                    {% if show_curriculum_management %}
+                                    <li><a class="dropdown-item" href="{{ url_for('curriculator.index') }}"><i class="fas fa-book-open me-2"></i>Curriculator</a></li>
+                                    {% endif %}
+                                    {% if show_course_registration %}
                                 <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
                                 {% endif %}
                                 {% if show_remuneration %}

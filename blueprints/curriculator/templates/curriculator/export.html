@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Export – {{ document.name }}{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.index') }}">Curriculator</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('curriculator.document_detail', doc_id=document.id) }}">{{ document.name }}</a></li>
+            <li class="breadcrumb-item active">Export</li>
+        </ol>
+    </nav>
+    <h2 class="mb-4"><i class="fas fa-download me-2"></i>Export syllabus</h2>
+
+    <form method="post" action="{{ url_for('curriculator.export', doc_id=document.id) }}" id="export-form">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">Parts</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">Select which parts to include. For Part C you can also choose specific courses.</p>
+                <div class="row g-2">
+                    {% for p in parts %}
+                    <div class="col-6 col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input part-check" type="checkbox" name="parts" value="{{ p.part_key }}" id="part-{{ p.part_key }}">
+                            <label class="form-check-label" for="part-{{ p.part_key }}">Part {{ p.part_key }}</label>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="select-all-parts">Select all</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-parts">Clear</button>
+                </div>
+            </div>
+        </div>
+
+        {% if course_entries %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">Part C – specific courses (optional)</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">If you leave this empty, all Part C entries are included. Otherwise only selected courses.</p>
+                <select class="form-select" name="course_ids" id="course-ids" multiple size="8">
+                    {% for e in course_entries %}
+                    <option value="{{ e.id }}">{{ e.course_code or '—' }} – {{ e.course_name or '—' }} ({{ e.credit or '—' }} cr.)</option>
+                    {% endfor %}
+                </select>
+                <p class="small text-muted mt-2 mb-0">Hold Ctrl/Cmd to select multiple.</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">Format</div>
+            <div class="card-body">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="format" id="fmt-docx" value="docx" checked>
+                    <label class="form-check-label" for="fmt-docx">DOCX (Word)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="format" id="fmt-pdf" value="pdf">
+                    <label class="form-check-label" for="fmt-pdf">PDF</label>
+                </div>
+                <p class="small text-muted mt-2 mb-0">If export fails, the error message will appear above; try selecting fewer courses or check server error logs.</p>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary"><i class="fas fa-download me-1"></i>Export</button>
+        <a href="{{ url_for('curriculator.document_detail', doc_id=document.id) }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+    </form>
+</div>
+<script>
+(function() {
+    const form = document.getElementById('export-form');
+    const partChecks = document.querySelectorAll('.part-check');
+    document.getElementById('select-all-parts')?.addEventListener('click', function() {
+        partChecks.forEach(c => { c.checked = true; });
+    });
+    document.getElementById('clear-parts')?.addEventListener('click', function() {
+        partChecks.forEach(c => { c.checked = false; });
+    });
+    form?.addEventListener('submit', function(e) {
+        const any = Array.from(partChecks).some(c => c.checked);
+        const sel = document.getElementById('course-ids');
+        const hasCourses = sel && Array.from(sel.selectedOptions).length > 0;
+        if (!any && !hasCourses) {
+            e.preventDefault();
+            alert('Select at least one part or specific courses.');
+            return;
+        }
+    });
+})();
+</script>
+{% endblock %}

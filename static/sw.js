@@ -93,13 +93,18 @@ self.addEventListener('fetch', (event) => {
           const responseToCache = response.clone();
 
           // Only cache if URL is http/https (skip chrome-extension://, file://, etc.)
-          if (event.request.url.startsWith('http://') || event.request.url.startsWith('https://')) {
+          let url;
+          try {
+            url = new URL(event.request.url);
+          } catch (_) {
+            url = null;
+          }
+          const isCacheableScheme = url && (url.protocol === 'http:' || url.protocol === 'https:');
+          if (isCacheableScheme) {
             caches.open(CACHE_NAME)
-              .then((cache) => {
-                cache.put(event.request, responseToCache);
-              })
+              .then((cache) => cache.put(event.request, responseToCache))
               .catch((error) => {
-                // Silently fail if caching fails (e.g., chrome-extension URLs)
+                // Silently fail if caching fails (e.g. unsupported scheme in some contexts)
                 console.debug('Cache put failed (non-critical):', error);
               });
           }
