@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{% if survey_type == 'employer' %}Employer Survey{% elif survey_type == 'faculty' %}Faculty Survey{% elif survey_type == 'non_academic' %}Non Academic Staff Survey{% else %}Student Survey{% endif %}{% endblock %}
+{% block extra_css %}
+<style>
+    /* টিক/চেকবক্স ও রেডিও বক্স গাঢ় ডিজাইন */
+    .survey-form-mobile .form-check-input {
+        border: 2px solid #374151;
+        border-radius: 0.25em;
+        background-color: #fff;
+    }
+    .survey-form-mobile .form-check-input[type="checkbox"] { border-radius: 0.2em; }
+    .survey-form-mobile .form-check-input:checked {
+        background-color: #1e40af;
+        border-color: #1e40af;
+    }
+    .survey-form-mobile .form-check-input:focus {
+        border-color: #1e40af;
+        box-shadow: 0 0 0 0.2rem rgba(30, 64, 175, 0.35);
+    }
+    .survey-form-mobile .form-check-label { color: #1f2937; font-weight: 500; }
+    @media (max-width: 767px) {
+        .survey-form-mobile .form-control { min-height: 2.75rem; font-size: 1rem; }
+        .survey-form-mobile .btn { min-height: 2.75rem; padding: 0.6rem 1.2rem; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container my-5 px-2 px-md-3 survey-form-mobile">
+    <h2 class="mb-4">{% if survey_type == 'employer' %}Employer Survey{% elif survey_type == 'faculty' %}Faculty Survey{% elif survey_type == 'non_academic' %}Non Academic Staff Survey{% else %}Student Survey{% endif %}</h2>
+    <p class="text-muted mb-4">Law Discipline, Khulna University</p>
+    <div class="mb-4">
+        <a href="{{ url_for('self_assessment.public_survey_form_pdf', survey_type=survey_type, code=link.access_code) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">
+            <i class="fas fa-file-pdf me-1"></i>ফরম পিডিএফ ডাউনলোড করুন (অফলাইনে পূরণের জন্য)
+        </a>
+    </div>
+    <form method="POST" action="{{ url_for('self_assessment.public_survey_form', survey_type=survey_type, code=link.access_code) }}">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <p class="text-muted">This survey form is being prepared. You may submit a short comment below.</p>
+                <label for="comment" class="form-label">Comment (optional)</label>
+                <textarea class="form-control" id="comment" name="comment" rows="4"></textarea>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Submit</button>
+    </form>
+</div>
+{% endblock %}

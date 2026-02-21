@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ survey_title }} – Responses{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('self_assessment.index') }}">Self Assessment</a></li>
+            <li class="breadcrumb-item active">{{ survey_title }} – Responses</li>
+        </ol>
+    </nav>
+    <h2 class="mb-4">{{ survey_title }} – Responses</h2>
+
+    <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+        <a href="{{ url_for('self_assessment.survey_responses_pdf', survey_type=survey_type) }}" class="btn btn-primary" target="_blank" rel="noopener">
+            <i class="fas fa-file-pdf me-1"></i>Download all responses as PDF
+        </a>
+        {% if responses %}
+        <form method="post" action="{{ url_for('self_assessment.delete_all_survey_responses', survey_type=survey_type) }}" class="d-inline" onsubmit="return confirm('এই সার্ভের সব রেসপন্স একসাথে মুছতে চান? এই কাজ ফেরানো যাবে না।');">
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="fas fa-trash-alt me-1"></i>Delete All
+            </button>
+        </form>
+        {% endif %}
+    </div>
+
+    {% if response_type == 'alumni' %}
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th>#</th>
+                    <th>Submitted</th>
+                    <th>Name / Batch / Year</th>
+                    <th>Designation / Organization</th>
+                    <th>View</th>
+                    <th>PDF</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in responses %}
+                <tr>
+                    <td>{{ r.id }}</td>
+                    <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
+                    <td>{{ r.name or '–' }} / {{ r.batch or '–' }} / {{ r.graduation_year or '–' }}</td>
+                    <td>{{ r.current_designation or '–' }} / {{ r.organization or '–' }}</td>
+                    <td>
+                        <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id) }}" class="btn btn-sm btn-outline-secondary" title="View response">
+                            <i class="fas fa-eye me-1"></i>View
+                        </a>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('self_assessment.alumni_response_pdf', response_id=r.id) }}" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
+                            <i class="fas fa-file-pdf me-1"></i>PDF
+                        </a>
+                    </td>
+                    <td>
+                        <form method="post" action="{{ url_for('self_assessment.delete_survey_response', survey_type=survey_type, response_id=r.id) }}" class="d-inline" onsubmit="return confirm('এই রেসপন্সটি মুছতে চান?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete response">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-muted">No responses yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th>#</th>
+                    <th>Submitted</th>
+                    <th>View</th>
+                    <th>PDF</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in responses %}
+                <tr>
+                    <td>{{ r.id }}</td>
+                    <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
+                    <td>
+                        <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id) }}" class="btn btn-sm btn-outline-secondary" title="View response">
+                            <i class="fas fa-eye me-1"></i>View
+                        </a>
+                    </td>
+                    <td>
+                        <a href="{{ url_for('self_assessment.generic_response_pdf', survey_type=survey_type, response_id=r.id) }}" class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
+                            <i class="fas fa-file-pdf me-1"></i>PDF
+                        </a>
+                    </td>
+                    <td>
+                        <form method="post" action="{{ url_for('self_assessment.delete_survey_response', survey_type=survey_type, response_id=r.id) }}" class="d-inline" onsubmit="return confirm('এই রেসপন্সটি মুছতে চান?');">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete response">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="text-muted">No responses yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

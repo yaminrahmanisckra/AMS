@@ -442,6 +442,9 @@ html {
                                             <button class="btn btn-sm {% if sr.is_revealed %}btn-success{% else %}btn-outline-success{% endif %} toggle-reveal-btn" data-saved-routine-id="{{ sr.id }}" data-is-revealed="{{ 'true' if sr.is_revealed else 'false' }}" title="{% if sr.is_revealed %}Hide from public{% else %}Reveal to all{% endif %}">
                                                 <i class="fas {% if sr.is_revealed %}fa-eye-slash{% else %}fa-eye{% endif %}"></i> {% if sr.is_revealed %}Hide{% else %}Reveal{% endif %}
                                             </button>
+                                            <button class="btn btn-sm btn-outline-secondary duplicate-routine-btn" data-saved-routine-id="{{ sr.id }}" data-year="{{ sr.year }}" data-name="{{ sr.name or sr.year }}" title="Duplicate routine">
+                                                <i class="fas fa-copy"></i> Duplicate
+                                            </button>
                                             <button class="btn btn-sm btn-outline-danger delete-routine-btn" data-saved-routine-id="{{ sr.id }}" data-year="{{ sr.year }}" title="Delete">
                                                 <i class="fas fa-trash"></i> Delete
                                             </button>
@@ -592,6 +595,38 @@ html {
                 .catch(error => {
                     console.error('Error:', error);
                     alert('Failed to toggle reveal status: ' + error.message);
+                });
+            });
+        });
+        
+        // Duplicate routine buttons
+        document.querySelectorAll('.duplicate-routine-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const savedRoutineId = this.dataset.savedRoutineId;
+                const year = this.dataset.year;
+                const name = this.dataset.name || year;
+                if (!confirm(`Duplicate routine "${name}" (${year})? A new routine will be created with the same time slots and entries.`)) {
+                    return;
+                }
+                btn.disabled = true;
+                fetch('/routine-management/api/saved-routines/' + savedRoutineId + '/duplicate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(data.message || 'Routine duplicated successfully!');
+                        location.reload();
+                    } else {
+                        btn.disabled = false;
+                        alert(data.message || 'Failed to duplicate routine.');
+                    }
+                })
+                .catch(error => {
+                    btn.disabled = false;
+                    console.error('Error:', error);
+                    alert('Failed to duplicate routine.');
                 });
             });
         });

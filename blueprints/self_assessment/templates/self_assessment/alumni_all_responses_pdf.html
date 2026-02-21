@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Alumni Survey – All Responses</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.6in 0.55in 0.8in 0.55in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 9pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.4; color: #000; }
+        .doc-header { text-align: center; padding: 10pt 0 10pt 0; border-bottom: 1px solid #dee2e6; margin-bottom: 8pt; }
+        .doc-title { font-size: 14pt; font-weight: bold; color: #000; margin-bottom: 4pt; }
+        .doc-subtitle { font-size: 10pt; color: #6c757d; }
+        .meta-line { font-size: 8pt; color: #444; margin-bottom: 6pt; padding: 4pt 0; }
+        .section { margin-bottom: 8pt; }
+        .section.part-b { page-break-before: avoid; }
+        .section.part-c { page-break-before: avoid; }
+        .section.part-d { page-break-before: avoid; }
+        .section-header { font-size: 10.5pt; font-weight: bold; color: #000; padding: 6pt 10pt; margin-bottom: 8pt; background: #f8f9fa; border: 1px solid #dee2e6; }
+        .sub-section { font-size: 9.5pt; font-weight: bold; margin: 10pt 0 6pt 0; }
+        table.info { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        table.info td { border: 1px solid #dee2e6; padding: 6pt 10pt; vertical-align: top; }
+        table.info tr:nth-child(even) td { background: #f8f9fa; }
+        table.info td:first-child { font-weight: bold; width: 42%; background: #f8f9fa !important; }
+        table.info td:last-child { color: #000; }
+        .likert-legend { font-size: 8.5pt; color: #000; margin-bottom: 10pt; padding: 10pt 12pt; border: 1px solid #dee2e6; background: #f8f9fa; }
+        .likert-legend strong { display: block; margin-bottom: 4pt; font-size: 9pt; }
+        .likert-scale { white-space: nowrap; }
+        .likert-scale .tick { font-weight: bold; }
+        table.info tr.open-ended td:last-child { min-height: 48pt; padding: 10pt 12pt; }
+        .response-block { page-break-before: always; counter-reset: page 1; }
+        .response-block:first-child { page-break-before: avoid; counter-reset: page 1; }
+        .no-responses { text-align: center; padding: 2em; color: #444; font-size: 11pt; }
+    </style>
+</head>
+<body>
+    {% if not responses %}
+    <div class="no-responses">No responses for Alumni Survey.</div>
+    {% else %}
+    {% for r in responses %}
+    <div class="{% if not loop.first %}response-block{% endif %}">
+        <div class="meta-line">Response ID: {{ r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
+        <div class="doc-header">
+            <div class="doc-title">ALUMNI SURVEY QUESTIONNAIRE – Response</div>
+            <div class="doc-subtitle">Law Discipline, Khulna University</div>
+        </div>
+
+        <div class="section part-a">
+            <div class="section-header">Part A: Alumni Profile &amp; Employment Status</div>
+            <table class="info">
+                <tr><td>Name</td><td>{{ r.name or '–' }}</td></tr>
+                <tr><td>Batch</td><td>{{ r.batch or '–' }}</td></tr>
+                <tr><td>Year of Graduation</td><td>{{ r.graduation_year or '–' }}</td></tr>
+                <tr><td>Degree Completed</td><td>{{ (r.degree_completed | join(', ')) if r.degree_completed else '–' }}</td></tr>
+                <tr><td>Current Designation</td><td>{{ r.current_designation or '–' }}</td></tr>
+                <tr><td>Organization</td><td>{{ r.organization or '–' }}</td></tr>
+                <tr><td>Employment Sector</td><td>{{ r.employment_sector or '–' }}{{ ' – ' ~ r.employment_sector_other if r.employment_sector_other else '' }}</td></tr>
+                <tr><td>Bar Council Enrolled</td><td>{{ 'Yes' if r.is_enrolled else 'No' }}{{ ' – ' ~ r.enrollment_time if r.is_enrolled and r.enrollment_time else '' }}</td></tr>
+            </table>
+        </div>
+
+        <div class="section part-b">
+            <div class="section-header">Part B: Program Assessment (Curriculum, Teaching &amp; Facilities)</div>
+            <div class="likert-legend">
+                <strong>Scale</strong>
+                5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral / Undecided &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree
+            </div>
+            <p class="sub-section">Section 1: Curriculum &amp; Teaching-Learning</p>
+            <table class="info">
+                <tr><td>The curriculum provided a good balance of legal theory and practical application.</td><td class="likert-scale">{% set v = r.curriculum_balance | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.curriculum_balance or '–' }}{% endif %}</td></tr>
+                <tr><td>The program effectively developed my legal knowledge and skills (Fundamental Domain).</td><td class="likert-scale">{% set v = r.knowledge_skills | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.knowledge_skills or '–' }}{% endif %}</td></tr>
+                <tr><td>The teaching methods encouraged critical thinking, legal reasoning, and problem-solving.</td><td class="likert-scale">{% set v = r.critical_thinking | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.critical_thinking or '–' }}{% endif %}</td></tr>
+                <tr><td>The program fostered ethical values, integrity, and social responsibility.</td><td class="likert-scale">{% set v = r.ethical_values | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.ethical_values or '–' }}{% endif %}</td></tr>
+                <tr><td>General Education courses (e.g., English, History, ICT) were useful for my overall development.</td><td class="likert-scale">{% set v = r.gen_ed_usefulness | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.gen_ed_usefulness or '–' }}{% endif %}</td></tr>
+                <tr><td>The assessment methods (exams/assignments) were fair, transparent, and measured learning accurately.</td><td class="likert-scale">{% set v = r.assessment_methods | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.assessment_methods or '–' }}{% endif %}</td></tr>
+            </table>
+
+            <p class="sub-section">Section 2: Institutional Environment, Governance &amp; Support</p>
+            <table class="info">
+                <tr><td>The Moot Court training and facilities were sufficient for real-world legal practice.</td><td class="likert-scale">{% set v = r.moot_court | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.moot_court or '–' }}{% endif %}</td></tr>
+                <tr><td>Library resources and research facilities were adequate for my legal studies.</td><td class="likert-scale">{% set v = r.library_resources | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.library_resources or '–' }}{% endif %}</td></tr>
+                <tr><td>Faculty members were accessible and supportive regarding academic guidance.</td><td class="likert-scale">{% set v = r.faculty_support | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.faculty_support or '–' }}{% endif %}</td></tr>
+                <tr><td>The Discipline provided sufficient career counseling and guidance for Bar exams/Higher studies.</td><td class="likert-scale">{% set v = r.career_counseling | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.career_counseling or '–' }}{% endif %}</td></tr>
+                <tr><td>The academic calendar was strictly maintained during my study period.</td><td class="likert-scale">{% set v = r.academic_calendar | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.academic_calendar or '–' }}{% endif %}</td></tr>
+                <tr><td>Administrative staff were helpful and efficient in addressing student needs.</td><td class="likert-scale">{% set v = r.admin_staff | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ r.admin_staff or '–' }}{% endif %}</td></tr>
+            </table>
+        </div>
+
+        <div class="section part-c">
+            <div class="section-header">Part C: Career Progression &amp; Graduate Attributes</div>
+            <table class="info">
+                <tr><td>How long did it take you to find your first employment after graduation?</td><td>{{ r.time_to_first_job or '–' }}</td></tr>
+                <tr><td>Do you feel the Khulna University Law degree makes you competitive in the job market compared to graduates from other institutions?</td><td>{{ r.job_market_competitiveness or '–' }}</td></tr>
+                <tr><td>Which of the following skills acquired at KU have been most useful in your career? (Check all that apply)</td><td>{{ (r.skills_acquired | join(', ')) if r.skills_acquired else '–' }}</td></tr>
+            </table>
+        </div>
+
+        <div class="section part-d">
+            <div class="section-header">Part D: Alumni Engagement &amp; Suggestions</div>
+            <table class="info">
+                <tr class="open-ended"><td>Which specific course or co-curricular activity was most beneficial for your professional life?</td><td>{{ r.beneficial_course_activity or '–' }}</td></tr>
+                <tr><td>Are you a member of the Khulna University Law Alumni Association?</td><td>{% if r.alumni_association_member is none %}–{% elif r.alumni_association_member %}Yes{% else %}No{% endif %}</td></tr>
+                <tr><td>How would you like to contribute to the Discipline? (Check all that apply)</td><td>{{ (r.contribute_to_discipline | join(', ')) if r.contribute_to_discipline else '–' }}</td></tr>
+                <tr class="open-ended"><td>What specific changes would you suggest for the current curriculum to meet modern legal challenges?</td><td>{{ r.curriculum_suggestions or '–' }}</td></tr>
+                <tr class="open-ended"><td>Any other comments regarding the strengths or weaknesses of the program?</td><td>{{ r.other_comments or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</body>
+</html>

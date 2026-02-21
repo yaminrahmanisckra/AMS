@@ -1,8 +1,15 @@
 /* Custom styles for Academic Management System */
 
+/* Bengali: Kalpurush font (any Bengali text uses this when available) */
+@font-face {
+    font-family: 'Kalpurush';
+    src: url('../Fonts/kalpurush.ttf') format('truetype'),
+         url('../fonts/kalpurush.ttf') format('truetype');
+}
+
 /* Modern Typography System */
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    font-family: 'Kalpurush', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
     background-color: #f8f9fa;
     font-size: 1rem;
     line-height: 1.6;

@@ -16,6 +16,7 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), nullable=False, default='teacher')
     photo = db.Column(db.String(255), nullable=True)  # Path to user's photo
     theme = db.Column(db.String(50), nullable=True, default='default')  # Color theme preference
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=True)  # Link to Teacher (for admin edit/dashboard)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method='pbkdf2:sha512', salt_length=16)

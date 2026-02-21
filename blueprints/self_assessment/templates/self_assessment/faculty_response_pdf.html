@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Faculty Survey Response {{ r.id }}</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.6in 0.55in 0.8in 0.55in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 9pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.4; color: #000; }
+        .doc-header { text-align: center; padding: 10pt 0 10pt 0; border-bottom: 1px solid #dee2e6; margin-bottom: 8pt; }
+        .doc-title { font-size: 14pt; font-weight: bold; color: #000; margin-bottom: 4pt; }
+        .doc-subtitle { font-size: 10pt; color: #6c757d; }
+        .meta-line { font-size: 8pt; color: #444; margin-bottom: 6pt; padding: 4pt 0; }
+        .section { margin-bottom: 8pt; }
+        .section.part-b { page-break-before: avoid; }
+        .section.part-c { page-break-before: avoid; }
+        .section.part-d { page-break-before: avoid; }
+        .section.part-e { page-break-before: avoid; }
+        .section.part-f { page-break-before: avoid; }
+        .section.part-g { page-break-before: avoid; }
+        .section-header { font-size: 10.5pt; font-weight: bold; color: #000; padding: 6pt 10pt; margin-bottom: 8pt; background: #f8f9fa; border: 1px solid #dee2e6; }
+        .sub-section { font-size: 9.5pt; font-weight: bold; margin: 10pt 0 6pt 0; }
+        table.info { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        table.info td { border: 1px solid #dee2e6; padding: 6pt 10pt; vertical-align: top; }
+        table.info tr:nth-child(even) td { background: #f8f9fa; }
+        table.info td:first-child { font-weight: bold; width: 42%; background: #f8f9fa !important; }
+        table.info td:last-child { color: #000; }
+        .likert-legend { font-size: 8.5pt; color: #000; margin-bottom: 10pt; padding: 10pt 12pt; border: 1px solid #dee2e6; background: #f8f9fa; }
+        .likert-legend strong { display: block; margin-bottom: 4pt; font-size: 9pt; }
+        .likert-scale { white-space: nowrap; }
+        .likert-scale .tick { font-weight: bold; }
+        table.info tr.open-ended td:last-child { min-height: 48pt; padding: 10pt 12pt; }
+    </style>
+</head>
+<body>
+    <div class="meta-line">Response ID: {{ r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
+    <div class="doc-header">
+        <div class="doc-title">FACULTY SURVEY QUESTIONNAIRE – Response</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+
+    {% if payload.get('form_version') == 'faculty_law' or 'q1' in payload %}
+    {# New format: Law Program Accreditation (q1–q28) #}
+    {% set faculty_law_labels = [
+        'Workload: My teaching load per semester does not exceed 12 credits, allowing time for research and counseling.',
+        'Class Size: The number of students in my theory classes (max 40) and practical classes (max 20) is appropriate for effective teaching.',
+        'Strategic Planning: I am involved in the strategic planning process and aware of the program\'s vision and mission.',
+        'Teacher-Student Ratio: The department maintains a reasonable teacher-student ratio (approx. 1:20).',
+        'Autonomy: I have sufficient academic autonomy to design courses and introduce innovative teaching methods.',
+        'Curriculum Review: The curriculum is reviewed regularly with input from industry experts and alumni.',
+        'Alignment: My Course Learning Outcomes (CLOs) are clearly aligned with the Program Learning Outcomes (PLOs) and Graduate Attributes.',
+        'Pedagogy: I frequently use interactive methods (e.g., case studies, mooting, problem-based learning) rather than traditional lecturing.',
+        'HOTS: My teaching and assessment methods focus on "Higher Order Thinking Skills" (analysis, evaluation, creation).',
+        'Course Files: I maintain a documented course file (lesson plan, assessment tools, rubrics) for every course I teach.',
+        'Feedback: I provide timely feedback to students on their assignments and continuous assessments.',
+        'Research Support: The institution provides adequate financial support/grants for research activities.',
+        'Publications: I am encouraged and supported to publish research in peer-reviewed journals.',
+        'Professional Development: The university sponsors my participation in training, seminars, or conferences (home/abroad).',
+        'Incentives: There is a clear policy for incentives/rewards for high-quality research and teaching excellence.',
+        'Leave Policy: The study leave policy supports faculty pursuing advanced degrees (PhD/MPhil).',
+        'Moot Court: The Moot Court Room is well-equipped (internet, sound system) and available for my classes.',
+        'Library: The library has sufficient law books, journals, and e-resources to support my teaching and research.',
+        'IT Resources: The IT facilities (internet, computers, software) are adequate for academic purposes.',
+        'Office Environment: I have a dedicated workstation and a congenial office environment.',
+        'Recruitment: The faculty recruitment and promotion process is transparent, fair, and merit-based.',
+        'Code of Conduct: There is a well-defined code of conduct for faculty and staff.',
+        'Counseling: I am actively involved in academic guidance and counseling for students.',
+        'Performance Evaluation: The performance evaluation system (KPIs) is clear, fair, and communicated effectively.'
+    ] %}
+    <div class="section part-a">
+        <div class="section-header">Optional Identification</div>
+        <table class="info">
+            <tr><td>Designation</td><td>{{ payload.get('designation') or '–' }}</td></tr>
+            <tr><td>Employment Status</td><td>{{ payload.get('employment_status') or '–' }}</td></tr>
+            <tr><td>Years of Experience at KU</td><td>{{ payload.get('years_experience_ku') or '–' }}</td></tr>
+        </table>
+    </div>
+    <div class="likert-legend">
+        <strong>Scale</strong>
+        5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree
+    </div>
+    <div class="section part-b">
+        <div class="section-header">Part A: Governance, Workload &amp; Strategy (Standard 1 &amp; 7)</div>
+        <table class="info">
+            {% for i in range(1, 6) %}<tr><td>{{ faculty_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-c">
+        <div class="section-header">Part B: Curriculum &amp; Teaching-Learning (Standard 4 &amp; 5)</div>
+        <table class="info">
+            {% for i in range(6, 12) %}<tr><td>{{ faculty_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-d">
+        <div class="section-header">Part C: Research &amp; Professional Development (Standard 7 &amp; 9)</div>
+        <table class="info">
+            {% for i in range(12, 17) %}<tr><td>{{ faculty_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-e">
+        <div class="section-header">Part D: Facilities &amp; Resources (Standard 8)</div>
+        <table class="info">
+            {% for i in range(17, 21) %}<tr><td>{{ faculty_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-f">
+        <div class="section-header">Part E: Institutional Integrity &amp; Student Support (Standard 3 &amp; 6)</div>
+        <table class="info">
+            {% for i in range(21, 25) %}<tr><td>{{ faculty_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-g">
+        <div class="section-header">Part F: Qualitative (Open-Ended)</div>
+        <table class="info">
+            <tr class="open-ended"><td>25. Major challenges in delivering OBE?</td><td>{{ payload.get('q25') or '–' }}</td></tr>
+            <tr class="open-ended"><td>26. Effectiveness of research incentives and suggestions?</td><td>{{ payload.get('q26') or '–' }}</td></tr>
+            <tr class="open-ended"><td>27. Facilities (Moot Court, Library) adequate? What is missing?</td><td>{{ payload.get('q27') or '–' }}</td></tr>
+            <tr class="open-ended"><td>28. Training or professional development programs you would like?</td><td>{{ payload.get('q28') or '–' }}</td></tr>
+        </table>
+    </div>
+    {% else %}
+    {# Legacy faculty format #}
+    <div class="section part-a">
+        <div class="section-header">Part A: General Information</div>
+        <table class="info">
+            <tr><td>Designation</td><td>{{ payload.get('designation') or '–' }}{{ ' – ' ~ payload.get('designation_other') if payload.get('designation_other') else '' }}</td></tr>
+            <tr><td>Employment Status</td><td>{{ payload.get('employment_status') or '–' }}</td></tr>
+            <tr><td>Years of Experience at Khulna University</td><td>{{ payload.get('years_experience_ku') or '–' }}</td></tr>
+        </table>
+    </div>
+
+    {% set faculty_labels = [
+        '1. I am clearly aware of the Vision and Mission of the University and the Law Discipline.',
+        '2. The recruitment and promotion policy is transparent, merit-based, and free from bias.',
+        '3. I was consulted or given an opportunity to provide input during the preparation of the Strategic Plan.',
+        '4. The academic calendar is strictly maintained, and examinations/results are published on time.',
+        '5. I have sufficient academic autonomy to design courses, choose teaching methods, and pursue research initiatives.',
+        '6. The curriculum is reviewed regularly by a committee with representation from industry/employers and alumni.',
+        "7. The Program Learning Outcomes (PLOs) are clearly defined and aligned with the University's mission.",
+        '8. The mapping of my Course Learning Outcomes (CLOs) to the PLOs is clear, logical, and documented.',
+        '9. I maintain a detailed Course File (including lesson plans, assessment tools, and rubrics) for every course I teach.',
+        '10. The curriculum effectively integrates general education courses (minimum 25% for Bachelor / 10% for Master).',
+        '11. My teaching methods focus on Higher Order Thinking Skills (HOTS) (e.g., critical thinking, complex problem-solving).',
+        '12. The class size allows for effective management of teaching, interaction, and assessment.',
+        '13. Tutorial classes or remedial support are systematically provided for students who need extra help.',
+        '14. I provide timely feedback to students on continuous assessments (assignments/mid-terms) before the final exam.',
+        '15. The question papers are moderated by a committee that includes external members to ensure standard quality.',
+        '16. There is a fair workload distribution policy that effectively balances teaching, research, and administrative duties.',
+        '17. The University has a clear policy to support advanced studies (Ph.D./Higher Training) for faculty.',
+        '18. The institution provides sufficient budgetary support, funding, and leave for research projects and conferences.',
+        '19. There is an active policy and system to check for plagiarism in research and publications.',
+        '20. My performance evaluation (ACR/KPIs) is fair, transparent, and linked to promotion/incentives.',
+        '21. Office facilities (workstation, internet connectivity, computer) are adequate for performing my duties effectively.',
+        '22. The library resources (books, journals, e-databases) are adequate/accessible for my research and teaching needs.',
+        '23. The Institutional Quality Assurance Cell (IQAC) regularly organizes training on pedagogy and quality assurance.',
+        '24. I regularly receive feedback from students regarding my courses, which is used constructively for improvement.',
+        '25. Peer observation or peer review of teaching is practiced and used for professional growth.',
+    ] %}
+    <div class="section part-b">
+        <div class="section-header">Part B–F: Rating of Statements</div>
+        <div class="likert-legend">
+            <strong>Scale</strong>
+            5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree
+        </div>
+        <p class="sub-section">Part B: Governance, Vision &amp; Strategic Planning</p>
+        <table class="info">
+            {% for i in range(1, 6) %}
+            <tr><td>{{ faculty_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="sub-section">Part C: Curriculum &amp; Course Management</p>
+        <table class="info">
+            {% for i in range(6, 11) %}
+            <tr><td>{{ faculty_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="sub-section">Part D: Teaching-Learning &amp; Student Assessment</p>
+        <table class="info">
+            {% for i in range(11, 16) %}
+            <tr><td>{{ faculty_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="sub-section">Part E: Faculty Development &amp; Research</p>
+        <table class="info">
+            {% for i in range(16, 21) %}
+            <tr><td>{{ faculty_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="sub-section">Part F: Facilities &amp; Quality Assurance</p>
+        <table class="info">
+            {% for i in range(21, 26) %}
+            <tr><td>{{ faculty_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section part-g">
+        <div class="section-header">Part G: Open-Ended Feedback</div>
+        <table class="info">
+            <tr class="open-ended"><td>26. Top three STRENGTHS of the Law Discipline?</td><td>{{ payload.get('strengths') or '–' }}</td></tr>
+            <tr class="open-ended"><td>27. Major WEAKNESSES or areas needing immediate improvement?</td><td>{{ payload.get('weaknesses') or '–' }}</td></tr>
+            <tr class="open-ended"><td>28. OPPORTUNITIES (e.g., external collaborations, new programs) to explore?</td><td>{{ payload.get('opportunities') or '–' }}</td></tr>
+            <tr class="open-ended"><td>29. Any other comments regarding the academic environment?</td><td>{{ payload.get('other_comments') or '–' }}</td></tr>
+        </table>
+    </div>
+    {% endif %}
+</body>
+</html>

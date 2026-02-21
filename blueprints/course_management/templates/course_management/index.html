@@ -385,6 +385,11 @@
                                     <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#editCurriculumModal">
                                         <i class="fas fa-edit me-2"></i>Edit
                                     </button>
+                                    <form action="{{ url_for('course_management.clear_curriculum_assignments', curriculum_id=curriculum.id) }}" method="POST" class="d-inline" onsubmit="return confirm('এই কারিকুলামের সব অ্যাসাইনড শিক্ষক ক্লিয়ার করতে চান? লিঙ্কড ক্লাস সেশনগুলো আর্কাইভ করা হবে।');">
+                                        <button type="submit" class="btn btn-outline-danger">
+                                            <i class="fas fa-user-times me-2"></i>Clear All Assignments
+                                        </button>
+                                    </form>
                                     <form action="{{ url_for('course_management.delete_curriculum', curriculum_id=curriculum.id) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this curriculum? All courses will be deleted!');" style="display:inline;">
                                         <button type="submit" class="btn btn-danger">
                                             <i class="fas fa-trash me-2"></i>Delete

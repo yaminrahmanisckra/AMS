@@ -34,6 +34,9 @@
                             </div>
                         </div>
                         {% if 'teacher' in current_roles or teacher_record %}
+                        {% if teacher_record %}
+                        <input type="hidden" name="teacher_id" value="{{ teacher_record.id }}">
+                        {% endif %}
                         <hr>
                         <h5 class="mb-3">Teacher Information</h5>
                         <div class="mb-3">
@@ -57,6 +60,13 @@
                         <div class="mb-3">
                             <label for="bank_account_no" class="form-label">Bank Account No</label>
                             <input type="text" class="form-control" id="bank_account_no" name="bank_account_no" value="{% if teacher_record and teacher_record.bank_account_no %}{{ teacher_record.bank_account_no }}{% endif %}" placeholder="Enter bank account number">
+                        </div>
+                        <div class="mb-3">
+                            <input type="hidden" name="is_external_teacher" value="0">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="is_external_teacher" id="is_external_teacher" value="1" {% if teacher_record and (teacher_record.is_external | default(false)) %}checked{% endif %}>
+                                <label class="form-check-label" for="is_external_teacher">External Teacher (অন্য বিভাগ থেকে পড়াতে আসেন)</label>
+                            </div>
                         </div>
                         {% endif %}
                         <div class="d-flex gap-2">

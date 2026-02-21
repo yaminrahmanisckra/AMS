@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Employer Survey Questionnaire (Blank)</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.45in 0.5in 0.65in 0.5in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 8pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 8pt; line-height: 1.3; color: #000; }
+        .doc-header { text-align: center; padding: 6pt 0; border-bottom: 2px solid #000; margin-bottom: 5pt; }
+        .doc-title { font-size: 12pt; font-weight: bold; margin-bottom: 2pt; }
+        .doc-subtitle { font-size: 9pt; color: #6c757d; }
+        .intro-box { border: 1px solid #dee2e6; background: #f8f9fa; padding: 6pt 10pt; margin-bottom: 5pt; font-size: 7.5pt; line-height: 1.35; }
+        .intro-box p { margin-bottom: 4pt; }
+        .intro-box p:last-child { margin-bottom: 0; }
+        .section { margin-bottom: 5pt; }
+        .section-header { background: #f8f9fa; border: 1px solid #dee2e6; padding: 4pt 8pt; margin-bottom: 4pt; font-size: 9.5pt; font-weight: bold; color: #000; }
+        .section-note { font-size: 7.5pt; color: #6c757d; font-style: italic; margin-bottom: 4pt; }
+        .q-open { margin-top: 4pt; border: 1px solid #333; min-height: 40pt; padding: 4pt; background: #fafafa; }
+        table.rating-table { width: 100%; border-collapse: collapse; font-size: 7pt; margin-top: 4pt; margin-bottom: 6pt; table-layout: fixed; line-height: 1.25; }
+        table.rating-table th, table.rating-table td { border: 1px solid #dee2e6; padding: 3pt 5pt; vertical-align: middle; }
+        table.rating-table thead th { font-weight: bold; background: #f8f9fa; text-align: center; }
+        table.rating-table td:first-child { width: 4%; text-align: center; font-weight: bold; }
+        table.rating-table td:nth-child(2) { width: 52%; text-align: left; word-wrap: break-word; overflow-wrap: break-word; }
+        table.rating-table td:nth-child(3), table.rating-table td:nth-child(4), table.rating-table td:nth-child(5), table.rating-table td:nth-child(6), table.rating-table td:nth-child(7) { width: 8.8%; text-align: center; }
+        table.rating-table tbody tr:nth-child(even) td { background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <div class="doc-header">
+        <div class="doc-title">Employer Survey Questionnaire</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+
+    <div class="intro-box">
+        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+        <p><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
+        <p><strong>Scale:</strong> 1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
+    </div>
+
+    <p class="section-note">Optional: Name of Organization _______________________ &nbsp; Type of Organization _______________________ &nbsp; Name &amp; Designation of Respondent _______________________ &nbsp; Number of KU Graduates employed/supervised _______________________</p>
+
+    <div class="section">
+        <div class="section-header">Part A: Professional Competence &amp; Legal Knowledge (Standard 4)</div>
+        <p class="section-note">Focus: Application of substantive and procedural law. Circle or tick one number (1–5) for each row.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>1</td><td>The graduates demonstrate sound knowledge of substantive and procedural laws relevant to their work.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>2</td><td>Legal Research: They possess strong legal research skills (finding case laws, statutes, and precedents).</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>3</td><td>Drafting &amp; Pleading: Their drafting skills (plaints, written statements, opinions, contracts) meet professional standards.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>4</td><td>Advocacy/Communication: They effectively present arguments and communicate legal concepts clearly.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>5</td><td>Problem Solving: They can analyze complex facts and provide logical legal solutions.</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part B: Professional Skills &amp; Ethics (Standard 3 &amp; 6)</div>
+        <p class="section-note">Focus: Work ethic, technology, and moral responsibility.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>6</td><td>Ethics &amp; Integrity: The graduates uphold high standards of professional ethics and moral responsibility.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>7</td><td>ICT Proficiency: They are proficient in using technology (computers, legal databases, online filing) for legal work.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>8</td><td>Time Management: They are punctual and capable of meeting strict deadlines (e.g., court filings).</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>9</td><td>Teamwork &amp; Leadership: They work well in teams and demonstrate leadership potential when required.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>10</td><td>Adaptability: They adapt quickly to new laws, office procedures, or changing work environments.</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part C: Curriculum Relevance &amp; Practical Training (Standard 4 &amp; 5)</div>
+        <p class="section-note">Focus: Gap between academia and industry.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>11</td><td>The academic curriculum of the university appears relevant to current legal practice.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>12</td><td>The graduates show evidence of practical training (e.g., Moot Court, Mock Trials) during their studies.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>13</td><td>Internship Performance: Interns from this university are well-prepared and eager to learn.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>14</td><td>Creativity: The graduates display creativity and innovation in their legal approach.</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part D: Institutional Collaboration (Standard 10)</div>
+        <p class="section-note">Focus: Feedback loops and engagement.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>15</td><td>The university engages with employers/industry to update the curriculum based on market needs.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>16</td><td>I am satisfied with the overall performance of graduates from this university.</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part E: Qualitative Questions (Open-Ended)</div>
+        <p class="q"><strong>17.</strong> What are the strongest attributes of graduates from this university? (e.g., strong research skills, good drafting, discipline, etc.)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><strong>18.</strong> In what specific areas do these graduates need improvement? (e.g., English proficiency, practical procedural knowledge, soft skills, etc.)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><strong>19.</strong> What new legal trends or skills should be added to the Law curriculum to make graduates more employable? (e.g., Cyber Law, ADR, Corporate Compliance, etc.)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><strong>20.</strong> Would you prefer to hire more graduates/interns from this university in the future? Why or why not?</p>
+        <div class="q-open">&nbsp;</div>
+    </div>
+</body>
+</html>

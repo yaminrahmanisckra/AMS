@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}PSAC Committee{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-users-cog me-2"></i>PSAC Committee</h1>
+            <p class="text-muted mb-0">Add or remove members and ad-hoc members. They will see the Self Assessment card on their dashboard.</p>
+        </div>
+        <a href="{{ url_for('self_assessment.index') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Self Assessment
+        </a>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Add member</h5>
+        </div>
+        <div class="card-body">
+            <form id="addMemberForm" class="row g-2 align-items-end">
+                <div class="col-auto flex-grow-1">
+                    <label class="form-label small mb-0">Teacher</label>
+                    <select name="teacher_id" class="form-select form-select-sm" required>
+                        <option value="">Select teacher</option>
+                        {% for t in all_teachers %}
+                        {% if t.id != committee.head_teacher_id and t.id not in member_teacher_ids %}
+                        <option value="{{ t.id }}">{{ t.name }}{% if t.designation %} ({{ t.designation }}){% endif %}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">Type</label>
+                    <select name="is_adhoc" class="form-select form-select-sm">
+                        <option value="0">Member</option>
+                        <option value="1">Ad-hoc Member</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light">
+            <h5 class="mb-0">Committee</h5>
+        </div>
+        <div class="card-body">
+            <p class="small text-muted mb-3">Head: <strong>{{ committee.head_teacher.name }}</strong></p>
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Teacher</th>
+                        <th>Type</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="memberTableBody">
+                    {% for m in members %}
+                    <tr data-member-id="{{ m.id }}">
+                        <td>{{ m.teacher.name }}{% if m.teacher.designation %} <span class="text-muted">({{ m.teacher.designation }})</span>{% endif %}</td>
+                        <td>{% if m.is_adhoc %}<span class="badge bg-info">Ad-hoc</span>{% else %}<span class="badge bg-secondary">Member</span>{% endif %}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-outline-danger btn-sm remove-member" data-id="{{ m.id }}">Remove</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% if not members %}
+            <p class="text-muted small mb-0">No members yet. Add teachers above.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('addMemberForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = this;
+    const teacherId = form.teacher_id && form.teacher_id.value;
+    if (!teacherId) {
+        alert('Please select a teacher.');
+        return;
+    }
+    const params = new URLSearchParams();
+    params.append('teacher_id', teacherId);
+    params.append('is_adhoc', form.is_adhoc ? form.is_adhoc.value : '0');
+    fetch('{{ url_for("self_assessment.psac_add_member") }}', {
+        method: 'POST',
+        body: params,
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.message || 'Failed to add member');
+        }
+    })
+    .catch(() => alert('Request failed'));
+});
+
+document.querySelectorAll('.remove-member').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const id = this.dataset.id;
+        if (!confirm('Remove this member from PSAC Committee?')) return;
+        const formData = new FormData();
+        fetch('{{ url_for("self_assessment.psac_remove_member", member_id=0) }}'.replace('0', id), {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.querySelector(`tr[data-member-id="${id}"]`).remove();
+            } else {
+                alert(data.message || 'Failed to remove');
+            }
+        })
+        .catch(() => alert('Request failed'));
+    });
+});
+</script>
+{% endblock %}

@@ -15,6 +15,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.units import inch
+import os
 import sys
 import random
 
@@ -548,6 +549,7 @@ def view_routine():
     """View routine - accessible to all users, but only routine makers can edit"""
     from role_utils import get_teachers_excluding_head
     from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    from sqlalchemy import text, inspect
     
     can_edit = can_edit_routine()
     
@@ -588,13 +590,49 @@ def view_routine():
         "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
         "04:00 PM - 04:50 PM"
     ]
+
+    # If editing/viewing a saved routine, load its custom time slots + break settings
+    lunch_after_slot = 3
+    break_type = 'lunch'
+    break_time_label = '01:00 PM - 02:00 PM'
+    if saved_routine_id:
+        try:
+            # Load time slots (if routine_time_slot exists)
+            try:
+                rows = db.session.execute(
+                    text("SELECT time_slot FROM routine_time_slot WHERE saved_routine_id = :id ORDER BY display_order"),
+                    {'id': saved_routine_id}
+                ).fetchall()
+                loaded_slots = [r[0] for r in rows if r and r[0]]
+                if loaded_slots:
+                    time_slots = loaded_slots
+            except Exception as e:
+                current_app.logger.warning(f'Could not load routine_time_slot for view_routine {saved_routine_id}: {e}')
+
+            # Load break settings if columns exist in saved_routine
+            sr_cols = [c['name'] for c in inspect(db.engine).get_columns('saved_routine')]
+            if 'lunch_after_slot' in sr_cols and 'break_type' in sr_cols and 'break_time_label' in sr_cols:
+                br = db.session.execute(
+                    text("SELECT lunch_after_slot, break_type, break_time_label FROM saved_routine WHERE id = :id"),
+                    {'id': saved_routine_id}
+                ).fetchone()
+                if br:
+                    lunch_after_slot = br[0] if br[0] is not None else 3
+                    break_type = (br[1] or 'lunch').strip() or 'lunch'
+                    break_time_label = (br[2] or '01:00 PM - 02:00 PM').strip() or '01:00 PM - 02:00 PM'
+        except Exception as e:
+            current_app.logger.warning(f'Could not load saved routine meta for view_routine {saved_routine_id}: {e}')
+
     # can_edit is already defined at the beginning of this function
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
                            can_edit=can_edit,
                            saved_routine_id=saved_routine_id,
-                           current_saved_routine=current_saved_routine)
+                           current_saved_routine=current_saved_routine,
+                           lunch_after_slot=lunch_after_slot,
+                           break_type=break_type,
+                           break_time_label=break_time_label)
 
 # Generate Routine (Only for Routine Makers)
 @routine_management_bp.route('/generate_routine')
@@ -602,6 +640,7 @@ def view_routine():
 def generate_routine():
     from role_utils import get_teachers_excluding_head
     from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    from sqlalchemy import text, inspect
     
     # Only routine makers can access this route
     can_edit = can_edit_routine()
@@ -634,13 +673,47 @@ def generate_routine():
         "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM", 
         "04:00 PM - 04:50 PM"
     ]
+
+    # If editing a saved routine, load its custom time slots + break settings
+    lunch_after_slot = 3
+    break_type = 'lunch'
+    break_time_label = '01:00 PM - 02:00 PM'
+    if saved_routine_id:
+        try:
+            try:
+                rows = db.session.execute(
+                    text("SELECT time_slot FROM routine_time_slot WHERE saved_routine_id = :id ORDER BY display_order"),
+                    {'id': saved_routine_id}
+                ).fetchall()
+                loaded_slots = [r[0] for r in rows if r and r[0]]
+                if loaded_slots:
+                    time_slots = loaded_slots
+            except Exception as e:
+                current_app.logger.warning(f'Could not load routine_time_slot for generate_routine {saved_routine_id}: {e}')
+
+            sr_cols = [c['name'] for c in inspect(db.engine).get_columns('saved_routine')]
+            if 'lunch_after_slot' in sr_cols and 'break_type' in sr_cols and 'break_time_label' in sr_cols:
+                br = db.session.execute(
+                    text("SELECT lunch_after_slot, break_type, break_time_label FROM saved_routine WHERE id = :id"),
+                    {'id': saved_routine_id}
+                ).fetchone()
+                if br:
+                    lunch_after_slot = br[0] if br[0] is not None else 3
+                    break_type = (br[1] or 'lunch').strip() or 'lunch'
+                    break_time_label = (br[2] or '01:00 PM - 02:00 PM').strip() or '01:00 PM - 02:00 PM'
+        except Exception as e:
+            current_app.logger.warning(f'Could not load saved routine meta for generate_routine {saved_routine_id}: {e}')
+
     # can_edit is already defined at the beginning of this function
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
                            can_edit=can_edit,
                            saved_routine_id=saved_routine_id,
-                           current_saved_routine=current_saved_routine)
+                           current_saved_routine=current_saved_routine,
+                           lunch_after_slot=lunch_after_slot,
+                           break_type=break_type,
+                           break_time_label=break_time_label)
 
 # --- API Endpoints for Routine ---
 
@@ -1089,7 +1162,6 @@ def save_routine():
         # 5. Validate and prepare entries
         validated_entries = []
         validation_errors = []
-        
         for idx, entry in enumerate(routine_entries):
             # Required fields
             day = entry.get('day', '').strip() if entry.get('day') else ''
@@ -1119,6 +1191,13 @@ def save_routine():
             if is_custom and custom_course_name and not course_code:
                 course_code = custom_course_name
             
+            # Normalize teacher_id: empty string or invalid value -> None (avoids INTEGER/FK error on insert)
+            tid = entry.get('teacher_id')
+            try:
+                teacher_id = int(tid) if tid not in (None, '') else None
+            except (ValueError, TypeError):
+                teacher_id = None
+            
             validated_entries.append({
                 'day': day,
                 'slot': slot,
@@ -1126,7 +1205,7 @@ def save_routine():
                 'course_code': course_code,
                 'teacher_short_name': entry.get('teacher_short_name', '').strip() or None,
                 'part': entry.get('part', 'Full').strip() or None,
-                'teacher_id': entry.get('teacher_id'),
+                'teacher_id': teacher_id,
                 'is_shared': entry.get('is_shared', False),
                 'shared_with': entry.get('shared_with', '').strip() or None,
                 'year': entry.get('year', '').strip() or None,
@@ -1140,7 +1219,6 @@ def save_routine():
         
         if validation_errors:
             current_app.logger.warning(f'Validation errors: {validation_errors}')
-        
         # 6. Delete existing entries (use raw SQL for reliability)
         try:
             if saved_routine_id and has_saved_routine_id:
@@ -1217,14 +1295,17 @@ def save_routine():
         
         current_app.logger.info(f'Insert SQL: {insert_sql}')
         
+        # routine.course_code is VARCHAR(20); custom entry text can be longer - truncate for DB
+        course_code_max_len = 20
         for entry_data in validated_entries:
             try:
+                course_code_val = (entry_data['course_code'] or '')[:course_code_max_len]
                 # Build parameters dict
                 params = {
                     'day': entry_data['day'],
                     'time_slot': entry_data['slot'],
                     'room_number': entry_data['room'].room_number,
-                    'course_code': entry_data['course_code'],
+                    'course_code': course_code_val,
                     'teacher_short_name': entry_data['teacher_short_name'],
                     'part': entry_data['part'],
                     'is_shared': 1 if entry_data['is_shared'] else 0,
@@ -1264,7 +1345,6 @@ def save_routine():
         try:
             db.session.commit()
             current_app.logger.info(f'Successfully saved {saved_count} routine entries')
-            
             # Emit WebSocket event if available
             try:
                 from utils.websocket_events import emit_routine_updated
@@ -1414,7 +1494,7 @@ def create_saved_routine():
         result = db.session.execute(
             text("""
                 INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at)
-                VALUES (:year, :name, 0, :created_by_id, NOW(), NOW())
+                VALUES (:year, :name, 0, :created_by_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """),
             {
                 'year': year,
@@ -1470,11 +1550,37 @@ def get_saved_routine(saved_routine_id):
                 'message': f'Saved routine with ID {saved_routine_id} not found.'
             }), 404
         
+        # Optional: load break settings from saved_routine if columns exist
+        inspector = inspect(db.engine)
+        sr_columns = [col['name'] for col in inspector.get_columns('saved_routine')]
+        lunch_after_slot = 3
+        break_type = 'lunch'
+        break_time_label = '01:00 PM - 02:00 PM'
+        if 'lunch_after_slot' in sr_columns and 'break_type' in sr_columns and 'break_time_label' in sr_columns:
+            br = db.session.execute(
+                text("SELECT lunch_after_slot, break_type, break_time_label FROM saved_routine WHERE id = :id"),
+                {'id': saved_routine_id}
+            ).fetchone()
+            if br:
+                lunch_after_slot = br[0] if br[0] is not None else 3
+                break_type = (br[1] or 'lunch').strip() or 'lunch'
+                break_time_label = (br[2] or '01:00 PM - 02:00 PM').strip() or '01:00 PM - 02:00 PM'
+        
+        # Load time slots for this saved routine (from routine_time_slot)
+        time_slots_list = []
+        try:
+            rts_rows = db.session.execute(
+                text("SELECT time_slot FROM routine_time_slot WHERE saved_routine_id = :id ORDER BY display_order"),
+                {'id': saved_routine_id}
+            ).fetchall()
+            time_slots_list = [r[0] for r in rts_rows if r[0]]
+        except Exception as e:
+            current_app.logger.warning(f'Could not load routine_time_slot for {saved_routine_id}: {e}')
+        
         # Get all rooms
         all_rooms = {r.room_number: r.id for r in Room.query.all()}
         
         # Check if saved_routine_id column exists in routine table
-        inspector = inspect(db.engine)
         routine_columns = [col['name'] for col in inspector.get_columns('routine')]
         has_saved_routine_id = 'saved_routine_id' in routine_columns
         
@@ -1509,6 +1615,7 @@ def get_saved_routine(saved_routine_id):
                     "day": row[0] or '',
                     "slot": row[1] or '',
                     "room_id": all_rooms.get(row[2]),
+                    "room_number": row[2] or '',
                     "course_code": row[3] or '',
                     "teacher_short_name": row[4] or '',
                     "part": row[5] or '',
@@ -1547,14 +1654,18 @@ def get_saved_routine(saved_routine_id):
                                          f"custom_course_name={entry.get('custom_course_name')}")
                 
                 routine_data.append(entry)
-        
-        return jsonify({
+        payload = {
             'id': sr_row[0],
             'year': sr_row[1],
             'name': sr_row[2] or sr_row[1],
             'is_revealed': sr_row[3] if sr_row[3] is not None else False,
-            'routine': routine_data
-        }), 200
+            'routine': routine_data,
+            'time_slots': time_slots_list,
+            'lunch_after_slot': lunch_after_slot,
+            'break_type': break_type,
+            'break_time_label': break_time_label
+        }
+        return jsonify(payload), 200
         
     except Exception as e:
         current_app.logger.error(f'Error getting saved routine {saved_routine_id}: {e}', exc_info=True)
@@ -1562,6 +1673,120 @@ def get_saved_routine(saved_routine_id):
             'success': False,
             'message': f'Error fetching saved routine: {str(e)}'
         }), 500
+
+@routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>/duplicate', methods=['POST'])
+@login_required
+def duplicate_saved_routine(saved_routine_id):
+    """Duplicate a saved routine (new year/name, copy all entries and time slots)."""
+    from sqlalchemy import text, inspect
+    try:
+        if not can_edit_routine():
+            return jsonify({'success': False, 'message': 'You do not have permission to duplicate routines.'}), 403
+        # Get source
+        src = db.session.execute(
+            text("SELECT id, year, name, is_revealed FROM saved_routine WHERE id = :id"),
+            {'id': saved_routine_id}
+        ).fetchone()
+        if not src:
+            return jsonify({'success': False, 'message': 'Saved routine not found.'}), 404
+        src_year, src_name = src[1], (src[2] or src[1])
+        # Unique new year: "2026 (Copy)", "2026 (Copy 2)", ...
+        new_year = src_year + " (Copy)"
+        n = 1
+        while True:
+            existing = db.session.execute(
+                text("SELECT id FROM saved_routine WHERE year = :y"),
+                {'y': new_year}
+            ).fetchone()
+            if not existing:
+                break
+            n += 1
+            new_year = f"{src_year} (Copy {n})"
+        new_name = (src_name or src_year) + " (Copy)" if n == 1 else f"{src_name or src_year} (Copy {n})"
+        user_id = current_user.id if current_user.is_authenticated else None
+        # Insert new saved_routine
+        inspector = inspect(db.engine)
+        sr_cols = [c['name'] for c in inspector.get_columns('saved_routine')]
+        if 'lunch_after_slot' in sr_cols and 'break_type' in sr_cols and 'break_time_label' in sr_cols:
+            br = db.session.execute(
+                text("SELECT lunch_after_slot, break_type, break_time_label FROM saved_routine WHERE id = :id"),
+                {'id': saved_routine_id}
+            ).fetchone()
+            db.session.execute(
+                text("""
+                    INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at, lunch_after_slot, break_type, break_time_label)
+                    VALUES (:year, :name, 0, :uid, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :la, :bt, :btrl)
+                """),
+                {
+                    'year': new_year, 'name': new_name, 'uid': user_id,
+                    'la': br[0] if br and br[0] is not None else 3,
+                    'bt': (br[1] or 'lunch') if br else 'lunch',
+                    'btrl': (br[2] or '01:00 PM - 02:00 PM') if br else '01:00 PM - 02:00 PM'
+                }
+            )
+        else:
+            db.session.execute(
+                text("""
+                    INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at)
+                    VALUES (:year, :name, 0, :uid, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """),
+                {'year': new_year, 'name': new_name, 'uid': user_id}
+            )
+        db.session.flush()
+        new_id_row = db.session.execute(
+            text("SELECT id FROM saved_routine WHERE year = :y"),
+            {'y': new_year}
+        ).fetchone()
+        new_id = new_id_row[0] if new_id_row else None
+        if not new_id:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': 'Failed to create duplicate routine.'}), 500
+        # Copy routine entries
+        routine_cols = [c['name'] for c in inspector.get_columns('routine')]
+        if 'saved_routine_id' in routine_cols:
+            copy_cols = [c for c in routine_cols if c != 'id']
+            sel_cols = [c if c != 'saved_routine_id' else f":new_id AS saved_routine_id" for c in copy_cols]
+            placeholders = {c: c for c in copy_cols if c != 'saved_routine_id'}
+            # INSERT INTO routine (cols...) SELECT col1, col2, ..., :new_id FROM routine WHERE saved_routine_id = :sid
+            sel_list = ", ".join(c if c != "saved_routine_id" else ":new_id" for c in copy_cols)
+            # Use literal new_id in SELECT
+            db.session.execute(
+                text(f"""
+                    INSERT INTO routine ({", ".join(copy_cols)})
+                    SELECT {", ".join(c if c != 'saved_routine_id' else str(new_id) for c in copy_cols)}
+                    FROM routine WHERE saved_routine_id = :sid
+                """),
+                {'sid': saved_routine_id}
+            )
+        # Copy time slots
+        try:
+            rts = db.session.execute(
+                text("SELECT time_slot, display_order FROM routine_time_slot WHERE saved_routine_id = :id ORDER BY display_order"),
+                {'id': saved_routine_id}
+            ).fetchall()
+            for r in rts:
+                db.session.execute(
+                    text("""
+                        INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, created_at)
+                        VALUES (:sid, :ts, :ord, 1, CURRENT_TIMESTAMP)
+                    """),
+                    {'sid': new_id, 'ts': r[0], 'ord': r[1]}
+                )
+        except Exception as e:
+            current_app.logger.warning(f'Could not copy routine_time_slot: {e}')
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'Routine duplicated as "{new_year}".',
+            'id': new_id,
+            'year': new_year,
+            'name': new_name
+        }), 201
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error duplicating saved routine: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': f'Failed to duplicate: {str(e)}'}), 500
+
 
 @routine_management_bp.route('/api/saved-routines/<int:saved_routine_id>', methods=['DELETE'])
 @login_required
@@ -1706,11 +1931,15 @@ def toggle_reveal_saved_routine(saved_routine_id):
 @routine_management_bp.route('/api/time-slots', methods=['POST'])
 @login_required
 def save_time_slots():
-    """Save custom time slots for a saved routine"""
+    """Save custom time slots and break settings for a saved routine"""
     try:
+        from sqlalchemy import inspect
         data = request.get_json() or {}
         saved_routine_id = data.get('saved_routine_id')
         time_slots = data.get('time_slots', [])
+        lunch_after_slot = data.get('lunch_after_slot', 3)
+        break_type_val = (data.get('break_type') or 'lunch').strip() or 'lunch'
+        break_time_label = (data.get('break_time') or data.get('break_time_label') or '01:00 PM - 02:00 PM').strip() or '01:00 PM - 02:00 PM'
         
         if not saved_routine_id:
             return jsonify({'success': False, 'message': 'No saved routine ID provided'}), 400
@@ -1727,7 +1956,6 @@ def save_time_slots():
                 {'id': saved_routine_id}
             )
         except Exception as e:
-            # Table might not exist yet - that's ok
             current_app.logger.warning(f'Could not delete time slots (table may not exist): {e}')
         
         # Insert new time slots
@@ -1736,7 +1964,7 @@ def save_time_slots():
                 db.session.execute(
                     text("""
                         INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, created_at)
-                        VALUES (:saved_routine_id, :time_slot, :display_order, 1, NOW())
+                        VALUES (:saved_routine_id, :time_slot, :display_order, 1, CURRENT_TIMESTAMP)
                     """),
                     {
                         'saved_routine_id': saved_routine_id,
@@ -1746,6 +1974,20 @@ def save_time_slots():
                 )
             except Exception as insert_error:
                 current_app.logger.warning(f'Could not insert time slot {slot}: {insert_error}')
+        
+        # Save break settings to saved_routine if columns exist
+        try:
+            sr_columns = [col['name'] for col in inspect(db.engine).get_columns('saved_routine')]
+            if 'lunch_after_slot' in sr_columns and 'break_type' in sr_columns and 'break_time_label' in sr_columns:
+                db.session.execute(
+                    text("""
+                        UPDATE saved_routine SET lunch_after_slot = :la, break_type = :bt, break_time_label = :btrl
+                        WHERE id = :id
+                    """),
+                    {'la': lunch_after_slot, 'bt': break_type_val, 'btrl': break_time_label, 'id': saved_routine_id}
+                )
+        except Exception as br_err:
+            current_app.logger.warning(f'Could not save break settings (columns may not exist): {br_err}')
         
         db.session.commit()
         
@@ -1905,8 +2147,11 @@ def download_pdf():
         
         rooms_db = Room.query.order_by('room_number').all()
         
-        # Get lunch position from frontend (default: after 4th slot, index 3)
+        # Get lunch position, break time and break type from frontend (default: after 4th slot, index 3)
         lunch_after_slot = request.args.get('lunch_after_slot', 3, type=int)
+        break_time_str = request.args.get('break_time', '01:00 PM - 02:00 PM')
+        break_type_param = (request.args.get('break_type') or 'lunch').strip().lower()
+        break_cell_label = 'Prayer Break' if break_type_param == 'prayer' else 'LUNCH'
         
         # Helper function to convert time to compact format (9:10-10:00)
         def compact_time(time_str):
@@ -1923,9 +2168,9 @@ def download_pdf():
         
         for idx, slot in enumerate(time_slots):
             header.append(compact_time(slot))
-            # Insert lunch after the selected slot
+            # Insert break after the selected slot (use editable break time from frontend)
             if idx == lunch_after_slot:
-                header.append("1:00-2:00")
+                header.append(compact_time(break_time_str))
         
         table_data = [header]
 
@@ -2016,9 +2261,9 @@ def download_pdf():
                     
                     current_col += 1
                     
-                    # Insert lunch after the selected slot
+                    # Insert break (Prayer/Lunch) after the selected slot
                     if idx == lunch_after_slot:
-                        row.append(Paragraph("LUNCH", body_text_style))
+                        row.append(Paragraph(break_cell_label, body_text_style))
                         current_col += 1
                 
                 table_data.append(row)

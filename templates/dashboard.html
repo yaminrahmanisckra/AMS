@@ -467,6 +467,16 @@ html {
             'show': is_teaching_assistant or not is_officer
         }
     ] %}
+    {% if show_self_assessment|default(false) %}
+    {% set _ = cards.append({
+        'title': 'Self Assessment',
+        'desc': 'PSAC Committee – Alumni, Employer, Faculty, Non-Academic Staff, and Student surveys.',
+        'icon': 'fas fa-clipboard-check',
+        'color_class': 'card-green',
+        'url': url_for('self_assessment.index'),
+        'show': true
+    }) %}
+    {% endif %}
 
     <div class="row g-3 g-md-4">
         {% for card in cards if card.show %}

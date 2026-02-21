@@ -1,4 +1,7 @@
 import os
+# Force OpenBLAS to use single thread to prevent hang during imports (common on macOS + Flask/Eventlet)
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+
 import json
 import csv
 from datetime import datetime
@@ -6,7 +9,6 @@ from io import BytesIO, StringIO
 from dotenv import load_dotenv
 from flask import Flask, render_template, redirect, url_for, flash, request, send_file, Response, jsonify, current_app, session, make_response
 from flask_login import LoginManager, current_user, login_required
-from flask_socketio import SocketIO, emit, join_room, leave_room
 from extensions import db, migrate, mail
 from user_models import User
 from error_handler import register_error_handlers, setup_error_logging, check_dependencies, check_file_permissions, get_system_info
@@ -42,6 +44,8 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     Workbook = None
     Alignment = Font = Border = Side = get_column_letter = None
+
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
 load_dotenv()
 
@@ -309,6 +313,31 @@ def create_app():
     app.register_blueprint(academic_calendar_bp, url_prefix='/academic-calendar')
     from blueprints.curriculator import curriculator_bp
     app.register_blueprint(curriculator_bp, url_prefix='/curriculator')
+    try:
+        try:
+            from blueprints.self_assessment import self_assessment_bp
+        except ImportError:
+            from blueprints.self_assessment import self_assessment as self_assessment_bp
+        app.register_blueprint(self_assessment_bp, url_prefix='/self-assessment')
+    except Exception as e:
+        import logging
+        import traceback
+        logging.warning('Self Assessment blueprint not loaded: %s', e)
+        logging.warning(traceback.format_exc())
+    
+    @app.route('/debug-self-assessment')
+    def debug_self_assessment():
+        """Temporary: দেখুন Self Assessment ব্লুপ্রিন্ট কেন লোড হচ্ছে না। ব্যবহারের পর রুটটি মুছে ফেলুন।"""
+        try:
+            try:
+                from blueprints.self_assessment import self_assessment_bp
+            except ImportError:
+                from blueprints.self_assessment import self_assessment as self_assessment_bp
+            return '<h2>OK</h2><p>Blueprint imports successfully. If the card still shows setup message, restart the app and clear browser cache.</p>'
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            return '<h2>Self Assessment load error</h2><pre style="white-space:pre-wrap;background:#f5f5f5;padding:1em;">' + str(e) + '\n\n' + tb + '</pre>'
     
     # Service Worker route for PWA
     @app.route('/sw.js')
@@ -535,7 +564,19 @@ def create_app():
                 status='active'
             ).count() > 0
 
-        response = make_response(render_template('dashboard.html', show_course_registration_review=show_course_registration_review))
+        show_self_assessment = False
+        if 'self_assessment.index' in current_app.view_functions:
+            try:
+                from blueprints.self_assessment.routes import is_psac_member_or_head
+                show_self_assessment = is_psac_member_or_head()
+            except Exception:
+                pass
+
+        response = make_response(render_template(
+            'dashboard.html',
+            show_course_registration_review=show_course_registration_review,
+            show_self_assessment=show_self_assessment
+        ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
         response.headers['Pragma'] = 'no-cache'
@@ -2031,6 +2072,9 @@ def create_app():
             flash('You do not have permission to access this page.', 'danger')
             return redirect(url_for('index'))
         search = request.args.get('search', '').strip()
+        teacher_filter = request.args.get('teacher_filter', 'all').strip().lower()  # all | internal | external
+        if teacher_filter not in ('all', 'internal', 'external'):
+            teacher_filter = 'all'
         query = User.query
         if search:
             like = f"%{search}%"
@@ -2043,14 +2087,24 @@ def create_app():
         student_users = [u for u in users if 'student' in parse_roles(u.role)]
         other_users = [u for u in users if 'student' not in parse_roles(u.role)]
         
-        # Fetch teacher information for users with teacher role
+        # Fetch teacher information for users with teacher role (prefer user.teacher_id link, else match by name)
         user_teachers = {}
         teacher_users = [u for u in other_users if 'teacher' in parse_roles(u.role)]
         if teacher_users:
             for user in teacher_users:
-                teacher = Teacher.query.filter_by(name=user.full_name).first()
+                teacher = None
+                if getattr(user, 'teacher_id', None):
+                    teacher = Teacher.query.get(user.teacher_id)
+                if not teacher:
+                    teacher = Teacher.query.filter_by(name=user.full_name).first()
                 if teacher:
                     user_teachers[user.id] = teacher
+        
+        # Filter by External/Internal teacher category
+        if teacher_filter == 'external':
+            other_users = [u for u in other_users if user_teachers.get(u.id) and getattr(user_teachers[u.id], 'is_external', False)]
+        elif teacher_filter == 'internal':
+            other_users = [u for u in other_users if u.id not in user_teachers or not getattr(user_teachers.get(u.id), 'is_external', False)]
         
         response = make_response(render_template(
             'admin_dashboard.html',
@@ -2059,7 +2113,8 @@ def create_app():
             role_labels=ROLE_LABELS,
             role_choices=NON_ADMIN_ROLE_CHOICES,
             search_query=search,
-            user_teachers=user_teachers
+            user_teachers=user_teachers,
+            teacher_filter=teacher_filter
         ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
@@ -2783,7 +2838,36 @@ def create_app():
         if 'head' not in roles and 'dean' not in roles:
             flash('Head dashboard is available only for Head or Dean accounts.', 'danger')
             return redirect(url_for('index'))
-        response = make_response(render_template('head/dashboard.html'))
+        head_cards = [
+            {'title': 'Assign Duties', 'desc': 'Assign Course Co-Ordinator, Exam Committee Chief, Teaching Assistant, and other duties',
+             'icon': 'fas fa-user-tie', 'color': '#ffc107', 'bg': 'rgba(255,193,7,0.18)', 'url': url_for('assign_duties')},
+            {'title': 'Result Management', 'desc': 'Handle student results, subjects, and marks',
+             'icon': 'fas fa-poll', 'color': '#198754', 'bg': 'rgba(25,135,84,0.15)', 'url': url_for('result_management.index')},
+            {'title': 'Students Management', 'desc': 'Manage student information and records',
+             'icon': 'fas fa-users', 'color': '#dc3545', 'bg': 'rgba(220,53,69,0.15)', 'url': url_for('student_management.index')},
+            {'title': 'Curriculum Management', 'desc': 'Manage curricula and courses',
+             'icon': 'fas fa-book', 'color': '#6f42c1', 'bg': 'rgba(111,66,193,0.15)', 'url': url_for('course_management.index')},
+            {'title': 'Curriculator', 'desc': 'Syllabus (Part A–D): collaboratively develop and download DOCX/PDF',
+             'icon': 'fas fa-book-open', 'color': '#0d6efd', 'bg': 'rgba(13,110,253,0.15)', 'url': url_for('curriculator.index')},
+            {'title': 'Course Registration', 'desc': 'Review and finalize student course registrations',
+             'icon': 'fas fa-clipboard-check', 'color': '#0dcaf0', 'bg': 'rgba(13,202,240,0.15)', 'url': url_for('course_management.coordinator_registrations')},
+            {'title': 'Exam Committee Archive', 'desc': 'View archived examination committees and their members',
+             'icon': 'fas fa-archive', 'color': '#fd7e14', 'bg': 'rgba(253,126,20,0.15)', 'url': url_for('head_exam_committee_archive')},
+            {'title': 'Academic Calendar', 'desc': 'View academic calendar with holidays, events, and important dates',
+             'icon': 'fas fa-calendar', 'color': '#6366f1', 'bg': 'rgba(99,102,241,0.15)', 'url': url_for('academic_calendar.index')},
+        ]
+        # Self Assessment card: লিংক সবসময় /self-assessment (blueprints/self_assessment)
+        if 'self_assessment.index' in current_app.view_functions:
+            self_assessment_url = url_for('self_assessment.index')
+        else:
+            self_assessment_url = '/self-assessment'
+        head_cards.append({
+            'title': 'Self Assessment',
+            'desc': 'PSAC Committee – Alumni, Employer, Faculty, Non-Academic Staff, and Student surveys',
+            'icon': 'fas fa-clipboard-check', 'color': '#059669', 'bg': 'rgba(5,150,105,0.15)',
+            'url': self_assessment_url
+        })
+        response = make_response(render_template('head/dashboard.html', head_cards=head_cards))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
         response.headers['Pragma'] = 'no-cache'
@@ -13533,48 +13617,70 @@ def create_app():
                 return redirect(url_for('admin_edit_user', user_id=user_id))
             user_to_edit.role = serialize_roles(normalized_roles)
             
-            # Update teacher designation and institute if user has teacher role
-            if 'teacher' in normalized_roles:
-                # Try to find teacher by old name first (in case name changed)
+            is_external_list = request.form.getlist('is_external_teacher')
+            is_ext_val = '1' in (is_external_list or [])
+            # Prefer stored link so we always update the SAME teacher the dashboard shows
+            teacher_id_val = getattr(user_to_edit, 'teacher_id', None) or request.form.get('teacher_id', type=int)
+            teacher = None
+            if teacher_id_val:
+                teacher = Teacher.query.get(teacher_id_val)
+            if not teacher and 'teacher' in normalized_roles:
                 teacher = Teacher.query.filter_by(name=old_full_name).first()
-                if not teacher:
-                    # Try by new name
-                    teacher = Teacher.query.filter_by(name=user_to_edit.full_name).first()
-                
-                if not teacher:
-                    # Create teacher record if it doesn't exist
-                    short_name = (user_to_edit.username or user_to_edit.full_name.split()[0].lower())[:10]
-                    counter = 1
-                    base_short = short_name
-                    while Teacher.query.filter_by(short_name=short_name).first():
-                        short_name = f"{base_short[:10-len(str(counter))]}{counter}"
-                        counter += 1
-                    teacher = Teacher(name=user_to_edit.full_name, short_name=short_name)
-                    db.session.add(teacher)
-                else:
-                    # Update teacher name if it changed
+            if not teacher and 'teacher' in normalized_roles:
+                teacher = Teacher.query.filter_by(name=user_to_edit.full_name).first()
+            if not teacher and 'teacher' in normalized_roles:
+                short_name = (user_to_edit.username or user_to_edit.full_name.split()[0].lower())[:10]
+                counter = 1
+                base_short = short_name
+                while Teacher.query.filter_by(short_name=short_name).first():
+                    short_name = f"{base_short[:10-len(str(counter))]}{counter}"
+                    counter += 1
+                teacher = Teacher(name=user_to_edit.full_name, short_name=short_name, is_external=is_ext_val)
+                db.session.add(teacher)
+            
+            if teacher:
+                user_to_edit.teacher_id = teacher.id  # persist link so next time we use it
+                if 'teacher' in normalized_roles:
                     if teacher.name != user_to_edit.full_name:
                         teacher.name = user_to_edit.full_name
-                
-                # Update designation, institute, call_sign, and bank_account_no
-                designation = request.form.get('designation', '').strip()
-                institute = request.form.get('institute', '').strip()
-                call_sign = request.form.get('call_sign', '').strip()
-                bank_account_no = request.form.get('bank_account_no', '').strip()
-                teacher.designation = designation if designation else None
-                teacher.institute = institute if institute else 'Law Discipline, KU'
-                teacher.call_sign = call_sign if call_sign else None
-                teacher.bank_account_no = bank_account_no if bank_account_no else None
+                    designation = request.form.get('designation', '').strip()
+                    institute = request.form.get('institute', '').strip()
+                    call_sign = request.form.get('call_sign', '').strip()
+                    bank_account_no = request.form.get('bank_account_no', '').strip()
+                    teacher.designation = designation if designation else None
+                    teacher.institute = institute if institute else 'Law Discipline, KU'
+                    teacher.call_sign = call_sign if call_sign else None
+                    teacher.bank_account_no = bank_account_no if bank_account_no else None
+                from sqlalchemy import text
+                db.session.execute(
+                    text("UPDATE teacher SET is_external = :v WHERE id = :id"),
+                    {"v": 1 if is_ext_val else 0, "id": teacher.id}
+                )
+            elif teacher_id_val:
+                from sqlalchemy import text
+                db.session.execute(
+                    text("UPDATE teacher SET is_external = :v WHERE id = :id"),
+                    {"v": 1 if is_ext_val else 0, "id": teacher_id_val}
+                )
             
             db.session.commit()
             flash('User updated successfully.', 'success')
             return redirect(url_for('admin_dashboard'))
         
-        # Get teacher record for display
+        # Get teacher record for display: use user.teacher_id link first (same teacher dashboard shows), else match by name and save link
         current_roles = parse_roles(user_to_edit.role)
         teacher_record = None
         if 'teacher' in current_roles:
-            teacher_record = Teacher.query.filter_by(name=user_to_edit.full_name).first()
+            if getattr(user_to_edit, 'teacher_id', None):
+                teacher_record = Teacher.query.get(user_to_edit.teacher_id)
+            if not teacher_record:
+                teacher_record = Teacher.query.filter_by(name=user_to_edit.full_name).first()
+            if not teacher_record and user_to_edit.full_name:
+                from sqlalchemy import func
+                teacher_record = Teacher.query.filter(
+                    func.trim(Teacher.name) == user_to_edit.full_name.strip()
+                ).first()
+            # If we found teacher by name but user has no link yet, we'll save the link on next POST (when they save)
         
         return render_template(
             'admin_edit_user.html',
@@ -13660,8 +13766,15 @@ def create_app():
                     call_sign=request.form.get('call_sign', '').strip() or None,
                     bank_account_no=request.form.get('bank_account_no', '').strip() or None
                 )
+                try:
+                    if hasattr(teacher, 'is_external'):
+                        teacher.is_external = bool(request.form.get('is_external_teacher'))
+                except Exception:
+                    pass
                 db.session.add(teacher)
-            
+                db.session.flush()
+                if hasattr(user, 'teacher_id'):
+                    user.teacher_id = teacher.id
             db.session.commit()
             flash(f'User "{full_name}" ({username}) created successfully!', 'success')
         except Exception as e:

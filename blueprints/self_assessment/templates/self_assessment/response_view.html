@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}{{ survey_title }} – Response #{{ r.id }}{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('self_assessment.index') }}">Self Assessment</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('self_assessment.survey_responses_list', survey_type=survey_type) }}">{{ survey_title }} – Responses</a></li>
+            <li class="breadcrumb-item active">View Response #{{ r.id }}</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+        <h2 class="mb-0">{{ survey_title }} – Response #{{ r.id }}</h2>
+        <div class="d-flex gap-2">
+            {% if response_type == 'alumni' %}
+            <a href="{{ url_for('self_assessment.alumni_response_pdf', response_id=r.id) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">
+                <i class="fas fa-file-pdf me-1"></i>Download PDF
+            </a>
+            {% else %}
+            <a href="{{ url_for('self_assessment.generic_response_pdf', survey_type=survey_type, response_id=r.id) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">
+                <i class="fas fa-file-pdf me-1"></i>Download PDF
+            </a>
+            {% endif %}
+            <a href="{{ url_for('self_assessment.survey_responses_list', survey_type=survey_type) }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back to list
+            </a>
+        </div>
+    </div>
+
+    <p class="text-muted small mb-4">Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</p>
+
+    {% if response_type == 'alumni' %}
+    {% if alumni_payload %}
+    {# New form: Law Program Accreditation (Parts A–E) #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Optional Identification</h5></div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">Name</td><td>{{ alumni_payload.name or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Batch</td><td>{{ alumni_payload.batch or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Year of Graduation</td><td>{{ alumni_payload.graduation_year or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part A: Employment & Career Relevance (Standard 4)</h5></div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">1. Academic program prepared me well for current profession</td><td>{{ alumni_payload.q1 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">2. Legal knowledge relevant to daily work</td><td>{{ alumni_payload.q2 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">3. Curriculum balanced theory with practical skills</td><td>{{ alumni_payload.q3 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">4. General Education courses helped broaden skills</td><td>{{ alumni_payload.q4 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">5. Ability to adapt to changes in legal landscape</td><td>{{ alumni_payload.q5 or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part B: Attainment of Graduate Attributes (Standard 4 &amp; Discipline Specifics)</h5></div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">6. Legal Research Skills: Ability to find and analyze case law/statutes.</td><td>{{ alumni_payload.q6 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">7. Communication Skills: Oral advocacy and professional writing.</td><td>{{ alumni_payload.q7 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">8. Problem Solving: Ability to apply law to complex factual scenarios.</td><td>{{ alumni_payload.q8 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">9. Ethical Development: Understanding professional ethics and moral responsibility.</td><td>{{ alumni_payload.q9 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">10. ICT Skills: Proficiency in using technology for legal work.</td><td>{{ alumni_payload.q10 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">11. Leadership &amp; Team Spirit: Ability to work in teams and lead initiatives.</td><td>{{ alumni_payload.q11 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">12. Creativity &amp; Innovation: Ability to think outside the box in legal arguments.</td><td>{{ alumni_payload.q12 or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part C: Teaching, Assessment &amp; Environment (Standard 5 &amp; 8)</h5></div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">13. The faculty members were qualified and effective in their teaching methods.</td><td>{{ alumni_payload.q13 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">14. The assessment methods (exams/assignments) were fair and challenged my critical thinking.</td><td>{{ alumni_payload.q14 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">15. Moot Court: The mooting and mock trial exercises were sufficient and useful for my career.</td><td>{{ alumni_payload.q15 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">16. Library/IT: The learning resources (books, journals, computer labs) were adequate during my study.</td><td>{{ alumni_payload.q16 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">17. Co-Curriculars: Participation in debating, clubs, or negotiation role-plays helped mold my personality.</td><td>{{ alumni_payload.q17 or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part D: Institutional Engagement (Standard 6 &amp; 10)</h5></div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">18. The university's Career Placement Cell provided useful guidance for my job search/internship.</td><td>{{ alumni_payload.q18 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">19. I feel a strong sense of connection/belonging to the university.</td><td>{{ alumni_payload.q19 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">20. The Alumni Association is active and provides networking opportunities.</td><td>{{ alumni_payload.q20 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">21. The department seeks feedback from alumni regarding curriculum review and development.</td><td>{{ alumni_payload.q21 or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part E: Qualitative (Open-Ended)</h5></div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">22. Skills/knowledge missing from curriculum</td><td>{{ alumni_payload.q22 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">23. Moot Court/Practical training effectiveness</td><td>{{ alumni_payload.q23 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">24. Major strengths to maintain</td><td>{{ alumni_payload.q24 or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">25. Recommend program? Why or why not?</td><td>{{ alumni_payload.q25 or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+            <h5 class="mb-0">Part A: Alumni Profile & Employment Status</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">Name</td><td>{{ r.name or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Batch</td><td>{{ r.batch or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Year of Graduation</td><td>{{ r.graduation_year or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Degree Completed</td><td>{{ (r.degree_completed | join(', ')) if r.degree_completed else '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Current Designation</td><td>{{ r.current_designation or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Organization</td><td>{{ r.organization or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Employment Sector</td><td>{{ r.employment_sector or '–' }}{{ ' – ' ~ r.employment_sector_other if r.employment_sector_other else '' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Bar Council Enrolled</td><td>{{ 'Yes' if r.is_enrolled else 'No' }}{{ ' – ' ~ r.enrollment_time if r.is_enrolled and r.enrollment_time else '' }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+            <h5 class="mb-0">Part B: Program Assessment (1–5)</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">Curriculum balance (theory & practical)</td><td>{{ r.curriculum_balance or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Knowledge & skills</td><td>{{ r.knowledge_skills or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Critical thinking</td><td>{{ r.critical_thinking or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Ethical values</td><td>{{ r.ethical_values or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Gen Ed usefulness</td><td>{{ r.gen_ed_usefulness or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Assessment methods</td><td>{{ r.assessment_methods or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Moot Court</td><td>{{ r.moot_court or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Library resources</td><td>{{ r.library_resources or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Faculty support</td><td>{{ r.faculty_support or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Career counseling</td><td>{{ r.career_counseling or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Academic calendar</td><td>{{ r.academic_calendar or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Admin staff</td><td>{{ r.admin_staff or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+            <h5 class="mb-0">Part C: Career Progression</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">Time to first job</td><td>{{ r.time_to_first_job or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Job market competitiveness</td><td>{{ r.job_market_competitiveness or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Skills acquired (useful)</td><td>{{ (r.skills_acquired | join(', ')) if r.skills_acquired else '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+            <h5 class="mb-0">Part D: Alumni Engagement & Suggestions</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                <tr><td class="bg-light fw-bold" style="width: 35%;">Beneficial course/activity</td><td>{{ r.beneficial_course_activity or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Alumni Association member</td><td>{% if r.alumni_association_member is none %}–{% elif r.alumni_association_member %}Yes{% else %}No{% endif %}</td></tr>
+                <tr><td class="bg-light fw-bold">How would you like to contribute</td><td>{{ (r.contribute_to_discipline | join(', ')) if r.contribute_to_discipline else '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Curriculum suggestions</td><td>{{ r.curriculum_suggestions or '–' }}</td></tr>
+                <tr><td class="bg-light fw-bold">Other comments</td><td>{{ r.other_comments or '–' }}</td></tr>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+    {% elif survey_type == 'employer' %}
+    {% include 'self_assessment/response_view_employer.html' %}
+    {% elif survey_type == 'student' %}
+    {% include 'self_assessment/response_view_student.html' %}
+    {% elif survey_type == 'faculty' %}
+    {% include 'self_assessment/response_view_faculty.html' %}
+    {% elif survey_type == 'non_academic' %}
+    {% include 'self_assessment/response_view_non_academic.html' %}
+    {% else %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+            <h5 class="mb-0">Survey Response – {{ r.survey_type | upper }}</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-bordered table-sm mb-0">
+                {% for key, value in payload.items() %}
+                <tr>
+                    <td class="bg-light fw-bold" style="width: 35%;">{{ key }}</td>
+                    <td>{% if value is string %}{{ value or '–' }}{% elif value is iterable and value is not string and value is not mapping %}{{ value | join(', ') }}{% else %}{{ value if value is not none else '–' }}{% endif %}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="2" class="text-muted">No data.</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

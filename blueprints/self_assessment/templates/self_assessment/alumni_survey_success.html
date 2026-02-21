@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Survey Submitted{% endblock %}
+
+{% block content %}
+<div class="container my-5 text-center">
+    <div class="card shadow-sm mx-auto" style="max-width: 600px;">
+        <div class="card-body py-5">
+            <div class="mb-4 text-success">
+                <i class="fas fa-check-circle fa-5x"></i>
+            </div>
+            <h2 class="fw-bold text-success mb-3">Thank You!</h2>
+            <p class="lead text-muted">Thinking you for taking the time to complete the Alumni Survey.</p>
+            <p class="text-muted mb-4">Your feedback is invaluable for the continuous improvement of the Law Discipline
+                at Khulna University.</p>
+
+            <a href="{{ url_for('index') }}" class="btn btn-primary">Return to Home</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

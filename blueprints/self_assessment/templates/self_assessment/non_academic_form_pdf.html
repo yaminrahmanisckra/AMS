@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Non-Academic Staff Survey Form (Blank)</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.45in 0.5in 0.65in 0.5in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 8pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 7.5pt; line-height: 1.28; color: #000; }
+        .doc-header { text-align: center; padding: 6pt 0; border-bottom: 2px solid #000; margin-bottom: 5pt; }
+        .doc-title { font-size: 12pt; font-weight: bold; margin-bottom: 2pt; }
+        .doc-subtitle { font-size: 9pt; color: #6c757d; }
+        .intro-box { padding: 6pt 10pt; margin-bottom: 5pt; font-size: 7.5pt; line-height: 1.35; }
+        .intro-box p { margin-bottom: 4pt; }
+        .intro-box p:last-child { margin-bottom: 0; }
+        .section { margin-bottom: 5pt; }
+        .section.part-b, .section.part-c, .section.part-d, .section.part-e, .section.part-f { page-break-before: avoid; }
+        .section-header { background: #f8f9fa; border: 1px solid #dee2e6; padding: 4pt 8pt; margin-bottom: 4pt; font-size: 9pt; font-weight: bold; }
+        .section-note { font-size: 7pt; color: #6c757d; font-style: italic; margin-bottom: 4pt; }
+        .q { margin-bottom: 4pt; }
+        .q-label { font-weight: bold; margin-bottom: 2pt; display: block; }
+        .q-line { border-bottom: 1px solid #333; min-height: 14pt; display: block; margin-top: 2pt; }
+        .q-open { margin-top: 4pt; border: 1px solid #333; min-height: 38pt; padding: 4pt; background: #fafafa; }
+        table.attr-table { width: 100%; border-collapse: collapse; font-size: 6.5pt; margin-top: 4pt; margin-bottom: 6pt; table-layout: fixed; }
+        table.attr-table th, table.attr-table td { border: 1px solid #333; padding: 2pt 4pt; vertical-align: middle; }
+        table.attr-table thead th { font-weight: bold; background: #f0f0f0; text-align: center; }
+        table.attr-table td:first-child { width: 5%; text-align: center; font-weight: bold; }
+        table.attr-table td:nth-child(2) { width: 78%; text-align: left; word-wrap: break-word; overflow-wrap: break-word; }
+        table.attr-table td:nth-child(3) { width: 17%; text-align: center; }
+        .rating-cell { min-height: 16pt; }
+        .thank-you { margin-top: 8pt; margin-bottom: 6pt; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="doc-header">
+        <div class="doc-title">Non-Academic Staff Survey Questionnaire</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+
+    <div class="intro-box">
+        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+        <p><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
+        <p><strong>Scale:</strong> 1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
+    </div>
+
+    <div class="section part-a">
+        <div class="section-header">Optional Identification</div>
+        <p class="q"><span class="q-label">Current Designation:</span> [ ] Deputy Registrar  [ ] Section Officer  [ ] Computer Lab Assistant  [ ] Office Support Staff (MLSS)  [ ] Administrative Officer  [ ] Other: <span class="q-line" style="display: inline-block; min-width: 4em;">&nbsp;</span></p>
+        <p class="q"><span class="q-label">Employment Status:</span> [ ] Full-time  [ ] Part-time</p>
+        <p class="q"><span class="q-label">Years of Service at KU:</span> <span class="q-line" style="display: inline-block; min-width: 4em;">&nbsp;</span></p>
+    </div>
+
+    <div class="section part-b">
+        <div class="section-header">Part A: Job Role &amp; Recruitment (Standard 3 &amp; 7)</div>
+        <p class="section-note">Focus: Clarity of duties and fair hiring.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>1</td><td>Recruitment: The recruitment process for my position was transparent, fair, and merit-based.</td><td class="rating-cell"></td></tr>
+                <tr><td>2</td><td>Job Description: My roles and responsibilities are clearly defined and communicated to me.</td><td class="rating-cell"></td></tr>
+                <tr><td>3</td><td>Code of Conduct: I am fully aware of the Code of Conduct and ethical guidelines for staff.</td><td class="rating-cell"></td></tr>
+                <tr><td>4</td><td>Orientation: I received a proper orientation/induction when I joined the department/institution.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-c">
+        <div class="section-header">Part B: Professional Development &amp; Performance (Standard 7)</div>
+        <p class="section-note">Focus: Training, KPIs, and incentives.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>5</td><td>Training: The institution provides adequate training and workshops to upgrade my professional skills.</td><td class="rating-cell"></td></tr>
+                <tr><td>6</td><td>Performance Evaluation: My performance is evaluated regularly based on clear Key Performance Indicators (KPIs).</td><td class="rating-cell"></td></tr>
+                <tr><td>7</td><td>Feedback: I receive constructive feedback from my supervisors to help me improve my work.</td><td class="rating-cell"></td></tr>
+                <tr><td>8</td><td>Promotion/Incentives: There are opportunities for promotion or incentives based on my performance.</td><td class="rating-cell"></td></tr>
+                <tr><td>9</td><td>Salary: The salary structure and benefits are satisfactory and competitive.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-d">
+        <div class="section-header">Part C: Work Environment &amp; Facilities (Standard 8)</div>
+        <p class="section-note">Focus: Safety, resources, and workload.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>10</td><td>Workload: My workload is reasonable and distributed fairly.</td><td class="rating-cell"></td></tr>
+                <tr><td>11</td><td>Office Space: I have adequate office space and a suitable workstation to perform my duties.</td><td class="rating-cell"></td></tr>
+                <tr><td>12</td><td>Equipment: I have access to necessary equipment (computers, internet, printers) to do my job effectively.</td><td class="rating-cell"></td></tr>
+                <tr><td>13</td><td>Safety: The workplace is safe, secure, and hygienic (including washrooms, prayer rooms, canteen).</td><td class="rating-cell"></td></tr>
+                <tr><td>14</td><td>Technology: The software or IT tools (e.g., student database, library software) I use are up-to-date and functional.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-e">
+        <div class="section-header">Part D: Governance &amp; Institutional Culture (Standard 1 &amp; 2)</div>
+        <p class="section-note">Focus: Leadership and grievances.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>15</td><td>Vision/Mission: I am aware of the Vision and Mission of the institution/department.</td><td class="rating-cell"></td></tr>
+                <tr><td>16</td><td>Leadership: The management is approachable and responsive to staff needs.</td><td class="rating-cell"></td></tr>
+                <tr><td>17</td><td>Grievance Redressal: There is an effective mechanism to address staff grievances or complaints.</td><td class="rating-cell"></td></tr>
+                <tr><td>18</td><td>Respect: I am treated with respect and dignity by faculty members and students.</td><td class="rating-cell"></td></tr>
+                <tr><td>19</td><td>Harassment Policy: I am aware of the policy regarding sexual harassment and know how to report issues.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-f">
+        <div class="section-header">Part E: Qualitative Questions (Open-Ended)</div>
+        <p class="q"><span class="q-label">20. What specific training or skills development programs do you need to perform your job better?</span></p>
+        <p class="section-note">(e.g., IT training, office management, library software, English communication)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">21. What are the main challenges or difficulties you face in your daily work?</span></p>
+        <p class="section-note">(e.g., slow internet, lack of staff, unclear instructions)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">22. Do you have any suggestions for improving the work environment or facilities?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">23. Overall, how satisfied are you with your job at this institution?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="thank-you">Thank you for your valuable contribution.</p>
+    </div>
+</body>
+</html>

@@ -1,16 +1,9 @@
 {% set is_student = 'student' in parse_roles(current_user.role) and not has_teacher_privileges(current_user) %}
-{% if is_student %}
 {% extends "base.html" %}
-{% else %}
-{% extends "routine_management/base.html" %}
-{% endif %}
 
 {% block title %}{% if is_student %}Class Routine{% else %}Routine Maker{% endif %}{% endblock %}
 
 {% block content %}
-{% if is_student %}
-<div class="container my-4">
-{% endif %}
 
 <style>
 /* ============================================
@@ -38,10 +31,11 @@
     --radius-sm: 4px;
     --radius-lg: 12px;
     --transition: all 0.2s ease;
-    --topbar-height: 56px;
-    /* Panel starts below site navbar + margin (aligns with main content) */
-    --routine-content-top: 120px;
-    --course-panel-width: 280px;
+    --toolbar-height: 48px;
+    --topbar-height: 52px;
+    /* Content starts below main app navbar */
+    --routine-content-top: 56px;
+    --course-panel-width: 260px;
 }
 
 * {
@@ -56,144 +50,158 @@ body {
     padding: 0;
 }
 
-/* ============================================
-   MAIN LAYOUT
-   ============================================ */
-
+/* ---- Layout: fresh, simple, compact ---- */
 .routine-app {
     display: flex;
     flex-direction: column;
-    min-height: 70vh;
-    max-height: calc(100vh - 120px);
+    min-height: 60vh;
+    max-height: calc(100vh - 56px);
     overflow: hidden;
     background: var(--bg);
-    position: relative;
     width: 100%;
-    margin: 0;
-    padding: 0;
     box-sizing: border-box;
-    border-radius: var(--radius-lg);
 }
 
-/* ============================================
-   TOP NAVIGATION BAR
-   ============================================ */
-
-.routine-topbar {
-    background: var(--bg-card);
-    border-bottom: 1px solid var(--border);
-    padding: 10px 20px;
+.r-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    box-shadow: var(--shadow);
-    z-index: 1000;
-    position: sticky;
-    top: 0;
-    height: var(--topbar-height);
+    gap: 12px;
+    padding: 8px 16px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
-    box-sizing: border-box;
 }
 
-.topbar-left {
+.r-toolbar-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 10px;
     flex: 1;
     min-width: 0;
 }
 
-.topbar-logo {
-    font-weight: 700;
-    font-size: 18px;
-    color: var(--primary);
-    white-space: nowrap;
-}
+.r-logo { font-weight: 600; font-size: 14px; color: var(--primary); }
+.r-badge { background: var(--primary); color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.r-title { border: 1px solid transparent; padding: 4px 8px; font-size: 13px; font-weight: 600; border-radius: 4px; min-width: 120px; max-width: 200px; }
+.r-title:focus { outline: none; border-color: var(--primary); }
+.r-date { padding: 4px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 4px; width: 130px; }
 
-.topbar-routine-name {
+.r-toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.r-btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); border-radius: 4px; font-size: 12px; cursor: pointer; text-decoration: none; }
+.r-btn:hover { background: var(--bg); border-color: var(--primary); color: var(--primary); }
+.r-btn-pri { background: var(--primary); color: #fff; border-color: var(--primary); }
+.r-btn-pri:hover { background: var(--primary-dark); color: #fff; }
+.r-progress { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
+.progress-bar { width: 60px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--primary); transition: width 0.2s; }
+
+.r-body {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
 }
 
-.routine-name-input {
-    border: none;
-    background: transparent;
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text);
-    padding: 4px 8px;
-    border-radius: var(--radius-sm);
-    min-width: 200px;
-    max-width: 300px;
-}
-
-.routine-name-input:focus {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-    background: var(--bg);
-}
-
-.topbar-badge {
-    background: var(--primary-light);
-        color: white;
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-.topbar-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+/* Higher z-index so panel is above .routine-main (z-index:1) and receives clicks - avoids invisible overlay blocking */
+.r-courses {
+    position: relative;
+    z-index: 2;
+    width: 220px;
+    min-width: 220px;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
 }
 
-.topbar-btn {
-    display: inline-flex;
+.r-courses.collapsed {
+    width: 0;
+    min-width: 0;
+    overflow: hidden;
+    border-right: none;
+}
+
+.r-courses-head {
+    display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.r-courses-close {
+    background: none;
+    border: none;
+    padding: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.r-courses-close:hover { color: var(--text); background: var(--border-light); }
+
+.r-courses-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.r-label { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.r-select {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 13px;
     border: 1px solid var(--border);
+    border-radius: 4px;
     background: var(--bg-card);
     color: var(--text);
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 500;
     cursor: pointer;
-    transition: var(--transition);
-    white-space: nowrap;
-    /* Ensure button is always clickable */
-    pointer-events: auto !important;
-    touch-action: manipulation !important;
-    user-select: none;
-    -webkit-user-select: none;
 }
 
-.topbar-btn:hover {
-    background: var(--bg);
-    border-color: var(--primary);
-    color: var(--primary);
+.r-select:focus { outline: none; border-color: var(--primary); }
+.r-search { width: 100%; padding: 6px 10px; font-size: 12px; border: 1px solid var(--border); border-radius: 4px; }
+.r-search:focus { outline: none; border-color: var(--primary); }
+
+.r-courselist {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
-.topbar-btn-primary {
-    background: var(--primary);
-    color: white;
-    border-color: var(--primary);
+.r-empty { margin: 0; padding: 12px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+.r-main {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
-.topbar-btn-primary:hover {
-    background: var(--primary-dark);
-    border-color: var(--primary-dark);
-}
+.r-fixed-courses { position: fixed; left: 12px; top: 70px; z-index: 150; }
 
-.topbar-btn-icon {
-    font-size: 16px;
-}
+/* Legacy class compatibility */
+.routine-topbar { height: var(--topbar-height); }
+.topbar-left { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.topbar-right { display: flex; align-items: center; gap: 6px; }
+.topbar-btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text); border-radius: 4px; font-size: 13px; cursor: pointer; text-decoration: none; }
+.topbar-btn:hover { background: var(--bg); border-color: var(--primary); color: var(--primary); }
+.topbar-btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.topbar-btn-icon { font-size: 14px; }
+.routine-name-input { border: none; background: transparent; font-size: 14px; font-weight: 600; padding: 4px 8px; min-width: 160px; }
+.routine-date-input { width: 140px; padding: 6px 10px; font-size: 13px; border-radius: 4px; border: 1px solid var(--border); }
 
 /* Ensure PDF button is always clickable */
 #btn-pdf {
@@ -240,223 +248,83 @@ body {
     flex: 1;
     overflow: hidden;
     position: relative;
-    width: 100%;
+    /* Do not use width:100% - it makes this flex child span full container width and paint over the courses panel (z-index), blocking clicks */
     margin: 0;
     padding: 0;
     min-height: 0;
+    min-width: 0;
+    z-index: 1;
 }
 
-/* ============================================
-   COURSE PANEL (SIDEBAR)
-   ============================================ */
-
-.course-panel {
-    width: var(--course-panel-width);
-    min-width: var(--course-panel-width);
-    max-width: var(--course-panel-width);
-    background: var(--bg-card);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
-    z-index: 900;
-    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.06);
-    position: fixed !important;
-    top: var(--routine-content-top) !important;
-    bottom: 0 !important;
-    left: 0 !important;
-    overflow-y: auto;
-    overflow-x: hidden;
-    height: calc(100vh - var(--routine-content-top)) !important;
-    will-change: auto;
-    box-sizing: border-box;
-    border-radius: 0 var(--radius-lg) 0 0;
-}
-
-.course-panel.collapsed {
-    transform: translateX(-100%) !important;
-    position: fixed !important;
-    height: calc(100vh - var(--routine-content-top)) !important;
-    top: var(--routine-content-top) !important;
-}
-
-.course-panel-header {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-card) 100%);
-    flex-shrink: 0;
-}
-
-.course-panel-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.course-panel-toggle {
-    background: none;
-    border: none;
-    color: var(--text-light);
-        cursor: pointer;
-    padding: 4px;
-    border-radius: var(--radius-sm);
-    transition: var(--transition);
-}
-
-.course-panel-toggle:hover {
-    background: var(--border-light);
-    color: var(--text);
-}
-
-.course-panel-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-/* Tab Navigation */
-.view-tabs {
-    display: flex;
-    background: var(--bg);
-    border-radius: var(--radius);
-    padding: 4px;
-    gap: 4px;
-}
-
-.view-tab {
-    flex: 1;
-    padding: 8px 16px;
-    border: none;
-    background: transparent;
-    color: var(--text-light);
-    font-size: 14px;
-    font-weight: 500;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: var(--transition);
-}
-
-.view-tab.active {
-    background: var(--bg-card);
-    color: var(--primary);
-    box-shadow: var(--shadow);
-}
-
-.view-tab:hover:not(.active) {
-    color: var(--text);
-    background: var(--border-light);
-}
-
-/* Search */
-.course-search {
-        position: relative;
-    }
-    
-.course-search-input {
-    width: 100%;
-    padding: 10px 12px 10px 36px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    background: var(--bg-card);
-    color: var(--text);
-    transition: var(--transition);
-}
-
-.course-search-input:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.course-search-icon {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-muted);
-    font-size: 14px;
-}
-
-/* Filter Section */
-.filter-section {
-    display: none;
-}
-
-.filter-section.active {
-    display: block;
-}
-
-.filter-select {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    background: var(--bg-card);
-    color: var(--text);
-    cursor: pointer;
-    transition: var(--transition);
-}
-
-.filter-select:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-/* Course List */
+/* Course list (inside r-courselist) */
 .course-list {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    min-height: 0;
+    gap: 6px;
+    -webkit-overflow-scrolling: touch;
 }
 
 .course-list-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
-    padding: 40px 20px;
+    padding: 16px;
+    min-height: 120px;
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: 13px;
+}
+
+.course-list-empty .course-list-empty-msg {
+    display: block;
+}
+
+.course-list-empty .course-list-empty-icon {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 24px;
+    color: var(--border);
+}
+
+.course-list-empty .course-list-empty-title {
+    display: block;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
 }
 
 /* Course Card */
 .course-card {
     background: var(--bg-card);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-light);
     border-radius: var(--radius);
-    padding: 12px;
+    padding: 10px 12px;
     cursor: grab;
-    transition: var(--transition);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
     position: relative;
     user-select: none;
 }
 
 .course-card:hover {
     border-color: var(--primary);
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
+    transform: translateY(-1px);
 }
 
 .course-card:active {
     cursor: grabbing;
-    transform: scale(0.98);
+    transform: scale(0.99);
 }
 
 .course-card.dragging {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: grabbing;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 
 /* Drag preview styling */
@@ -556,44 +424,26 @@ body {
    ROUTINE TABLE AREA
    ============================================ */
 
-.routine-table-area {
+.routine-table-area,
+.routine-table-area-with-panel {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background: var(--bg);
-    position: relative;
-    /* Ensure proper stacking context */
-    isolation: isolate;
+    min-width: 0;
+    background: var(--bg-card);
 }
 
-/* When panel is visible, add left margin to prevent overlap */
-.routine-table-area-with-panel {
-    margin-left: var(--course-panel-width) !important;
-    padding-left: 16px !important;
-    padding-right: 16px !important;
-    width: calc(100% - var(--course-panel-width)) !important;
-    max-width: none !important;
-    min-width: 0;
-    position: relative;
-    z-index: 1;
-    box-sizing: border-box;
-}
+.routine-table-area { padding-left: 16px; }
+.routine-table-area-with-panel { padding: 0 16px 0 0; }
 
 .routine-table-wrapper {
     flex: 1;
-    overflow: auto;
-    position: relative;
-    padding: 12px 16px;
-    -webkit-overflow-scrolling: touch;
-    isolation: isolate;
-    touch-action: pan-x pan-y;
     min-height: 0;
-    /* Ensure table can scroll horizontally so right columns are not cut off */
-    overflow-x: auto;
-    overflow-y: auto;
-    border-radius: var(--radius-lg);
-    background: var(--bg);
+    min-width: 0;
+    overflow: auto;
+    padding: 6px 0;
+    -webkit-overflow-scrolling: touch;
 }
 
 .routine-table {
@@ -601,12 +451,13 @@ body {
     border-collapse: separate;
     border-spacing: 0;
     background: var(--bg-card);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
+    border-radius: var(--radius);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     min-width: max-content;
     display: table;
     table-layout: auto;
     border: 1px solid var(--border-light);
+    font-size: clamp(9px, 1.1vw, 12px);
 }
 
 .routine-table thead {
@@ -614,7 +465,6 @@ body {
     top: 0;
     z-index: 100;
     background: var(--bg-card);
-    /* Ensure header stays on top */
     will-change: transform;
 }
 
@@ -622,12 +472,12 @@ body {
     background: var(--bg-card);
     color: var(--text);
     font-weight: 600;
-    font-size: 11px;
+    font-size: 9px;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    padding: 10px 8px;
+    letter-spacing: 0.3px;
+    padding: 6px 5px;
     text-align: center;
-    border-bottom: 2px solid var(--border);
+    border-bottom: 1px solid var(--border);
     border-right: 1px solid var(--border-light);
     position: sticky;
     top: 0;
@@ -638,35 +488,35 @@ body {
 .routine-table thead th.day-col {
     background: var(--primary);
     color: white;
-    min-width: 100px;
-    width: 100px;
+    min-width: 64px;
+    width: 64px;
     position: sticky;
     left: 0;
     z-index: 103;
-    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
-    /* Corner cell - highest z-index */
+    box-shadow: 2px 0 3px rgba(0, 0, 0, 0.08);
 }
 
 .routine-table thead th.room-col {
     background: var(--bg);
-    min-width: 88px;
-    width: 88px;
+    min-width: 62px;
+    width: 62px;
     position: sticky;
-    left: 100px;
+    left: 64px;
     z-index: 102;
-    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.08);
+    box-shadow: 2px 0 3px rgba(0, 0, 0, 0.06);
     border-left: 1px solid var(--border-light);
 }
 
 .routine-table thead th.time-col {
-    min-width: 110px;
+    min-width: 82px;
+    max-width: 92px;
     white-space: nowrap;
     background: var(--bg-card);
     z-index: 101;
     background-color: var(--bg-card) !important;
-    font-size: 11px;
-    line-height: 1.3;
-    padding: 10px 6px;
+    font-size: 9px;
+    line-height: 1.25;
+    padding: 6px 4px;
     border-left: 1px solid var(--border-light);
 }
 
@@ -677,8 +527,7 @@ body {
     vertical-align: middle;
     position: relative;
     background: var(--bg-card);
-    transition: var(--transition);
-    /* Ensure cells don't interfere with sticky positioning */
+    transition: background 0.15s ease, border-color 0.15s ease;
     background-clip: padding-box;
 }
 
@@ -686,36 +535,35 @@ body {
     background: var(--primary);
     color: white;
     font-weight: 700;
-    font-size: 14px;
-    padding: 16px 12px;
+    font-size: 11px;
+    padding: 8px 6px;
     text-align: center;
     position: sticky;
     left: 0;
     z-index: 50;
-    border-right: 2px solid var(--primary-dark);
-    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
-    /* Ensure background covers content */
+    border-right: 1px solid var(--primary-dark);
+    box-shadow: 2px 0 3px rgba(0, 0, 0, 0.08);
     background-color: var(--primary) !important;
 }
 
 .routine-table tbody td.room-col {
     background: var(--bg);
     font-weight: 600;
-    font-size: 13px;
-    padding: 12px 8px;
+    font-size: 10px;
+    padding: 6px 5px;
     position: sticky;
-    left: 100px;
+    left: 64px;
     z-index: 49;
-    border-right: 2px solid var(--border);
-    box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
-    /* Ensure background covers content */
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 3px rgba(0, 0, 0, 0.06);
     background-color: var(--bg) !important;
 }
 
 .routine-table tbody td.slot-cell {
-    min-height: 60px;
-    height: 60px;
-    padding: 4px;
+    min-height: 44px;
+    height: 44px;
+    padding: 2px;
+    transition: background 0.15s ease, border-color 0.15s ease;
     {% if can_edit %}
     cursor: pointer;
     {% else %}
@@ -736,7 +584,7 @@ body {
     cursor: default;
     touch-action: pan-x pan-y;
     {% endif %}
-    padding: 6px;
+    padding: 4px;
 }
 
 .routine-table tbody td.slot-cell.has-class:active {
@@ -746,10 +594,11 @@ body {
 .routine-table tbody td.slot-cell.lunch-cell {
     background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
     font-weight: 600;
-    font-size: 11px;
+    font-size: 9px;
     color: #854d0e;
     text-transform: uppercase;
     border-left: 1px solid #fde047;
+    padding: 4px;
 }
 
 .routine-table tbody td.slot-cell.drag-over {
@@ -852,30 +701,30 @@ body.fullscreen-active .routine-table {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    padding: 4px;
+    gap: 0;
+    padding: 2px 4px;
     box-sizing: border-box;
 }
 
 .slot-course-code {
     font-weight: 700;
-    font-size: 13px;
+    font-size: 10px;
     color: var(--text);
     font-family: 'Courier New', monospace;
-        line-height: 1.2;
-    }
-    
+    line-height: 1.15;
+}
+
 .slot-teacher {
-    font-size: 11px;
+    font-size: 9px;
     color: var(--text-light);
-    line-height: 1.2;
+    line-height: 1.15;
 }
 
 .slot-batch {
-    font-size: 10px;
+    font-size: 8px;
     color: var(--text-muted);
-        margin-top: 2px;
-    }
+    margin-top: 0;
+}
 
 /* Batch color ribbon at bottom of cell */
 .batch-color-ribbon {
@@ -883,21 +732,21 @@ body.fullscreen-active .routine-table {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 4px;
-    border-radius: 0 0 6px 6px;
+    height: 3px;
+    border-radius: 0 0 4px 4px;
 }
-    
+
 .slot-empty {
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 10px;
 }
 
 .slot-delete-btn {
     position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 20px;
-    height: 20px;
+    top: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
     border: none;
     background: rgba(239, 68, 68, 0.9);
     color: white;
@@ -1127,7 +976,7 @@ body.fullscreen-active .routine-table {
     .routine-table-area-with-panel {
         width: 100% !important;
         margin-left: 0 !important;
-        padding-left: 16px !important;
+        padding-left: 20px !important;
     }
     
     .course-panel-toggle {
@@ -1186,8 +1035,8 @@ body.fullscreen-active .routine-table {
     }
     
     .routine-table tbody td.slot-cell {
-        min-height: 50px;
-        height: 50px;
+        min-height: 40px;
+        height: 40px;
     }
 }
 
@@ -1294,10 +1143,10 @@ body.fullscreen-active .routine-table {
 .mb-1 { margin-bottom: 8px; }
 .mb-2 { margin-bottom: 16px; }
 
-/* Scrollbar Styling */
+/* Scrollbar – smooth, minimal */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -1306,103 +1155,65 @@ body.fullscreen-active .routine-table {
 
 ::-webkit-scrollbar-thumb {
     background: var(--border);
-    border-radius: 4px;
+    border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
-    }
+}
 
 </style>
 
 <div class="routine-app">
-    <!-- Top Navigation Bar -->
-    <div class="routine-topbar">
-        <div class="topbar-left">
-            <div class="topbar-logo">KU Law</div>
-            <div class="topbar-routine-name">
-                        {% if current_saved_routine %}
-                <div class="topbar-badge">
-                    <i class="fas fa-calendar-alt"></i> {{ current_saved_routine.year }}{% if current_saved_routine.name and current_saved_routine.name != current_saved_routine.year %} - {{ current_saved_routine.name }}{% endif %}
-                        </div>
-                        {% endif %}
-                <input type="text" id="routine-title" class="routine-name-input" placeholder="Routine Title" value="Class Routine">
-            </div>
-            <input type="date" id="effective-date" class="form-control" style="width: 160px; padding: 6px 12px;">
+    <!-- Toolbar -->
+    <header class="r-toolbar">
+        <div class="r-toolbar-left">
+            <span class="r-logo">KU Law</span>
+            {% if current_saved_routine %}
+            <span class="r-badge">{{ current_saved_routine.year }}{% if current_saved_routine.name and current_saved_routine.name != current_saved_routine.year %} {{ current_saved_routine.name }}{% endif %}</span>
+            {% endif %}
+            <input type="text" id="routine-title" class="r-title" placeholder="Class Routine" value="Class Routine">
+            <input type="date" id="effective-date" class="r-date">
         </div>
-        <div class="topbar-right">
-                        {% if can_edit %}
-            <div class="progress-indicator" id="progress-indicator" style="display: none;">
-                <span id="progress-text">0%</span>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
-                </div>
-            </div>
-            <button class="topbar-btn topbar-btn-primary" id="btn-save">
-                <i class="fas fa-save topbar-btn-icon"></i> Save
-                        </button>
-            <button class="topbar-btn" id="btn-time-slots" title="Manage Time Slots">
-                <i class="fas fa-clock topbar-btn-icon"></i>
-                        </button>
-            <button class="topbar-btn" id="btn-custom-entry" title="Add Custom Entry">
-                <i class="fas fa-plus topbar-btn-icon"></i>
-                        </button>
-                        {% endif %}
-            <button class="topbar-btn" id="btn-pdf" type="button" onclick="if(window.RoutineManager && window.RoutineManager.downloadPDF) { window.RoutineManager.downloadPDF(); } else { console.error('RoutineManager not ready'); alert('Please wait for page to load. If problem persists, refresh the page.'); }">
-                <i class="fas fa-file-pdf topbar-btn-icon"></i> PDF
-                        </button>
-            <button class="topbar-btn" id="btn-fullscreen" title="Fullscreen View">
-                <i class="fas fa-expand topbar-btn-icon"></i>
-            </button>
-            <a href="{{ url_for('routine_management.index') if can_edit else url_for('routine_management.public_routines') }}" class="topbar-btn">
-                <i class="fas fa-arrow-left topbar-btn-icon"></i> Back
-            </a>
-                    </div>
-                </div>
-
-    <!-- Course Panel (Sidebar) - Outside routine-main -->
-    {% if can_edit %}
-    <div class="course-panel" id="course-panel">
-        <div class="course-panel-header">
-            <div class="course-panel-title">
-                <i class="fas fa-book"></i> Courses
-            </div>
-            <button class="course-panel-toggle" id="course-panel-close" title="Close Panel">
-                <i class="fas fa-times"></i>
-            </button>
+        <div class="r-toolbar-right">
+            {% if can_edit %}
+            <div class="r-progress" id="progress-indicator" style="display: none;"><span id="progress-text">0%</span><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width: 0%"></div></div></div>
+            <button type="button" class="r-btn r-btn-pri" id="btn-save"><i class="fas fa-save"></i> Save</button>
+            <button type="button" class="r-btn" id="btn-time-slots" title="Time Slots"><i class="fas fa-clock"></i></button>
+            <button type="button" class="r-btn" id="btn-custom-entry" title="Add Entry"><i class="fas fa-plus"></i></button>
+            {% endif %}
+            <button type="button" class="r-btn" id="btn-pdf" onclick="if(window.RoutineManager&&window.RoutineManager.downloadPDF){window.RoutineManager.downloadPDF();}else{alert('Please wait for page to load.');}"><i class="fas fa-file-pdf"></i> PDF</button>
+            <button type="button" class="r-btn" id="btn-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i></button>
+            <a href="{{ url_for('routine_management.index') if can_edit else url_for('routine_management.public_routines') }}" class="r-btn" title="Back"><i class="fas fa-arrow-left"></i> Back</a>
         </div>
-        <div class="course-panel-body">
-            <!-- Search -->
-            <div class="course-search">
-                <i class="fas fa-search course-search-icon"></i>
-                <input type="text" id="course-search-input" class="course-search-input" placeholder="Search courses...">
-            </div>
+    </header>
 
-            <!-- Batch Filter -->
-            <div class="filter-section active" id="batch-filter-section">
-                <select class="filter-select" id="batch-select">
-                    <option value="">-- Select Batch --</option>
-                </select>
-            </div>
-
-            <!-- Course List -->
-            <div class="course-list" id="courses-list">
-                <div class="course-list-empty">Select a batch to view courses</div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-    {% if not can_edit %}
-    <button class="topbar-btn topbar-btn-primary" id="course-panel-toggle" style="position: fixed; left: 16px; top: 80px; z-index: 150; display: none; box-shadow: var(--shadow-md);">
-        <i class="fas fa-book"></i> Courses
-    </button>
-    {% endif %}
-
-    <!-- Main Content Area -->
-    <div class="routine-main">
-        <!-- Routine Table Area -->
+    <!-- Body: Courses panel (left) + Table (right) - simple flex, no fixed/overlay -->
+    <div class="r-body">
         {% if can_edit %}
-        <div class="routine-table-area routine-table-area-with-panel">
+        <aside class="r-courses course-panel" id="course-panel">
+            <div class="r-courses-head">
+                <span>Courses</span>
+                <button type="button" class="r-courses-close course-panel-toggle" id="course-panel-close" title="Close"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="r-courses-inner">
+                <label for="batch-select" class="r-label">Batch</label>
+                <select id="batch-select" class="r-select">
+                    <option value="">Select batch</option>
+                    <option value="2026">2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                </select>
+                <input type="text" id="course-search-input" class="r-search" placeholder="Search courses">
+                <div class="r-courselist" id="courses-list">
+                    <div class="course-list-empty"><span class="course-list-empty-msg">Select a batch to see courses.</span></div>
+                </div>
+            </div>
+        </aside>
+        {% endif %}
+        <main class="r-main routine-main">
+        {% if can_edit %}
+        <div class="r-table-wrap routine-table-area routine-table-area-with-panel">
             <div class="routine-table-wrapper">
                 <table class="routine-table" id="routine-table">
                         <thead>
@@ -1487,8 +1298,12 @@ body.fullscreen-active .routine-table {
             </div>
         </div>
         {% endif %}
-            </div>
-                    </div>
+        </main>
+    </div>
+
+    {% if not can_edit %}
+    <button type="button" class="r-btn r-fixed-courses" id="course-panel-toggle" style="display: none;"><i class="fas fa-book"></i> Courses</button>
+    {% endif %}
                     
 <!-- Time Slot Manager Modal -->
 <div class="modal-overlay" id="time-slot-modal">
@@ -1501,7 +1316,7 @@ body.fullscreen-active .routine-table {
             <div class="form-group">
                 <label class="form-label">Time Slots</label>
                 <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
-                    <i class="fas fa-utensils" style="color: #F59E0B;"></i> Click the lunch icon to set lunch time after a slot
+                    <i class="fas fa-utensils" style="color: #F59E0B;"></i> Lunch break after a slot &nbsp;|&nbsp; <i class="fas fa-hands-praying" style="color: #059669;"></i> Prayer break after a slot
                 </p>
                 <div id="time-slots-list" style="margin-bottom: 16px;"></div>
                 <div style="display: flex; gap: 8px;">
@@ -1590,6 +1405,7 @@ const RoutineManager = {
     // Configuration
     config: {
         canEdit: {{ 'true' if can_edit else 'false' }},
+        apiBase: {{ url_for('routine_management.index') | tojson }}.replace(/\/$/, ''),
         days: {{ days | tojson }},
         timeSlots: {{ time_slots | tojson }},
         rooms: {{ rooms | map(attribute='id') | list | tojson }},
@@ -1608,7 +1424,9 @@ const RoutineManager = {
         conflicts: [],
         hasUnsavedChanges: false,
         batchColorMap: {},  // Cache for batch colors
-        lunchAfterSlotIndex: 3,  // Default: lunch after 4th slot (index 3)
+        lunchAfterSlotIndex: {{ lunch_after_slot | default(3, true) }},  // Default: break after slot index
+        breakType: {{ break_type | default('lunch', true) | tojson }},     // 'lunch' | 'prayer' - label for the break
+        breakTimeLabel: {{ break_time_label | default('01:00 PM - 02:00 PM', true) | tojson }},  // Editable break time (Prayer/Lunch)
         isFullscreen: false
     },
 
@@ -1691,7 +1509,15 @@ const RoutineManager = {
         
         // Load batches for course panel (if user can edit)
         if (this.config.canEdit) {
-            this.loadBatches();
+            if (this.elements.batchSelect) {
+                this.loadBatches();
+            } else {
+                var self = this;
+                setTimeout(function() {
+                    self.cacheElements();
+                    if (self.elements.batchSelect) self.loadBatches();
+                }, 100);
+            }
         }
         
         // Load routine data based on context:
@@ -1880,7 +1706,6 @@ const RoutineManager = {
             coursePanelClose: document.getElementById('course-panel-close'),
             courseSearch: document.getElementById('course-search-input'),
             batchSelect: document.getElementById('batch-select'),
-            batchFilterSection: document.getElementById('batch-filter-section'),
             coursesList: document.getElementById('courses-list'),
             
             // Routine table
@@ -1995,8 +1820,20 @@ const RoutineManager = {
             });
         }
 
-        // Filters
+        // Batch select: load options on first click/focus if not yet loaded; on change load courses
         if (this.elements.batchSelect) {
+            this.elements.batchSelect.addEventListener('focus', () => {
+                var opts = this.elements.batchSelect.options;
+                if (opts.length === 1 && !this.elements.batchSelect.disabled) {
+                    this.loadBatches();
+                }
+            });
+            this.elements.batchSelect.addEventListener('click', () => {
+                var opts = this.elements.batchSelect.options;
+                if (opts.length === 1 && !this.elements.batchSelect.disabled) {
+                    this.loadBatches();
+                }
+            });
             this.elements.batchSelect.addEventListener('change', () => {
                 const batch = this.elements.batchSelect.value;
                 if (batch) {
@@ -2078,74 +1915,130 @@ const RoutineManager = {
         }
     },
     
-    // Load batches
-    loadBatches: function() {
+    // Load batches (always ensure dropdown has options so click works)
+    loadBatches: function(retryCount) {
         if (!this.elements.batchSelect) return;
-        
+        retryCount = retryCount || 0;
         this.elements.batchSelect.innerHTML = '<option value="">Loading...</option>';
         this.elements.batchSelect.disabled = true;
         
-        fetch('/routine-management/api/batches')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+        var self = this;
+        function setDefaultBatches() {
+            var y = new Date().getFullYear();
+            var opts = ['', y + '', (y-1) + '', (y-2) + ''];
+            self.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
+            opts.shift();
+            opts.forEach(function(b) {
+                var opt = document.createElement('option');
+                opt.value = b;
+                opt.textContent = b;
+                self.elements.batchSelect.appendChild(opt);
+            });
+            self.elements.batchSelect.disabled = false;
+        }
+        
+        var base = (this.config.apiBase || '').replace(/\/$/, '') || '/routine-management';
+        var url = base + '/api/batches';
+        
+        fetch(url, { credentials: 'same-origin' })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Could not load batches');
                 return response.json();
             })
-            .then(data => {
+            .then(function(data) {
                 if (data.success && data.batches && data.batches.length > 0) {
-                    this.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
-                    data.batches.forEach(batch => {
-                        const option = document.createElement('option');
-                        option.value = batch;
-                        option.textContent = batch;
-                        this.elements.batchSelect.appendChild(option);
+                    self.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
+                    data.batches.forEach(function(b) {
+                        var option = document.createElement('option');
+                        option.value = b;
+                        option.textContent = b;
+                        self.elements.batchSelect.appendChild(option);
                     });
-                    console.log('Loaded batches:', data.batches);
                 } else {
-                    // No batches found - show helpful message
-                    this.elements.batchSelect.innerHTML = '<option value="">No batches found</option>';
-                    console.warn('No batches returned from API:', data);
+                    setDefaultBatches();
                 }
-                this.elements.batchSelect.disabled = false;
+                self.elements.batchSelect.disabled = false;
             })
-            .catch(error => {
+            .catch(function(error) {
                 console.error('Error loading batches:', error);
-                this.elements.batchSelect.innerHTML = '<option value="">Error loading batches</option>';
-                this.elements.batchSelect.disabled = false;
+                setDefaultBatches();
+                if (retryCount === 0) {
+                    setTimeout(function() { self.loadBatches(1); }, 1500);
+                }
             });
     },
 
     // Load batch courses
     loadBatchCourses: function(batch) {
         if (!this.elements.coursesList) return;
-        this.elements.coursesList.innerHTML = '<div class="course-list-empty"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+        if (!batch || String(batch).trim() === '') {
+            this.showEmptyState();
+            return;
+        }
+        this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">Loading...</span></div>';
         
-        fetch(`/routine-management/api/courses/batch-wise?batch=${encodeURIComponent(batch)}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.courses_by_batch && data.courses_by_batch[batch]) {
-                    this.displayCourses(data.courses_by_batch[batch] || []);
-                } else {
-                    // Fallback to old API
-        fetch(`/routine-management/api/courses-by-batch?batch=${encodeURIComponent(batch)}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                                this.displayCourses(data.courses || []);
-                } else {
-                                this.showError('Error loading courses');
+        const base = (this.config.apiBase || '').replace(/\/$/, '') || '/routine-management';
+        const url = base + '/api/courses/batch-wise?batch=' + encodeURIComponent(batch);
+        
+        fetch(url, { credentials: 'same-origin' })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().catch(() => ({ success: false, message: 'Server error' })).then(data => {
+                        throw new Error(data.message || 'Failed to load courses');
+                    });
                 }
+                return response.json();
+            })
+            .then(data => {
+                if (!data || typeof data !== 'object') {
+                    this.displayCourses([]);
+                    return;
+                }
+                if (data.success && data.courses_by_batch && batch in data.courses_by_batch) {
+                    const list = data.courses_by_batch[batch];
+                    this.displayCourses(Array.isArray(list) ? list : []);
+                    return;
+                }
+                if (data.success && data.courses && Array.isArray(data.courses)) {
+                    this.displayCourses(data.courses);
+                    return;
+                }
+                if (data.success && (!data.courses_by_batch || !(batch in data.courses_by_batch))) {
+                    this.displayCourses([]);
+                    return;
+                }
+                return this.fetchFallbackCourses(batch);
             })
             .catch(error => {
-                            console.error('Error:', error);
-                            this.showError('Error loading courses');
-                        });
+                console.error('Error loading courses:', error);
+                this.fetchFallbackCourses(batch).catch(() => {
+                    this.showError(error.message || 'Error loading courses');
+                });
+            });
+    },
+
+    fetchFallbackCourses: function(batch) {
+        if (!this.elements.coursesList) return Promise.resolve();
+        const base = (this.config.apiBase || '').replace(/\/$/, '') || '/routine-management';
+        const url = base + '/api/courses-by-batch?batch=' + encodeURIComponent(batch);
+        return fetch(url, { credentials: 'same-origin' })
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.success && data.courses_by_batch && batch in data.courses_by_batch) {
+                    const list = data.courses_by_batch[batch];
+                    this.displayCourses(Array.isArray(list) ? list : []);
+                } else if (data && data.success && Array.isArray(data.courses)) {
+                    this.displayCourses(data.courses);
+                } else if (data && data.success) {
+                    this.displayCourses([]);
+                } else {
+                    this.showError((data && data.message) || 'Error loading courses');
                 }
             })
-            .catch(error => {
-                console.error('Error:', error);
+            .catch(err => {
+                console.error('Fallback API error:', err);
                 this.showError('Error loading courses');
+                throw err;
             });
     },
 
@@ -2153,7 +2046,7 @@ const RoutineManager = {
     displayCourses: function(courses) {
         if (!this.elements.coursesList) return;
         if (!courses || courses.length === 0) {
-            this.elements.coursesList.innerHTML = '<div class="course-list-empty">No courses found</div>';
+            this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">No courses for this batch.</span></div>';
             return;
         }
 
@@ -2172,16 +2065,16 @@ const RoutineManager = {
 
     // Create course card
     createCourseCard: function(course) {
-        if (!course || !course.assigned_id || !course.course_code) {
-            return null;
-        }
+        if (!course) return null;
+        const code = (course.course_code || '').trim();
+        if (!code) return null;
+        const courseId = String(course.assigned_id || course.id || `temp_${code}_${course.batch || ''}`).trim();
         
         const card = document.createElement('div');
         card.className = 'course-card';
         card.draggable = this.config.canEdit;
         
         // Store course data
-        const courseId = String(course.assigned_id || '').trim();
         card.dataset.courseId = courseId;
         card.dataset.courseCode = course.course_code || '';
         card.dataset.courseName = course.course_name || '';
@@ -2317,13 +2210,13 @@ const RoutineManager = {
     // Show empty state
     showEmptyState: function() {
         if (!this.elements.coursesList) return;
-        this.elements.coursesList.innerHTML = '<div class="course-list-empty">Select a filter to view courses</div>';
+        this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">Select a batch above to see courses.</span></div>';
     },
 
     // Show error
     showError: function(message) {
         if (!this.elements.coursesList) return;
-        this.elements.coursesList.innerHTML = `<div class="course-list-empty" style="color: var(--error);">${message}</div>`;
+        this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg" style="color: var(--error);">' + (message || 'Error') + '</span></div>';
     },
     
     // Setup drag and drop
@@ -3013,16 +2906,23 @@ const RoutineManager = {
                 this.state.routine = {};
                 this.state.placedCourses = {};
                 
-                // Clear all cells first
-                this.updateRoutineDisplay();
+                // 1. Restore time slots and break settings FIRST so table structure matches saved data
+                if (data.time_slots && Array.isArray(data.time_slots) && data.time_slots.length > 0) {
+                    this.updateTimeSlotsInTable(data.time_slots);
+                }
+                this.state.lunchAfterSlotIndex = data.lunch_after_slot != null ? data.lunch_after_slot : 3;
+                this.state.breakType = (data.break_type || 'lunch').trim() || 'lunch';
+                this.state.breakTimeLabel = (data.break_time_label || '01:00 PM - 02:00 PM').trim() || '01:00 PM - 02:00 PM';
                 
                 if (data.routine && Array.isArray(data.routine) && data.routine.length > 0) {
                     console.log(`Processing ${data.routine.length} routine entries`);
                     
                     data.routine.forEach(item => {
-                        const key = `${item.day}|${item.slot}|${item.room_id}`;
-                        const cell = document.querySelector(`.slot-cell[data-day="${item.day}"][data-slot="${item.slot}"][data-room="${item.room_id}"]`);
-                        
+                        let cell = document.querySelector(`.slot-cell[data-day="${item.day}"][data-slot="${item.slot}"][data-room="${item.room_id}"]`);
+                        if (!cell && item.room_number) {
+                            cell = document.querySelector(`.slot-cell[data-day="${item.day}"][data-slot="${item.slot}"][data-room-name="${item.room_number}"]`);
+                        }
+                        const key = cell ? this.getSlotKey(cell) : `${item.day}|${item.slot}|${item.room_id}`;
                         // For non-editors, store data even if cell doesn't exist (table is hidden)
                         if (cell || !this.config.canEdit) {
                             const assignedId = item.assigned_id ? String(item.assigned_id).trim() : '';
@@ -3053,14 +2953,14 @@ const RoutineManager = {
                             if (isCustom || item.custom_course_name) {
                                 console.log('Loading entry (custom check):', {
                                     is_custom_raw: item.is_custom,
-                                    is_custom_type: typeof item.is_custom,
                                     isCustom_processed: isCustom,
                                     course_code: item.course_code,
                                     custom_course_name: item.custom_course_name,
                                     final_courseCode: courseCode,
-                                    day: day,
-                                    slot: slot,
-                                    room: roomName
+                                    day: item.day,
+                                    slot: item.slot,
+                                    room_id: item.room_id,
+                                    key: key
                                 });
                             }
                             
@@ -3343,17 +3243,20 @@ const RoutineManager = {
                 localStorage.removeItem('routine_autosave');
                 RoutineManager.state.hasUnsavedChanges = false;
                 
-                // Show success message with details
+                // Show success message with details (if some entries failed, show first error so user can fix)
                 const successMsg = document.createElement('div');
-                successMsg.style.cssText = 'position: fixed; top: 80px; right: 20px; background: var(--success); color: white; padding: 12px 20px; border-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 3000; max-width: 400px;';
+                successMsg.style.cssText = 'position: fixed; top: 80px; right: 20px; background: var(--success); color: white; padding: 12px 20px; border-radius: var(--radius); box-shadow: var(--shadow-lg); z-index: 3000; max-width: 480px;';
                 let message = data.message || 'Routine saved successfully!';
                 if (data.entries_saved !== undefined) {
-                    message += ` (${data.entries_saved} entries)`;
+                    message += ' (' + data.entries_saved + ' entries)';
                 }
                 if (data.errors && data.errors.length > 0) {
-                    message += `\n${data.errors.length} entries had errors.`;
+                    message += '\n' + data.errors.length + ' entries had errors.';
+                    if (data.errors[0]) {
+                        message += '\nFirst error: ' + data.errors[0];
+                    }
                 }
-                successMsg.textContent = message;
+                successMsg.innerHTML = message.replace(/\n/g, '<br>');
                 document.body.appendChild(successMsg);
                 setTimeout(() => {
                     successMsg.style.opacity = '0';
@@ -3462,7 +3365,9 @@ const RoutineManager = {
         const params = new URLSearchParams({
             title: title,
             date: date,
-            lunch_after_slot: this.state.lunchAfterSlotIndex || 3
+            lunch_after_slot: this.state.lunchAfterSlotIndex || 3,
+            break_time: this.state.breakTimeLabel || '01:00 PM - 02:00 PM',
+            break_type: this.state.breakType || 'lunch'
         });
         if (this.config.savedRoutineId) {
             params.append('saved_routine_id', this.config.savedRoutineId);
@@ -3564,17 +3469,27 @@ const RoutineManager = {
         list.innerHTML = '';
 
         currentSlots.forEach((slot, index) => {
-            const isLunchAfter = (this.state.lunchAfterSlotIndex === index);
+            const isBreakAfter = (this.state.lunchAfterSlotIndex === index);
+            const isLunch = this.state.breakType === 'lunch';
+            const isPrayer = this.state.breakType === 'prayer';
             const item = document.createElement('div');
             item.className = 'course-card';
             item.style.marginBottom = '4px';
+            item.dataset.slotIndex = index;
             item.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
-                    <span style="flex: 1;">${slot}</span>
+                <div class="time-slot-row" style="display: flex; align-items: center; justify-content: space-between; padding: 4px 0;">
+                    <span class="time-slot-label" style="flex: 1;">${slot}</span>
                     <div style="display: flex; gap: 4px; align-items: center;">
-                        <button class="topbar-btn lunch-select-btn" style="padding: 4px 8px; ${isLunchAfter ? 'background: #F59E0B; color: white;' : ''}" 
+                        <button class="topbar-btn lunch-select-btn" style="padding: 4px 8px; ${isBreakAfter && isLunch ? 'background: #F59E0B; color: white;' : ''}" 
                                 onclick="RoutineManager.setLunchAfterSlot(${index})" title="Set lunch break after this slot">
                             <i class="fas fa-utensils"></i>
+                        </button>
+                        <button class="topbar-btn prayer-select-btn" style="padding: 4px 8px; ${isBreakAfter && isPrayer ? 'background: #059669; color: white;' : ''}" 
+                                onclick="RoutineManager.setPrayerAfterSlot(${index})" title="Set prayer break after this slot">
+                            <i class="fas fa-hands-praying"></i>
+                        </button>
+                        <button class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.editTimeSlot(${index})" title="Edit time slot">
+                            <i class="fas fa-edit"></i>
                         </button>
                         <button class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.moveTimeSlot(${index}, 'up')" ${index === 0 ? 'disabled' : ''}>
                             <i class="fas fa-arrow-up"></i>
@@ -3590,12 +3505,23 @@ const RoutineManager = {
             `;
             list.appendChild(item);
             
-            // Show lunch indicator after the selected slot
-            if (isLunchAfter) {
-                const lunchIndicator = document.createElement('div');
-                lunchIndicator.style.cssText = 'background: linear-gradient(90deg, #FEF3C7, #FDE68A); padding: 6px 12px; margin: 4px 0 8px 0; border-radius: 6px; text-align: center; font-size: 12px; color: #92400E; font-weight: 500;';
-                lunchIndicator.innerHTML = '<i class="fas fa-utensils"></i> LUNCH BREAK';
-                list.appendChild(lunchIndicator);
+            // Show break indicator after the selected slot (with Edit time button)
+            if (isBreakAfter) {
+                const breakIndicator = document.createElement('div');
+                breakIndicator.className = 'break-time-row';
+                breakIndicator.dataset.breakRow = '1';
+                breakIndicator.style.cssText = (isPrayer 
+                    ? 'background: linear-gradient(90deg, #D1FAE5, #A7F3D0); padding: 6px 12px; margin: 4px 0 8px 0; border-radius: 6px; font-size: 12px; color: #065F46; font-weight: 500;'
+                    : 'background: linear-gradient(90deg, #FEF3C7, #FDE68A); padding: 6px 12px; margin: 4px 0 8px 0; border-radius: 6px; font-size: 12px; color: #92400E; font-weight: 500;') + ' display: flex; align-items: center; justify-content: space-between; gap: 8px;';
+                const breakLabel = isPrayer ? '<i class="fas fa-hands-praying"></i> Prayer Break' : '<i class="fas fa-utensils"></i> LUNCH BREAK';
+                const breakTime = this.state.breakTimeLabel || '01:00 PM - 02:00 PM';
+                breakIndicator.innerHTML = `
+                    <span>${breakLabel} <span class="break-time-text" style="opacity: 0.9;">(${breakTime})</span></span>
+                    <button type="button" class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.editBreakTime()" title="Edit break time">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                `;
+                list.appendChild(breakIndicator);
             }
         });
 
@@ -3605,14 +3531,149 @@ const RoutineManager = {
     // Set lunch after a specific slot
     setLunchAfterSlot: function(index) {
         this.state.lunchAfterSlotIndex = index;
+        this.state.breakType = 'lunch';
         
-        // Get current time slots and rebuild table with new lunch position
         const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
             .map(th => th.textContent.trim());
         this.updateTimeSlotsInTable(currentSlots);
         
-        this.showTimeSlotManager(); // Refresh modal
-        this.autoSave(); // Mark as changed
+        this.showTimeSlotManager();
+        this.autoSave();
+    },
+
+    // Set prayer break after a specific slot
+    setPrayerAfterSlot: function(index) {
+        this.state.lunchAfterSlotIndex = index;
+        this.state.breakType = 'prayer';
+        
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        this.updateTimeSlotsInTable(currentSlots);
+        
+        this.showTimeSlotManager();
+        this.autoSave();
+    },
+
+    // Edit existing time slot (inline edit in modal)
+    editTimeSlot: function(index) {
+        const list = document.getElementById('time-slots-list');
+        const row = list.querySelector(`[data-slot-index="${index}"]`);
+        if (!row) return;
+        
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        const oldSlot = currentSlots[index];
+        
+        const timeSlotRow = row.querySelector('.time-slot-row');
+        if (!timeSlotRow) return;
+        
+        const labelEl = timeSlotRow.querySelector('.time-slot-label');
+        const buttonsEl = timeSlotRow.nextElementSibling || timeSlotRow.parentElement.querySelector('div:last-child');
+        const origHtml = timeSlotRow.innerHTML;
+        
+        timeSlotRow.innerHTML = `
+            <input type="text" class="form-control time-slot-edit-input" value="${oldSlot.replace(/"/g, '&quot;')}" style="flex: 1; margin-right: 8px; padding: 4px 8px;">
+            <button class="topbar-btn" style="padding: 4px 8px; background: var(--success); color: white;" onclick="RoutineManager.saveTimeSlotEdit(${index})"><i class="fas fa-check"></i></button>
+            <button class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.cancelTimeSlotEdit(${index})"><i class="fas fa-times"></i></button>
+        `;
+        
+        const input = timeSlotRow.querySelector('.time-slot-edit-input');
+        if (input) {
+            input.focus();
+            input.select();
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') RoutineManager.saveTimeSlotEdit(index);
+                if (e.key === 'Escape') RoutineManager.cancelTimeSlotEdit(index);
+            });
+        }
+    },
+
+    saveTimeSlotEdit: function(index) {
+        const list = document.getElementById('time-slots-list');
+        const row = list.querySelector(`[data-slot-index="${index}"]`);
+        if (!row) return;
+        
+        const input = row.querySelector('.time-slot-edit-input');
+        const newSlot = input && input.value.trim();
+        if (!newSlot) return;
+        
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        const oldSlot = currentSlots[index];
+        
+        if (newSlot === oldSlot) {
+            this.showTimeSlotManager();
+            return;
+        }
+        const rest = currentSlots.filter((_, i) => i !== index);
+        if (rest.includes(newSlot)) {
+            alert('This time slot already exists');
+            return;
+        }
+        
+        // Update routine keys: oldSlot -> newSlot
+        const newRoutine = {};
+        Object.keys(this.state.routine).forEach(key => {
+            const parts = key.split('|');
+            if (parts[1] === oldSlot) {
+                const newKey = parts[0] + '|' + newSlot + '|' + parts[2];
+                newRoutine[newKey] = this.state.routine[key];
+            } else {
+                newRoutine[key] = this.state.routine[key];
+            }
+        });
+        this.state.routine = newRoutine;
+        
+        currentSlots[index] = newSlot;
+        this.updateTimeSlotsInTable(currentSlots);
+        this.updateRoutineDisplay();
+        this.autoSave();
+        this.showTimeSlotManager();
+    },
+
+    cancelTimeSlotEdit: function(index) {
+        this.showTimeSlotManager();
+    },
+
+    // Edit break time (Prayer/Lunch) in modal
+    editBreakTime: function() {
+        const row = document.querySelector('#time-slots-list .break-time-row');
+        if (!row) return;
+        const currentLabel = this.state.breakTimeLabel || '01:00 PM - 02:00 PM';
+        row.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
+                <input type="text" class="form-control break-time-edit-input" value="${currentLabel.replace(/"/g, '&quot;')}" placeholder="e.g., 01:00 PM - 02:00 PM" style="flex: 1; padding: 4px 8px;">
+                <button type="button" class="topbar-btn" style="padding: 4px 8px; background: var(--success); color: white;" onclick="RoutineManager.saveBreakTimeEdit()"><i class="fas fa-check"></i></button>
+                <button type="button" class="topbar-btn" style="padding: 4px 8px;" onclick="RoutineManager.cancelBreakTimeEdit()"><i class="fas fa-times"></i></button>
+            </div>
+        `;
+        const input = row.querySelector('.break-time-edit-input');
+        if (input) {
+            input.focus();
+            input.select();
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') RoutineManager.saveBreakTimeEdit();
+                if (e.key === 'Escape') RoutineManager.cancelBreakTimeEdit();
+            });
+        }
+    },
+
+    saveBreakTimeEdit: function() {
+        const row = document.querySelector('#time-slots-list .break-time-row');
+        if (!row) return;
+        const input = row.querySelector('.break-time-edit-input');
+        const newLabel = input && input.value.trim();
+        if (!newLabel) return;
+        this.state.breakTimeLabel = newLabel;
+        const currentSlots = Array.from(this.elements.routineTable.querySelectorAll('thead th.time-col'))
+            .map(th => th.textContent.trim());
+        this.updateTimeSlotsInTable(currentSlots);
+        this.autoSave();
+        this.showTimeSlotManager();
+    },
+
+    cancelBreakTimeEdit: function() {
+        this.showTimeSlotManager();
     },
 
     // Move time slot
@@ -3676,27 +3737,29 @@ const RoutineManager = {
         const timeHeaders = headerRow.querySelectorAll('th.time-col');
         const lunchAfterIndex = this.state.lunchAfterSlotIndex || 3;
         
-        // Add lunch header after the specified slot
+        // Add break header after the specified slot
+        const isPrayer = this.state.breakType === 'prayer';
         if (timeHeaders[lunchAfterIndex]) {
-            const lunchTh = document.createElement('th');
-            lunchTh.className = 'lunch-col';
-            lunchTh.style.cssText = 'background: #FEF3C7; color: #92400E; font-size: 10px; min-width: 70px;';
-            lunchTh.innerHTML = '01:00 PM<br>-<br>02:00 PM';
-            timeHeaders[lunchAfterIndex].after(lunchTh);
+            const breakTh = document.createElement('th');
+            breakTh.className = 'lunch-col';
+            breakTh.style.cssText = isPrayer ? 'background: #D1FAE5; color: #065F46; font-size: 10px; min-width: 70px;' : 'background: #FEF3C7; color: #92400E; font-size: 10px; min-width: 70px;';
+            const breakTime = this.state.breakTimeLabel || '01:00 PM - 02:00 PM';
+            breakTh.innerHTML = breakTime.replace(' - ', '<br>-<br>');
+            timeHeaders[lunchAfterIndex].after(breakTh);
         }
         
-        // Add lunch cells to each row
+        // Add break cells to each row
         const rows = this.elements.routineTbody?.querySelectorAll('tr');
         if (!rows) return;
         
         rows.forEach(row => {
             const slotCells = row.querySelectorAll('td.slot-cell');
             if (slotCells[lunchAfterIndex]) {
-                const lunchTd = document.createElement('td');
-                lunchTd.className = 'slot-cell lunch-cell';
-                lunchTd.style.cssText = 'background: #FEF3C7; color: #92400E;';
-                lunchTd.innerHTML = '<div class="slot-content"><strong>LUNCH</strong></div>';
-                slotCells[lunchAfterIndex].after(lunchTd);
+                const breakTd = document.createElement('td');
+                breakTd.className = 'slot-cell lunch-cell';
+                breakTd.style.cssText = isPrayer ? 'background: #D1FAE5; color: #065F46;' : 'background: #FEF3C7; color: #92400E;';
+                breakTd.innerHTML = isPrayer ? '<div class="slot-content"><strong>Prayer Break</strong></div>' : '<div class="slot-content"><strong>LUNCH</strong></div>';
+                slotCells[lunchAfterIndex].after(breakTd);
             }
         });
     },
@@ -3716,13 +3779,15 @@ const RoutineManager = {
             th.textContent = slot;
             headerRow.appendChild(th);
             
-            // Insert LUNCH header after selected slot
+            // Insert break header after selected slot
             if (idx === this.state.lunchAfterSlotIndex) {
-                const lunchTh = document.createElement('th');
-                lunchTh.className = 'lunch-col';
-                lunchTh.style.cssText = 'background: #FEF3C7; color: #92400E; font-size: 10px; min-width: 70px;';
-                lunchTh.innerHTML = '01:00 PM<br>-<br>02:00 PM';
-                headerRow.appendChild(lunchTh);
+                const breakTh = document.createElement('th');
+                breakTh.className = 'lunch-col';
+                const isPrayer = this.state.breakType === 'prayer';
+                breakTh.style.cssText = isPrayer ? 'background: #D1FAE5; color: #065F46; font-size: 10px; min-width: 70px;' : 'background: #FEF3C7; color: #92400E; font-size: 10px; min-width: 70px;';
+                const breakTime = this.state.breakTimeLabel || '01:00 PM - 02:00 PM';
+                breakTh.innerHTML = breakTime.replace(' - ', '<br>-<br>');
+                headerRow.appendChild(breakTh);
             }
         });
 
@@ -3742,13 +3807,14 @@ const RoutineManager = {
                 td.innerHTML = `<div class="slot-content"><span class="slot-empty">-</span></div>`;
                 row.appendChild(td);
                 
-                // Insert LUNCH cell after selected slot
+                // Insert break cell after selected slot
                 if (idx === this.state.lunchAfterSlotIndex) {
-                    const lunchTd = document.createElement('td');
-                    lunchTd.className = 'slot-cell lunch-cell';
-                    lunchTd.style.cssText = 'background: #FEF3C7; color: #92400E;';
-                    lunchTd.innerHTML = '<div class="slot-content"><strong>LUNCH</strong></div>';
-                    row.appendChild(lunchTd);
+                    const breakTd = document.createElement('td');
+                    breakTd.className = 'slot-cell lunch-cell';
+                    const isPrayer = this.state.breakType === 'prayer';
+                    breakTd.style.cssText = isPrayer ? 'background: #D1FAE5; color: #065F46;' : 'background: #FEF3C7; color: #92400E;';
+                    breakTd.innerHTML = isPrayer ? '<div class="slot-content"><strong>Prayer Break</strong></div>' : '<div class="slot-content"><strong>LUNCH</strong></div>';
+                    row.appendChild(breakTd);
                 }
             });
         });
@@ -3798,12 +3864,15 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             window.RoutineManager.init();
             console.log('RoutineManager.init() completed');
-            // Trigger auto fullscreen check after init completes
+            // Trigger auto fullscreen only when NOT editing an existing routine
             setTimeout(() => {
+                if (window.RoutineManager.config.savedRoutineId) {
+                    console.log('Edit mode: skipping auto fullscreen');
+                    return;
+                }
                 if (window.handleLandscapeMode) {
                     console.log('Triggering auto fullscreen check after init');
                     window.handleLandscapeMode();
-                    // Also try with retry logic
                     if (window.checkAndEnableFullscreen) {
                         window.checkAndEnableFullscreen();
                     }
@@ -3824,8 +3893,9 @@ setTimeout(function() {
         try {
             window.RoutineManager.init();
             console.log('Delayed RoutineManager.init() completed');
-            // Trigger auto fullscreen check after delayed init
+            // Skip auto fullscreen when editing existing routine
             setTimeout(() => {
+                if (window.RoutineManager.config.savedRoutineId) return;
                 if (window.handleLandscapeMode) {
                     window.handleLandscapeMode();
                 }
@@ -3850,10 +3920,9 @@ setTimeout(function() {
             console.log('isFullscreen:', window.RoutineManager.state?.isFullscreen);
         }
         
-        // Auto enable fullscreen in landscape mode (for both mobile and desktop)
-        if (isLandscape) {
-            // Auto enable fullscreen in landscape mode
-            if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
+        // Auto enable fullscreen in landscape mode only when NOT editing (no savedRoutineId)
+        if (isLandscape && window.RoutineManager && window.RoutineManager.config && !window.RoutineManager.config.savedRoutineId) {
+            if (window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
                     console.log('✅ Enabling auto fullscreen for landscape mode');
                     window.RoutineManager.toggleFullscreen();
@@ -3951,9 +4020,9 @@ setTimeout(function() {
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
         
-        // Enable fullscreen for any landscape orientation (mobile or desktop)
-        if (isLandscape) {
-            if (window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
+        // Enable fullscreen for landscape only when NOT editing existing routine
+        if (isLandscape && window.RoutineManager && window.RoutineManager.config && !window.RoutineManager.config.savedRoutineId) {
+            if (window.RoutineManager.toggleFullscreen && window.RoutineManager.state) {
                 if (!window.RoutineManager.state.isFullscreen) {
                     console.log('✅ Enabling auto fullscreen (attempt)', 11 - retries);
                     try {
@@ -4073,7 +4142,10 @@ document.getElementById('time-slot-modal-save')?.addEventListener('click', funct
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({
             saved_routine_id: RoutineManager.config.savedRoutineId,
-            time_slots: currentSlots
+            time_slots: currentSlots,
+            lunch_after_slot: RoutineManager.state.lunchAfterSlotIndex != null ? RoutineManager.state.lunchAfterSlotIndex : 3,
+            break_type: RoutineManager.state.breakType || 'lunch',
+            break_time: RoutineManager.state.breakTimeLabel || '01:00 PM - 02:00 PM'
         })
     })
     .then(response => response.json())
@@ -4172,7 +4244,4 @@ document.getElementById('new-time-slot-input')?.addEventListener('keypress', fun
 {% endif %}
 </script>
 
-{% if is_student %}
-</div>
-{% endif %}
 {% endblock %}

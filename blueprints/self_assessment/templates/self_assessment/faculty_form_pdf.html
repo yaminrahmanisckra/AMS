@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Faculty Survey Form (Blank)</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.45in 0.5in 0.65in 0.5in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 8pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 7.5pt; line-height: 1.28; color: #000; }
+        .doc-header { text-align: center; padding: 6pt 0; border-bottom: 2px solid #000; margin-bottom: 5pt; }
+        .doc-title { font-size: 12pt; font-weight: bold; margin-bottom: 2pt; }
+        .doc-subtitle { font-size: 9pt; color: #6c757d; }
+        .intro-box { padding: 6pt 10pt; margin-bottom: 5pt; font-size: 7.5pt; line-height: 1.35; }
+        .intro-box p { margin-bottom: 4pt; }
+        .intro-box p:last-child { margin-bottom: 0; }
+        .section { margin-bottom: 5pt; }
+        .section.part-b, .section.part-c, .section.part-d, .section.part-e, .section.part-f, .section.part-g { page-break-before: avoid; }
+        .section-header { background: #f8f9fa; border: 1px solid #dee2e6; padding: 4pt 8pt; margin-bottom: 4pt; font-size: 9pt; font-weight: bold; }
+        .section-note { font-size: 7pt; color: #6c757d; font-style: italic; margin-bottom: 4pt; }
+        .q { margin-bottom: 4pt; }
+        .q-label { font-weight: bold; margin-bottom: 2pt; display: block; }
+        .q-line { border-bottom: 1px solid #333; min-height: 14pt; display: block; margin-top: 2pt; }
+        .q-open { margin-top: 4pt; border: 1px solid #333; min-height: 38pt; padding: 4pt; background: #fafafa; }
+        table.attr-table { width: 100%; border-collapse: collapse; font-size: 6.5pt; margin-top: 4pt; margin-bottom: 6pt; table-layout: fixed; }
+        table.attr-table th, table.attr-table td { border: 1px solid #333; padding: 2pt 4pt; vertical-align: middle; }
+        table.attr-table thead th { font-weight: bold; background: #f0f0f0; text-align: center; }
+        table.attr-table td:first-child { width: 5%; text-align: center; font-weight: bold; }
+        table.attr-table td:nth-child(2) { width: 78%; text-align: left; word-wrap: break-word; overflow-wrap: break-word; }
+        table.attr-table td:nth-child(3) { width: 17%; text-align: center; }
+        table.attr-table tr.section-row td { background: #e9ecef; font-weight: bold; }
+        .rating-cell { min-height: 16pt; }
+        .thank-you { margin-top: 8pt; margin-bottom: 6pt; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="doc-header">
+        <div class="doc-title">FACULTY SURVEY QUESTIONNAIRE</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+
+    <div class="intro-box">
+        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+        <p><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
+        <p><strong>Scale:</strong> 1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
+    </div>
+
+    <div class="section part-a">
+        <div class="section-header">Optional Identification</div>
+        <p class="q"><span class="q-label">Designation:</span> [ ] Professor  [ ] Associate Professor  [ ] Assistant Professor  [ ] Lecturer</p>
+        <p class="q"><span class="q-label">Employment Status:</span> [ ] Full-time  [ ] Part-time/Adjunct</p>
+        <p class="q"><span class="q-label">Years of Experience at KU:</span> <span class="q-line" style="display: inline-block; min-width: 4em;">&nbsp;</span></p>
+    </div>
+
+    <div class="section part-b">
+        <div class="section-header">Part A: Governance, Workload &amp; Strategy (Standard 1 &amp; 7)</div>
+        <p class="section-note">Focus: Adherence to Law-specific mandates on workload and planning.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>1</td><td>Workload: My teaching load per semester does not exceed 12 credits, allowing time for research and counseling.</td><td class="rating-cell"></td></tr>
+                <tr><td>2</td><td>Class Size: The number of students in my theory classes (max 40) and practical classes (max 20) is appropriate for effective teaching.</td><td class="rating-cell"></td></tr>
+                <tr><td>3</td><td>Strategic Planning: I am involved in the strategic planning process and aware of the program's vision and mission.</td><td class="rating-cell"></td></tr>
+                <tr><td>4</td><td>Teacher-Student Ratio: The department maintains a reasonable teacher-student ratio (approx. 1:20).</td><td class="rating-cell"></td></tr>
+                <tr><td>5</td><td>Autonomy: I have sufficient academic autonomy to design courses and introduce innovative teaching methods.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-c">
+        <div class="section-header">Part B: Curriculum &amp; Teaching-Learning (Standard 4 &amp; 5)</div>
+        <p class="section-note">Focus: Outcome-Based Education (OBE) and Practical Training.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>6</td><td>Curriculum Review: The curriculum is reviewed regularly with input from industry experts and alumni.</td><td class="rating-cell"></td></tr>
+                <tr><td>7</td><td>Alignment: My Course Learning Outcomes (CLOs) are clearly aligned with the Program Learning Outcomes (PLOs) and Graduate Attributes.</td><td class="rating-cell"></td></tr>
+                <tr><td>8</td><td>Pedagogy: I frequently use interactive methods (e.g., case studies, mooting, problem-based learning) rather than traditional lecturing.</td><td class="rating-cell"></td></tr>
+                <tr><td>9</td><td>HOTS: My teaching and assessment methods focus on "Higher Order Thinking Skills" (analysis, evaluation, creation).</td><td class="rating-cell"></td></tr>
+                <tr><td>10</td><td>Course Files: I maintain a documented course file (lesson plan, assessment tools, rubrics) for every course I teach.</td><td class="rating-cell"></td></tr>
+                <tr><td>11</td><td>Feedback: I provide timely feedback to students on their assignments and continuous assessments.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-d">
+        <div class="section-header">Part C: Research &amp; Professional Development (Standard 7 &amp; 9)</div>
+        <p class="section-note">Focus: Research culture and support.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>12</td><td>Research Support: The institution provides adequate financial support/grants for research activities.</td><td class="rating-cell"></td></tr>
+                <tr><td>13</td><td>Publications: I am encouraged and supported to publish research in peer-reviewed journals.</td><td class="rating-cell"></td></tr>
+                <tr><td>14</td><td>Professional Development: The university sponsors my participation in training, seminars, or conferences (home/abroad).</td><td class="rating-cell"></td></tr>
+                <tr><td>15</td><td>Incentives: There is a clear policy for incentives/rewards for high-quality research and teaching excellence.</td><td class="rating-cell"></td></tr>
+                <tr><td>16</td><td>Leave Policy: The study leave policy supports faculty pursuing advanced degrees (PhD/MPhil).</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-e">
+        <div class="section-header">Part D: Facilities &amp; Resources (Standard 8)</div>
+        <p class="section-note">Focus: Infrastructure required for Law.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>17</td><td>Moot Court: The Moot Court Room is well-equipped (internet, sound system) and available for my classes.</td><td class="rating-cell"></td></tr>
+                <tr><td>18</td><td>Library: The library has sufficient law books, journals, and e-resources to support my teaching and research.</td><td class="rating-cell"></td></tr>
+                <tr><td>19</td><td>IT Resources: The IT facilities (internet, computers, software) are adequate for academic purposes.</td><td class="rating-cell"></td></tr>
+                <tr><td>20</td><td>Office Environment: I have a dedicated workstation and a congenial office environment.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-f">
+        <div class="section-header">Part E: Institutional Integrity &amp; Student Support (Standard 3 &amp; 6)</div>
+        <p class="section-note">Focus: Ethics, recruitment, and counseling.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>21</td><td>Recruitment: The faculty recruitment and promotion process is transparent, fair, and merit-based.</td><td class="rating-cell"></td></tr>
+                <tr><td>22</td><td>Code of Conduct: There is a well-defined code of conduct for faculty and staff.</td><td class="rating-cell"></td></tr>
+                <tr><td>23</td><td>Counseling: I am actively involved in academic guidance and counseling for students.</td><td class="rating-cell"></td></tr>
+                <tr><td>24</td><td>Performance Evaluation: The performance evaluation system (KPIs) is clear, fair, and communicated effectively.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-g">
+        <div class="section-header">Part F: Qualitative Questions (Open-Ended)</div>
+        <p class="q"><span class="q-label">25. What are the major challenges you face in delivering Outcome-Based Education (OBE)?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">26. How effective are the current research incentives? What improvements would you suggest?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">27. Do you feel the facilities (Moot Court, Library) are adequate for a modern Law program? If not, what is missing?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">28. What specific training or professional development programs would you like the university to organize?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="thank-you">Thank you for your valuable contribution to the accreditation process.</p>
+    </div>
+</body>
+</html>

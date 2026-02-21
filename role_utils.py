@@ -26,9 +26,11 @@ TEACHING_ROLES = CORE_ROLES | {'teaching_assistant'}
 STAFF_ROLES = TEACHING_ROLES | {'officer'}
 
 
-def get_teachers_excluding_head():
+def get_teachers_excluding_head(external_only=None):
     """Get all teachers excluding Head of the Discipline, Teaching Assistants, and Admin users.
     This function should be used in all places where teacher lists are displayed.
+    Args:
+        external_only: None = all teachers, True = only External teachers, False = only Internal teachers.
     """
     try:
         from blueprints.class_management.models import Teacher
@@ -75,6 +77,9 @@ def get_teachers_excluding_head():
         # Filter out Head of the Discipline, Teaching Assistants, and Admin users from teachers list
         excluded_names = head_names | ta_names | admin_names
         teachers = [teacher for teacher in all_teachers if teacher.name not in excluded_names]
+        # Optional: filter by External / Internal
+        if external_only is not None:
+            teachers = [t for t in teachers if getattr(t, 'is_external', False) == external_only]
         return teachers
     except ImportError:
         return []

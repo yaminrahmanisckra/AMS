@@ -1,0 +1,178 @@
+{# Employer response view: new form (Law Graduate Assessment q1–q20) or legacy #}
+{% if payload.get('form_version') == 'employer_law' or 'q1' in payload %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Optional Identification</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">Name of Organization</td><td>{{ payload.get('organization_name') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Type of Organization</td><td>{{ payload.get('type_of_organization') or '–' }}{{ ' – ' ~ payload.get('type_of_organization_other') if payload.get('type_of_organization_other') else '' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Name &amp; Designation of Respondent</td><td>{{ payload.get('respondent_name_designation') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Number of KU Graduates employed/supervised</td><td>{{ payload.get('number_graduates_employed') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part A: Professional Competence &amp; Legal Knowledge (Standard 4)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">1. Graduates demonstrate sound knowledge of substantive and procedural laws</td><td>{{ payload.get('q1') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">2. Legal Research: strong legal research skills</td><td>{{ payload.get('q2') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">3. Drafting &amp; Pleading: meet professional standards</td><td>{{ payload.get('q3') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">4. Advocacy/Communication: present arguments and communicate clearly</td><td>{{ payload.get('q4') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">5. Problem Solving: analyze complex facts and provide legal solutions</td><td>{{ payload.get('q5') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part B: Professional Skills &amp; Ethics (Standard 3 &amp; 6)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">6. Ethics &amp; Integrity: The graduates uphold high standards of professional ethics and moral responsibility.</td><td>{{ payload.get('q6') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">7. ICT Proficiency: They are proficient in using technology (computers, legal databases, online filing) for legal work.</td><td>{{ payload.get('q7') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">8. Time Management: They are punctual and capable of meeting strict deadlines (e.g., court filings).</td><td>{{ payload.get('q8') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">9. Teamwork &amp; Leadership: They work well in teams and demonstrate leadership potential when required.</td><td>{{ payload.get('q9') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">10. Adaptability: They adapt quickly to new laws, office procedures, or changing work environments.</td><td>{{ payload.get('q10') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part C: Curriculum Relevance &amp; Practical Training (Standard 4 &amp; 5)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">11. The academic curriculum of the university appears relevant to current legal practice.</td><td>{{ payload.get('q11') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">12. The graduates show evidence of practical training (e.g., Moot Court, Mock Trials) during their studies.</td><td>{{ payload.get('q12') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">13. Internship Performance: Interns from this university are well-prepared and eager to learn.</td><td>{{ payload.get('q13') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">14. Creativity: The graduates display creativity and innovation in their legal approach.</td><td>{{ payload.get('q14') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part D: Institutional Collaboration (Standard 10)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">15. University engages with employers to update curriculum</td><td>{{ payload.get('q15') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">16. Satisfied with overall performance of graduates</td><td>{{ payload.get('q16') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part E: Qualitative (Open-Ended)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">17. Strongest attributes of graduates</td><td>{{ payload.get('q17') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">18. Areas where graduates need improvement</td><td>{{ payload.get('q18') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">19. New legal trends/skills to add to curriculum</td><td>{{ payload.get('q19') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">20. Prefer to hire more graduates/interns? Why or why not?</td><td>{{ payload.get('q20') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part A: Organization Profile</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">Name of Organization</td><td>{{ payload.get('organization_name') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Type of Organization</td><td>{{ payload.get('type_of_organization') or '–' }}{{ ' – ' ~ payload.get('type_of_organization_other') if payload.get('type_of_organization_other') else '' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Name &amp; Designation of Respondent</td><td>{{ payload.get('respondent_name_designation') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Number of KU Graduates employed/supervised</td><td>{{ payload.get('number_graduates_employed') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part B: Assessment of Graduate Attributes (1–5 / N/A)</h5>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">5 = Excellent &nbsp;|&nbsp; 4 = Very Good &nbsp;|&nbsp; 3 = Good &nbsp;|&nbsp; 2 = Fair &nbsp;|&nbsp; 1 = Poor &nbsp;|&nbsp; N/A = Not Observed</p>
+        {% set part_b_labels = [
+            '1. Substantive Law: Depth of understanding of core laws (Civil, Criminal, Constitutional, Contract, etc.)',
+            '2. Procedural Law: Knowledge of procedural applications (CPC, CrPC, Evidence Act).',
+            '3. Legal Drafting: Proficiency in drafting plaints, written statements, petitions, and contracts.',
+            '4. Legal Research: Ability to find case laws, precedents, and statutes using physical and e-resources.',
+            '5. Critical Thinking: Ability to analyze complex legal issues, identify key facts, and construct logical arguments.',
+            '6. Problem Solving: Ability to provide practical, client-oriented legal solutions.',
+            '7. Oral Advocacy: Effectiveness in courtroom presentation or professional meetings.',
+            '8. Legal English: Proficiency in professional English (speaking and writing) required for the legal sector.',
+            '9. Negotiation &amp; ADR: Ability to negotiate settlements or mediate disputes effectively.',
+            '10. Teamwork: Ability to work collaboratively with colleagues, court staff, and clients.',
+            '11. Professional Ethics: Adherence to the Bar Council Code of Conduct, integrity, and client confidentiality.',
+            '12. Time Management: Ability to meet court deadlines and manage case workloads.',
+            '13. IT &amp; Digital Literacy: Proficiency in legal tech, e-filing, and digital database management.',
+        ] %}
+        <p class="fw-bold text-secondary small mb-2">I. Legal Knowledge &amp; Technical Skills</p>
+        <table class="table table-bordered table-sm mb-4">
+            {% for i in range(1, 5) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ part_b_labels[i - 1] }}</td><td>{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = (raw | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="fw-bold text-secondary small mb-2">II. Cognitive Skills (Thinking &amp; Problem Solving)</p>
+        <table class="table table-bordered table-sm mb-4">
+            {% for i in range(5, 7) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ part_b_labels[i - 1] }}</td><td>{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = (raw | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="fw-bold text-secondary small mb-2">III. Communication &amp; Social Skills</p>
+        <table class="table table-bordered table-sm mb-4">
+            {% for i in range(7, 11) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ part_b_labels[i - 1] }}</td><td>{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = (raw | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="fw-bold text-secondary small mb-2">IV. Personal, Ethical &amp; Digital Attributes</p>
+        <table class="table table-bordered table-sm mb-0">
+            {% for i in range(11, 14) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ part_b_labels[i - 1] }}</td><td>{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = (raw | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part C: Curriculum Relevance &amp; Emerging Needs</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">14. Curriculum Sufficiency: Academic knowledge meets current needs of the legal profession?</td><td>{{ payload.get('curriculum_sufficiency') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">15. Practical Training: Graduates' exposure to practical training (Moot Court, Mock Trials, CLE)</td><td>{{ payload.get('practical_training') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">16. ADR importance (1–5)</td><td>{% set v = (payload.get('emerging_adr') | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('emerging_adr') or '–' }}{% endif %}</td></tr>
+            <tr><td class="bg-light fw-bold">16. Cyber Law &amp; Digital Evidence importance (1–5)</td><td>{% set v = (payload.get('emerging_cyber_law') | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('emerging_cyber_law') or '–' }}{% endif %}</td></tr>
+            <tr><td class="bg-light fw-bold">16. Corporate Compliance &amp; Taxation importance (1–5)</td><td>{% set v = (payload.get('emerging_corporate') | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('emerging_corporate') or '–' }}{% endif %}</td></tr>
+            <tr><td class="bg-light fw-bold">16. Legal Tech &amp; AI in Law importance (1–5)</td><td>{% set v = (payload.get('emerging_legal_tech') | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('emerging_legal_tech') or '–' }}{% endif %}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part D: Industry-University Collaboration</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">17. Willing to offer Internships to senior students?</td><td>{{ payload.get('internships_offered') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">18. Willing to serve on Curriculum Review Committee / Advisory Board?</td><td>{{ payload.get('curriculum_review_committee') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">19. Formal/informal collaboration (MoU, joint seminars) with KU?</td><td>{{ payload.get('collaboration_ku') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part E: Open-Ended Feedback</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">20. What are the strongest qualities of Khulna University Law graduates?</td><td>{{ payload.get('strongest_qualities') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">21. What specific skills or knowledge areas are LACKING in our graduates?</td><td>{{ payload.get('skills_lacking') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">22. What emerging legal fields should we add to our curriculum to make graduates more employable?</td><td>{{ payload.get('emerging_fields_curriculum') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+{% endif %}

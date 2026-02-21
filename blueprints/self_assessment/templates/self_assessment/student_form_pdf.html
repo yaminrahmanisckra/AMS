@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Student Survey Form (Blank)</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.45in 0.5in 0.65in 0.5in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 8pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 7pt; line-height: 1.26; color: #000; }
+        .doc-header { text-align: center; padding: 6pt 0; border-bottom: 2px solid #000; margin-bottom: 5pt; }
+        .doc-title { font-size: 12pt; font-weight: bold; margin-bottom: 2pt; }
+        .doc-subtitle { font-size: 9pt; color: #6c757d; }
+        .intro-box { padding: 6pt 10pt; margin-bottom: 5pt; font-size: 7pt; line-height: 1.35; }
+        .intro-box p { margin-bottom: 4pt; }
+        .intro-box p:last-child { margin-bottom: 0; }
+        .section { margin-bottom: 5pt; }
+        .section.part-b, .section.part-c, .section.part-d, .section.part-e, .section.part-f { page-break-before: avoid; }
+        .section-header { background: #f8f9fa; border: 1px solid #dee2e6; padding: 4pt 8pt; margin-bottom: 4pt; font-size: 8.5pt; font-weight: bold; }
+        .section-note { font-size: 6.5pt; color: #6c757d; font-style: italic; margin-bottom: 4pt; }
+        .q { margin-bottom: 4pt; }
+        .q-label { font-weight: bold; margin-bottom: 2pt; display: block; }
+        .q-open { margin-top: 4pt; border: 1px solid #333; min-height: 35pt; padding: 4pt; background: #fafafa; }
+        table.attr-table { width: 100%; border-collapse: collapse; font-size: 6pt; margin-top: 4pt; margin-bottom: 6pt; table-layout: fixed; }
+        table.attr-table th, table.attr-table td { border: 1px solid #333; padding: 2pt 3pt; vertical-align: middle; }
+        table.attr-table thead th { font-weight: bold; background: #f0f0f0; text-align: center; }
+        table.attr-table td:first-child { width: 5%; text-align: center; font-weight: bold; }
+        table.attr-table td:nth-child(2) { width: 78%; text-align: left; word-wrap: break-word; overflow-wrap: break-word; }
+        table.attr-table td:nth-child(3) { width: 17%; text-align: center; }
+        .rating-cell { min-height: 14pt; }
+        .thank-you { margin-top: 8pt; margin-bottom: 6pt; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="doc-header">
+        <div class="doc-title">Student Survey Questionnaire</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+
+    <div class="intro-box">
+        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+        <p><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
+        <p><strong>Scale:</strong> 1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
+    </div>
+
+    <div class="section part-a">
+        <div class="section-header">Optional Identification</div>
+        <p class="q"><span class="q-label">Program:</span> [ ] LL.B (Honours)  [ ] LL.M</p>
+        <p class="q"><span class="q-label">Current Year/Semester:</span> <span style="border-bottom: 1px solid #333; display: inline-block; min-width: 6em;">&nbsp;</span></p>
+    </div>
+
+    <div class="section part-b">
+        <div class="section-header">Part A: Governance &amp; Institutional Environment (Standard 1 &amp; 2)</div>
+        <p class="section-note">Focus: Adherence to academic schedules, class size policies, and safety.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>1</td><td>The academic calendar (class start dates, exam schedules) is strictly followed without unexpected delays.</td><td class="rating-cell"></td></tr>
+                <tr><td>2</td><td>The class size in theory courses (max 40 students) is appropriate for effective learning.</td><td class="rating-cell"></td></tr>
+                <tr><td>3</td><td>The class size in practical/tutorial courses (max 20 students) allows for individual attention.</td><td class="rating-cell"></td></tr>
+                <tr><td>4</td><td>The institution has a clear policy to address sexual harassment, and I feel safe on campus.</td><td class="rating-cell"></td></tr>
+                <tr><td>5</td><td>I am aware of the program's vision, mission, and objectives.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-c">
+        <div class="section-header">Part B: Curriculum &amp; Graduate Attributes (Standard 4)</div>
+        <p class="section-note">Focus: Alignment with Law-specific attributes and General Education.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>6</td><td>The curriculum provides contemporary knowledge of substantive and procedural law.</td><td class="rating-cell"></td></tr>
+                <tr><td>7</td><td>Research Skills: The coursework has improved my ability to conduct legal research.</td><td class="rating-cell"></td></tr>
+                <tr><td>8</td><td>Communication Skills: The program effectively develops my oral advocacy and written communication skills.</td><td class="rating-cell"></td></tr>
+                <tr><td>9</td><td>Problem Solving: The curriculum enhances my ability to analyze facts and solve legal problems.</td><td class="rating-cell"></td></tr>
+                <tr><td>10</td><td>Ethical Development: The program emphasizes legal ethics and moral responsibility.</td><td class="rating-cell"></td></tr>
+                <tr><td>11</td><td>General Education: The non-law courses (e.g., English, ICT, History) are relevant and useful.</td><td class="rating-cell"></td></tr>
+                <tr><td>12</td><td>The internship/practical training component is well-structured and beneficial.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-d">
+        <div class="section-header">Part C: Teaching-Learning &amp; Assessment (Standard 5)</div>
+        <p class="section-note">Focus: Pedagogy, critical thinking, and fairness.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>13</td><td>Teachers use interactive methods (e.g., case studies, group discussions) rather than just lecturing.</td><td class="rating-cell"></td></tr>
+                <tr><td>14</td><td>The teaching methods encourage "Higher Order Thinking Skills" (critical analysis, application of law).</td><td class="rating-cell"></td></tr>
+                <tr><td>15</td><td>Course outlines (plans) are provided at the start of the semester with clear learning outcomes and assessment rubrics.</td><td class="rating-cell"></td></tr>
+                <tr><td>16</td><td>I receive timely feedback on my assignments and mid-term exams to help me improve.</td><td class="rating-cell"></td></tr>
+                <tr><td>17</td><td>The assessment methods (exams, assignments) fairly measure what I have learned.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-d">
+        <div class="section-header">Part D: Student Support &amp; Facilities (Standard 6 &amp; 8)</div>
+        <p class="section-note">Focus: Mooting, counseling, and infrastructure.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>18</td><td>Moot Court: There are sufficient opportunities and facilities (Moot Court Room) to practice mooting and mock trials.</td><td class="rating-cell"></td></tr>
+                <tr><td>19</td><td>Co-Curriculars: The department encourages participation in debating, negotiation, and public speaking.</td><td class="rating-cell"></td></tr>
+                <tr><td>20</td><td>Counseling: Academic guidance and career counseling are available to help plan my legal career.</td><td class="rating-cell"></td></tr>
+                <tr><td>21</td><td>Library: The library has an adequate collection of law books, journals, and access to legal databases.</td><td class="rating-cell"></td></tr>
+                <tr><td>22</td><td>IT Facilities: The computer labs and internet facilities are adequate for my legal research needs.</td><td class="rating-cell"></td></tr>
+                <tr><td>23</td><td>There is a transparent and fair mechanism to handle student grievances (e.g., grades, harassment).</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-e">
+        <div class="section-header">Part E: Faculty Quality (Standard 7)</div>
+        <p class="section-note">Focus: Expertise and availability.</p>
+        <table class="attr-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1  2  3  4  5</th></tr></thead>
+            <tbody>
+                <tr><td>24</td><td>Faculty members are knowledgeable and up-to-date in their legal fields.</td><td class="rating-cell"></td></tr>
+                <tr><td>25</td><td>Faculty members are accessible for consultation outside of class hours.</td><td class="rating-cell"></td></tr>
+                <tr><td>26</td><td>Guest speakers (practitioners, judges) are invited to bridge the gap between theory and practice.</td><td class="rating-cell"></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section part-f">
+        <div class="section-header">Part F: Qualitative Questions (Open-Ended)</div>
+        <p class="q"><span class="q-label">27. What are the three biggest strengths of this Law program?</span></p>
+        <p class="section-note">(e.g., quality of teachers, moot court facilities, internship support, etc.)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">28. What are the major weaknesses or areas for improvement?</span></p>
+        <p class="section-note">(e.g., outdated library books, lack of courtroom practice, overcrowding, etc.)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">29. Do you feel the program is adequately preparing you for the legal profession (e.g., Bar Council exam, judiciary, corporate law)? Why or why not?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><span class="q-label">30. Any specific suggestions regarding the Moot Court or practical training sessions?</span></p>
+        <div class="q-open">&nbsp;</div>
+        <p class="thank-you">Thank you for your valuable participation.</p>
+    </div>
+</body>
+</html>

@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'add_classes_field'
+revision = 'add_course_content_classes'
 down_revision = '4d5f3fe554cb'
 branch_labels = None
 depends_on = None

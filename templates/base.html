@@ -269,7 +269,8 @@
         </div>
     </footer>
 
-    <!-- Version Info Modal -->
+    <!-- Version Info Modal: when hidden, modal and all descendants must not capture clicks (fixes Courses panel unresponsive) -->
+    <style>#versionModal[aria-hidden="true"], #versionModal[aria-hidden="true"] * { pointer-events: none !important; }</style>
     <div class="modal fade" id="versionModal" tabindex="-1" aria-labelledby="versionModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">

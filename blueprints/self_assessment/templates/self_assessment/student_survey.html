@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}Student Survey Questionnaire{% endblock %}
+{% block extra_css %}
+<style>
+    .self-assessment-form .form-check-input { border: 2px solid #374151; border-radius: 0.25em; background-color: #fff; }
+    .self-assessment-form .form-check-input:checked { background-color: #1e40af; border-color: #1e40af; }
+    .self-assessment-form .form-check-input:focus { border-color: #1e40af; box-shadow: 0 0 0 0.2rem rgba(30, 64, 175, 0.35); }
+    .self-assessment-form .form-check-label { color: #1f2937; font-weight: 500; }
+    @media (max-width: 767px) {
+        .self-assessment-form .form-control { min-height: 2.75rem; font-size: 1rem; }
+        .self-assessment-form .form-check-input { width: 1.35rem; height: 1.35rem; }
+        .self-assessment-form .form-check-label { padding-left: 0.4rem; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container my-5 px-2 px-md-3 self-assessment-form">
+    <div class="text-center mb-5">
+        <h2 class="fw-bold">Student Survey Questionnaire</h2>
+        <h4 class="text-muted">Law Discipline, Khulna University</h4>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+            <p class="card-text"><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
+            <p class="card-text mb-0"><strong>Scale:</strong><br>
+            1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
+        </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('self_assessment.public_survey_form', survey_type='student', code=link.access_code) }}">
+        <input type="hidden" name="form_version" value="student_law">
+
+        <!-- Optional Identification -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Optional Identification</h5></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Program (Optional)</label>
+                        <select class="form-select" name="program">
+                            <option value="">— Select —</option>
+                            <option value="LL.B (Honours)">LL.B (Honours)</option>
+                            <option value="LL.M">LL.M</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Current Year/Semester (Optional)</label>
+                        <input type="text" class="form-control" name="current_year_semester" placeholder="e.g. 1st Year, 2nd Semester">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part A: Governance & Institutional Environment (Standard 1 & 2) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part A: Governance &amp; Institutional Environment (Standard 1 &amp; 2)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Adherence to academic schedules, class size policies, and safety.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_a = [
+                                ('q1', 'The academic calendar (class start dates, exam schedules) is strictly followed without unexpected delays.'),
+                                ('q2', 'The class size in theory courses (max 40 students) is appropriate for effective learning.'),
+                                ('q3', 'The class size in practical/tutorial courses (max 20 students) allows for individual attention.'),
+                                ('q4', 'The institution has a clear policy to address sexual harassment, and I feel safe on campus.'),
+                                ('q5', 'I am aware of the program\'s vision, mission, and objectives.')
+                            ] %}
+                            {% for field, text in part_a %}
+                            <tr><td>{{ loop.index }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part B: Curriculum & Graduate Attributes (Standard 4) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part B: Curriculum &amp; Graduate Attributes (Standard 4)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Alignment with Law-specific attributes and General Education.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_b = [
+                                ('q6', 'The curriculum provides contemporary knowledge of substantive and procedural law.'),
+                                ('q7', 'Research Skills: The coursework has improved my ability to conduct legal research.'),
+                                ('q8', 'Communication Skills: The program effectively develops my oral advocacy and written communication skills.'),
+                                ('q9', 'Problem Solving: The curriculum enhances my ability to analyze facts and solve legal problems.'),
+                                ('q10', 'Ethical Development: The program emphasizes legal ethics and moral responsibility.'),
+                                ('q11', 'General Education: The non-law courses (e.g., English, ICT, History) are relevant and useful.'),
+                                ('q12', 'The internship/practical training component is well-structured and beneficial.')
+                            ] %}
+                            {% for field, text in part_b %}
+                            <tr><td>{{ loop.index + 5 }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part C: Teaching-Learning & Assessment (Standard 5) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part C: Teaching-Learning &amp; Assessment (Standard 5)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Pedagogy, critical thinking, and fairness.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_c = [
+                                ('q13', 'Teachers use interactive methods (e.g., case studies, group discussions) rather than just lecturing.'),
+                                ('q14', 'The teaching methods encourage "Higher Order Thinking Skills" (critical analysis, application of law).'),
+                                ('q15', 'Course outlines (plans) are provided at the start of the semester with clear learning outcomes and assessment rubrics.'),
+                                ('q16', 'I receive timely feedback on my assignments and mid-term exams to help me improve.'),
+                                ('q17', 'The assessment methods (exams, assignments) fairly measure what I have learned.')
+                            ] %}
+                            {% for field, text in part_c %}
+                            <tr><td>{{ loop.index + 12 }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part D: Student Support & Facilities (Standard 6 & 8) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part D: Student Support &amp; Facilities (Standard 6 &amp; 8)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Mooting, counseling, and infrastructure.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_d = [
+                                ('q18', 'Moot Court: There are sufficient opportunities and facilities (Moot Court Room) to practice mooting and mock trials.'),
+                                ('q19', 'Co-Curriculars: The department encourages participation in debating, negotiation, and public speaking.'),
+                                ('q20', 'Counseling: Academic guidance and career counseling are available to help plan my legal career.'),
+                                ('q21', 'Library: The library has an adequate collection of law books, journals, and access to legal databases.'),
+                                ('q22', 'IT Facilities: The computer labs and internet facilities are adequate for my legal research needs.'),
+                                ('q23', 'There is a transparent and fair mechanism to handle student grievances (e.g., grades, harassment).')
+                            ] %}
+                            {% for field, text in part_d %}
+                            <tr><td>{{ loop.index + 17 }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part E: Faculty Quality (Standard 7) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part E: Faculty Quality (Standard 7)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Expertise and availability.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_e = [
+                                ('q24', 'Faculty members are knowledgeable and up-to-date in their legal fields.'),
+                                ('q25', 'Faculty members are accessible for consultation outside of class hours.'),
+                                ('q26', 'Guest speakers (practitioners, judges) are invited to bridge the gap between theory and practice.')
+                            ] %}
+                            {% for field, text in part_e %}
+                            <tr><td>{{ loop.index + 23 }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part F: Qualitative (Open-Ended) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part F: Qualitative Questions (Open-Ended)</h5></div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <label class="form-label fw-bold">27. What are the three biggest strengths of this Law program?</label>
+                    <p class="small text-muted">(e.g., quality of teachers, moot court facilities, internship support, etc.)</p>
+                    <textarea class="form-control" name="q27" id="q27" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">28. What are the major weaknesses or areas for improvement?</label>
+                    <p class="small text-muted">(e.g., outdated library books, lack of courtroom practice, overcrowding, etc.)</p>
+                    <textarea class="form-control" name="q28" id="q28" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">29. Do you feel the program is adequately preparing you for the legal profession (e.g., Bar Council exam, judiciary, corporate law)? Why or why not?</label>
+                    <textarea class="form-control" name="q29" id="q29" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">30. Any specific suggestions regarding the Moot Court or practical training sessions?</label>
+                    <textarea class="form-control" name="q30" id="q30" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mb-5">
+            <button type="submit" class="btn btn-primary btn-lg px-5">Submit Survey</button>
+        </div>
+    </form>
+
+    {% if link %}
+    <div class="text-center mt-4 mb-5">
+        <a href="{{ url_for('self_assessment.public_survey_form_pdf', survey_type='student', code=link.access_code) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">
+            <i class="fas fa-file-pdf me-1"></i>Download Blank Form
+        </a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

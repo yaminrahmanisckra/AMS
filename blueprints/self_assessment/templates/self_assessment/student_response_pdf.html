@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Student Survey Response {{ r.id }}</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.6in 0.55in 0.8in 0.55in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 9pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.4; color: #000; }
+        .doc-header { text-align: center; padding: 10pt 0 10pt 0; border-bottom: 1px solid #dee2e6; margin-bottom: 8pt; }
+        .doc-title { font-size: 14pt; font-weight: bold; color: #000; margin-bottom: 4pt; }
+        .doc-subtitle { font-size: 10pt; color: #6c757d; }
+        .meta-line { font-size: 8pt; color: #444; margin-bottom: 6pt; padding: 4pt 0; }
+        .section { margin-bottom: 8pt; }
+        .section.part-b { page-break-before: avoid; }
+        .section.part-c { page-break-before: avoid; }
+        .section.part-d { page-break-before: avoid; }
+        .section.part-e { page-break-before: avoid; }
+        .section.part-f { page-break-before: avoid; }
+        .section-header { font-size: 10.5pt; font-weight: bold; color: #000; padding: 6pt 10pt; margin-bottom: 8pt; background: #f8f9fa; border: 1px solid #dee2e6; }
+        .sub-section { font-size: 9.5pt; font-weight: bold; margin: 10pt 0 6pt 0; }
+        table.info { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        table.info td { border: 1px solid #dee2e6; padding: 6pt 10pt; vertical-align: top; }
+        table.info tr:nth-child(even) td { background: #f8f9fa; }
+        table.info td:first-child { font-weight: bold; width: 42%; background: #f8f9fa !important; }
+        table.info td:last-child { color: #000; }
+        .likert-legend { font-size: 8.5pt; color: #000; margin-bottom: 10pt; padding: 10pt 12pt; border: 1px solid #dee2e6; background: #f8f9fa; }
+        .likert-legend strong { display: block; margin-bottom: 4pt; font-size: 9pt; }
+        .likert-scale { white-space: nowrap; }
+        .likert-scale .tick { font-weight: bold; }
+        table.info tr.open-ended td:last-child { min-height: 48pt; padding: 10pt 12pt; }
+    </style>
+</head>
+<body>
+    <div class="meta-line">Response ID: {{ r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
+    <div class="doc-header">
+        <div class="doc-title">STUDENT SURVEY QUESTIONNAIRE – Response</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+
+    {% if payload.get('form_version') == 'student_law' or 'q1' in payload %}
+    {# New format: Law Program Student Feedback (Part A–F, q1–q30) #}
+    {% set student_law_labels = [
+        'The academic calendar (class start dates, exam schedules) is strictly followed without unexpected delays.',
+        'The class size in theory courses (max 40 students) is appropriate for effective learning.',
+        'The class size in practical/tutorial courses (max 20 students) allows for individual attention.',
+        'The institution has a clear policy to address sexual harassment, and I feel safe on campus.',
+        'I am aware of the program\'s vision, mission, and objectives.',
+        'The curriculum provides contemporary knowledge of substantive and procedural law.',
+        'Research Skills: The coursework has improved my ability to conduct legal research.',
+        'Communication Skills: The program effectively develops my oral advocacy and written communication skills.',
+        'Problem Solving: The curriculum enhances my ability to analyze facts and solve legal problems.',
+        'Ethical Development: The program emphasizes legal ethics and moral responsibility.',
+        'General Education: The non-law courses (e.g., English, ICT, History) are relevant and useful.',
+        'The internship/practical training component is well-structured and beneficial.',
+        'Teachers use interactive methods (e.g., case studies, group discussions) rather than just lecturing.',
+        'The teaching methods encourage "Higher Order Thinking Skills" (critical analysis, application of law).',
+        'Course outlines (plans) are provided at the start of the semester with clear learning outcomes and assessment rubrics.',
+        'I receive timely feedback on my assignments and mid-term exams to help me improve.',
+        'The assessment methods (exams, assignments) fairly measure what I have learned.',
+        'Moot Court: There are sufficient opportunities and facilities (Moot Court Room) to practice mooting and mock trials.',
+        'Co-Curriculars: The department encourages participation in debating, negotiation, and public speaking.',
+        'Counseling: Academic guidance and career counseling are available to help plan my legal career.',
+        'Library: The library has an adequate collection of law books, journals, and access to legal databases.',
+        'IT Facilities: The computer labs and internet facilities are adequate for my legal research needs.',
+        'There is a transparent and fair mechanism to handle student grievances (e.g., grades, harassment).',
+        'Faculty members are knowledgeable and up-to-date in their legal fields.',
+        'Faculty members are accessible for consultation outside of class hours.',
+        'Guest speakers (practitioners, judges) are invited to bridge the gap between theory and practice.'
+    ] %}
+    <div class="section part-a">
+        <div class="section-header">Optional Identification</div>
+        <table class="info">
+            <tr><td>Program</td><td>{{ payload.get('program') or '–' }}</td></tr>
+            <tr><td>Current Year/Semester</td><td>{{ payload.get('current_year_semester') or '–' }}</td></tr>
+        </table>
+    </div>
+    <div class="likert-legend">
+        <strong>Scale</strong>
+        5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree
+    </div>
+    <div class="section part-b">
+        <div class="section-header">Part A: Governance &amp; Institutional Environment (Standard 1 &amp; 2)</div>
+        <table class="info">
+            {% for i in range(1, 6) %}<tr><td>{{ student_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-c">
+        <div class="section-header">Part B: Curriculum &amp; Graduate Attributes (Standard 4)</div>
+        <table class="info">
+            {% for i in range(6, 13) %}<tr><td>{{ student_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-d">
+        <div class="section-header">Part C: Teaching-Learning &amp; Assessment (Standard 5)</div>
+        <table class="info">
+            {% for i in range(13, 18) %}<tr><td>{{ student_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-e">
+        <div class="section-header">Part D: Student Support &amp; Facilities (Standard 6 &amp; 8)</div>
+        <table class="info">
+            {% for i in range(18, 24) %}<tr><td>{{ student_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-e">
+        <div class="section-header">Part E: Faculty Quality (Standard 7)</div>
+        <table class="info">
+            {% for i in range(24, 27) %}<tr><td>{{ student_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+        </table>
+    </div>
+    <div class="section part-f">
+        <div class="section-header">Part F: Qualitative (Open-Ended)</div>
+        <table class="info">
+            <tr class="open-ended"><td>27. What are the three biggest strengths of this Law program?</td><td>{{ payload.get('q27') or '–' }}</td></tr>
+            <tr class="open-ended"><td>28. What are the major weaknesses or areas for improvement?</td><td>{{ payload.get('q28') or '–' }}</td></tr>
+            <tr class="open-ended"><td>29. Do you feel the program is adequately preparing you for the legal profession? Why or why not?</td><td>{{ payload.get('q29') or '–' }}</td></tr>
+            <tr class="open-ended"><td>30. Any specific suggestions regarding the Moot Court or practical training sessions?</td><td>{{ payload.get('q30') or '–' }}</td></tr>
+        </table>
+    </div>
+    {% else %}
+    {# Legacy student format #}
+    <div class="section part-a">
+        <div class="section-header">Part A: General Information</div>
+        <table class="info">
+            <tr><td>Program</td><td>{{ payload.get('program') or '–' }}</td></tr>
+            <tr><td>Current Year/Semester</td><td>{{ payload.get('current_year_semester') or '–' }}</td></tr>
+            <tr><td>Gender</td><td>{{ payload.get('gender') or '–' }}</td></tr>
+        </table>
+    </div>
+
+    {% set student_labels = [
+        '1. I am aware of the Vision and Mission of the Law Discipline and the University.',
+        '2. The Academic Calendar is strictly followed (classes start on time; exams are held as scheduled).',
+        '3. The Student Handbook (containing curriculum, rules, and code of conduct) is available to me.',
+        '4. The Discipline/University Website is informative, up-to-date, and easy to access.',
+        '5. I am aware of the policy and committee to redress sexual harassment issues, and I feel safe on campus.',
+        '6. There is a fair, transparent, and known system to handle student grievances and complaints.',
+        '7. Course Outlines with clear Learning Outcomes (CLOs) and assessment plans are provided at the start of the term.',
+        '8. Teachers are punctual and regular in conducting classes.',
+        '9. Teachers use interactive methods (case studies, mooting, discussions) rather than one-way lectures.',
+        '10. Teachers encourage critical thinking and the application of law to real-life situations.',
+        '11. Teachers use modern technology (multimedia, online resources) effectively during lectures.',
+        '12. Tutorial classes (if applicable) help me understand the course content better.',
+        '13. Assessment methods (exams, assignments) fairly measure what I have learned.',
+        '14. I receive timely and constructive feedback on my assignments and mid-terms to help me improve.',
+        '15. The Internship opportunities provided are sufficient for practical learning.',
+        '16. An Orientation Session was organized when I first joined the program.',
+        '17. Academic Guidance/Counseling is available from faculty members (Student Advisors) when I need it.',
+        '18. The discipline provides adequate Career Counseling and guidance for job placement or higher studies.',
+        '19. There are sufficient opportunities for Co-curricular activities (Debating, Law Club, Cultural, Sports).',
+        '20. Classrooms are adequate, comfortable, and equipped with necessary facilities (lighting, sound, multimedia).',
+        '21. The Seminar Library has sufficient copies of textbooks and reference books.',
+        '22. I have access to necessary Law Reports and Journals (e.g., DLR, BLD, online journals) for research.',
+        '23. Computer/IT facilities with internet access are adequate for legal research.',
+        '24. The Moot Court Room facilities are adequate and available for practice and training.',
+        '25. Common facilities (washrooms, canteen, common rooms) are clean, accessible, and hygienic.',
+        '26. Overall Safety and Security measures on campus are adequate.',
+    ] %}
+    <div class="section part-b">
+        <div class="section-header">Part B–E: Rating of Statements</div>
+        <div class="likert-legend">
+            <strong>Scale</strong>
+            5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral / Undecided &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree
+        </div>
+        <p class="sub-section">Part B: Governance, Integrity &amp; Safety</p>
+        <table class="info">
+            {% for i in range(1, 7) %}
+            <tr><td>{{ student_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="sub-section">Part C: Curriculum, Teaching-Learning &amp; Assessment</p>
+        <table class="info">
+            {% for i in range(7, 16) %}
+            <tr><td>{{ student_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="sub-section">Part D: Student Support Services</p>
+        <table class="info">
+            {% for i in range(16, 20) %}
+            <tr><td>{{ student_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="sub-section">Part E: Facilities &amp; Learning Resources</p>
+        <table class="info">
+            {% for i in range(20, 27) %}
+            <tr><td>{{ student_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="section part-f">
+        <div class="section-header">Part F: Open-Ended Feedback</div>
+        <table class="info">
+            <tr class="open-ended"><td>27. Strongest aspects of the Law Discipline at Khulna University?</td><td>{{ payload.get('strongest_aspects') or '–' }}</td></tr>
+            <tr class="open-ended"><td>28. Specific areas (facilities, teaching, or administration) needing immediate improvement?</td><td>{{ payload.get('areas_improvement') or '–' }}</td></tr>
+            <tr class="open-ended"><td>29. Do you feel safe and supported on campus? If no, please explain.</td><td>{{ payload.get('safe_supported') or '–' }}</td></tr>
+        </table>
+    </div>
+    {% endif %}
+</body>
+</html>

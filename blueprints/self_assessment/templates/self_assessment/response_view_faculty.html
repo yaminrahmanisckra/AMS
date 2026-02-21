@@ -1,0 +1,202 @@
+{# Faculty response view: new form (Law Program Accreditation q1–q28) or legacy (Part A + rating_1..25 + strengths/weaknesses etc.) #}
+{% if payload.get('form_version') == 'faculty_law' or 'q1' in payload %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Optional Identification</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">Designation</td><td>{{ payload.get('designation') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Employment Status</td><td>{{ payload.get('employment_status') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Years of Experience at KU</td><td>{{ payload.get('years_experience_ku') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+{% set faculty_law_labels = {
+  'q1': 'Workload: My teaching load per semester does not exceed 12 credits, allowing time for research and counseling.',
+  'q2': 'Class Size: The number of students in my theory classes (max 40) and practical classes (max 20) is appropriate for effective teaching.',
+  'q3': 'Strategic Planning: I am involved in the strategic planning process and aware of the program\'s vision and mission.',
+  'q4': 'Teacher-Student Ratio: The department maintains a reasonable teacher-student ratio (approx. 1:20).',
+  'q5': 'Autonomy: I have sufficient academic autonomy to design courses and introduce innovative teaching methods.',
+  'q6': 'Curriculum Review: The curriculum is reviewed regularly with input from industry experts and alumni.',
+  'q7': 'Alignment: My Course Learning Outcomes (CLOs) are clearly aligned with the Program Learning Outcomes (PLOs) and Graduate Attributes.',
+  'q8': 'Pedagogy: I frequently use interactive methods (e.g., case studies, mooting, problem-based learning) rather than traditional lecturing.',
+  'q9': 'HOTS: My teaching and assessment methods focus on "Higher Order Thinking Skills" (analysis, evaluation, creation).',
+  'q10': 'Course Files: I maintain a documented course file (lesson plan, assessment tools, rubrics) for every course I teach.',
+  'q11': 'Feedback: I provide timely feedback to students on their assignments and continuous assessments.',
+  'q12': 'Research Support: The institution provides adequate financial support/grants for research activities.',
+  'q13': 'Publications: I am encouraged and supported to publish research in peer-reviewed journals.',
+  'q14': 'Professional Development: The university sponsors my participation in training, seminars, or conferences (home/abroad).',
+  'q15': 'Incentives: There is a clear policy for incentives/rewards for high-quality research and teaching excellence.',
+  'q16': 'Leave Policy: The study leave policy supports faculty pursuing advanced degrees (PhD/MPhil).',
+  'q17': 'Moot Court: The Moot Court Room is well-equipped (internet, sound system) and available for my classes.',
+  'q18': 'Library: The library has sufficient law books, journals, and e-resources to support my teaching and research.',
+  'q19': 'IT Resources: The IT facilities (internet, computers, software) are adequate for academic purposes.',
+  'q20': 'Office Environment: I have a dedicated workstation and a congenial office environment.',
+  'q21': 'Recruitment: The faculty recruitment and promotion process is transparent, fair, and merit-based.',
+  'q22': 'Code of Conduct: There is a well-defined code of conduct for faculty and staff.',
+  'q23': 'Counseling: I am actively involved in academic guidance and counseling for students.',
+  'q24': 'Performance Evaluation: The performance evaluation system (KPIs) is clear, fair, and communicated effectively.'
+} %}
+<p class="small text-muted mb-3">5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree</p>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part A: Governance, Workload &amp; Strategy (Standard 1 &amp; 7)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            {% for key in ['q1','q2','q3','q4','q5'] %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_law_labels[key] }}</td><td>{% set v = (payload.get(key) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get(key) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part B: Curriculum &amp; Teaching-Learning (Standard 4 &amp; 5)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            {% for key in ['q6','q7','q8','q9','q10','q11'] %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_law_labels[key] }}</td><td>{% set v = (payload.get(key) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get(key) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part C: Research &amp; Professional Development (Standard 7 &amp; 9)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            {% for key in ['q12','q13','q14','q15','q16'] %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_law_labels[key] }}</td><td>{% set v = (payload.get(key) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get(key) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part D: Facilities &amp; Resources (Standard 8)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            {% for key in ['q17','q18','q19','q20'] %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_law_labels[key] }}</td><td>{% set v = (payload.get(key) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get(key) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part E: Institutional Integrity &amp; Student Support (Standard 3 &amp; 6)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            {% for key in ['q21','q22','q23','q24'] %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_law_labels[key] }}</td><td>{% set v = (payload.get(key) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get(key) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part F: Qualitative (Open-Ended)</h5></div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">25. Major challenges in delivering OBE?</td><td>{{ payload.get('q25') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">26. Effectiveness of research incentives and suggestions?</td><td>{{ payload.get('q26') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">27. Facilities (Moot Court, Library) adequate? What is missing?</td><td>{{ payload.get('q27') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">28. Training or professional development programs you would like?</td><td>{{ payload.get('q28') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+{% else %}
+{# Legacy faculty layout: Part A General Info, Part B–F rating_1..25, Part G open-ended #}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part A: General Information</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">Designation</td><td>{{ payload.get('designation') or '–' }}{{ ' – ' ~ payload.get('designation_other') if payload.get('designation_other') else '' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Employment Status</td><td>{{ payload.get('employment_status') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">Years of Experience at Khulna University</td><td>{{ payload.get('years_experience_ku') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part B–F: Rating of Statements (1–5)</h5>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted mb-3">5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree</p>
+        {% set faculty_labels = [
+            '1. I am clearly aware of the Vision and Mission of the University and the Law Discipline.',
+            '2. The recruitment and promotion policy is transparent, merit-based, and free from bias.',
+            '3. I was consulted or given an opportunity to provide input during the preparation of the Strategic Plan.',
+            '4. The academic calendar is strictly maintained, and examinations/results are published on time.',
+            '5. I have sufficient academic autonomy to design courses, choose teaching methods, and pursue research initiatives.',
+            '6. The curriculum is reviewed regularly by a committee with representation from industry/employers and alumni.',
+            '7. The Program Learning Outcomes (PLOs) are clearly defined and aligned with the University\'s mission.',
+            '8. The mapping of my Course Learning Outcomes (CLOs) to the PLOs is clear, logical, and documented.',
+            '9. I maintain a detailed Course File (including lesson plans, assessment tools, and rubrics) for every course I teach.',
+            '10. The curriculum effectively integrates general education courses (minimum 25% for Bachelor / 10% for Master).',
+            '11. My teaching methods focus on Higher Order Thinking Skills (HOTS) (e.g., critical thinking, complex problem-solving).',
+            '12. The class size allows for effective management of teaching, interaction, and assessment.',
+            '13. Tutorial classes or remedial support are systematically provided for students who need extra help.',
+            '14. I provide timely feedback to students on continuous assessments (assignments/mid-terms) before the final exam.',
+            '15. The question papers are moderated by a committee that includes external members to ensure standard quality.',
+            '16. There is a fair workload distribution policy that effectively balances teaching, research, and administrative duties.',
+            '17. The University has a clear policy to support advanced studies (Ph.D./Higher Training) for faculty.',
+            '18. The institution provides sufficient budgetary support, funding, and leave for research projects and conferences.',
+            '19. There is an active policy and system to check for plagiarism in research and publications.',
+            '20. My performance evaluation (ACR/KPIs) is fair, transparent, and linked to promotion/incentives.',
+            '21. Office facilities (workstation, internet connectivity, computer) are adequate for performing my duties effectively.',
+            '22. The library resources (books, journals, e-databases) are adequate/accessible for my research and teaching needs.',
+            '23. The Institutional Quality Assurance Cell (IQAC) regularly organizes training on pedagogy and quality assurance.',
+            '24. I regularly receive feedback from students regarding my courses, which is used constructively for improvement.',
+            '25. Peer observation or peer review of teaching is practiced and used for professional growth.',
+        ] %}
+        <p class="fw-bold text-secondary small mb-2">Part B: Governance, Vision &amp; Strategic Planning</p>
+        <table class="table table-bordered table-sm mb-4">
+            {% for i in range(1, 6) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_labels[i - 1] }}</td><td>{% set v = (payload.get('rating_' ~ i) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="fw-bold text-secondary small mb-2">Part C: Curriculum &amp; Course Management</p>
+        <table class="table table-bordered table-sm mb-4">
+            {% for i in range(6, 11) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_labels[i - 1] }}</td><td>{% set v = (payload.get('rating_' ~ i) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="fw-bold text-secondary small mb-2">Part D: Teaching-Learning &amp; Student Assessment</p>
+        <table class="table table-bordered table-sm mb-4">
+            {% for i in range(11, 16) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_labels[i - 1] }}</td><td>{% set v = (payload.get('rating_' ~ i) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="fw-bold text-secondary small mb-2">Part E: Faculty Development &amp; Research</p>
+        <table class="table table-bordered table-sm mb-4">
+            {% for i in range(16, 21) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_labels[i - 1] }}</td><td>{% set v = (payload.get('rating_' ~ i) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="fw-bold text-secondary small mb-2">Part F: Facilities &amp; Quality Assurance</p>
+        <table class="table table-bordered table-sm mb-0">
+            {% for i in range(21, 26) %}
+            <tr><td class="bg-light fw-bold" style="width: 35%;">{{ faculty_labels[i - 1] }}</td><td>{% set v = (payload.get('rating_' ~ i) | default(0)) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} √{% endif %} {% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;">
+        <h5 class="mb-0">Part G: Open-Ended Feedback</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-bordered table-sm mb-0">
+            <tr><td class="bg-light fw-bold" style="width: 35%;">26. What are the top three STRENGTHS of the Law Discipline?</td><td>{{ payload.get('strengths') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">27. What are the major WEAKNESSES or areas that need immediate improvement?</td><td>{{ payload.get('weaknesses') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">28. What OPPORTUNITIES (e.g., external collaborations, new programs) should the discipline explore?</td><td>{{ payload.get('opportunities') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold">29. Any other comments regarding the academic environment?</td><td>{{ payload.get('other_comments') or '–' }}</td></tr>
+        </table>
+    </div>
+</div>
+{% endif %}

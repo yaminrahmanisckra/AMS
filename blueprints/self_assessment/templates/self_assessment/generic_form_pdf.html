@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ survey_title }} – Form (Blank)</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.65in 0.6in; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif;
+            font-size: 10pt;
+            line-height: 1.4;
+            color: #000;
+        }
+        .doc-header {
+            text-align: center;
+            padding: 12pt 0 14pt 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 14pt;
+        }
+        .doc-title { font-size: 13pt; font-weight: bold; color: #000; margin-bottom: 4pt; letter-spacing: 0.02em; }
+        .doc-subtitle { font-size: 9.5pt; color: #333; }
+        .note { font-size: 9pt; color: #444; margin-bottom: 14pt; }
+        .q-label { font-weight: bold; margin-bottom: 6pt; }
+        .q-line { border-bottom: 1px solid #666; min-height: 60pt; }
+    </style>
+</head>
+<body>
+    <div class="doc-header">
+        <div class="doc-title">{{ survey_title }} (Blank Form)</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+    <div class="note">This form can be downloaded for offline filling. Submit online after filling.</div>
+    <p class="q-label">Comment (optional):</p>
+    <div class="q-line">&nbsp;</div>
+</body>
+</html>

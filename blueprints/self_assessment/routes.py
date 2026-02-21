@@ -1,0 +1,1019 @@
+"""Self Assessment and PSAC Committee routes."""
+import json
+import os
+import secrets
+from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
+from flask_login import login_required, current_user
+from role_utils import parse_roles
+
+from . import self_assessment_bp
+from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse
+from blueprints.class_management.models import Teacher
+
+SURVEY_TYPES = ('alumni', 'employer', 'faculty', 'non_academic', 'student')
+
+
+def _get_kalpurush_font_path():
+    """Return absolute path to Kalpurush font for WeasyPrint PDF (Bengali support), or None."""
+    root = current_app.root_path
+    for rel in ('static/Fonts/kalpurush.ttf', 'static/fonts/kalpurush.ttf',
+                'static/Fonts/Kalpurush.ttf', 'static/fonts/Kalpurush.ttf'):
+        path = os.path.join(root, *rel.split('/'))
+        if os.path.exists(path):
+            return os.path.abspath(path).replace(os.sep, '/')
+    return None
+
+
+def _client_ip():
+    """Client IP for one-per-IP check (supports proxy X-Forwarded-For)."""
+    return (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip() or request.remote_addr or ''
+
+
+def _current_teacher():
+    """Return Teacher for current user by full_name match (exact, trimmed, then case-insensitive)."""
+    if not current_user.is_authenticated:
+        return None
+    from extensions import db
+    name = (current_user.full_name or '').strip()
+    if not name:
+        return None
+    t = Teacher.query.filter_by(name=current_user.full_name).first()
+    if t:
+        return t
+    t = Teacher.query.filter(Teacher.name == name).first()
+    if t:
+        return t
+    t = Teacher.query.filter(db.func.lower(Teacher.name) == name.lower()).first()
+    if t:
+        return t
+    # Match when Teacher.name is "Full Name (Designation)" and user.full_name is "Full Name"
+    t = Teacher.query.filter(db.func.lower(Teacher.name).startswith(name.lower())).first()
+    return t
+
+
+def is_psac_head():
+    """True if current user is Head/Dean and is the PSAC committee head."""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles:
+        return False
+    teacher = _current_teacher()
+    if not teacher:
+        return False
+    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    return committee is not None
+
+
+def _name_matches_user(teacher_name, user_full_name):
+    """True if teacher_name matches user_full_name (exact, trimmed, case-insensitive, prefix, or without designation)."""
+    if not teacher_name or not user_full_name:
+        return False
+    u = (user_full_name or '').strip().lower()
+    t_raw = (teacher_name or '').strip()
+    t = t_raw.lower()
+    if u == t:
+        return True
+    if t.startswith(u) or u.startswith(t):
+        return True
+    # User নাম টিচার নামের ভেতরে থাকলেও ম্যাচ (যেমন "Md. Yamin Rahman" in "Md. Yamin Rahman (Assistant Professor)")
+    if len(u) >= 3 and u in t:
+        return True
+    # Teacher.name often "Full Name (Designation)" – compare without part in parentheses
+    if ' (' in t_raw:
+        t_base = t_raw.split(' (')[0].strip().lower()
+        if u == t_base or t_base.startswith(u) or u.startswith(t_base):
+            return True
+    return False
+
+
+def is_psac_member_or_head():
+    """True if current user can see Self Assessment (Head, or PSAC member, or ad-hoc member)."""
+    if not current_user.is_authenticated:
+        return False
+    roles = parse_roles(current_user.role)
+    user_name = (current_user.full_name or '').strip()
+
+    # 1) Head/Dean who is PSAC committee head
+    teacher = _current_teacher()
+    if teacher:
+        if 'head' in roles or 'dean' in roles:
+            if PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first():
+                return True
+        if PsacCommitteeMember.query.filter_by(teacher_id=teacher.id).first():
+            return True
+
+    # 2) Fallback: নাম দিয়ে ম্যাচ – কোনো PSAC মেম্বার/হেডের Teacher.name কি এই ইউজারের full_name এর সাথে মিলে?
+    for committee in PsacCommittee.query.all():
+        head = Teacher.query.get(committee.head_teacher_id)
+        if head and _name_matches_user(head.name, user_name):
+            return True
+    for m in PsacCommitteeMember.query.all():
+        t = Teacher.query.get(m.teacher_id)
+        if t and _name_matches_user(t.name, user_name):
+            return True
+    return False
+
+
+@self_assessment_bp.route('/')
+@login_required
+def index():
+    """Self Assessment landing: 5 survey types (forms to be planned later)."""
+    # Ensure Head has a PSAC committee so they can access (create on first visit)
+    roles = parse_roles(current_user.role)
+    teacher = _current_teacher()
+    if teacher and ('head' in roles or 'dean' in roles):
+        from extensions import db
+        committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+        if not committee:
+            committee = PsacCommittee(head_teacher_id=teacher.id)
+            db.session.add(committee)
+            db.session.commit()
+    if not is_psac_member_or_head():
+        flash('Self Assessment is available only to PSAC Committee (Head, members, and ad-hoc members).', 'danger')
+        return redirect(url_for('index'))
+    # Links per survey type (for copy URL / view responses)
+    links_by_type = {}
+    for st in SURVEY_TYPES:
+        links_by_type[st] = SurveyLink.query.filter_by(survey_type=st).order_by(SurveyLink.created_at.desc()).limit(20).all()
+    survey_types = [
+        {'id': 'alumni', 'title': 'Alumni Survey', 'icon': 'fas fa-user-graduate', 'desc': 'Survey for alumni.'},
+        {'id': 'employer', 'title': 'Employer Survey', 'icon': 'fas fa-briefcase', 'desc': 'Survey for employers.'},
+        {'id': 'faculty', 'title': 'Faculty Survey', 'icon': 'fas fa-chalkboard-teacher', 'desc': 'Survey for faculty.'},
+        {'id': 'non_academic', 'title': 'Non Academic Staff Survey', 'icon': 'fas fa-users-cog', 'desc': 'Survey for non-academic staff.'},
+        {'id': 'student', 'title': 'Student Survey', 'icon': 'fas fa-graduation-cap', 'desc': 'Survey for students.'},
+    ]
+    return render_template(
+        'self_assessment/index.html',
+        survey_types=survey_types,
+        links_by_type=links_by_type,
+        is_psac_head=is_psac_head(),
+    )
+
+
+@self_assessment_bp.route('/generate-link', methods=['POST'])
+@login_required
+def generate_link():
+    """Create a new survey link and return public URL (Head/members only)."""
+    if not is_psac_member_or_head():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    survey_type = (request.form.get('survey_type') or (request.get_json() or {}).get('survey_type') or '').strip().lower()
+    if survey_type not in SURVEY_TYPES:
+        return jsonify({'success': False, 'message': 'Invalid survey_type'}), 400
+    from extensions import db
+    committee_id = None
+    teacher = _current_teacher()
+    if teacher:
+        c = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+        if c:
+            committee_id = c.id
+        else:
+            m = PsacCommitteeMember.query.filter_by(teacher_id=teacher.id).first()
+            if m:
+                committee_id = m.committee_id
+    access_code = secrets.token_urlsafe(24)
+    while SurveyLink.query.filter_by(access_code=access_code).first():
+        access_code = secrets.token_urlsafe(24)
+    link = SurveyLink(survey_type=survey_type, access_code=access_code, committee_id=committee_id)
+    db.session.add(link)
+    db.session.commit()
+    base = request.url_root.rstrip('/')
+    public_url = f"{base}/self-assessment/s/{survey_type}/{link.access_code}"
+    return jsonify({'success': True, 'url': public_url, 'link_id': link.id, 'access_code': link.access_code})
+
+
+@self_assessment_bp.route('/link/<int:link_id>/delete', methods=['POST'])
+@login_required
+def delete_survey_link(link_id):
+    """Delete a generated survey link (Head/members only). Allowed only when the link has no responses."""
+    if not is_psac_member_or_head():
+        flash('You are not authorized to delete links.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    link = SurveyLink.query.get_or_404(link_id)
+    alumni_count = AlumniSurveyResponse.query.filter_by(survey_link_id=link.id).count()
+    generic_count = SurveyResponse.query.filter_by(survey_link_id=link.id).count()
+    if alumni_count > 0 or generic_count > 0:
+        flash('Cannot delete: this link has responses. Remove or reassign responses first.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    from extensions import db
+    db.session.delete(link)
+    db.session.commit()
+    flash('Link deleted.', 'success')
+    return redirect(url_for('self_assessment.index'))
+
+
+@self_assessment_bp.route('/psac-committee')
+@login_required
+def psac_committee():
+    """Manage PSAC Committee: Head adds/removes members and ad-hoc members."""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles:
+        flash('Only Head can manage PSAC Committee.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    teacher = _current_teacher()
+    if not teacher:
+        flash('Teacher profile not found.', 'danger')
+        return redirect(url_for('index'))
+    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    if not committee:
+        committee = PsacCommittee(head_teacher_id=teacher.id)
+        from extensions import db
+        db.session.add(committee)
+        db.session.commit()
+    members = PsacCommitteeMember.query.filter_by(committee_id=committee.id).order_by(PsacCommitteeMember.is_adhoc, PsacCommitteeMember.id).all()
+    all_teachers = Teacher.query.order_by(Teacher.name).all()
+    member_teacher_ids = {m.teacher_id for m in members}
+    return render_template(
+        'self_assessment/psac_committee.html',
+        committee=committee,
+        members=members,
+        all_teachers=all_teachers,
+        member_teacher_ids=member_teacher_ids,
+    )
+
+
+@self_assessment_bp.route('/psac-committee/add-member', methods=['POST'])
+@login_required
+def psac_add_member():
+    """Add a teacher as member or ad-hoc member."""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    teacher = _current_teacher()
+    if not teacher:
+        return jsonify({'success': False, 'message': 'Teacher not found'}), 404
+    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    if not committee:
+        committee = PsacCommittee(head_teacher_id=teacher.id)
+        from extensions import db
+        db.session.add(committee)
+        db.session.commit()
+    teacher_id = request.values.get('teacher_id')
+    if not teacher_id and request.is_json:
+        try:
+            teacher_id = request.get_json(silent=True) or {}
+            teacher_id = teacher_id.get('teacher_id')
+        except Exception:
+            teacher_id = None
+    is_adhoc = request.values.get('is_adhoc') == '1' or request.values.get('is_adhoc') == 'true'
+    if request.is_json:
+        try:
+            j = request.get_json(silent=True) or {}
+            is_adhoc = j.get('is_adhoc', False) in (True, 1, '1', 'true')
+        except Exception:
+            pass
+    if not teacher_id:
+        return jsonify({'success': False, 'message': 'teacher_id required'}), 400
+    try:
+        teacher_id = int(teacher_id)
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': 'Invalid teacher_id'}), 400
+    if PsacCommitteeMember.query.filter_by(committee_id=committee.id, teacher_id=teacher_id).first():
+        return jsonify({'success': False, 'message': 'Already a member'}), 400
+    from extensions import db
+    m = PsacCommitteeMember(committee_id=committee.id, teacher_id=teacher_id, is_adhoc=is_adhoc)
+    db.session.add(m)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Member added'})
+
+
+@self_assessment_bp.route('/psac-committee/remove-member/<int:member_id>', methods=['POST'])
+@login_required
+def psac_remove_member(member_id):
+    """Remove a member from PSAC committee."""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    teacher = _current_teacher()
+    if not teacher:
+        return jsonify({'success': False, 'message': 'Teacher not found'}), 404
+    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    if not committee:
+        return jsonify({'success': False, 'message': 'Committee not found'}), 404
+    m = PsacCommitteeMember.query.filter_by(id=member_id, committee_id=committee.id).first()
+    if not m:
+        return jsonify({'success': False, 'message': 'Member not found'}), 404
+    from extensions import db
+    db.session.delete(m)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Member removed'})
+
+
+@self_assessment_bp.route('/s/<survey_type>/<code>', methods=['GET', 'POST'])
+def public_survey_form(survey_type, code):
+    """Public survey form by link (no login). Multiple submissions per link allowed."""
+    if survey_type not in SURVEY_TYPES:
+        return render_template('self_assessment/survey_invalid.html'), 404
+    link = SurveyLink.query.filter_by(survey_type=survey_type, access_code=code.strip()).first()
+    if not link:
+        return render_template('self_assessment/survey_invalid.html'), 404
+    client_ip = _client_ip()
+
+    if request.method == 'POST':
+        if survey_type == 'alumni':
+            return _save_alumni_response(link, client_ip, survey_type, code)
+        return _save_generic_response(link, client_ip, survey_type, code)
+
+    if survey_type == 'alumni':
+        return render_template('self_assessment/alumni_survey.html', link=link)
+    if survey_type == 'employer':
+        return render_template('self_assessment/employer_survey.html', link=link)
+    if survey_type == 'student':
+        return render_template('self_assessment/student_survey.html', link=link)
+    if survey_type == 'faculty':
+        return render_template('self_assessment/faculty_survey.html', link=link)
+    if survey_type == 'non_academic':
+        return render_template('self_assessment/non_academic_survey.html', link=link)
+    return render_template('self_assessment/survey_placeholder.html', link=link, survey_type=survey_type)
+
+
+def _save_alumni_response(link, client_ip, survey_type, code):
+    """Save alumni form and redirect to success. New form (Law Program Accreditation) saves to payload; legacy form uses columns."""
+    from extensions import db
+    if request.form.get('form_version') == 'law_accreditation':
+        # New form: Parts A–E (q1..q21 ratings, q22..q25 open-ended); store in payload
+        payload = {}
+        for i in range(1, 22):
+            val = request.form.get(f'q{i}')
+            payload[f'q{i}'] = int(val) if val and str(val).isdigit() and 1 <= int(val) <= 5 else None
+        for i in range(22, 26):
+            payload[f'q{i}'] = (request.form.get(f'q{i}') or '').strip() or None
+        payload['name'] = (request.form.get('name') or '').strip() or None
+        payload['batch'] = (request.form.get('batch') or '').strip() or None
+        payload['graduation_year'] = (request.form.get('graduation_year') or '').strip() or None
+        response = AlumniSurveyResponse(
+            survey_link_id=link.id,
+            payload=json.dumps(payload),
+            ip_address=client_ip
+        )
+        db.session.add(response)
+        db.session.commit()
+        return redirect(url_for('self_assessment.public_survey_success', survey_type=survey_type, code=code))
+    # Legacy form
+    name = request.form.get('name')
+    batch = request.form.get('batch')
+    graduation_year = request.form.get('graduation_year')
+    degree_completed = request.form.getlist('degree_completed')
+    current_designation = request.form.get('current_designation')
+    organization = request.form.get('organization')
+    employment_sector = request.form.get('employment_sector')
+    employment_sector_other = request.form.get('employment_sector_other')
+    if employment_sector == 'Other' and employment_sector_other:
+        employment_sector = employment_sector_other
+    is_enrolled = request.form.get('is_enrolled') == '1'
+    enrollment_time = request.form.get('enrollment_time')
+    rating_fields = [
+        'curriculum_balance', 'knowledge_skills', 'critical_thinking', 'ethical_values',
+        'gen_ed_usefulness', 'assessment_methods', 'moot_court', 'library_resources',
+        'faculty_support', 'career_counseling', 'academic_calendar', 'admin_staff'
+    ]
+    ratings = {}
+    for field in rating_fields:
+        val = request.form.get(field)
+        ratings[field] = int(val) if val and str(val).isdigit() else None
+    time_to_first_job = request.form.get('time_to_first_job')
+    job_market_competitiveness = request.form.get('job_market_competitiveness')
+    skills_acquired = request.form.getlist('skills_acquired')
+    beneficial_course_activity = request.form.get('beneficial_course_activity')
+    am = request.form.get('alumni_association_member')
+    alumni_association_member = True if am == '1' else (False if am == '0' else None)
+    contribute_to_discipline = request.form.getlist('contributions')
+    curriculum_suggestions = request.form.get('curriculum_suggestions')
+    other_comments = request.form.get('other_comments')
+    response = AlumniSurveyResponse(
+        survey_link_id=link.id,
+        name=name, batch=batch, graduation_year=graduation_year, degree_completed=degree_completed,
+        current_designation=current_designation, organization=organization,
+        employment_sector=employment_sector, employment_sector_other=employment_sector_other,
+        is_enrolled=is_enrolled, enrollment_time=enrollment_time,
+        **ratings,
+        time_to_first_job=time_to_first_job, job_market_competitiveness=job_market_competitiveness,
+        skills_acquired=skills_acquired,
+        beneficial_course_activity=beneficial_course_activity,
+        alumni_association_member=alumni_association_member,
+        contribute_to_discipline=contribute_to_discipline,
+        curriculum_suggestions=curriculum_suggestions,
+        other_comments=other_comments,
+        ip_address=client_ip
+    )
+    db.session.add(response)
+    db.session.commit()
+    return redirect(url_for('self_assessment.public_survey_success', survey_type=survey_type, code=code))
+
+
+def _save_generic_response(link, client_ip, survey_type, code):
+    """Save generic survey form (payload JSON) and redirect to success. Preserves multi-value fields (e.g. checkboxes)."""
+    from extensions import db
+    payload = {}
+    for key in request.form:
+        vals = request.form.getlist(key)
+        if len(vals) > 1:
+            payload[key] = vals
+        elif len(vals) == 1:
+            payload[key] = vals[0]
+    resp = SurveyResponse(survey_type=survey_type, survey_link_id=link.id, payload=json.dumps(payload), ip_address=client_ip)
+    db.session.add(resp)
+    db.session.commit()
+    return redirect(url_for('self_assessment.public_survey_success', survey_type=survey_type, code=code))
+
+
+@self_assessment_bp.route('/s/<survey_type>/<code>/form-pdf')
+def public_survey_form_pdf(survey_type, code):
+    """Download the survey form as PDF (blank form for offline filling). No login required."""
+    if survey_type not in SURVEY_TYPES:
+        from flask import abort
+        abort(404)
+    link = SurveyLink.query.filter_by(survey_type=survey_type, access_code=code.strip()).first()
+    if not link:
+        from flask import abort
+        abort(404)
+    font_path = _get_kalpurush_font_path()
+    if survey_type == 'alumni':
+        html_content = render_template(
+            'self_assessment/alumni_form_pdf.html',
+            link=link,
+            survey_type=survey_type,
+            kalpurush_font_path=font_path,
+        )
+    elif survey_type == 'employer':
+        html_content = render_template(
+            'self_assessment/employer_form_pdf.html',
+            link=link,
+            survey_type=survey_type,
+            kalpurush_font_path=font_path,
+        )
+    elif survey_type == 'student':
+        html_content = render_template(
+            'self_assessment/student_form_pdf.html',
+            link=link,
+            survey_type=survey_type,
+            kalpurush_font_path=font_path,
+        )
+    elif survey_type == 'faculty':
+        html_content = render_template(
+            'self_assessment/faculty_form_pdf.html',
+            link=link,
+            survey_type=survey_type,
+            kalpurush_font_path=font_path,
+        )
+    elif survey_type == 'non_academic':
+        html_content = render_template(
+            'self_assessment/non_academic_form_pdf.html',
+            link=link,
+            survey_type=survey_type,
+            kalpurush_font_path=font_path,
+        )
+    else:
+        titles = {'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
+                  'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
+        html_content = render_template(
+            'self_assessment/generic_form_pdf.html',
+            link=link,
+            survey_type=survey_type,
+            survey_title=titles.get(survey_type, survey_type),
+            kalpurush_font_path=font_path,
+        )
+    try:
+        from flask import Response
+        import io
+        from weasyprint import HTML
+    except ImportError:
+        return jsonify({'error': 'WeasyPrint not available'}), 503
+    try:
+        pdf_buffer = io.BytesIO()
+        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        pdf_data = pdf_buffer.getvalue()
+    except Exception as e:
+        current_app.logger.error(f"Form PDF error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+    filename = f"{survey_type}_survey_form.pdf"
+    resp = Response(pdf_data, mimetype='application/pdf')
+    resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    resp.headers['Content-Length'] = str(len(pdf_data))
+    return resp
+
+
+@self_assessment_bp.route('/s/<survey_type>/<code>/success')
+def public_survey_success(survey_type, code):
+    """Public success page after survey submit."""
+    link = SurveyLink.query.filter_by(survey_type=survey_type, access_code=code.strip()).first()
+    return render_template('self_assessment/survey_success.html', link=link, survey_type=survey_type)
+
+
+def _can_access_responses():
+    """True if current user (Head or PSAC member) can view/download responses."""
+    return is_psac_member_or_head()
+
+
+@self_assessment_bp.route('/survey/<survey_type>/response/<int:response_id>/view')
+@login_required
+def survey_response_view(survey_type, response_id):
+    """View a single survey response (Head/members only)."""
+    if survey_type not in SURVEY_TYPES:
+        flash('Invalid survey type.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    if not _can_access_responses():
+        flash('You are not authorized to view responses.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    link_ids = [l.id for l in links]
+    titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
+              'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
+    survey_title = titles.get(survey_type, survey_type)
+    if survey_type == 'alumni':
+        resp = AlumniSurveyResponse.query.get_or_404(response_id)
+        if resp.survey_link_id is not None and (not link_ids or resp.survey_link_id not in link_ids):
+            flash('Response not found for this survey type.', 'danger')
+            return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+        try:
+            alumni_payload = json.loads(resp.payload) if resp.payload else None
+        except (TypeError, ValueError):
+            alumni_payload = None
+        return render_template(
+            'self_assessment/response_view.html',
+            survey_type=survey_type,
+            survey_title=survey_title,
+            response_type='alumni',
+            r=resp,
+            alumni_payload=alumni_payload,
+        )
+    resp = SurveyResponse.query.filter_by(id=response_id, survey_type=survey_type).first_or_404()
+    if resp.survey_link_id not in link_ids:
+        flash('Response not found for this survey type.', 'danger')
+        return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+    try:
+        payload = json.loads(resp.payload or '{}')
+    except (TypeError, ValueError):
+        payload = {}
+    return render_template(
+        'self_assessment/response_view.html',
+        survey_type=survey_type,
+        survey_title=survey_title,
+        response_type='generic',
+        r=resp,
+        payload=payload,
+    )
+
+
+@self_assessment_bp.route('/survey/<survey_type>/response/<int:response_id>/delete', methods=['POST'])
+@login_required
+def delete_survey_response(survey_type, response_id):
+    """Delete a single survey response (Head/members only)."""
+    if survey_type not in SURVEY_TYPES:
+        flash('Invalid survey type.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    if not _can_access_responses():
+        flash('You are not authorized to delete responses.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    from extensions import db
+    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    link_ids = [l.id for l in links]
+    if survey_type == 'alumni':
+        resp = AlumniSurveyResponse.query.get_or_404(response_id)
+        if resp.survey_link_id is not None and (not link_ids or resp.survey_link_id not in link_ids):
+            flash('Response not found for this survey type.', 'danger')
+            return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+        db.session.delete(resp)
+    else:
+        resp = SurveyResponse.query.filter_by(id=response_id, survey_type=survey_type).first_or_404()
+        if resp.survey_link_id not in link_ids:
+            flash('Response not found for this survey type.', 'danger')
+            return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+        db.session.delete(resp)
+    db.session.commit()
+    flash('Response deleted.', 'success')
+    return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+
+
+@self_assessment_bp.route('/survey/<survey_type>/responses/delete-all', methods=['POST'])
+@login_required
+def delete_all_survey_responses(survey_type):
+    """Delete all responses for this survey type (Head/members only)."""
+    if survey_type not in SURVEY_TYPES:
+        flash('Invalid survey type.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    if not _can_access_responses():
+        flash('You are not authorized to delete responses.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    from extensions import db
+    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    link_ids = [l.id for l in links]
+    if not link_ids:
+        flash('No responses to delete.', 'info')
+        return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+    if survey_type == 'alumni':
+        count = AlumniSurveyResponse.query.filter(
+            AlumniSurveyResponse.survey_link_id.in_(link_ids)
+        ).delete(synchronize_session=False)
+    else:
+        count = SurveyResponse.query.filter_by(survey_type=survey_type).filter(
+            SurveyResponse.survey_link_id.in_(link_ids)
+        ).delete(synchronize_session=False)
+    db.session.commit()
+    flash(f'{count} response(s) deleted.', 'success')
+    return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+
+
+@self_assessment_bp.route('/survey/<survey_type>/responses')
+@login_required
+def survey_responses_list(survey_type):
+    """List responses for a survey type (Head/members only)."""
+    if survey_type not in SURVEY_TYPES:
+        flash('Invalid survey type.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    if not _can_access_responses():
+        flash('You are not authorized to view responses.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+    link_ids = [l.id for l in links]
+    if survey_type == 'alumni':
+        if not link_ids:
+            responses = []
+        else:
+            responses = AlumniSurveyResponse.query.filter(
+                AlumniSurveyResponse.survey_link_id.in_(link_ids)
+            ).order_by(AlumniSurveyResponse.created_at.desc()).all()
+        response_type = 'alumni'
+    else:
+        if not link_ids:
+            responses = []
+        else:
+            responses = SurveyResponse.query.filter_by(survey_type=survey_type).filter(
+                SurveyResponse.survey_link_id.in_(link_ids)
+            ).order_by(SurveyResponse.created_at.desc()).all()
+        response_type = 'generic'
+    titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
+              'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
+    return render_template(
+        'self_assessment/responses_list.html',
+        survey_type=survey_type,
+        survey_title=titles.get(survey_type, survey_type),
+        links=links,
+        responses=responses,
+        response_type=response_type,
+    )
+
+
+@self_assessment_bp.route('/survey/<survey_type>/responses/pdf')
+@login_required
+def survey_responses_pdf(survey_type):
+    """Download all responses for a survey type as one PDF (Head/members only)."""
+    if survey_type not in SURVEY_TYPES:
+        from flask import abort
+        abort(404)
+    if not _can_access_responses():
+        from flask import abort
+        abort(403)
+    links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+    link_ids = [l.id for l in links]
+    titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
+              'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
+    survey_title = titles.get(survey_type, survey_type)
+    font_path = _get_kalpurush_font_path()
+    if survey_type == 'alumni':
+        responses = AlumniSurveyResponse.query.filter(
+            AlumniSurveyResponse.survey_link_id.in_(link_ids)
+        ).order_by(AlumniSurveyResponse.created_at.desc()).all() if link_ids else []
+        if responses:
+            # Merge one PDF per response so page numbers restart (1, 2, …) for each response
+            try:
+                import io
+                try:
+                    from PyPDF2 import PdfMerger
+                except ImportError:
+                    from PyPDF2 import PdfFileMerger as PdfMerger
+            except ImportError:
+                msg = 'PyPDF2 not installed. Install it for "Download All" PDF: pip install PyPDF2'
+                if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
+                    return jsonify({'error': msg}), 503
+                return f'<html><body style="font-family:sans-serif;padding:2em;"><h2>Download All PDF</h2><p>{msg}</p><p><a href="{url_for("self_assessment.survey_responses_list", survey_type=survey_type)}">Back to responses</a></p></body></html>', 503
+            try:
+                merger = PdfMerger()
+                for resp in responses:
+                    pdf_bytes = _get_alumni_pdf_bytes(resp)
+                    if pdf_bytes:
+                        merger.append(io.BytesIO(pdf_bytes))
+                out = io.BytesIO()
+                merger.write(out)
+                pdf_data = out.getvalue()
+                merger.close()
+                filename = f"{survey_type}_survey_all_responses.pdf"
+                from flask import Response
+                resp = Response(pdf_data, mimetype='application/pdf')
+                resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+                resp.headers['Content-Length'] = str(len(pdf_data))
+                return resp
+            except Exception as e:
+                current_app.logger.warning('Alumni all-responses PDF merge failed: %s', e, exc_info=True)
+                msg = str(e) or 'PDF merge failed'
+                if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
+                    return jsonify({'error': msg}), 500
+                return f'<html><body style="font-family:sans-serif;padding:2em;"><h2>Download All PDF</h2><p>{msg}</p><p><a href="{url_for("self_assessment.survey_responses_list", survey_type=survey_type)}">Back to responses</a></p></body></html>', 500
+        # No responses: single PDF with "No responses" message
+        html_content = render_template(
+            'self_assessment/alumni_all_responses_pdf.html',
+            responses=[],
+            kalpurush_font_path=font_path,
+        )
+    else:
+        responses = SurveyResponse.query.filter_by(survey_type=survey_type).filter(
+            SurveyResponse.survey_link_id.in_(link_ids)
+        ).order_by(SurveyResponse.created_at.desc()).all() if link_ids else []
+        if responses:
+            # Merge one PDF per response (same design as Alumni: page numbers restart per response)
+            try:
+                import io
+                try:
+                    from PyPDF2 import PdfMerger
+                except ImportError:
+                    from PyPDF2 import PdfFileMerger as PdfMerger
+            except ImportError:
+                msg = 'PyPDF2 not installed. Install it for "Download All" PDF: pip install PyPDF2'
+                if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
+                    return jsonify({'error': msg}), 503
+                return f'<html><body style="font-family:sans-serif;padding:2em;"><h2>Download All PDF</h2><p>{msg}</p><p><a href="{url_for("self_assessment.survey_responses_list", survey_type=survey_type)}">Back to responses</a></p></body></html>', 503
+            try:
+                merger = PdfMerger()
+                for resp in responses:
+                    pdf_bytes = _get_generic_survey_pdf_bytes(resp)
+                    if pdf_bytes:
+                        merger.append(io.BytesIO(pdf_bytes))
+                out = io.BytesIO()
+                merger.write(out)
+                pdf_data = out.getvalue()
+                merger.close()
+                filename = f"{survey_type}_survey_all_responses.pdf"
+                from flask import Response
+                resp = Response(pdf_data, mimetype='application/pdf')
+                resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+                resp.headers['Content-Length'] = str(len(pdf_data))
+                return resp
+            except Exception as e:
+                current_app.logger.warning('Generic all-responses PDF merge failed: %s', e, exc_info=True)
+                msg = str(e) or 'PDF merge failed'
+                if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
+                    return jsonify({'error': msg}), 500
+                return f'<html><body style="font-family:sans-serif;padding:2em;"><h2>Download All PDF</h2><p>{msg}</p><p><a href="{url_for("self_assessment.survey_responses_list", survey_type=survey_type)}">Back to responses</a></p></body></html>', 500
+        # No responses: single PDF with "No responses" message (same pattern as alumni)
+        html_content = render_template(
+            'self_assessment/generic_all_responses_pdf.html',
+            survey_type=survey_type,
+            survey_title=survey_title,
+            responses=[],
+            kalpurush_font_path=font_path,
+        )
+    try:
+        from flask import current_app, Response
+        import io
+        from weasyprint import HTML
+    except ImportError:
+        return jsonify({'error': 'WeasyPrint not available'}), 503
+    try:
+        pdf_buffer = io.BytesIO()
+        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        pdf_data = pdf_buffer.getvalue()
+    except Exception as e:
+        from flask import current_app
+        current_app.logger.error(f"All responses PDF error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+    filename = f"{survey_type}_survey_all_responses.pdf"
+    resp = Response(pdf_data, mimetype='application/pdf')
+    resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    resp.headers['Content-Length'] = str(len(pdf_data))
+    return resp
+
+
+@self_assessment_bp.route('/survey/alumni/response/<int:response_id>/pdf')
+@login_required
+def alumni_response_pdf(response_id):
+    """Download a single Alumni survey response as PDF (Head/members only)."""
+    if not _can_access_responses():
+        from flask import abort
+        abort(403)
+    resp = AlumniSurveyResponse.query.get_or_404(response_id)
+    if resp.survey_link_id:
+        link = SurveyLink.query.get(resp.survey_link_id)
+        if not link or link.survey_type != 'alumni':
+            from flask import abort
+            abort(404)
+    try:
+        out = _render_alumni_pdf(resp)
+        return out
+    except Exception as e:
+        current_app.logger.error(f"Alumni response PDF error: {e}", exc_info=True)
+        back_url = url_for('self_assessment.survey_responses_list', survey_type='alumni')
+        if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
+            return jsonify({'error': 'PDF generation failed', 'detail': str(e)}), 500
+        return _pdf_fallback_html('alumni', response_id, back_url), 503
+
+
+@self_assessment_bp.route('/survey/<survey_type>/response/<int:response_id>/pdf')
+@login_required
+def generic_response_pdf(survey_type, response_id):
+    """Download a single generic survey response as PDF (Head/members only)."""
+    if survey_type not in SURVEY_TYPES or survey_type == 'alumni':
+        from flask import abort
+        abort(404)
+    if not _can_access_responses():
+        from flask import abort
+        abort(403)
+    resp = SurveyResponse.query.filter_by(id=response_id, survey_type=survey_type).first_or_404()
+    try:
+        out = _render_generic_pdf(resp)
+        return out
+    except Exception as e:
+        current_app.logger.error(f"Survey response PDF error: {e}", exc_info=True)
+        back_url = url_for('self_assessment.survey_responses_list', survey_type=survey_type)
+        if request.accept_mimetypes.best_match(['text/html', 'application/json']) == 'application/json':
+            return jsonify({'error': 'PDF generation failed', 'detail': str(e)}), 500
+        return _pdf_fallback_html(survey_type, response_id, back_url), 503
+
+
+def _get_alumni_pdf_bytes(alumni_response):
+    """Return PDF bytes for one AlumniSurveyResponse (for merging into all-responses PDF)."""
+    import io
+    try:
+        from weasyprint import HTML
+    except ImportError:
+        return None
+    try:
+        payload = json.loads(alumni_response.payload) if alumni_response.payload else None
+        html_content = render_template(
+            'self_assessment/alumni_response_pdf.html',
+            r=alumni_response,
+            payload=payload,
+            kalpurush_font_path=_get_kalpurush_font_path(),
+        )
+        pdf_buffer = io.BytesIO()
+        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        return pdf_buffer.getvalue()
+    except Exception as e:
+        current_app.logger.error(f"Alumni response PDF error: {e}", exc_info=True)
+        return None
+
+
+def _pdf_fallback_html(survey_type, response_id, back_url):
+    """HTML when PDF generation fails: link to view response + Print to PDF instructions."""
+    view_url = url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=response_id)
+    return (
+        '<html><body style="font-family:sans-serif;padding:2em;max-width:600px;">'
+        '<h2>PDF ডাউনলোড এই সার্ভারে উপলব্ধ নয়</h2>'
+        '<p>রেসপন্সটি ব্রাউজারে খুলে <strong>Print (Ctrl+P)</strong> চাপুন এবং <strong>Save as PDF</strong> বা "প্রিন্ট করুন" থেকে PDF হিসেবে সেভ করুন।</p>'
+        f'<p><a href="{view_url}" style="display:inline-block;padding:0.5em 1em;background:#0d6efd;color:white;text-decoration:none;border-radius:6px;">রেসপন্স দেখুন ও প্রিন্ট করুন</a></p>'
+        f'<p><a href="{back_url}">Responses তালিকায় ফিরে যান</a></p>'
+        '</body></html>'
+    )
+
+
+def _render_alumni_pdf(alumni_response):
+    """Generate PDF for one AlumniSurveyResponse using WeasyPrint."""
+    from flask import Response
+    back_url = url_for('self_assessment.survey_responses_list', survey_type='alumni')
+    try:
+        pdf_bytes = _get_alumni_pdf_bytes(alumni_response)
+        if pdf_bytes is None:
+            return _pdf_fallback_html('alumni', alumni_response.id, back_url), 503
+        filename = f"alumni_survey_response_{alumni_response.id}.pdf"
+        resp = Response(pdf_bytes, mimetype='application/pdf')
+        resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        resp.headers['Content-Length'] = str(len(pdf_bytes))
+        return resp
+    except Exception as e:
+        current_app.logger.error(f"Alumni PDF render error: {e}", exc_info=True)
+        return _pdf_fallback_html('alumni', alumni_response.id, back_url), 503
+
+
+def _get_generic_survey_pdf_bytes(survey_response):
+    """Return PDF bytes for one SurveyResponse using type-specific template (for single PDF or merge)."""
+    import io
+    try:
+        from weasyprint import HTML
+    except ImportError:
+        return None
+    try:
+        payload = json.loads(survey_response.payload or '{}')
+    except (TypeError, ValueError):
+        payload = {}
+    template_map = {
+        'employer': 'self_assessment/employer_response_pdf.html',
+        'student': 'self_assessment/student_response_pdf.html',
+        'faculty': 'self_assessment/faculty_response_pdf.html',
+        'non_academic': 'self_assessment/non_academic_response_pdf.html',
+    }
+    template_name = template_map.get(survey_response.survey_type, 'self_assessment/generic_response_pdf.html')
+    try:
+        html_content = render_template(
+            template_name,
+            r=survey_response,
+            payload=payload,
+            kalpurush_font_path=_get_kalpurush_font_path(),
+        )
+        pdf_buffer = io.BytesIO()
+        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        return pdf_buffer.getvalue()
+    except Exception as e:
+        current_app.logger.error(f"Survey response PDF error: {e}", exc_info=True)
+        return None
+
+
+def _render_generic_pdf(survey_response):
+    """Generate PDF for one SurveyResponse (payload JSON) using type-specific template (same design as Alumni)."""
+    from flask import current_app, Response
+    back_url = url_for('self_assessment.survey_responses_list', survey_type=survey_response.survey_type)
+    try:
+        pdf_bytes = _get_generic_survey_pdf_bytes(survey_response)
+        if pdf_bytes is None:
+            return _pdf_fallback_html(survey_response.survey_type, survey_response.id, back_url), 503
+        filename = f"{survey_response.survey_type}_survey_response_{survey_response.id}.pdf"
+        resp = Response(pdf_bytes, mimetype='application/pdf')
+        resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        resp.headers['Content-Length'] = str(len(pdf_bytes))
+        return resp
+    except Exception as e:
+        current_app.logger.error(f"Generic PDF render error: {e}", exc_info=True)
+        return _pdf_fallback_html(survey_response.survey_type, survey_response.id, back_url), 503
+
+
+@self_assessment_bp.route('/alumni-survey', methods=['GET', 'POST'])
+def alumni_survey():
+    """Public Alumni Survey form (Law Program Accreditation). No link: survey_link_id=None."""
+    if request.method == 'POST':
+        from extensions import db
+        from .models import AlumniSurveyResponse
+        if request.form.get('form_version') == 'law_accreditation':
+            payload = {}
+            for i in range(1, 22):
+                val = request.form.get(f'q{i}')
+                payload[f'q{i}'] = int(val) if val and str(val).isdigit() and 1 <= int(val) <= 5 else None
+            for i in range(22, 26):
+                payload[f'q{i}'] = (request.form.get(f'q{i}') or '').strip() or None
+            payload['name'] = (request.form.get('name') or '').strip() or None
+            payload['batch'] = (request.form.get('batch') or '').strip() or None
+            payload['graduation_year'] = (request.form.get('graduation_year') or '').strip() or None
+            response = AlumniSurveyResponse(survey_link_id=None, payload=json.dumps(payload), ip_address=request.remote_addr)
+            db.session.add(response)
+            db.session.commit()
+            return redirect(url_for('self_assessment.alumni_survey_success'))
+        # Legacy form (no link)
+        name = request.form.get('name')
+        batch = request.form.get('batch')
+        graduation_year = request.form.get('graduation_year')
+        degree_completed = request.form.getlist('degree_completed')
+        current_designation = request.form.get('current_designation')
+        organization = request.form.get('organization')
+        employment_sector = request.form.get('employment_sector')
+        employment_sector_other = request.form.get('employment_sector_other')
+        if employment_sector == 'Other' and employment_sector_other:
+            employment_sector = employment_sector_other
+        is_enrolled = request.form.get('is_enrolled') == '1'
+        enrollment_time = request.form.get('enrollment_time')
+        ratings = {}
+        rating_fields = [
+            'curriculum_balance', 'knowledge_skills', 'critical_thinking', 'ethical_values',
+            'gen_ed_usefulness', 'assessment_methods', 'moot_court', 'library_resources',
+            'faculty_support', 'career_counseling', 'academic_calendar', 'admin_staff'
+        ]
+        for field in rating_fields:
+            val = request.form.get(field)
+            ratings[field] = int(val) if val and val.isdigit() else None
+        time_to_first_job = request.form.get('time_to_first_job')
+        job_market_competitiveness = request.form.get('job_market_competitiveness')
+        skills_acquired = request.form.getlist('skills_acquired')
+        beneficial_course_activity = request.form.get('beneficial_course_activity')
+        am = request.form.get('alumni_association_member')
+        alumni_association_member = True if am == '1' else (False if am == '0' else None)
+        contribute_to_discipline = request.form.getlist('contributions')
+        curriculum_suggestions = request.form.get('curriculum_suggestions')
+        other_comments = request.form.get('other_comments')
+        response = AlumniSurveyResponse(
+            name=name,
+            batch=batch,
+            graduation_year=graduation_year,
+            degree_completed=degree_completed,
+            current_designation=current_designation,
+            organization=organization,
+            employment_sector=employment_sector,
+            employment_sector_other=employment_sector_other,
+            is_enrolled=is_enrolled,
+            enrollment_time=enrollment_time,
+            **ratings,
+            time_to_first_job=time_to_first_job,
+            job_market_competitiveness=job_market_competitiveness,
+            skills_acquired=skills_acquired,
+            beneficial_course_activity=beneficial_course_activity,
+            alumni_association_member=alumni_association_member,
+            contribute_to_discipline=contribute_to_discipline,
+            curriculum_suggestions=curriculum_suggestions,
+            other_comments=other_comments,
+            ip_address=request.remote_addr
+        )
+        db.session.add(response)
+        db.session.commit()
+        
+        return redirect(url_for('self_assessment.alumni_survey_success'))
+
+    return render_template('self_assessment/alumni_survey.html')
+
+
+@self_assessment_bp.route('/alumni-survey/success')
+def alumni_survey_success():
+    """Public success page for Alumni Survey."""
+    return render_template('self_assessment/alumni_survey_success.html')

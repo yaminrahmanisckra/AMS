@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Alumni Survey Questionnaire (Blank)</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.45in 0.5in 0.65in 0.5in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 8pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 8.5pt; line-height: 1.35; color: #000; }
+        .doc-header { text-align: center; padding: 6pt 0 6pt 0; border-bottom: 2px solid #000; margin-bottom: 5pt; }
+        .doc-title { font-size: 12pt; font-weight: bold; color: #000; margin-bottom: 2pt; letter-spacing: 0.02em; }
+        .doc-subtitle { font-size: 9pt; color: #6c757d; }
+        .intro-box { border: 1px solid #dee2e6; background: #f8f9fa; padding: 6pt 10pt; margin-bottom: 5pt; font-size: 8pt; line-height: 1.3; }
+        .intro-box p { margin-bottom: 4pt; }
+        .intro-box p:last-child { margin-bottom: 0; }
+        .section { margin-bottom: 5pt; }
+        .section-header { background: #f8f9fa; border: 1px solid #dee2e6; padding: 4pt 8pt; margin-bottom: 4pt; font-size: 9.5pt; font-weight: bold; color: #000; }
+        .section-note { font-size: 7.5pt; color: #6c757d; font-style: italic; margin-bottom: 4pt; }
+        .likert-legend { font-size: 7.5pt; color: #000; margin-bottom: 4pt; padding: 5pt 8pt; border: 1px solid #dee2e6; background: #f8f9fa; }
+        table.rating-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; margin-top: 4pt; margin-bottom: 6pt; table-layout: fixed; line-height: 1.25; }
+        table.rating-table th, table.rating-table td { border: 1px solid #dee2e6; padding: 3pt 5pt; vertical-align: middle; }
+        table.rating-table thead th { font-weight: bold; background: #f8f9fa; text-align: center; }
+        table.rating-table th:nth-child(1), table.rating-table td:nth-child(1) { width: 4%; text-align: center; font-weight: bold; }
+        table.rating-table th:nth-child(2), table.rating-table td:nth-child(2) { width: 52%; text-align: left; word-wrap: break-word; overflow-wrap: break-word; }
+        table.rating-table th:nth-child(3), table.rating-table td:nth-child(3),
+        table.rating-table th:nth-child(4), table.rating-table td:nth-child(4),
+        table.rating-table th:nth-child(5), table.rating-table td:nth-child(5),
+        table.rating-table th:nth-child(6), table.rating-table td:nth-child(6),
+        table.rating-table th:nth-child(7), table.rating-table td:nth-child(7) { width: 8.8%; text-align: center; }
+        table.rating-table tbody tr:nth-child(even) td { background: #f8f9fa; }
+        .q-open { margin-top: 4pt; border: 1px solid #333; min-height: 40pt; padding: 5pt; background: #fafafa; font-size: 8pt; }
+    </style>
+</head>
+<body>
+    <div class="doc-header">
+        <div class="doc-title">Alumni Survey Questionnaire</div>
+        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+    </div>
+
+    <div class="intro-box">
+        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+        <p><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
+        <p><strong>Scale:</strong> 1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
+    </div>
+
+    <p class="section-note">Optional: Name _______________________ &nbsp; Batch _______________________ &nbsp; Year of Graduation _______________________</p>
+
+    <div class="section">
+        <div class="section-header">Part A: Employment &amp; Career Relevance (Standard 4)</div>
+        <p class="section-note">Focus: Employability and curriculum relevance. Circle or tick one number (1–5) for each row.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>1</td><td>The academic program prepared me well for my current profession (e.g., Advocate, Judge, Corporate Officer).</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>2</td><td>The legal knowledge (substantive and procedural law) I gained is relevant to my daily work.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>3</td><td>The curriculum balanced theoretical knowledge with practical skills (drafting, pleading, opinions).</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>4</td><td>The General Education courses (e.g., English, ICT, History, Economics) helped broaden my professional skills.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>5</td><td>The program enhanced my ability to adapt to changes in the legal landscape (e.g., new laws, technology).</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part B: Attainment of Graduate Attributes (Standard 4 &amp; Discipline Specifics)</div>
+        <p class="section-note">Focus: Assessing the 11 Law Graduate Attributes. Please rate how well the program helped you develop these specific skills.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Attribute / Skill</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>6</td><td>Legal Research Skills: Ability to find and analyze case law/statutes.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>7</td><td>Communication Skills: Oral advocacy and professional writing.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>8</td><td>Problem Solving: Ability to apply law to complex factual scenarios.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>9</td><td>Ethical Development: Understanding professional ethics and moral responsibility.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>10</td><td>ICT Skills: Proficiency in using technology for legal work.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>11</td><td>Leadership &amp; Team Spirit: Ability to work in teams and lead initiatives.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>12</td><td>Creativity &amp; Innovation: Ability to think outside the box in legal arguments.</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part C: Teaching, Assessment &amp; Environment (Standard 5 &amp; 8)</div>
+        <p class="section-note">Focus: Quality of instruction and facilities.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>13</td><td>The faculty members were qualified and effective in their teaching methods.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>14</td><td>The assessment methods (exams/assignments) were fair and challenged my critical thinking.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>15</td><td>Moot Court: The mooting and mock trial exercises were sufficient and useful for my career.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>16</td><td>Library/IT: The learning resources (books, journals, computer labs) were adequate during my study.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>17</td><td>Co-Curriculars: Participation in debating, clubs, or negotiation role-plays helped mold my personality.</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part D: Institutional Engagement (Standard 6 &amp; 10)</div>
+        <p class="section-note">Focus: Alumni relations and feedback loops.</p>
+        <table class="rating-table">
+            <thead><tr><th>#</th><th>Statement</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
+            <tbody>
+                <tr><td>18</td><td>The university's Career Placement Cell provided useful guidance for my job search/internship.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>19</td><td>I feel a strong sense of connection/belonging to the university.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>20</td><td>The Alumni Association is active and provides networking opportunities.</td><td></td><td></td><td></td><td></td><td></td></tr>
+                <tr><td>21</td><td>The department seeks feedback from alumni regarding curriculum review and development.</td><td></td><td></td><td></td><td></td><td></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <div class="section-header">Part E: Qualitative Questions (Open-Ended)</div>
+        <p class="q"><strong>22.</strong> What specific skills or knowledge areas were missing from the curriculum that you found necessary in your professional life? (e.g., Drafting, specialized laws, soft skills, IT)</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><strong>23.</strong> How would you evaluate the effectiveness of the Moot Court/Practical training during your time? How can it be improved?</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><strong>24.</strong> What are the major strengths of the Department of Law that we should maintain?</p>
+        <div class="q-open">&nbsp;</div>
+        <p class="q" style="margin-top: 6pt;"><strong>25.</strong> Would you recommend this program to a prospective law student? Why or why not?</p>
+        <div class="q-open">&nbsp;</div>
+    </div>
+</body>
+</html>

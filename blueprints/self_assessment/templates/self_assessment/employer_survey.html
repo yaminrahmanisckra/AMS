@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Employer Survey Questionnaire{% endblock %}
+{% block extra_css %}
+<style>
+    .self-assessment-form .form-check-input { border: 2px solid #374151; border-radius: 0.25em; background-color: #fff; }
+    .self-assessment-form .form-check-input:checked { background-color: #1e40af; border-color: #1e40af; }
+    .self-assessment-form .form-check-input:focus { border-color: #1e40af; box-shadow: 0 0 0 0.2rem rgba(30, 64, 175, 0.35); }
+    .self-assessment-form .form-check-label { color: #1f2937; font-weight: 500; }
+    @media (max-width: 767px) {
+        .self-assessment-form .form-control { min-height: 2.75rem; font-size: 1rem; }
+        .self-assessment-form .form-check-input { width: 1.35rem; height: 1.35rem; }
+        .self-assessment-form .form-check-label { padding-left: 0.4rem; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container my-5 px-2 px-md-3 self-assessment-form">
+    <div class="text-center mb-5">
+        <h2 class="fw-bold">Employer Survey Questionnaire</h2>
+        <h4 class="text-muted">Law Discipline, Khulna University</h4>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+            <p class="card-text"><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
+            <p class="card-text mb-0"><strong>Scale:</strong><br>
+            1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
+        </div>
+    </div>
+
+    <form method="POST" action="{{ url_for('self_assessment.public_survey_form', survey_type='employer', code=link.access_code) }}">
+        <input type="hidden" name="form_version" value="employer_law">
+
+        <!-- Optional identification -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Optional Identification</h5></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6"><label for="organization_name" class="form-label">Name of Organization (Optional)</label><input type="text" class="form-control" id="organization_name" name="organization_name"></div>
+                    <div class="col-md-6"><label for="respondent_name_designation" class="form-label">Name &amp; Designation of Respondent (Optional)</label><input type="text" class="form-control" id="respondent_name_designation" name="respondent_name_designation"></div>
+                    <div class="col-md-6">
+                        <label class="form-label">Type of Organization <span class="text-danger">*</span></label>
+                        {% set org_types = ['Judiciary (District/Session Court)', 'Law Firm / Chamber', 'Corporate Legal Department', 'Government Agency / Public Sector', 'NGO / Human Rights Organization', 'Academia / Research Institute'] %}
+                        <select class="form-select" name="type_of_organization" id="type_of_organization" required>
+                            <option value="">— Select —</option>
+                            {% for opt in org_types %}<option value="{{ opt }}">{{ opt }}</option>{% endfor %}
+                            <option value="Other">Other</option>
+                        </select>
+                        <input type="text" class="form-control mt-2" name="type_of_organization_other" placeholder="If Other, specify" style="display:none" id="type_other_box">
+                    </div>
+                    <div class="col-md-6"><label for="number_graduates_employed" class="form-label">Number of KU Law Graduates employed/supervised by you (Optional)</label><input type="text" class="form-control" id="number_graduates_employed" name="number_graduates_employed"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part A: Professional Competence & Legal Knowledge (Standard 4) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part A: Professional Competence &amp; Legal Knowledge (Standard 4)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Application of substantive and procedural law.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_a = [
+                                ('q1', 'The graduates demonstrate sound knowledge of substantive and procedural laws relevant to their work.'),
+                                ('q2', 'Legal Research: They possess strong legal research skills (finding case laws, statutes, and precedents).'),
+                                ('q3', 'Drafting & Pleading: Their drafting skills (plaints, written statements, opinions, contracts) meet professional standards.'),
+                                ('q4', 'Advocacy/Communication: They effectively present arguments and communicate legal concepts clearly.'),
+                                ('q5', 'Problem Solving: They can analyze complex facts and provide logical legal solutions.')
+                            ] %}
+                            {% for field, text in part_a %}
+                            <tr><td>{{ loop.index }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part B: Professional Skills & Ethics (Standard 3 & 6) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part B: Professional Skills &amp; Ethics (Standard 3 &amp; 6)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Work ethic, technology, and moral responsibility.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_b = [
+                                ('q6', 'Ethics & Integrity: The graduates uphold high standards of professional ethics and moral responsibility.'),
+                                ('q7', 'ICT Proficiency: They are proficient in using technology (computers, legal databases, online filing) for legal work.'),
+                                ('q8', 'Time Management: They are punctual and capable of meeting strict deadlines (e.g., court filings).'),
+                                ('q9', 'Teamwork & Leadership: They work well in teams and demonstrate leadership potential when required.'),
+                                ('q10', 'Adaptability: They adapt quickly to new laws, office procedures, or changing work environments.')
+                            ] %}
+                            {% for field, text in part_b %}
+                            <tr><td>{{ loop.index + 5 }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part C: Curriculum Relevance & Practical Training (Standard 4 & 5) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part C: Curriculum Relevance &amp; Practical Training (Standard 4 &amp; 5)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Gap between academia and industry.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_c = [
+                                ('q11', 'The academic curriculum of the university appears relevant to current legal practice.'),
+                                ('q12', 'The graduates show evidence of practical training (e.g., Moot Court, Mock Trials) during their studies.'),
+                                ('q13', 'Internship Performance: Interns from this university are well-prepared and eager to learn.'),
+                                ('q14', 'Creativity: The graduates display creativity and innovation in their legal approach.')
+                            ] %}
+                            {% for field, text in part_c %}
+                            <tr><td>{{ loop.index + 10 }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part D: Institutional Collaboration (Standard 10) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part D: Institutional Collaboration (Standard 10)</h5></div>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Feedback loops and engagement.</p>
+                <div class="table-responsive">
+                    <table class="table table-bordered table-striped align-middle">
+                        <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Statement</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
+                        <tbody>
+                            {% set part_d = [
+                                ('q15', 'The university engages with employers/industry to update the curriculum based on market needs.'),
+                                ('q16', 'I am satisfied with the overall performance of graduates from this university.')
+                            ] %}
+                            {% for field, text in part_d %}
+                            <tr><td>{{ loop.index + 14 }}</td><td>{{ text }}</td>
+                                <td><div class="d-flex justify-content-between px-2">{% for i in range(1,6) %}<div class="form-check form-check-inline me-0"><input class="form-check-input" type="radio" name="{{ field }}" id="{{ field }}_{{ i }}" value="{{ i }}" required><label class="form-check-label small" for="{{ field }}_{{ i }}">{{ i }}</label></div>{% endfor %}</div></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Part E: Qualitative Questions (Open-Ended) -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><h5 class="mb-0">Part E: Qualitative Questions (Open-Ended)</h5></div>
+            <div class="card-body">
+                <div class="mb-4">
+                    <label class="form-label fw-bold">17. What are the strongest attributes of graduates from this university? (e.g., strong research skills, good drafting, discipline, etc.)</label>
+                    <textarea class="form-control" name="q17" id="q17" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">18. In what specific areas do these graduates need improvement? (e.g., English proficiency, practical procedural knowledge, soft skills, etc.)</label>
+                    <textarea class="form-control" name="q18" id="q18" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">19. What new legal trends or skills should be added to the Law curriculum to make graduates more employable? (e.g., Cyber Law, ADR, Corporate Compliance, etc.)</label>
+                    <textarea class="form-control" name="q19" id="q19" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label fw-bold">20. Would you prefer to hire more graduates/interns from this university in the future? Why or why not?</label>
+                    <textarea class="form-control" name="q20" id="q20" rows="3" placeholder="Your answer..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mb-5">
+            <button type="submit" class="btn btn-primary btn-lg px-5">Submit Survey</button>
+        </div>
+    </form>
+
+    {% if link %}
+    <div class="text-center mt-4 mb-5">
+        <a href="{{ url_for('self_assessment.public_survey_form_pdf', survey_type='employer', code=link.access_code) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">
+            <i class="fas fa-file-pdf me-1"></i>Download Blank Form
+        </a>
+    </div>
+    {% endif %}
+</div>
+<script>
+document.getElementById('type_of_organization').addEventListener('change', function() {
+    document.getElementById('type_other_box').style.display = this.value === 'Other' ? 'block' : 'none';
+});
+</script>
+{% endblock %}

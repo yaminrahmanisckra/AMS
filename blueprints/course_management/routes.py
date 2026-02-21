@@ -495,6 +495,32 @@ def edit_curriculum(curriculum_id):
     # For regular GET request, redirect to view with edit flag
     return redirect(url_for('course_management.view_curriculum', curriculum_id=curriculum_id, edit='true'))
 
+@course_management_bp.route('/curriculum/<int:curriculum_id>/clear-assignments', methods=['POST'])
+@login_required
+def clear_curriculum_assignments(curriculum_id):
+    """Clear all teacher assignments for this curriculum (archive linked sessions, then remove assignments)."""
+    curriculum = Curriculum.query.get_or_404(curriculum_id)
+    assignments = CourseSessionAssignment.query.filter_by(curriculum_id=curriculum_id).all()
+    count = 0
+    try:
+        for assignment in assignments:
+            if assignment.session_id:
+                session_obj = Session.query.get(assignment.session_id)
+                if session_obj and hasattr(session_obj, 'archived'):
+                    if assignment.academic_session and not session_obj.academic_session:
+                        session_obj.academic_session = assignment.academic_session
+                    session_obj.archived = True
+            db.session.delete(assignment)
+            count += 1
+        db.session.commit()
+        flash(f'All assignments cleared. {count} assignment(s) removed.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to clear curriculum assignments {curriculum_id}: {exc}', exc_info=True)
+        flash('Failed to clear assignments. Please try again.', 'error')
+    return redirect(url_for('course_management.view_curriculum', curriculum_id=curriculum_id))
+
+
 @course_management_bp.route('/curriculum/<int:curriculum_id>/delete', methods=['POST'])
 @login_required
 def delete_curriculum(curriculum_id):

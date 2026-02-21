@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Survey Response {{ r.id }}</title>
+    <style>
+        {% if kalpurush_font_path %}
+        @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+        {% endif %}
+        @page { size: A4; margin: 0.6in 0.55in; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.4; color: #000; }
+        .doc-header { text-align: center; padding: 12pt 0 14pt 0; border-bottom: 1px solid #333; margin-bottom: 14pt; }
+        .doc-title { font-size: 14pt; font-weight: bold; color: #000; margin-bottom: 4pt; }
+        .meta-line { font-size: 8pt; color: #444; margin-bottom: 10pt; padding: 4pt 0; }
+        table.info { width: 100%; border-collapse: collapse; font-size: 9pt; }
+        table.info td { border: 1px solid #333; padding: 5pt 8pt; vertical-align: top; }
+        table.info tr:nth-child(even) td { background: #f9fafb; }
+        table.info td:first-child { font-weight: bold; width: 38%; background: #f3f4f6 !important; }
+        table.info td:last-child { color: #000; }
+    </style>
+</head>
+<body>
+    <div class="meta-line">Response ID: {{ r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
+    <div class="doc-header">
+        <div class="doc-title">SURVEY RESPONSE – {{ r.survey_type | upper }}</div>
+    </div>
+    <table class="info">
+        {% for key, value in payload.items() %}
+        <tr>
+            <td>{{ key }}</td>
+            <td>{% if value is string %}{{ value or '–' }}{% elif value is iterable and value is not string and value is not mapping %}{{ value | join(', ') }}{% else %}{{ value if value is not none else '–' }}{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="2">No data.</td></tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
