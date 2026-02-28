@@ -65,6 +65,29 @@ try:
 except ImportError:
     filter_by_active_semester = None
 
+
+def _class_students_for_session(session_id, order=True):
+    """ClassStudent list for a session, excluding students deleted from Student Management."""
+    q = ClassStudent.query.filter(ClassStudent.session_id == session_id)
+    if Student:
+        q = q.filter(ClassStudent.student_id.in_(db.session.query(Student.student_id)))
+    if order:
+        q = q.order_by(ClassStudent.student_id)
+    return q.all()
+
+
+def _class_students_for_sessions(session_ids, order=True):
+    """ClassStudent list for given sessions, excluding deleted students."""
+    if not session_ids:
+        return []
+    q = ClassStudent.query.filter(ClassStudent.session_id.in_(session_ids))
+    if Student:
+        q = q.filter(ClassStudent.student_id.in_(db.session.query(Student.student_id)))
+    if order:
+        q = q.order_by(ClassStudent.student_id)
+    return q.all()
+
+
 # WeasyPrint lazy import - only import when needed to prevent startup hang
 # Module-level import removed because it causes startup hang on macOS
 # This prevents the app from hanging during startup
@@ -495,13 +518,13 @@ def _delete_student_from_peers(session, student_identifier):
 
 
 def _gather_split_student_map(session):
-    """Return related sessions and a map of student_id -> [ClassStudent,...]."""
+    """Return related sessions and a map of student_id -> [ClassStudent,...] (excluding deleted students)."""
     related_sessions = _get_related_sessions(session)
     session_ids = [s.id for s in related_sessions if s]
     if not session_ids:
         return related_sessions, {}
 
-    students = ClassStudent.query.filter(ClassStudent.session_id.in_(session_ids)).all()
+    students = _class_students_for_sessions(session_ids)
     student_map = defaultdict(list)
     for stu in students:
         student_map[stu.student_id].append(stu)
@@ -689,7 +712,7 @@ def _build_attendance_summary(session):
         ClassAttendance.session_id.in_(session_ids)
     ).order_by(ClassAttendance.date.asc(), ClassAttendance.id.asc()).all()
 
-    students = ClassStudent.query.filter(ClassStudent.session_id.in_(session_ids)).all()
+    students = _class_students_for_sessions(session_ids)
     student_lookup = {stu.id: stu for stu in students}
 
     per_student_counts = defaultdict(lambda: {'present': 0})
@@ -1680,7 +1703,7 @@ def upload_students(session_id):
 def take_attendance(session_id):
     """Take or update attendance for a session."""
     session = Session.query.get_or_404(session_id)
-    students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+    students = _class_students_for_session(session_id)
     
     if request.method == 'POST':
         try:
@@ -1806,9 +1829,9 @@ def view_attendance(session_id):
         if not can_view_all:
             current_teacher = _ensure_current_teacher()
         
-        # Get all students from all related sessions (for marks calculation)
+        # Get all students from all related sessions (for marks calculation; exclude deleted students)
         all_session_ids = [s.id for s in related_sessions]
-        all_students = ClassStudent.query.filter(ClassStudent.session_id.in_(all_session_ids)).order_by(ClassStudent.student_id).all()
+        all_students = _class_students_for_sessions(all_session_ids)
         student_lookup = {stu.student_id: stu for stu in all_students}
         
         # Get combined attendance summary for marks (this stays the same)
@@ -1821,7 +1844,7 @@ def view_attendance(session_id):
             if not can_view_all:
                 if not current_teacher or related_session.teacher_id != current_teacher.id:
                     continue
-            session_students = ClassStudent.query.filter_by(session_id=related_session.id).order_by(ClassStudent.student_id).all()
+            session_students = _class_students_for_session(related_session.id)
             session_attendance_records = ClassAttendance.query.filter_by(session_id=related_session.id).order_by(ClassAttendance.date, ClassAttendance.id).all()
             
             if not session_attendance_records:
@@ -1918,8 +1941,8 @@ def view_attendance(session_id):
             teacher_attendance_data=teacher_attendance_data
         )
     
-    # Non-split course: original logic
-    students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+    # Non-split course: original logic (exclude students deleted from Student Management)
+    students = _class_students_for_session(session_id)
     all_attendance_records = ClassAttendance.query.filter_by(session_id=session_id).order_by(ClassAttendance.date, ClassAttendance.id).all()
     student_lookup = {stu.id: stu for stu in students}
 
@@ -2141,7 +2164,7 @@ def save_attendance_marks_manual(session_id):
 def students_list(session_id):
     """View students list for a session"""
     session = Session.query.get_or_404(session_id)
-    students = ClassStudent.query.filter_by(session_id=session_id).all()
+    students = _class_students_for_session(session_id)
     
     # Get all batches for filter dropdown
     batches = []
@@ -4730,7 +4753,7 @@ def download_attendance_excel(session_id):
             return redirect(url_for('class_management.index'))
             
         session = Session.query.get_or_404(session_id)
-        students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+        students = _class_students_for_session(session_id)
         attendance_summary = _build_attendance_summary(session)
         combined_assessment_map = _collect_combined_assessment_marks(session)
         attendance_summary = _build_attendance_summary(session)
@@ -4992,7 +5015,7 @@ def download_pdf_report(session_id):
             flash(f'Missing required module: {e}', 'error')
             return redirect(url_for('class_management.index'))
         session = Session.query.get_or_404(session_id)
-        students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+        students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         attendance_summary = _build_attendance_summary(session)
         combined_assessment_map = _collect_combined_assessment_marks(session)
@@ -5185,7 +5208,7 @@ def download_attendance_sheet(session_id):
             flash('No attendance data to download.', 'warning')
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
-        students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+        students = _class_students_for_session(session_id)
 
         # Prepare data for template
         data_rows = []
@@ -5457,7 +5480,7 @@ def download_attendance_sheet_weasyprint(session_id):
             flash('No attendance data to download.', 'warning')
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
         
-        students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+        students = _class_students_for_session(session_id)
         
         # Prepare data for template
         data_rows = []
@@ -5591,7 +5614,7 @@ def assessment(session_id):
     """Assessment management for a session"""
     try:
         session = Session.query.get_or_404(session_id)
-        students = ClassStudent.query.filter_by(session_id=session_id).all()
+        students = _class_students_for_session(session_id)
         is_split_theory = session.course_type == 'theory' and session.course_scope in SPLIT_PARTS
         editable_indices = _get_editable_assessment_indices(session)
         current_teacher = _ensure_current_teacher()
@@ -5818,7 +5841,7 @@ def auto_save_assessment(session_id):
     try:
         import json
         session = Session.query.get_or_404(session_id)
-        students = ClassStudent.query.filter_by(session_id=session_id).all()
+        students = _class_students_for_session(session_id)
         editable_indices = _get_editable_assessment_indices(session)
         
         if request.is_json:
@@ -6532,7 +6555,7 @@ def download_assessment_excel(session_id):
     try:
         import json
         session = Session.query.get_or_404(session_id)
-        students = ClassStudent.query.filter_by(session_id=session_id).all()
+        students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         
         # Helper function to get assessment value with absent check
@@ -6672,7 +6695,7 @@ def download_assessment_pdf(session_id):
     try:
         import json
         session = Session.query.get_or_404(session_id)
-        students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+        students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         
         # Helper function to get assessment value with absent check
@@ -6882,7 +6905,7 @@ def jinja_getattr(obj, name):
 def evaluation(session_id):
     """Placeholder Evaluation page for a session. Forms will be added later."""
     session = Session.query.get_or_404(session_id)
-    students = ClassStudent.query.filter_by(session_id=session_id).order_by(ClassStudent.student_id).all()
+    students = _class_students_for_session(session_id)
     return render_template('class_management/evaluation.html', session=session, students=students)
 
 @class_management_bp.route('/evaluation/<int:session_id>/course-assessment', methods=['GET', 'POST'])

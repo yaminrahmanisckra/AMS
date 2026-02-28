@@ -217,7 +217,7 @@ class StudentCourseRegistration(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    student = db.relationship('Student', backref=db.backref('course_registrations', lazy='dynamic'))
+    student = db.relationship('Student', backref=db.backref('course_registrations', lazy='dynamic', cascade='all, delete-orphan'))
     course = db.relationship('Course', backref=db.backref('student_registrations', lazy='dynamic'))
 
     __table_args__ = (
@@ -240,7 +240,7 @@ class CourseRegistrationInvite(db.Model):
     responded_at = db.Column(db.DateTime, nullable=True)
     
     registration = db.relationship('StudentCourseRegistration', backref=db.backref('invites', lazy='dynamic', cascade='all, delete-orphan'))
-    student = db.relationship('Student', backref=db.backref('registration_invites', lazy='dynamic'))
+    student = db.relationship('Student', backref=db.backref('registration_invites', lazy='dynamic', cascade='all, delete-orphan'))
     coordinator = db.relationship('Teacher', foreign_keys=[coordinator_teacher_id], backref=db.backref('course_registration_invites', lazy='dynamic'))
 
 

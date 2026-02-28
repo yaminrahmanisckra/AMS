@@ -1,4 +1,4 @@
-from flask import render_template, request, redirect, url_for, flash, jsonify, send_file, current_app
+from flask import render_template, request, redirect, url_for, flash, jsonify, send_file, current_app, session
 from flask_login import login_required, current_user
 from extensions import db
 from . import course_management_bp
@@ -1816,10 +1816,18 @@ def coordinator_registrations():
         flash('Teacher profile not found.', 'warning')
         return redirect(url_for('index'))
 
-    # Get filter parameters
-    session_filter = request.args.get('session', '').strip()
-    batch_filter = request.args.get('batch', '').strip()
-    student_id_filter = request.args.get('student_id', type=int)
+    # Get filter parameters; persist in session so redirects (e.g. after actions) keep the same selection
+    if 'session' in request.args or 'batch' in request.args or 'student_id' in request.args:
+        session_filter = request.args.get('session', '').strip()
+        batch_filter = request.args.get('batch', '').strip()
+        student_id_filter = request.args.get('student_id', type=int)
+        session['coordinator_registrations_session'] = session_filter
+        session['coordinator_registrations_batch'] = batch_filter
+        session['coordinator_registrations_student_id'] = student_id_filter
+    else:
+        session_filter = session.get('coordinator_registrations_session', '')
+        batch_filter = session.get('coordinator_registrations_batch', '')
+        student_id_filter = session.get('coordinator_registrations_student_id')
 
     # Get pending invites for this coordinator (always show, even without filters)
     # Exclude invites for archived registrations
@@ -2503,9 +2511,11 @@ def coordinator_register_student():
     ).order_by(CurriculumYearTerm.academic_session.desc()).all()
     academic_sessions = [s[0] for s in sessions if s[0]]
     
+    default_batch = session.get('course_registration_batch', '')
     return render_template('course_management/coordinator_register_student.html',
                          batches=batch_list,
-                         academic_sessions=academic_sessions)
+                         academic_sessions=academic_sessions,
+                         default_batch=default_batch)
 
 
 @course_management_bp.route('/coordinator/register-student/save', methods=['POST'])
@@ -2887,6 +2897,9 @@ def get_students_for_course_registration():
     
     if not batch:
         return jsonify({'success': False, 'message': 'Batch is required'}), 400
+    
+    # Persist selected batch so coordinator register student page can pre-select it after redirect/reload
+    session['course_registration_batch'] = batch
     
     try:
         current_app.logger.info(f'Loading students for batch: {batch}, search: {search}')

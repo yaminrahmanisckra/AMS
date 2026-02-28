@@ -523,6 +523,9 @@ def survey_response_view(survey_type, response_id):
         if resp.survey_link_id is not None and (not link_ids or resp.survey_link_id not in link_ids):
             flash('Response not found for this survey type.', 'danger')
             return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+        from extensions import db
+        resp.is_read = True
+        db.session.commit()
         try:
             alumni_payload = json.loads(resp.payload) if resp.payload else None
         except (TypeError, ValueError):
@@ -539,6 +542,9 @@ def survey_response_view(survey_type, response_id):
     if resp.survey_link_id not in link_ids:
         flash('Response not found for this survey type.', 'danger')
         return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+    from extensions import db
+    resp.is_read = True
+    db.session.commit()
     try:
         payload = json.loads(resp.payload or '{}')
     except (TypeError, ValueError):
@@ -580,6 +586,56 @@ def delete_survey_response(survey_type, response_id):
         db.session.delete(resp)
     db.session.commit()
     flash('Response deleted.', 'success')
+    return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+
+
+def _get_response_for_toggle(survey_type, response_id):
+    """Get AlumniSurveyResponse or SurveyResponse for this survey type and id; return (resp, None) or (None, error_redirect)."""
+    if survey_type not in SURVEY_TYPES:
+        return None, redirect(url_for('self_assessment.index'))
+    if not _can_access_responses():
+        flash('You are not authorized.', 'danger')
+        return None, redirect(url_for('self_assessment.index'))
+    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    link_ids = [l.id for l in links]
+    if survey_type == 'alumni':
+        resp = AlumniSurveyResponse.query.get_or_404(response_id)
+        if resp.survey_link_id is not None and (not link_ids or resp.survey_link_id not in link_ids):
+            flash('Response not found for this survey type.', 'danger')
+            return None, redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+    else:
+        resp = SurveyResponse.query.filter_by(id=response_id, survey_type=survey_type).first_or_404()
+        if resp.survey_link_id not in link_ids:
+            flash('Response not found for this survey type.', 'danger')
+            return None, redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+    return resp, None
+
+
+@self_assessment_bp.route('/survey/<survey_type>/response/<int:response_id>/toggle-read', methods=['POST'])
+@login_required
+def survey_response_toggle_read(survey_type, response_id):
+    """Toggle read/unread for a response (Head/members only)."""
+    resp, err = _get_response_for_toggle(survey_type, response_id)
+    if err:
+        return err
+    from extensions import db
+    resp.is_read = not resp.is_read
+    db.session.commit()
+    flash('Marked as ' + ('read' if resp.is_read else 'unread') + '.', 'success')
+    return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
+
+
+@self_assessment_bp.route('/survey/<survey_type>/response/<int:response_id>/toggle-star', methods=['POST'])
+@login_required
+def survey_response_toggle_star(survey_type, response_id):
+    """Toggle starred (important) for a response (Head/members only)."""
+    resp, err = _get_response_for_toggle(survey_type, response_id)
+    if err:
+        return err
+    from extensions import db
+    resp.is_starred = not resp.is_starred
+    db.session.commit()
+    flash('Marked as ' + ('important' if resp.is_starred else 'not important') + '.', 'success')
     return redirect(url_for('self_assessment.survey_responses_list', survey_type=survey_type))
 
 

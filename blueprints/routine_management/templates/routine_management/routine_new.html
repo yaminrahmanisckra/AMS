@@ -3354,8 +3354,12 @@ const RoutineManager = {
                     teacher_short_name: item.teacherShort,
                     batch: item.batch || '',
                     color_code: item.colorCode || '',
+                    year: item.year || '',
+                    term: item.term || '',
+                    // full teacher info array for PDF summary (name + short_name)
+                    teachers: Array.isArray(item.teachers) ? item.teachers : [],
                     is_custom: item.isCustom || false,
-                    custom_course_name: item.isCustom ? item.courseCode : ''
+                    custom_course_name: item.isCustom ? (item.courseCode || item.customCourseName || '') : ''
                 });
             }
         });
@@ -3748,9 +3752,11 @@ const RoutineManager = {
             timeHeaders[lunchAfterIndex].after(breakTh);
         }
         
-        // Add break cells to each row
+        // Add break cells to each row - show text once per day only
         const rows = this.elements.routineTbody?.querySelectorAll('tr');
         if (!rows) return;
+        
+        const daysWithLabel = new Set();
         
         rows.forEach(row => {
             const slotCells = row.querySelectorAll('td.slot-cell');
@@ -3758,7 +3764,18 @@ const RoutineManager = {
                 const breakTd = document.createElement('td');
                 breakTd.className = 'slot-cell lunch-cell';
                 breakTd.style.cssText = isPrayer ? 'background: #D1FAE5; color: #065F46;' : 'background: #FEF3C7; color: #92400E;';
-                breakTd.innerHTML = isPrayer ? '<div class="slot-content"><strong>Prayer Break</strong></div>' : '<div class="slot-content"><strong>LUNCH</strong></div>';
+                
+                const dayKey = row.dataset.day || '';
+                const isFirstRowForDay = dayKey && !daysWithLabel.has(dayKey);
+                if (isFirstRowForDay) {
+                    daysWithLabel.add(dayKey);
+                    breakTd.innerHTML = isPrayer
+                        ? '<div class="slot-content"><strong>Prayer Break</strong></div>'
+                        : '<div class="slot-content"><strong>LUNCH</strong></div>';
+                } else {
+                    // Keep styling for break column but no repeated label
+                    breakTd.innerHTML = '<div class="slot-content">&nbsp;</div>';
+                }
                 slotCells[lunchAfterIndex].after(breakTd);
             }
         });
@@ -3793,7 +3810,14 @@ const RoutineManager = {
 
         // Update cells
         const rows = this.elements.routineTbody.querySelectorAll('tr');
+        const daysWithLabel = new Set();
         rows.forEach(row => {
+            const dayKey = row.dataset.day || '';
+            const isFirstRowForDay = dayKey && !daysWithLabel.has(dayKey);
+            if (isFirstRowForDay) {
+                daysWithLabel.add(dayKey);
+            }
+
             const timeCells = row.querySelectorAll('td.slot-cell, td.lunch-cell');
             timeCells.forEach(cell => cell.remove());
 
@@ -3807,13 +3831,19 @@ const RoutineManager = {
                 td.innerHTML = `<div class="slot-content"><span class="slot-empty">-</span></div>`;
                 row.appendChild(td);
                 
-                // Insert break cell after selected slot
+                // Insert break cell after selected slot - label once per day
                 if (idx === this.state.lunchAfterSlotIndex) {
                     const breakTd = document.createElement('td');
                     breakTd.className = 'slot-cell lunch-cell';
                     const isPrayer = this.state.breakType === 'prayer';
                     breakTd.style.cssText = isPrayer ? 'background: #D1FAE5; color: #065F46;' : 'background: #FEF3C7; color: #92400E;';
-                    breakTd.innerHTML = isPrayer ? '<div class="slot-content"><strong>Prayer Break</strong></div>' : '<div class="slot-content"><strong>LUNCH</strong></div>';
+                    if (isFirstRowForDay) {
+                        breakTd.innerHTML = isPrayer
+                            ? '<div class="slot-content"><strong>Prayer Break</strong></div>'
+                            : '<div class="slot-content"><strong>LUNCH</strong></div>';
+                    } else {
+                        breakTd.innerHTML = '<div class="slot-content">&nbsp;</div>';
+                    }
                     row.appendChild(breakTd);
                 }
             });

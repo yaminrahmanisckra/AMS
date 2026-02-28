@@ -1,16 +1,12 @@
-from flask import render_template, request, redirect, url_for, flash, jsonify, current_app
+from flask import render_template, request, redirect, url_for, flash, jsonify, current_app, session
 from flask_login import login_required
 from sqlalchemy import or_
 import pandas as pd
 from . import student_management_bp
 from .models import Student
 from extensions import db
-from blueprints.course_management.models import (
-    Curriculum,
-    StudentCourseRegistration,
-    CourseRegistrationInvite,
-    DutyAssignment,
-)
+from blueprints.course_management.models import Curriculum, DutyAssignment
+from blueprints.class_management.models import ClassStudent
 from user_models import User
 from role_utils import parse_roles, serialize_roles
 
@@ -76,7 +72,12 @@ def ensure_student_user(student):
 def index():
     """List all students"""
     search = request.args.get('search', '').strip()
-    batch_filter = request.args.get('batch', '').strip()
+    # Persist batch: when user selects a batch (or "All Batches") save to session; when landing without batch param (e.g. after edit/delete) restore from session
+    if 'batch' in request.args:
+        batch_filter = request.args.get('batch', '').strip()
+        session['student_management_batch'] = batch_filter
+    else:
+        batch_filter = session.get('student_management_batch', '')
     page = request.args.get('page', 1, type=int)
     per_page = 20
     
@@ -204,7 +205,7 @@ def edit_student(student_id):
             ensure_student_user(student)
             db.session.commit()
             flash(f'Student {name} updated successfully!', 'success')
-            return redirect(url_for('student_management.index'))
+            return redirect(url_for('student_management.index', batch=session.get('student_management_batch', '')))
         except Exception as e:
             db.session.rollback()
             flash(f'Error updating student: {str(e)}', 'error')
@@ -222,22 +223,17 @@ def delete_student(student_id):
         name = student.name
         student_id_val = student.student_id
 
-        # 1) Delete course registrations (and cascaded invites) for this student
-        registrations = StudentCourseRegistration.query.filter_by(student_id=student.id).all()
-        for reg in registrations:
-            db.session.delete(reg)
-
-        # 2) Delete any remaining invites that reference this student directly
-        invites = CourseRegistrationInvite.query.filter_by(student_id=student.id).all()
-        for invite in invites:
-            db.session.delete(invite)
-
-        # 3) Detach the student from any duty assignments (set nullable FK to NULL)
+        # 1) Detach the student from any duty assignments (set nullable FK to NULL)
         duties = DutyAssignment.query.filter_by(student_id=student.id).all()
         for duty in duties:
             duty.student_id = None
 
-        # 4) Clean up linked login account / roles
+        # 2) Remove from all Class Management courses (ClassStudent; attendances cascade)
+        class_students = ClassStudent.query.filter_by(student_id=student.student_id).all()
+        for cs in class_students:
+            db.session.delete(cs)
+
+        # 3) Clean up linked login account / roles
         account = User.query.filter_by(username=student.student_id).first()
         if account:
             roles = parse_roles(account.role)
@@ -254,7 +250,7 @@ def delete_student(student_id):
         db.session.rollback()
         flash(f'Error deleting student: {str(e)}', 'error')
     
-    return redirect(url_for('student_management.index'))
+    return redirect(url_for('student_management.index', batch=session.get('student_management_batch', '')))
 
 @student_management_bp.route('/bulk-upload', methods=['POST'])
 @login_required

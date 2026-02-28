@@ -171,6 +171,7 @@ let currentYear = '';
 let currentTerm = '';
 let allCourses = [];
 let loadedBatches = new Set(); // Track batches from which students have been loaded
+const defaultBatchForRegistration = {{ default_batch|tojson }};
 const statusBox = document.getElementById('registrationStatus');
 const saveBtn = document.getElementById('saveRegistrationBtn');
 
@@ -326,6 +327,11 @@ function loadBatches() {
                         otherGroup.appendChild(option);
                     });
                     batchSelect.appendChild(otherGroup);
+                }
+                // Restore last selected batch so it persists after save/reload
+                if (defaultBatchForRegistration && Array.from(batchSelect.options).some(o => o.value === defaultBatchForRegistration)) {
+                    batchSelect.value = defaultBatchForRegistration;
+                    loadStudents(false);
                 }
             } else {
                 batchSelect.innerHTML = '<option value="">No batches available</option>';

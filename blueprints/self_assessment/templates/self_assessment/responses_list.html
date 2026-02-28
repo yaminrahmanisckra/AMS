@@ -30,8 +30,8 @@
                 <tr>
                     <th>#</th>
                     <th>Submitted</th>
-                    <th>Name / Batch / Year</th>
-                    <th>Designation / Organization</th>
+                    <th>Read</th>
+                    <th>Star</th>
                     <th>View</th>
                     <th>PDF</th>
                     <th>Delete</th>
@@ -39,11 +39,23 @@
             </thead>
             <tbody>
                 {% for r in responses %}
-                <tr>
-                    <td>{{ r.id }}</td>
+                <tr class="{% if not (r.is_read|default(true)) %}fw-bold{% endif %}">
+                    <td>{{ loop.index }}</td>
                     <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
-                    <td>{{ r.name or '–' }} / {{ r.batch or '–' }} / {{ r.graduation_year or '–' }}</td>
-                    <td>{{ r.current_designation or '–' }} / {{ r.organization or '–' }}</td>
+                    <td>
+                        <form method="post" action="{{ url_for('self_assessment.survey_response_toggle_read', survey_type=survey_type, response_id=r.id) }}" class="d-inline">
+                            <button type="submit" class="btn btn-sm {% if r.is_read|default(true) %}btn-outline-secondary{% else %}btn-secondary{% endif %}" title="{% if r.is_read|default(true) %}Mark as unread{% else %}Mark as read{% endif %}">
+                                <i class="fas fa-{% if r.is_read|default(true) %}envelope-open{% else %}envelope{% endif %}"></i>
+                            </button>
+                        </form>
+                    </td>
+                    <td>
+                        <form method="post" action="{{ url_for('self_assessment.survey_response_toggle_star', survey_type=survey_type, response_id=r.id) }}" class="d-inline">
+                            <button type="submit" class="btn btn-sm {% if r.is_starred|default(false) %}btn-warning{% else %}btn-outline-warning{% endif %}" title="{% if r.is_starred|default(false) %}Unstar (not important){% else %}Star (important){% endif %}">
+                                <i class="fas fa-star"></i>
+                            </button>
+                        </form>
+                    </td>
                     <td>
                         <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id) }}" class="btn btn-sm btn-outline-secondary" title="View response">
                             <i class="fas fa-eye me-1"></i>View
@@ -75,6 +87,8 @@
                 <tr>
                     <th>#</th>
                     <th>Submitted</th>
+                    <th>Read</th>
+                    <th>Star</th>
                     <th>View</th>
                     <th>PDF</th>
                     <th>Delete</th>
@@ -82,9 +96,23 @@
             </thead>
             <tbody>
                 {% for r in responses %}
-                <tr>
-                    <td>{{ r.id }}</td>
+                <tr class="{% if not (r.is_read|default(true)) %}fw-bold{% endif %}">
+                    <td>{{ loop.index }}</td>
                     <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
+                    <td>
+                        <form method="post" action="{{ url_for('self_assessment.survey_response_toggle_read', survey_type=survey_type, response_id=r.id) }}" class="d-inline">
+                            <button type="submit" class="btn btn-sm {% if r.is_read|default(true) %}btn-outline-secondary{% else %}btn-secondary{% endif %}" title="{% if r.is_read|default(true) %}Mark as unread{% else %}Mark as read{% endif %}">
+                                <i class="fas fa-{% if r.is_read|default(true) %}envelope-open{% else %}envelope{% endif %}"></i>
+                            </button>
+                        </form>
+                    </td>
+                    <td>
+                        <form method="post" action="{{ url_for('self_assessment.survey_response_toggle_star', survey_type=survey_type, response_id=r.id) }}" class="d-inline">
+                            <button type="submit" class="btn btn-sm {% if r.is_starred|default(false) %}btn-warning{% else %}btn-outline-warning{% endif %}" title="{% if r.is_starred|default(false) %}Unstar (not important){% else %}Star (important){% endif %}">
+                                <i class="fas fa-star"></i>
+                            </button>
+                        </form>
+                    </td>
                     <td>
                         <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id) }}" class="btn btn-sm btn-outline-secondary" title="View response">
                             <i class="fas fa-eye me-1"></i>View
@@ -104,7 +132,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-muted">No responses yet.</td></tr>
+                <tr><td colspan="7" class="text-muted">No responses yet.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

@@ -56,6 +56,8 @@ class SurveyResponse(db.Model):
     payload = db.Column(db.Text, nullable=True)  # JSON form data
     ip_address = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    is_starred = db.Column(db.Boolean, default=False, nullable=False)
 
     survey_link = db.relationship('SurveyLink', backref=db.backref('responses', lazy='dynamic'))
 
@@ -135,3 +137,5 @@ class AlumniSurveyResponse(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     ip_address = db.Column(db.String(50), nullable=True)
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    is_starred = db.Column(db.Boolean, default=False, nullable=False)

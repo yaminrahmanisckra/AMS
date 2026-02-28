@@ -2165,12 +2165,14 @@ def download_pdf():
         
         # Prepare header: Day, Room, then time slots with lunch inserted after selected slot
         header = ['Day', 'Room']
+        break_col_index = None
         
         for idx, slot in enumerate(time_slots):
             header.append(compact_time(slot))
             # Insert break after the selected slot (use editable break time from frontend)
             if idx == lunch_after_slot:
                 header.append(compact_time(break_time_str))
+                break_col_index = len(header) - 1
         
         table_data = [header]
 
@@ -2214,7 +2216,9 @@ def download_pdf():
         
         # Data rows
         current_row = 1  # Start from 1 (0 is header)
+        break_spans = []  # (col, start_row, end_row) for merged break cells
         for day in days:
+            day_first_row = current_row
             for i, room in enumerate(rooms_db):
                 row = []
                 if i == 0:
@@ -2263,11 +2267,19 @@ def download_pdf():
                     
                     # Insert break (Prayer/Lunch) after the selected slot
                     if idx == lunch_after_slot:
-                        row.append(Paragraph(break_cell_label, body_text_style))
+                        # Show break label only once per day (first room row)
+                        if i == 0:
+                            row.append(Paragraph(break_cell_label, body_text_style))
+                        else:
+                            row.append("")
                         current_col += 1
                 
                 table_data.append(row)
                 current_row += 1
+
+            # After finishing all rooms for this day, record span for break column
+            if break_col_index is not None and current_row - 1 >= day_first_row:
+                break_spans.append((break_col_index, day_first_row, current_row - 1))
 
         # Compact column widths for A4 landscape
         num_time_cols = len(time_slots) + 1  # +1 for lunch
@@ -2313,6 +2325,12 @@ def download_pdf():
             if start_row > 1:
                 style.add('LINEABOVE', (0, start_row), (-1, start_row), 1, colors.black)
         
+        # Row span for break column (Prayer/Lunch) - merge per day
+        for col_idx, start_row, end_row in break_spans:
+            if end_row > start_row:
+                style.add('SPAN', (col_idx, start_row), (col_idx, end_row))
+                style.add('VALIGN', (col_idx, start_row), (col_idx, end_row), 'MIDDLE')
+        
         # Apply batch colors to cells
         for row_idx, col_idx, batch_color in cell_batch_colors:
             style.add('BACKGROUND', (col_idx, row_idx), (col_idx, row_idx), batch_color)
@@ -2320,66 +2338,162 @@ def download_pdf():
         table.setStyle(style)
         elements.append(table)
         
-        # ========== PAGE 2: Teacher List and Year/Term-wise Course Summary ==========
+        # ========== PAGE 2: Year/Term-wise Course Summary ==========
+        from blueprints.course_management.models import Course
         from blueprints.class_management.models import Teacher
+        from collections import defaultdict
         
         elements.append(PageBreak())
         
-        # Title for second page
-        elements.append(Paragraph("Teacher Information & Course Summary", h1_centered))
-        elements.append(Spacer(1, 0.1*inch))
-        
-        # Collect unique teachers from routine
-        teacher_short_names = set()
-        
+        elements.append(Paragraph("Year/Term-wise Course Summary", h1_centered))
+        elements.append(Spacer(1, 0.08*inch))
+
+        # Build mapping: (year, term, course_code) -> {name, teachers}
+        summary_map = {}
         for item in routine_list:
-            teacher_short = item.get('teacher_short_name', '')
-            if teacher_short:
-                # Handle shared teachers (e.g., "YR/PC")
-                for name in teacher_short.split('/'):
-                    teacher_short_names.add(name.strip())
+            # Skip custom entries (e.g., Academic Committee Meeting)
+            if item.get('is_custom'):
+                continue
+
+            course_code = (item.get('course_code') or '').strip()
+            if not course_code:
+                continue
+            year_key = (item.get('year') or '').strip() or 'N/A'
+            term_key = (item.get('term') or '').strip() or 'N/A'
+
+            # Build teacher labels from embedded teachers info if available
+            teacher_labels = set()
+            teachers_info = item.get('teachers') or []
+            for t in teachers_info:
+                name = (t.get('name') or '').strip()
+                short = (t.get('short_name') or '').strip()
+                if name and short:
+                    teacher_labels.add(f"{name} ({short})")
+                elif name:
+                    teacher_labels.add(name)
+                elif short:
+                    teacher_labels.add(short)
+
+            # Fallback: if no detailed teachers info, use teacher_short_name from routine item
+            if not teacher_labels:
+                short_str = (item.get('teacher_short_name') or '').strip()
+                if short_str:
+                    # Shared teachers may be separated by '/'
+                    for short in [s.strip() for s in short_str.split('/') if s.strip()]:
+                        teacher_obj = Teacher.query.filter(
+                            (Teacher.short_name == short) | (Teacher.call_sign == short)
+                        ).first()
+                        if teacher_obj:
+                            label = f"{(teacher_obj.name or '').strip()} ({(teacher_obj.call_sign or teacher_obj.short_name or short).strip()})"
+                        else:
+                            label = short
+                        teacher_labels.add(label)
+
+            key = (year_key, term_key, course_code)
+            if key not in summary_map:
+                summary_map[key] = {
+                    'course_code': course_code,
+                    'course_name': '',
+                    'teachers': set()
+                }
+            summary_map[key]['teachers'].update(teacher_labels)
+
+        # Resolve course names in one query
+        all_codes = {k[2] for k in summary_map.keys() if k[2]}
+        if all_codes:
+            courses = Course.query.filter(Course.course_code.in_(all_codes)).all()
+            code_to_name = {c.course_code: (c.course_name or '') for c in courses}
+            for key, info in summary_map.items():
+                if not info['course_name']:
+                    info['course_name'] = code_to_name.get(info['course_code'], '')
+
+        # Group by (year, term)
+        grouped = defaultdict(list)
+        for (year_key, term_key, _code), info in summary_map.items():
+            grouped[(year_key, term_key)].append(info)
+
+        # Sort groups by year/term for stable output using custom academic ordering
+        year_order_map = {
+            'First': 1,
+            'Second': 2,
+            'Third': 3,
+            'Fourth': 4,
+            'LLM': 5,
+        }
+        term_order_map = {
+            'First': 1,
+            'Second': 2,
+        }
+
+        def sort_key(item):
+            (year_label, term_label), _courses = item
+            y_key = str(year_label or '').strip()
+            t_key = str(term_label or '').strip()
+            y_rank = year_order_map.get(y_key, 99)
+            t_rank = term_order_map.get(t_key, 99)
+            return (y_rank, t_rank, y_key, t_key)
+
+        sorted_groups = sorted(grouped.items(), key=sort_key)
+
+        # For tight layout, smaller fonts and compact tables
+        table_header_style = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 6),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.black),
+            ('FONTSIZE', (0, 1), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 1.5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1.5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 2),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+        ])
         
-        # Section 1: Teacher List with Call Signs
-        elements.append(Paragraph("<b>Teachers</b>", h3_centered))
-        elements.append(Spacer(1, 0.05*inch))
-        
-        # Fetch teacher details from database
-        teacher_data = [["SL", "Name", "Designation", "Call Sign"]]
-        teachers_found = []
-        
-        for short_name in sorted(teacher_short_names):
-            teacher = Teacher.query.filter(
-                (Teacher.short_name == short_name) | (Teacher.call_sign == short_name)
-            ).first()
-            if teacher:
-                teachers_found.append(teacher)
-        
-        # Sort by name
-        teachers_found.sort(key=lambda t: t.name)
-        
-        for idx, teacher in enumerate(teachers_found, 1):
-            teacher_data.append([
-                str(idx),
-                teacher.name or '',
-                teacher.designation or '',
-                teacher.call_sign or teacher.short_name or ''
-            ])
-        
-        if len(teacher_data) > 1:
-            teacher_table = Table(teacher_data, colWidths=[0.4*inch, 3*inch, 2*inch, 1*inch])
-            teacher_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 8),
+        # Build year/term tables and arrange in two columns per page
+        group_blocks = []
+        for (year_key, term_key), courses_in_group in sorted_groups:
+            section_title = f"Year: {year_key}  |  Term: {term_key}"
+            title_para = Paragraph(section_title, h3_centered)
+
+            data = [["SI", "Course Code", "Course Name", "Teacher(s)"]]
+            for idx, info in enumerate(sorted(courses_in_group, key=lambda c: c['course_code']), 1):
+                teacher_text = ', '.join(sorted(info['teachers'])) if info['teachers'] else ''
+                data.append([
+                    Paragraph(str(idx), body_text_style),
+                    Paragraph(info['course_code'], body_text_style),
+                    Paragraph(info['course_name'], body_text_style),
+                    Paragraph(teacher_text, body_text_style),
+                ])
+
+            # Compact inner table widths so each summary table comfortably fits inside one outer column.
+            # Sum of widths (0.25 + 0.65 + 1.15 + 1.15 = 3.2\") is < outer column width (3.6\").
+            col_widths = [0.25*inch, 0.65*inch, 1.15*inch, 1.15*inch]
+            summary_table = Table(data, colWidths=col_widths)
+            summary_table.setStyle(table_header_style)
+
+            # A block is title + small spacer + table
+            group_blocks.append([title_para, Spacer(1, 0.02*inch), summary_table])
+
+        # Arrange blocks in 2-column layout
+        two_col_rows = []
+        for i in range(0, len(group_blocks), 2):
+            left_block = group_blocks[i]
+            right_block = group_blocks[i + 1] if i + 1 < len(group_blocks) else ""
+            two_col_rows.append([left_block, right_block])
+
+        if two_col_rows:
+            # Outer two-column layout; leave a clear gutter between columns
+            outer_table = Table(two_col_rows, colWidths=[3.6*inch, 3.6*inch])
+            outer_table.setStyle(TableStyle([
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-                ('TOPPADDING', (0, 0), (-1, -1), 3),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('LEFTPADDING', (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 4),
+                ('TOPPADDING', (0, 0), (-1, -1), 2),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
             ]))
-            elements.append(teacher_table)
-        else:
-            elements.append(Paragraph("No teacher information available.", body_text_style))
+            elements.append(outer_table)
         
         doc.build(elements)
         
