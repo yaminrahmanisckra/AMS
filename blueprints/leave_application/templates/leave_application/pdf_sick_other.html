@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <title>অর্জিত/শ্রান্তিবিনোদন/মেডিকেল ছুটির আবেদন পত্র</title>
+    <style>
+    {% if kalpurush_font_path %}
+    @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+    {% endif %}
+    @page { size: A4; margin: 0.4in 0.45in 0.06in 0.45in; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 8.5pt; line-height: 1.35; color: #000; text-align: left; }
+    .header { text-align: center; margin-bottom: 4pt; }
+    .ku-name { font-size: 12pt; font-weight: bold; margin-bottom: 1pt; }
+    .ku-city { font-size: 9pt; margin-bottom: 2pt; }
+    .doc-title { text-align: center; font-size: 10pt; font-weight: bold; text-decoration: underline; margin-bottom: 6pt; }
+    .recipient { margin-bottom: 5pt; }
+    .recipient-line { margin-bottom: 1pt; }
+    .intro { margin-bottom: 5pt; }
+    .form-row { display: table; width: 100%; margin-bottom: 5pt; }
+    .form-row .form-label { display: table-cell; white-space: nowrap; padding-right: 6pt; vertical-align: bottom; text-align: left; width: 1%; }
+    .form-row .form-value { display: table-cell; vertical-align: bottom; text-align: left !important; border-bottom: 1px dashed #333; padding-left: 4pt; width: auto; }
+    .form-row .form-value-inline { border-bottom: none; padding-left: 4pt; }
+    .form-row .form-value-multiline { border-bottom: 1px dashed #333; min-height: 20pt; padding-left: 4pt; }
+    .fill-inline { border-bottom: 1px dashed #333; display: inline; vertical-align: bottom; text-align: left; }
+    .fill-inline.value-date { min-width: 110pt; }
+    .fill-inline.value-days { min-width: 52pt; }
+    .sig-area { margin-top: 14pt; margin-bottom: 8pt; display: flex; justify-content: space-between; gap: 20pt; }
+    .sig-box { flex: 1; max-width: 48%; }
+    .sig-caption-first { font-size: 7.5pt; margin-top: 2pt; }
+    .sig-caption-first-right { text-align: right; font-size: 7.5pt; margin-top: 2pt; }
+    .sig-line { border-bottom: 1px dashed #333; min-width: 110pt; padding-top: 32pt; }
+    .recommend-line { margin-top: 6pt; margin-bottom: 10pt; text-align: center; font-size: 8.5pt; }
+    .recommend-sig { display: flex; justify-content: space-between; margin-top: 12pt; margin-bottom: 6pt; }
+    .recommend-sig .sig-dotted { border-bottom: 1px dashed #333; height: 30pt; min-width: 120pt; flex: 1; max-width: 48%; }
+    .recommend-sig .sig-label { font-size: 7pt; margin-top: 2pt; }
+    .table-title { margin-top: 6pt; margin-bottom: 4pt; font-size: 8.5pt; font-weight: bold; text-align: center; text-decoration: underline; }
+    table.leave-table { width: 100%; border-collapse: collapse; font-size: 8pt; margin-bottom: 22pt; }
+    table.leave-table th, table.leave-table td { border: 1px solid #333; padding: 5pt 6pt; vertical-align: top; }
+    table.leave-table th { text-align: center; text-decoration: underline; font-weight: bold; }
+    table.leave-table .row-label { font-weight: bold; padding-bottom: 3pt; }
+    table.leave-table .cell-inner { white-space: nowrap; }
+    .leave-dash { border-bottom: 1px dashed #333; display: inline-block; min-width: 32pt; margin: 0 1pt; }
+    .final-sig { text-align: right; margin-top: 22pt; margin-bottom: 18pt; }
+    .final-sig .sig-dotted { border-bottom: 1px dashed #333; width: 200pt; margin-left: auto; margin-right: 0; margin-bottom: 5pt; height: 32pt; }
+    .final-sig .sig-label { font-size: 7pt; }
+    .block-statement { margin-bottom: 20pt; font-size: 8.5pt; text-align: center; }
+    .sig-block-right { width: 160pt; margin-left: auto; margin-right: 0; margin-top: 16pt; }
+    .sig-block-right .sig-dotted { border-bottom: 1px dashed #333; height: 32pt; margin-bottom: 5pt; }
+    .sig-label-below-right { text-align: right; font-size: 7pt; }
+    .note { margin-top: 20pt; margin-bottom: 0; font-size: 7.5pt; }
+    .value-days-long { min-width: 100pt; border-bottom: 1px dashed #333; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="ku-name">খুলনা বিশ্ববিদ্যালয়</div>
+        <div class="ku-city">খুলনা</div>
+        <div class="doc-title">অর্জিত/শ্রান্তিবিনোদন/মেডিকেল ছুটির আবেদন পত্র</div>
+    </div>
+
+    <div class="recipient">
+        <div class="recipient-line">রেজিস্ট্রার</div>
+        <div class="recipient-line">খুলনা বিশ্ববিদ্যালয়</div>
+        <div class="recipient-line">খুলনা।</div>
+        <div class="recipient-line">মাধ্যমঃ যথাযথ কর্তৃপক্ষ।</div>
+        <div class="recipient-line">জনাব,</div>
+    </div>
+
+    <p class="intro">নিম্নবর্ণিত অর্জিত ছুটি অনুমোদনের জন্য পেশ করা হলোঃ</p>
+
+    <div style="direction: ltr; text-align: left;">
+    <div class="form-row">
+        <div class="form-label">১। আবেদনকারীর নাম ও পদবী:</div>
+        <div class="form-value">{{ applicant_name }}{% if applicant_designation %}, {{ applicant_designation }}{% endif %}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">২। ডিসিপ্লিন/বিভাগের নাম:</div>
+        <div class="form-value">{{ department }}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৩। ছুটি:</div>
+        <div class="form-value form-value-inline"><span class="fill-inline value-date">{{ date_from or '_______________________' }}</span> --তারিখ থেকে <span class="fill-inline value-date">{{ date_to or '_______________________' }}</span> --তারিখ পর্যন্ত <span class="fill-inline value-days">{{ total_days or '_______' }}</span> দিনের অর্জিত ছুটির প্রয়োজন।</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৪। ছুটির কারণ:</div>
+        <div class="form-value form-value-multiline">{{ reason }}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৫। ছুটিকালীন সময়ে যোগাযোগের ঠিকানা:</div>
+        <div class="form-value form-value-multiline">{{ address_during_leave }}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৬। আবেদনকারীর অনুপস্থিতিতে দায়িত্বপালনকারীর নাম ও পদবী (প্রস্তাবিত):</div>
+        <div class="form-value">{{ substitute_name }}{% if substitute_designation %}, {{ substitute_designation }}{% endif %}</div>
+    </div>
+    </div>
+
+    <div class="sig-area">
+        <div class="sig-box">
+            <div class="sig-line"></div>
+            <div class="sig-caption-first">দায়িত্ব পালনকারীর স্বাক্ষর</div>
+        </div>
+        <div class="sig-box">
+            <div class="sig-line" style="margin-left: auto;"></div>
+            <div class="sig-caption-first sig-caption-first-right">আবেদনকারীর স্বাক্ষর ও তারিখ</div>
+        </div>
+    </div>
+
+    <p class="recommend-line"><span class="value-days-long">{{ date_from or '_______' }}</span> --তারিখ থেকে <span class="value-days-long">{{ date_to or '_______' }}</span> --তারিখ পর্যন্ত <span class="value-days-long">{{ total_days or '_______' }}</span> -দিনের অর্জিত ছুটি মঞ্জুরের জন্য সুপারিশ করা হলো।</p>
+    <div class="recommend-sig">
+        <div>
+            <div class="sig-dotted"></div>
+            <div class="sig-label">স্কুলের ডীন/রেজিস্ট্রার</div>
+        </div>
+        <div style="text-align: right;">
+            <div class="sig-dotted" style="margin-left: auto;"></div>
+            <div class="sig-label">ডিসিপ্লিন প্রধান/বিভাগীয় প্রধান (অফিস সীলসহ)</div>
+        </div>
+    </div>
+
+    <div class="table-title">অর্জিত ছুটির পরিমাণ</div>
+    <table class="leave-table">
+        <tr>
+            <th style="width: 50%;">পূর্ণগড় বেতনে</th>
+            <th style="width: 50%;">অর্ধগড় বেতনে</th>
+        </tr>
+        <tr>
+            <td>
+                <div class="row-label">১। মোট অর্জিত ছুটি:</div>
+                <div class="cell-inner"><span class="leave-dash"></span> বছর <span class="leave-dash"></span> মাস <span class="leave-dash"></span> দিন</div>
+            </td>
+            <td>
+                <div class="cell-inner"><span class="leave-dash"></span> বছর <span class="leave-dash"></span> মাস <span class="leave-dash"></span> দিন</div>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <div class="row-label">২। মোট ভোগকৃত ছুটি:</div>
+                <div class="cell-inner"><span class="leave-dash"></span> বছর <span class="leave-dash"></span> মাস <span class="leave-dash"></span> দিন</div>
+            </td>
+            <td>
+                <div class="cell-inner"><span class="leave-dash"></span> বছর <span class="leave-dash"></span> মাস <span class="leave-dash"></span> দিন</div>
+            </td>
+        </tr>
+        <tr>
+            <td>
+                <div class="row-label">৩। জের:</div>
+                <div class="cell-inner"><span class="leave-dash"></span> বছর <span class="leave-dash"></span> মাস <span class="leave-dash"></span> দিন</div>
+            </td>
+            <td>
+                <div class="cell-inner"><span class="leave-dash"></span> বছর <span class="leave-dash"></span> মাস <span class="leave-dash"></span> দিন</div>
+            </td>
+        </tr>
+    </table>
+
+    <div class="final-sig">
+        <div class="sig-dotted"></div>
+        <div class="sig-label">প্রাতিষ্ঠানিক শাখার ভারপ্রাপ্ত কর্মকর্তার স্বাক্ষর</div>
+    </div>
+    <p class="block-statement"><span class="value-days-long">{{ date_from or '_______' }}</span> --তারিখ থেকে <span class="value-days-long">{{ date_to or '_______' }}</span> --তারিখ পর্যন্ত <span class="value-days-long">{{ total_days or '_______' }}</span> -দিনের পূর্ণগড় বেতনে/অর্ধগড় বেতনে অর্জিত ছুটি আদিষ্ট হয়ে মঞ্জুর করা হলো।</p>
+    <div class="sig-block-right">
+        <div class="sig-dotted"></div>
+        <span class="sig-label-below-right">রেজিস্ট্রার</span>
+    </div>
+
+    <p class="note">বিশেষ দ্রষ্টব্যঃ চিকিৎসা ছুটির ক্ষেত্রে ডাক্তারের পরামর্শপত্র আবেদন পত্রের সাথে সংযুক্ত করে দিতে হবে।</p>
+</body>
+</html>

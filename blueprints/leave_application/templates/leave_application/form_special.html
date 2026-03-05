@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}নৈমিত্তিক ছুটির আবেদন{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('leave_application.index') }}">Leave Application</a></li>
+            <li class="breadcrumb-item active">নৈমিত্তিক ছুটি</li>
+        </ol>
+    </nav>
+
+    <h2 class="mb-3">{{ form_title }}</h2>
+    <p class="text-muted mb-4">নিচের তথ্যগুলো পূরণ করুন (কোনো ফিল্ড বাধ্যতামূলক নয়)। ফাঁকা রাখলে ফাঁকা ফরম ডাউনলোড হবে। PDF-এ তারিখ DD/MM/YYYY ফরম্যাটে দেখাবে।</p>
+
+    <form method="post">
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">আবেদনকারীর নাম</label>
+                <input type="text" name="applicant_name" class="form-control" value="{{ applicant_name }}">
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label">পদবী (অটো)</label>
+                <input type="text" name="applicant_designation" id="applicant_designation" class="form-control" value="{{ applicant_designation }}" placeholder="লগইনকৃত শিক্ষকের পদবী অটো আসবে">
+            </div>
+        </div>
+        <div class="mb-3">
+            <label class="form-label">বিভাগ / বিভাগীয় নাম</label>
+            <input type="text" name="department" class="form-control" value="Law" placeholder="যেমন: Law">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">ছুটির কারণ</label>
+            <textarea name="reason" class="form-control" rows="2"></textarea>
+        </div>
+        <div class="row">
+            <div class="col-md-3 mb-3">
+                <label class="form-label">তারিখ (থেকে)</label>
+                <input type="date" name="date_from" id="date_from" class="form-control">
+            </div>
+            <div class="col-md-3 mb-3">
+                <label class="form-label">তারিখ (পর্যন্ত)</label>
+                <input type="date" name="date_to" id="date_to" class="form-control">
+            </div>
+            <div class="col-md-2 mb-3">
+                <label class="form-label">মোট ছুটির দিন</label>
+                <input type="number" name="total_days" id="total_days" class="form-control" min="0" placeholder="দিন" readonly>
+            </div>
+            <div class="col-md-4 mb-3">
+                <label class="form-label">ছুটিকালীন ঠিকানা</label>
+                <input type="text" name="address_during_leave" class="form-control">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-md-6 mb-3">
+                <label class="form-label">দায়িত্ব পালনকারীর নাম (প্রস্তাবিত)</label>
+                <select name="substitute_name" id="substitute_teacher" class="form-select">
+                    <option value="">নির্বাচন করুন</option>
+                    {% for t in internal_teachers or [] %}
+                    <option value="{{ t.name }}" data-designation="{{ t.designation or '' }}">{{ t.name }}{% if t.designation %} ({{ t.designation }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-6 mb-3">
+                <label class="form-label">দায়িত্ব পালনকারীর পদবী — নাম সিলেক্ট করলে অটো</label>
+                <input type="text" name="substitute_designation" id="substitute_designation" class="form-control" readonly placeholder="নাম সিলেক্ট করলে পদবী বসবে">
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-file-pdf me-1"></i> PDF ডাউনলোড করুন
+        </button>
+        <a href="{{ url_for('leave_application.index') }}" class="btn btn-outline-secondary ms-2">ফিরে যান</a>
+    </form>
+</div>
+<script>
+(function () {
+    var dateFrom = document.getElementById('date_from');
+    var dateTo = document.getElementById('date_to');
+    var totalDays = document.getElementById('total_days');
+
+    function updateTotalDays() {
+        var from = dateFrom && dateFrom.value ? new Date(dateFrom.value) : null;
+        var to = dateTo && dateTo.value ? new Date(dateTo.value) : null;
+        if (from && to && to >= from) {
+            var diff = Math.round((to - from) / (1000 * 60 * 60 * 24)) + 1;
+            totalDays.value = diff;
+        } else {
+            totalDays.value = '';
+        }
+    }
+
+    if (dateFrom) dateFrom.addEventListener('change', updateTotalDays);
+    if (dateTo) dateTo.addEventListener('change', updateTotalDays);
+    if (dateFrom && dateTo && totalDays) updateTotalDays();
+
+    var substituteSelect = document.getElementById('substitute_teacher');
+    var substituteDesignation = document.getElementById('substitute_designation');
+    if (substituteSelect && substituteDesignation) {
+        substituteSelect.addEventListener('change', function () {
+            var opt = substituteSelect.options[substituteSelect.selectedIndex];
+            substituteDesignation.value = opt && opt.dataset ? (opt.dataset.designation || '') : '';
+        });
+    }
+})();
+</script>
+{% endblock %}

@@ -467,6 +467,16 @@ html {
             'show': is_teaching_assistant or not is_officer
         }
     ] %}
+    {% if show_leave_application|default(false) %}
+    {% set _ = cards.append({
+        'title': 'Leave Application',
+        'desc': 'Fill out four types of leave applications and download in official PDF format.',
+        'icon': 'fas fa-file-signature',
+        'color_class': 'card-purple',
+        'url': url_for('leave_application.index'),
+        'show': true
+    }) %}
+    {% endif %}
     {% if show_self_assessment|default(false) %}
     {% set _ = cards.append({
         'title': 'Self Assessment',

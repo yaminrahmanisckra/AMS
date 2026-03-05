@@ -513,11 +513,15 @@ def survey_response_view(survey_type, response_id):
     if not _can_access_responses():
         flash('You are not authorized to view responses.', 'danger')
         return redirect(url_for('self_assessment.index'))
-    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
     link_ids = [l.id for l in links]
     titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
               'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
     survey_title = titles.get(survey_type, survey_type)
+    # Try to get serial from query param first
+    requested_serial = request.args.get('serial', type=int)
+    serial_no = None
+
     if survey_type == 'alumni':
         resp = AlumniSurveyResponse.query.get_or_404(response_id)
         if resp.survey_link_id is not None and (not link_ids or resp.survey_link_id not in link_ids):
@@ -526,6 +530,17 @@ def survey_response_view(survey_type, response_id):
         from extensions import db
         resp.is_read = True
         db.session.commit()
+        # Compute serial number if not provided
+        if requested_serial:
+            serial_no = requested_serial
+        else:
+            q = AlumniSurveyResponse.query.filter(
+                AlumniSurveyResponse.survey_link_id.in_(link_ids)
+            ).order_by(AlumniSurveyResponse.created_at.desc())
+            id_list = [row.id for row in q.with_entities(AlumniSurveyResponse.id).all()]
+            if resp.id in id_list:
+                serial_no = id_list.index(resp.id) + 1
+
         try:
             alumni_payload = json.loads(resp.payload) if resp.payload else None
         except (TypeError, ValueError):
@@ -536,6 +551,7 @@ def survey_response_view(survey_type, response_id):
             survey_title=survey_title,
             response_type='alumni',
             r=resp,
+            serial_no=serial_no,
             alumni_payload=alumni_payload,
         )
     resp = SurveyResponse.query.filter_by(id=response_id, survey_type=survey_type).first_or_404()
@@ -545,6 +561,17 @@ def survey_response_view(survey_type, response_id):
     from extensions import db
     resp.is_read = True
     db.session.commit()
+    # Compute serial number if not provided
+    if requested_serial:
+        serial_no = requested_serial
+    else:
+        q = SurveyResponse.query.filter_by(survey_type=survey_type).filter(
+            SurveyResponse.survey_link_id.in_(link_ids)
+        ).order_by(SurveyResponse.created_at.desc())
+        id_list = [row.id for row in q.with_entities(SurveyResponse.id).all()]
+        if resp.id in id_list:
+            serial_no = id_list.index(resp.id) + 1
+
     try:
         payload = json.loads(resp.payload or '{}')
     except (TypeError, ValueError):
@@ -555,6 +582,7 @@ def survey_response_view(survey_type, response_id):
         survey_title=survey_title,
         response_type='generic',
         r=resp,
+        serial_no=serial_no,
         payload=payload,
     )
 
@@ -723,11 +751,18 @@ def survey_responses_pdf(survey_type):
     titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
               'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
     survey_title = titles.get(survey_type, survey_type)
+    only_starred = request.args.get('only_starred', type=int) == 1
     font_path = _get_kalpurush_font_path()
     if survey_type == 'alumni':
-        responses = AlumniSurveyResponse.query.filter(
-            AlumniSurveyResponse.survey_link_id.in_(link_ids)
-        ).order_by(AlumniSurveyResponse.created_at.desc()).all() if link_ids else []
+        if link_ids:
+            q = AlumniSurveyResponse.query.filter(
+                AlumniSurveyResponse.survey_link_id.in_(link_ids)
+            )
+            if only_starred:
+                q = q.filter_by(is_starred=True)
+            responses = q.order_by(AlumniSurveyResponse.created_at.desc()).all()
+        else:
+            responses = []
         if responses:
             # Merge one PDF per response so page numbers restart (1, 2, …) for each response
             try:
@@ -743,15 +778,16 @@ def survey_responses_pdf(survey_type):
                 return f'<html><body style="font-family:sans-serif;padding:2em;"><h2>Download All PDF</h2><p>{msg}</p><p><a href="{url_for("self_assessment.survey_responses_list", survey_type=survey_type)}">Back to responses</a></p></body></html>', 503
             try:
                 merger = PdfMerger()
-                for resp in responses:
-                    pdf_bytes = _get_alumni_pdf_bytes(resp)
+                for idx, resp in enumerate(responses, start=1):
+                    pdf_bytes = _get_alumni_pdf_bytes(resp, serial_no=idx)
                     if pdf_bytes:
                         merger.append(io.BytesIO(pdf_bytes))
                 out = io.BytesIO()
                 merger.write(out)
                 pdf_data = out.getvalue()
                 merger.close()
-                filename = f"{survey_type}_survey_all_responses.pdf"
+                suffix = "starred_responses" if only_starred else "all_responses"
+                filename = f"{survey_type}_survey_{suffix}.pdf"
                 from flask import Response
                 resp = Response(pdf_data, mimetype='application/pdf')
                 resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
@@ -770,9 +806,15 @@ def survey_responses_pdf(survey_type):
             kalpurush_font_path=font_path,
         )
     else:
-        responses = SurveyResponse.query.filter_by(survey_type=survey_type).filter(
-            SurveyResponse.survey_link_id.in_(link_ids)
-        ).order_by(SurveyResponse.created_at.desc()).all() if link_ids else []
+        if link_ids:
+            q = SurveyResponse.query.filter_by(survey_type=survey_type).filter(
+                SurveyResponse.survey_link_id.in_(link_ids)
+            )
+            if only_starred:
+                q = q.filter_by(is_starred=True)
+            responses = q.order_by(SurveyResponse.created_at.desc()).all()
+        else:
+            responses = []
         if responses:
             # Merge one PDF per response (same design as Alumni: page numbers restart per response)
             try:
@@ -788,15 +830,16 @@ def survey_responses_pdf(survey_type):
                 return f'<html><body style="font-family:sans-serif;padding:2em;"><h2>Download All PDF</h2><p>{msg}</p><p><a href="{url_for("self_assessment.survey_responses_list", survey_type=survey_type)}">Back to responses</a></p></body></html>', 503
             try:
                 merger = PdfMerger()
-                for resp in responses:
-                    pdf_bytes = _get_generic_survey_pdf_bytes(resp)
+                for idx, resp in enumerate(responses, start=1):
+                    pdf_bytes = _get_generic_survey_pdf_bytes(resp, serial_no=idx)
                     if pdf_bytes:
                         merger.append(io.BytesIO(pdf_bytes))
                 out = io.BytesIO()
                 merger.write(out)
                 pdf_data = out.getvalue()
                 merger.close()
-                filename = f"{survey_type}_survey_all_responses.pdf"
+                suffix = "starred_responses" if only_starred else "all_responses"
+                filename = f"{survey_type}_survey_{suffix}.pdf"
                 from flask import Response
                 resp = Response(pdf_data, mimetype='application/pdf')
                 resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
@@ -850,8 +893,24 @@ def alumni_response_pdf(response_id):
         if not link or link.survey_type != 'alumni':
             from flask import abort
             abort(404)
+    # Determine serial number consistent with list view (newest first)
+    requested_serial = request.args.get('serial', type=int)
+    serial_no = None
+    if requested_serial:
+        serial_no = requested_serial
+    else:
+        links = SurveyLink.query.filter_by(survey_type='alumni').order_by(SurveyLink.created_at.desc()).all()
+        link_ids = [l.id for l in links]
+        if link_ids:
+            q = AlumniSurveyResponse.query.filter(
+                AlumniSurveyResponse.survey_link_id.in_(link_ids)
+            ).order_by(AlumniSurveyResponse.created_at.desc())
+            id_list = [row.id for row in q.with_entities(AlumniSurveyResponse.id).all()]
+            if resp.id in id_list:
+                serial_no = id_list.index(resp.id) + 1
+
     try:
-        out = _render_alumni_pdf(resp)
+        out = _render_alumni_pdf(resp, serial_no=serial_no)
         return out
     except Exception as e:
         current_app.logger.error(f"Alumni response PDF error: {e}", exc_info=True)
@@ -872,8 +931,23 @@ def generic_response_pdf(survey_type, response_id):
         from flask import abort
         abort(403)
     resp = SurveyResponse.query.filter_by(id=response_id, survey_type=survey_type).first_or_404()
+    # Determine serial number consistent with list view (newest first)
+    requested_serial = request.args.get('serial', type=int)
+    serial_no = None
+    if requested_serial:
+        serial_no = requested_serial
+    else:
+        links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+        link_ids = [l.id for l in links]
+        if link_ids:
+            q = SurveyResponse.query.filter_by(survey_type=survey_type).filter(
+                SurveyResponse.survey_link_id.in_(link_ids)
+            ).order_by(SurveyResponse.created_at.desc())
+            id_list = [row.id for row in q.with_entities(SurveyResponse.id).all()]
+            if resp.id in id_list:
+                serial_no = id_list.index(resp.id) + 1
     try:
-        out = _render_generic_pdf(resp)
+        out = _render_generic_pdf(resp, serial_no=serial_no)
         return out
     except Exception as e:
         current_app.logger.error(f"Survey response PDF error: {e}", exc_info=True)
@@ -883,8 +957,12 @@ def generic_response_pdf(survey_type, response_id):
         return _pdf_fallback_html(survey_type, response_id, back_url), 503
 
 
-def _get_alumni_pdf_bytes(alumni_response):
-    """Return PDF bytes for one AlumniSurveyResponse (for merging into all-responses PDF)."""
+def _get_alumni_pdf_bytes(alumni_response, serial_no=None):
+    """Return PDF bytes for one AlumniSurveyResponse (for merging into all-responses PDF).
+
+    serial_no is an optional 1-based index used in the PDF header when generating
+    merged "Download All" PDFs so that each response gets the correct serial number.
+    """
     import io
     try:
         from weasyprint import HTML
@@ -896,6 +974,7 @@ def _get_alumni_pdf_bytes(alumni_response):
             'self_assessment/alumni_response_pdf.html',
             r=alumni_response,
             payload=payload,
+            serial_no=serial_no,
             kalpurush_font_path=_get_kalpurush_font_path(),
         )
         pdf_buffer = io.BytesIO()
@@ -919,15 +998,19 @@ def _pdf_fallback_html(survey_type, response_id, back_url):
     )
 
 
-def _render_alumni_pdf(alumni_response):
-    """Generate PDF for one AlumniSurveyResponse using WeasyPrint."""
+def _render_alumni_pdf(alumni_response, serial_no=None):
+    """Generate PDF for one AlumniSurveyResponse using WeasyPrint.
+
+    serial_no is a 1-based index matching the frontend list (newest first).
+    """
     from flask import Response
     back_url = url_for('self_assessment.survey_responses_list', survey_type='alumni')
     try:
-        pdf_bytes = _get_alumni_pdf_bytes(alumni_response)
+        pdf_bytes = _get_alumni_pdf_bytes(alumni_response, serial_no=serial_no)
         if pdf_bytes is None:
             return _pdf_fallback_html('alumni', alumni_response.id, back_url), 503
-        filename = f"alumni_survey_response_{alumni_response.id}.pdf"
+        effective_serial = serial_no or alumni_response.id
+        filename = f"alumni_survey_response_{effective_serial}.pdf"
         resp = Response(pdf_bytes, mimetype='application/pdf')
         resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         resp.headers['Content-Length'] = str(len(pdf_bytes))
@@ -937,8 +1020,12 @@ def _render_alumni_pdf(alumni_response):
         return _pdf_fallback_html('alumni', alumni_response.id, back_url), 503
 
 
-def _get_generic_survey_pdf_bytes(survey_response):
-    """Return PDF bytes for one SurveyResponse using type-specific template (for single PDF or merge)."""
+def _get_generic_survey_pdf_bytes(survey_response, serial_no=None):
+    """Return PDF bytes for one SurveyResponse using type-specific template (for single PDF or merge).
+
+    serial_no is an optional 1-based index used in the PDF header when generating
+    merged "Download All" PDFs so that each response gets the correct serial number.
+    """
     import io
     try:
         from weasyprint import HTML
@@ -960,6 +1047,7 @@ def _get_generic_survey_pdf_bytes(survey_response):
             template_name,
             r=survey_response,
             payload=payload,
+            serial_no=serial_no,
             kalpurush_font_path=_get_kalpurush_font_path(),
         )
         pdf_buffer = io.BytesIO()
@@ -970,15 +1058,19 @@ def _get_generic_survey_pdf_bytes(survey_response):
         return None
 
 
-def _render_generic_pdf(survey_response):
-    """Generate PDF for one SurveyResponse (payload JSON) using type-specific template (same design as Alumni)."""
+def _render_generic_pdf(survey_response, serial_no=None):
+    """Generate PDF for one SurveyResponse (payload JSON) using type-specific template (same design as Alumni).
+
+    serial_no is a 1-based index matching the frontend list (newest first).
+    """
     from flask import current_app, Response
     back_url = url_for('self_assessment.survey_responses_list', survey_type=survey_response.survey_type)
     try:
-        pdf_bytes = _get_generic_survey_pdf_bytes(survey_response)
+        pdf_bytes = _get_generic_survey_pdf_bytes(survey_response, serial_no=serial_no)
         if pdf_bytes is None:
             return _pdf_fallback_html(survey_response.survey_type, survey_response.id, back_url), 503
-        filename = f"{survey_response.survey_type}_survey_response_{survey_response.id}.pdf"
+        effective_serial = serial_no or survey_response.id
+        filename = f"{survey_response.survey_type}_survey_response_{effective_serial}.pdf"
         resp = Response(pdf_bytes, mimetype='application/pdf')
         resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         resp.headers['Content-Length'] = str(len(pdf_bytes))

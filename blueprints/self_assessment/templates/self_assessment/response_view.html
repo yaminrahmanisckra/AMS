@@ -1,17 +1,18 @@
 {% extends "base.html" %}
-{% block title %}{{ survey_title }} – Response #{{ r.id }}{% endblock %}
+{% set serial_no = serial_no or r.id %}
+{% block title %}{{ survey_title }} – Serial No. {{ serial_no }}{% endblock %}
 {% block content %}
 <div class="container my-4">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{{ url_for('self_assessment.index') }}">Self Assessment</a></li>
             <li class="breadcrumb-item"><a href="{{ url_for('self_assessment.survey_responses_list', survey_type=survey_type) }}">{{ survey_title }} – Responses</a></li>
-            <li class="breadcrumb-item active">View Response #{{ r.id }}</li>
+            <li class="breadcrumb-item active">View Serial No. {{ serial_no }}</li>
         </ol>
     </nav>
 
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
-        <h2 class="mb-0">{{ survey_title }} – Response #{{ r.id }}</h2>
+        <h2 class="mb-0">{{ survey_title }} – Serial No. {{ serial_no }}</h2>
         <div class="d-flex gap-2">
             {% if response_type == 'alumni' %}
             <a href="{{ url_for('self_assessment.alumni_response_pdf', response_id=r.id) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">

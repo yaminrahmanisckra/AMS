@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Leave Application{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Dashboard</a></li>
+            <li class="breadcrumb-item active">Leave Application</li>
+        </ol>
+    </nav>
+
+    <h2 class="mb-3">Leave Application</h2>
+    <p class="text-muted mb-4">চার ধরণের ছুটির দরখাস্ত থেকে প্রযোজ্য ফরমটি নির্বাচন করে তথ্য পূরণ করুন এবং অফিসিয়াল ফরম্যাটে PDF ডাউনলোড করুন।</p>
+
+    <div class="row g-3">
+        <div class="col-md-6 col-lg-3">
+            <a href="{{ url_for('leave_application.casual_station_leave') }}" class="text-decoration-none">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <div class="mb-2"><i class="fas fa-map-marked-alt fa-2x" style="color: #d63384;"></i></div>
+                        <h5 class="card-title mb-1">নৈমিত্তিক ছুটিসহ স্টেশন লীভ</h5>
+                        <p class="card-text small text-muted mb-0">নৈমিত্তিক ছুটিসহ স্টেশন লীভের আবেদন পত্র।</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <a href="{{ url_for('leave_application.special_leave') }}" class="text-decoration-none">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <div class="mb-2"><i class="fas fa-star fa-2x text-warning"></i></div>
+                        <h5 class="card-title mb-1">নৈমিত্তিক ছুটি</h5>
+                        <p class="card-text small text-muted mb-0">নৈমিত্তিক ছুটির দরখাস্ত।</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <a href="{{ url_for('leave_application.station_leave') }}" class="text-decoration-none">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <div class="mb-2"><i class="fas fa-route fa-2x text-primary"></i></div>
+                        <h5 class="card-title mb-1">স্টেশন ত্যাগের আবেদন</h5>
+                        <p class="card-text small text-muted mb-0">অফিসিয়াল স্টেশন ত্যাগের দরখাস্ত।</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <a href="{{ url_for('leave_application.non_numeric_station_leave') }}" class="text-decoration-none">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <div class="mb-2"><i class="fas fa-plane-departure fa-2x text-info"></i></div>
+                        <h5 class="card-title mb-1">কর্তব্য ছুটি</h5>
+                        <p class="card-text small text-muted mb-0">কর্তব্য ছুটির দরখাস্ত।</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-md-6 col-lg-3">
+            <a href="{{ url_for('leave_application.sick_other_leave') }}" class="text-decoration-none">
+                <div class="card h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <div class="mb-2"><i class="fas fa-notes-medical fa-2x text-danger"></i></div>
+                        <h5 class="card-title mb-1">অর্জিত/শ্রান্তিবিনোদন/মেডিকেল ছুটি</h5>
+                        <p class="card-text small text-muted mb-0">অর্জিত, শ্রান্তিবিনোদন ও মেডিকেল ছুটির বিস্তারিত ফরম।</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

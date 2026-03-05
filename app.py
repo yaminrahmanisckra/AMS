@@ -302,6 +302,7 @@ def create_app():
     from blueprints.auth.routes import auth_bp
     from blueprints.student_management import student_management_bp
     from blueprints.course_management import course_management_bp
+    from blueprints.leave_application import leave_application_bp
 
     app.register_blueprint(class_management_bp, url_prefix='/class-management')
     app.register_blueprint(result_management_bp, url_prefix='/result-management')
@@ -309,6 +310,7 @@ def create_app():
     app.register_blueprint(auth_bp)
     app.register_blueprint(student_management_bp, url_prefix='/student-management')
     app.register_blueprint(course_management_bp, url_prefix='/course-management')
+    app.register_blueprint(leave_application_bp, url_prefix='/leave-application')
     from blueprints.academic_calendar import academic_calendar_bp
     app.register_blueprint(academic_calendar_bp, url_prefix='/academic-calendar')
     from blueprints.curriculator import curriculator_bp
@@ -572,10 +574,14 @@ def create_app():
             except Exception:
                 pass
 
+        # Leave Application card: show for teacher-privilege users on main dashboard
+        show_leave_application = has_teacher_privileges(current_user)
+
         response = make_response(render_template(
             'dashboard.html',
             show_course_registration_review=show_course_registration_review,
-            show_self_assessment=show_self_assessment
+            show_self_assessment=show_self_assessment,
+            show_leave_application=show_leave_application,
         ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'

@@ -10,7 +10,7 @@
         @page { size: A4; margin: 0.6in 0.55in 0.8in 0.55in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 9pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.4; color: #000; }
-        .doc-header { text-align: center; padding: 10pt 0 10pt 0; border-bottom: 1px solid #dee2e6; margin-bottom: 8pt; }
+        .doc-header { text-align: center; padding: 10pt 0 10pt 0; border-bottom: 1px solid #333333; margin-bottom: 8pt; }
         .doc-title { font-size: 14pt; font-weight: bold; color: #000; margin-bottom: 4pt; }
         .doc-subtitle { font-size: 10pt; color: #6c757d; }
         .meta-line { font-size: 8pt; color: #444; margin-bottom: 6pt; padding: 4pt 0; }
@@ -19,14 +19,14 @@
         .section.part-c { page-break-before: avoid; }
         .section.part-d { page-break-before: avoid; }
         .section.part-e { page-break-before: avoid; }
-        .section-header { font-size: 10.5pt; font-weight: bold; color: #000; padding: 6pt 10pt; margin-bottom: 8pt; background: #f8f9fa; border: 1px solid #dee2e6; }
+        .section-header { font-size: 10.5pt; font-weight: bold; color: #000; padding: 6pt 10pt; margin-bottom: 8pt; background: #f8f9fa; border: 1px solid #333333; }
         .sub-section { font-size: 9.5pt; font-weight: bold; margin: 10pt 0 6pt 0; }
         table.info { width: 100%; border-collapse: collapse; font-size: 9pt; }
-        table.info td { border: 1px solid #dee2e6; padding: 6pt 10pt; vertical-align: top; }
+        table.info td { border: 1px solid #333333; padding: 6pt 10pt; vertical-align: top; }
         table.info tr:nth-child(even) td { background: #f8f9fa; }
         table.info td:first-child { font-weight: bold; width: 42%; background: #f8f9fa !important; }
         table.info td:last-child { color: #000; }
-        .likert-legend { font-size: 8.5pt; color: #000; margin-bottom: 10pt; padding: 10pt 12pt; border: 1px solid #dee2e6; background: #f8f9fa; }
+        .likert-legend { font-size: 8.5pt; color: #000; margin-bottom: 10pt; padding: 10pt 12pt; border: 1px solid #333333; background: #f8f9fa; }
         .likert-legend strong { display: block; margin-bottom: 4pt; font-size: 9pt; }
         .likert-scale { white-space: nowrap; }
         .likert-scale .tick { font-weight: bold; }
@@ -34,7 +34,7 @@
     </style>
 </head>
 <body>
-    <div class="meta-line">Response ID: {{ r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
+    <div class="meta-line">Serial No.: {{ serial_no or r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
     <div class="doc-header">
         <div class="doc-title">NON-ACADEMIC STAFF SURVEY QUESTIONNAIRE – Response</div>
         <div class="doc-subtitle">Law Discipline, Khulna University</div>
@@ -78,25 +78,73 @@
     <div class="section part-b">
         <div class="section-header">Part A: Job Role &amp; Recruitment (Standard 3 &amp; 7)</div>
         <table class="info">
-            {% for i in range(1, 5) %}<tr><td>{{ na_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+            {% for i in range(1, 5) %}
+            <tr>
+                <td>{{ na_law_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v >= 1 and v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        {{ payload.get('q' ~ i) or '–' }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
     <div class="section part-c">
         <div class="section-header">Part B: Professional Development &amp; Performance (Standard 7)</div>
         <table class="info">
-            {% for i in range(5, 10) %}<tr><td>{{ na_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+            {% for i in range(5, 10) %}
+            <tr>
+                <td>{{ na_law_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v >= 1 and v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        {{ payload.get('q' ~ i) or '–' }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
     <div class="section part-d">
         <div class="section-header">Part C: Work Environment &amp; Facilities (Standard 8)</div>
         <table class="info">
-            {% for i in range(10, 15) %}<tr><td>{{ na_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+            {% for i in range(10, 15) %}
+            <tr>
+                <td>{{ na_law_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v >= 1 and v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        {{ payload.get('q' ~ i) or '–' }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
     <div class="section part-d">
         <div class="section-header">Part D: Governance &amp; Institutional Culture (Standard 1 &amp; 2)</div>
         <table class="info">
-            {% for i in range(15, 20) %}<tr><td>{{ na_law_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('q' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('q' ~ i) or '–' }}{% endif %}</td></tr>{% endfor %}
+            {% for i in range(15, 20) %}
+            <tr>
+                <td>{{ na_law_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v >= 1 and v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        {{ payload.get('q' ~ i) or '–' }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
     <div class="section part-e">
@@ -146,19 +194,49 @@
         <p class="sub-section">Part B: Governance, Integrity &amp; Job Clarity</p>
         <table class="info">
             {% for i in range(1, 7) %}
-            <tr><td>{{ na_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            <tr>
+                <td>{{ na_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('rating_' ~ i) | default(0) | int %}
+                    {% if v >= 1 and v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        {{ payload.get('rating_' ~ i) or '–' }}
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </table>
         <p class="sub-section">Part C: Professional Development &amp; Evaluation</p>
         <table class="info">
             {% for i in range(7, 13) %}
-            <tr><td>{{ na_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            <tr>
+                <td>{{ na_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('rating_' ~ i) | default(0) | int %}
+                    {% if v >= 1 and v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        {{ payload.get('rating_' ~ i) or '–' }}
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </table>
         <p class="sub-section">Part D: Facilities &amp; Operational Environment</p>
         <table class="info">
             {% for i in range(13, 17) %}
-            <tr><td>{{ na_labels[i - 1] }}</td><td class="likert-scale">{% set v = payload.get('rating_' ~ i) | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('rating_' ~ i) or '–' }}{% endif %}</td></tr>
+            <tr>
+                <td>{{ na_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('rating_' ~ i) | default(0) | int %}
+                    {% if v >= 1 and v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        {{ payload.get('rating_' ~ i) or '–' }}
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </table>
     </div>

@@ -14,6 +14,9 @@
         <a href="{{ url_for('self_assessment.survey_responses_pdf', survey_type=survey_type) }}" class="btn btn-primary" target="_blank" rel="noopener">
             <i class="fas fa-file-pdf me-1"></i>Download all responses as PDF
         </a>
+        <a href="{{ url_for('self_assessment.survey_responses_pdf', survey_type=survey_type, only_starred=1) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">
+            <i class="fas fa-star me-1"></i>Download starred responses as PDF
+        </a>
         {% if responses %}
         <form method="post" action="{{ url_for('self_assessment.delete_all_survey_responses', survey_type=survey_type) }}" class="d-inline" onsubmit="return confirm('এই সার্ভের সব রেসপন্স একসাথে মুছতে চান? এই কাজ ফেরানো যাবে না।');">
             <button type="submit" class="btn btn-outline-danger">
@@ -57,7 +60,7 @@
                         </form>
                     </td>
                     <td>
-                        <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id) }}" class="btn btn-sm btn-outline-secondary" title="View response">
+                        <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id, serial=loop.index) }}" class="btn btn-sm btn-outline-secondary" title="View response">
                             <i class="fas fa-eye me-1"></i>View
                         </a>
                     </td>
@@ -114,7 +117,7 @@
                         </form>
                     </td>
                     <td>
-                        <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id) }}" class="btn btn-sm btn-outline-secondary" title="View response">
+                        <a href="{{ url_for('self_assessment.survey_response_view', survey_type=survey_type, response_id=r.id, serial=loop.index) }}" class="btn btn-sm btn-outline-secondary" title="View response">
                             <i class="fas fa-eye me-1"></i>View
                         </a>
                     </td>

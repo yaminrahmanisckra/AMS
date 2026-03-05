@@ -10,18 +10,18 @@
         @page { size: A4; margin: 0.6in 0.55in 0.8in 0.55in; @bottom-center { content: counter(page) " / " counter(pages); font-size: 9pt; font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; color: #333; } }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.4; color: #000; }
-        .doc-header { text-align: center; padding: 10pt 0 10pt 0; border-bottom: 1px solid #dee2e6; margin-bottom: 8pt; }
+        .doc-header { text-align: center; padding: 10pt 0 10pt 0; border-bottom: 1px solid #333333; margin-bottom: 8pt; }
         .doc-title { font-size: 14pt; font-weight: bold; color: #000; margin-bottom: 4pt; }
         .doc-subtitle { font-size: 10pt; color: #6c757d; }
         .meta-line { font-size: 8pt; color: #444; margin-bottom: 6pt; padding: 4pt 0; }
         .section { margin-bottom: 8pt; }
-        .section-header { font-size: 10.5pt; font-weight: bold; color: #000; padding: 6pt 10pt; margin-bottom: 8pt; background: #f8f9fa; border: 1px solid #dee2e6; }
+        .section-header { font-size: 10.5pt; font-weight: bold; color: #000; padding: 6pt 10pt; margin-bottom: 8pt; background: #f8f9fa; border: 1px solid #333333; }
         table.info { width: 100%; border-collapse: collapse; font-size: 9pt; }
-        table.info td { border: 1px solid #dee2e6; padding: 6pt 10pt; vertical-align: top; }
+        table.info td { border: 1px solid #333333; padding: 6pt 10pt; vertical-align: top; }
         table.info tr:nth-child(even) td { background: #f8f9fa; }
         table.info td:first-child { font-weight: bold; width: 42%; background: #f8f9fa !important; }
         table.info td:last-child { color: #000; }
-        .likert-legend { font-size: 8.5pt; color: #000; margin-bottom: 10pt; padding: 10pt 12pt; border: 1px solid #dee2e6; background: #f8f9fa; }
+        .likert-legend { font-size: 8.5pt; color: #000; margin-bottom: 10pt; padding: 10pt 12pt; border: 1px solid #333333; background: #f8f9fa; }
         .likert-scale { white-space: nowrap; }
         .likert-scale .tick { font-weight: bold; }
         table.info tr.open-ended td:last-child { min-height: 48pt; padding: 10pt 12pt; }
@@ -29,7 +29,7 @@
     </style>
 </head>
 <body>
-    <div class="meta-line">Response ID: {{ r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
+    <div class="meta-line">Serial No.: {{ serial_no or r.id }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
     <div class="doc-header">
         <div class="doc-title">Employer Survey Questionnaire – Response</div>
         <div class="doc-subtitle">Law Discipline, Khulna University</div>
@@ -51,40 +51,96 @@
     <div class="section">
         <div class="section-header">Part A: Professional Competence &amp; Legal Knowledge (Standard 4)</div>
         <table class="info">
-            <tr><td>The graduates demonstrate sound knowledge of substantive and procedural laws relevant to their work.</td><td class="likert-scale">{% set v = payload.get('q1') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>Legal Research: They possess strong legal research skills (finding case laws, statutes, and precedents).</td><td class="likert-scale">{% set v = payload.get('q2') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>Drafting &amp; Pleading: Their drafting skills (plaints, written statements, opinions, contracts) meet professional standards.</td><td class="likert-scale">{% set v = payload.get('q3') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>Advocacy/Communication: They effectively present arguments and communicate legal concepts clearly.</td><td class="likert-scale">{% set v = payload.get('q4') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>Problem Solving: They can analyze complex facts and provide logical legal solutions.</td><td class="likert-scale">{% set v = payload.get('q5') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
+            {% for i, label in [
+                (1, 'The graduates demonstrate sound knowledge of substantive and procedural laws relevant to their work.'),
+                (2, 'Legal Research: They possess strong legal research skills (finding case laws, statutes, and precedents).'),
+                (3, 'Drafting &amp; Pleading: Their drafting skills (plaints, written statements, opinions, contracts) meet professional standards.'),
+                (4, 'Advocacy/Communication: They effectively present arguments and communicate legal concepts clearly.'),
+                (5, 'Problem Solving: They can analyze complex facts and provide logical legal solutions.')
+            ] %}
+            <tr>
+                <td>{{ label }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v and 1 <= v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        –
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
 
     <div class="section">
         <div class="section-header">Part B: Professional Skills &amp; Ethics (Standard 3 &amp; 6)</div>
         <table class="info">
-            <tr><td>6. Ethics &amp; Integrity: The graduates uphold high standards of professional ethics and moral responsibility.</td><td class="likert-scale">{% set v = payload.get('q6') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>7. ICT Proficiency: They are proficient in using technology (computers, legal databases, online filing) for legal work.</td><td class="likert-scale">{% set v = payload.get('q7') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>8. Time Management: They are punctual and capable of meeting strict deadlines (e.g., court filings).</td><td class="likert-scale">{% set v = payload.get('q8') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>9. Teamwork &amp; Leadership: They work well in teams and demonstrate leadership potential when required.</td><td class="likert-scale">{% set v = payload.get('q9') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>10. Adaptability: They adapt quickly to new laws, office procedures, or changing work environments.</td><td class="likert-scale">{% set v = payload.get('q10') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
+            {% for i, label in [
+                (6, '6. Ethics &amp; Integrity: The graduates uphold high standards of professional ethics and moral responsibility.'),
+                (7, '7. ICT Proficiency: They are proficient in using technology (computers, legal databases, online filing) for legal work.'),
+                (8, '8. Time Management: They are punctual and capable of meeting strict deadlines (e.g., court filings).'),
+                (9, '9. Teamwork &amp; Leadership: They work well in teams and demonstrate leadership potential when required.'),
+                (10,'10. Adaptability: They adapt quickly to new laws, office procedures, or changing work environments.')
+            ] %}
+            <tr>
+                <td>{{ label }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v and 1 <= v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        –
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
 
     <div class="section">
         <div class="section-header">Part C: Curriculum Relevance &amp; Practical Training (Standard 4 &amp; 5)</div>
         <table class="info">
-            <tr><td>11. The academic curriculum of the university appears relevant to current legal practice.</td><td class="likert-scale">{% set v = payload.get('q11') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>12. The graduates show evidence of practical training (e.g., Moot Court, Mock Trials) during their studies.</td><td class="likert-scale">{% set v = payload.get('q12') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>13. Internship Performance: Interns from this university are well-prepared and eager to learn.</td><td class="likert-scale">{% set v = payload.get('q13') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>14. Creativity: The graduates display creativity and innovation in their legal approach.</td><td class="likert-scale">{% set v = payload.get('q14') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
+            {% for i, label in [
+                (11,'11. The academic curriculum of the university appears relevant to current legal practice.'),
+                (12,'12. The graduates show evidence of practical training (e.g., Moot Court, Mock Trials) during their studies.'),
+                (13,'13. Internship Performance: Interns from this university are well-prepared and eager to learn.'),
+                (14,'14. Creativity: The graduates display creativity and innovation in their legal approach.')
+            ] %}
+            <tr>
+                <td>{{ label }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v and 1 <= v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        –
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
 
     <div class="section">
         <div class="section-header">Part D: Institutional Collaboration (Standard 10)</div>
         <table class="info">
-            <tr><td>15. The university engages with employers/industry to update the curriculum based on market needs.</td><td class="likert-scale">{% set v = payload.get('q15') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
-            <tr><td>16. I am satisfied with the overall performance of graduates from this university.</td><td class="likert-scale">{% set v = payload.get('q16') | default(0) | int %}{% if v and 1 <= v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}–{% endif %}</td></tr>
+            {% for i, label in [
+                (15,'15. The university engages with employers/industry to update the curriculum based on market needs.'),
+                (16,'16. I am satisfied with the overall performance of graduates from this university.')
+            ] %}
+            <tr>
+                <td>{{ label }}</td>
+                <td class="likert-scale">
+                    {% set v = payload.get('q' ~ i) | default(0) | int %}
+                    {% if v and 1 <= v <= 5 %}
+                        {{ v }}
+                    {% else %}
+                        –
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
 
@@ -131,25 +187,85 @@
         <p class="sub-section">I. Legal Knowledge &amp; Technical Skills</p>
         <table class="info">
             {% for i in range(1, 5) %}
-            <tr><td>{{ part_b_labels[i - 1] }}</td><td class="likert-scale">{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = raw | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            <tr>
+                <td>{{ part_b_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set raw = payload.get('rating_' ~ i) %}
+                    {% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}
+                        N/A
+                    {% else %}
+                        {% set v = raw | default(0) | int %}
+                        {% if v >= 1 and v <= 5 %}
+                            {{ v }}
+                        {% else %}
+                            {{ raw or '–' }}
+                        {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </table>
         <p class="sub-section">II. Cognitive Skills (Thinking &amp; Problem Solving)</p>
         <table class="info">
             {% for i in range(5, 7) %}
-            <tr><td>{{ part_b_labels[i - 1] }}</td><td class="likert-scale">{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = raw | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            <tr>
+                <td>{{ part_b_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set raw = payload.get('rating_' ~ i) %}
+                    {% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}
+                        N/A
+                    {% else %}
+                        {% set v = raw | default(0) | int %}
+                        {% if v >= 1 and v <= 5 %}
+                            {{ v }}
+                        {% else %}
+                            {{ raw or '–' }}
+                        {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </table>
         <p class="sub-section">III. Communication &amp; Social Skills</p>
         <table class="info">
             {% for i in range(7, 11) %}
-            <tr><td>{{ part_b_labels[i - 1] }}</td><td class="likert-scale">{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = raw | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            <tr>
+                <td>{{ part_b_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set raw = payload.get('rating_' ~ i) %}
+                    {% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}
+                        N/A
+                    {% else %}
+                        {% set v = raw | default(0) | int %}
+                        {% if v >= 1 and v <= 5 %}
+                            {{ v }}
+                        {% else %}
+                            {{ raw or '–' }}
+                        {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </table>
         <p class="sub-section">IV. Personal, Ethical &amp; Digital Attributes</p>
         <table class="info">
             {% for i in range(11, 14) %}
-            <tr><td>{{ part_b_labels[i - 1] }}</td><td class="likert-scale">{% set raw = payload.get('rating_' ~ i) %}{% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}N/A{% else %}{% set v = raw | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for j in range(1, 6) %}{{ j }}{% if v == j %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ raw or '–' }}{% endif %}{% endif %}</td></tr>
+            <tr>
+                <td>{{ part_b_labels[i - 1] }}</td>
+                <td class="likert-scale">
+                    {% set raw = payload.get('rating_' ~ i) %}
+                    {% if raw is string and (raw == 'na' or raw == 'N/A' or raw == 'NA') %}
+                        N/A
+                    {% else %}
+                        {% set v = raw | default(0) | int %}
+                        {% if v >= 1 and v <= 5 %}
+                            {{ v }}
+                        {% else %}
+                            {{ raw or '–' }}
+                        {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
             {% endfor %}
         </table>
     </div>
@@ -159,10 +275,10 @@
         <table class="info">
             <tr><td>14. Academic knowledge meets current needs of the legal profession?</td><td>{{ payload.get('curriculum_sufficiency') or '–' }}</td></tr>
             <tr><td>15. Graduates' exposure to practical training (Moot Court, Mock Trials, CLE)</td><td>{{ payload.get('practical_training') or '–' }}</td></tr>
-            <tr><td>16. ADR importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_adr') | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('emerging_adr') or '–' }}{% endif %}</td></tr>
-            <tr><td>16. Cyber Law &amp; Digital Evidence importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_cyber_law') | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('emerging_cyber_law') or '–' }}{% endif %}</td></tr>
-            <tr><td>16. Corporate Compliance &amp; Taxation importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_corporate') | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('emerging_corporate') or '–' }}{% endif %}</td></tr>
-            <tr><td>16. Legal Tech &amp; AI in Law importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_legal_tech') | default(0) | int %}{% if v >= 1 and v <= 5 %}{% for i in range(1, 6) %}{{ i }}{% if v == i %} <span class="tick">√</span>{% endif %}{% if not loop.last %} &nbsp; {% endif %}{% endfor %}{% else %}{{ payload.get('emerging_legal_tech') or '–' }}{% endif %}</td></tr>
+            <tr><td>16. ADR importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_adr') | default(0) | int %}{% if v >= 1 and v <= 5 %}{{ v }}{% else %}{{ payload.get('emerging_adr') or '–' }}{% endif %}</td></tr>
+            <tr><td>16. Cyber Law &amp; Digital Evidence importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_cyber_law') | default(0) | int %}{% if v >= 1 and v <= 5 %}{{ v }}{% else %}{{ payload.get('emerging_cyber_law') or '–' }}{% endif %}</td></tr>
+            <tr><td>16. Corporate Compliance &amp; Taxation importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_corporate') | default(0) | int %}{% if v >= 1 and v <= 5 %}{{ v }}{% else %}{{ payload.get('emerging_corporate') or '–' }}{% endif %}</td></tr>
+            <tr><td>16. Legal Tech &amp; AI in Law importance (1–5)</td><td class="likert-scale">{% set v = payload.get('emerging_legal_tech') | default(0) | int %}{% if v >= 1 and v <= 5 %}{{ v }}{% else %}{{ payload.get('emerging_legal_tech') or '–' }}{% endif %}</td></tr>
         </table>
     </div>
 

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <title>নৈমিত্তিক ছুটিসহ ষ্টেশন লীভের আবেদন পত্র</title>
+    <style>
+    {% if kalpurush_font_path %}
+    @font-face { font-family: 'Kalpurush'; src: url('file://{{ kalpurush_font_path }}'); }
+    {% endif %}
+    @page { size: A4; margin: 0.5in 0.5in; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: {% if kalpurush_font_path %}'Kalpurush', {% endif %}Tahoma, Arial, sans-serif; font-size: 9.5pt; line-height: 1.5; color: #000; text-align: left; }
+    .header { text-align: center; margin-bottom: 10pt; }
+    .ku-name { font-size: 14pt; font-weight: bold; margin-bottom: 3pt; }
+    .ku-city { font-size: 10pt; margin-bottom: 5pt; }
+    .doc-title { text-align: center; font-size: 11pt; font-weight: bold; text-decoration: underline; margin-bottom: 12pt; }
+    .recipient { margin-bottom: 12pt; }
+    .recipient-line { margin-bottom: 3pt; }
+    .intro { margin-bottom: 12pt; }
+    .form-row { display: table; width: 100%; margin-bottom: 10pt; }
+    .form-row .form-label { display: table-cell; white-space: nowrap; padding-right: 8pt; vertical-align: bottom; text-align: left; width: 1%; }
+    .form-row .form-value { display: table-cell; vertical-align: bottom; text-align: left !important; border-bottom: 1px dashed #333; padding-left: 4pt; width: auto; }
+    .form-row .form-value-inline { border-bottom: none; padding-left: 4pt; }
+    .fill-inline { border-bottom: 1px dashed #333; display: inline; vertical-align: bottom; text-align: left; }
+    .fill-inline.value-date { min-width: 110pt; }
+    .fill-inline.value-days { min-width: 52pt; }
+    .fill-inline.value-days-long { min-width: 200pt; }
+    .sig-area { margin-top: 20pt; margin-bottom: 16pt; display: flex; justify-content: space-between; gap: 24pt; }
+    .sig-box { flex: 1; max-width: 48%; }
+    .sig-caption-first { font-size: 8pt; margin-top: 4pt; }
+    .sig-caption-first-right { text-align: right; font-size: 8pt; margin-top: 4pt; }
+    .sig-line { border-bottom: 1px dashed #333; min-width: 140pt; padding-top: 52pt; }
+    .sig-caption { font-size: 8pt; }
+    .sig-caption-right { text-align: right; font-size: 8pt; }
+    .leave-summary { margin-top: 14pt; margin-bottom: 18pt; display: flex; justify-content: space-between; align-items: flex-start; gap: 20pt; }
+    .leave-summary-left { flex: 1; text-align: left; }
+    .leave-summary-right { width: 180pt; flex-shrink: 0; }
+    .leave-line { margin-bottom: 8pt; }
+    .leave-fill { border-bottom: 1px dashed #333; display: inline-block; min-width: 56pt; }
+    .leave-fill-wide { min-width: 110pt; }
+    .leave-two-fields { display: flex; gap: 16pt; align-items: flex-end; margin-top: 4pt; margin-left: auto; justify-content: flex-end; }
+    .leave-field-wrap { display: inline-block; }
+    .leave-field-wrap .leave-fill { min-width: 70pt; display: block; margin-bottom: 2pt; }
+    .leave-field-wrap .leave-caption { font-size: 8pt; }
+    .sig-dotted { border-bottom: 1px dashed #333; height: 30pt; min-width: 160pt; margin-bottom: 4pt; }
+    .block-head { margin-top: 14pt; margin-bottom: 6pt; font-size: 9pt; font-weight: bold; }
+    .block-statement { margin-bottom: 8pt; font-size: 9pt; }
+    .block-sig { margin-top: 8pt; margin-bottom: 12pt; }
+    .sig-block-right { width: 220pt; margin-left: auto; margin-right: 0; }
+    .sig-block-right .sig-dotted { width: 100%; margin-left: 0; }
+    .sig-label-below-right { text-align: right; font-size: 8pt; padding-top: 4pt; display: block; }
+    .indent { margin-left: 8pt; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="ku-name">খুলনা বিশ্ববিদ্যালয়</div>
+        <div class="ku-city">খুলনা</div>
+        <div class="doc-title">নৈমিত্তিক ছুটিসহ ষ্টেশন লীভের আবেদন পত্র</div>
+    </div>
+
+    <div class="recipient">
+        <div class="recipient-line">ডীন/ রেজিস্ট্রার/ ডিসিপ্লিন প্রধান/ বিভাগীয় প্রধান</div>
+        <div class="recipient-line">খুলনা বিশ্ববিদ্যালয়</div>
+        <div class="recipient-line">খুলনা।</div>
+    </div>
+
+    <p class="intro">নিম্নবর্ণিত নৈমিত্তিক ছুটিসহ ষ্টেশন লীভের মঞ্জুরীর জন্য পেশ করা হলোঃ</p>
+
+    <div style="direction: ltr; text-align: left;">
+    <div class="form-row">
+        <div class="form-label">১। আবেদনকারীর নাম ও পদবীঃ</div>
+        <div class="form-value">{{ applicant_name }}{% if applicant_designation %}, {{ applicant_designation }}{% endif %}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">২। ডিসিপ্লিন/ বিভাগের নামঃ-</div>
+        <div class="form-value">{{ department }}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৩। ছুটির কারনঃ</div>
+        <div class="form-value">{{ reason }}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৪।</div>
+        <div class="form-value form-value-inline"><span class="fill-inline value-date">{{ date_from or '_______________________' }}</span> তারিখ থেকে <span class="fill-inline value-date">{{ date_to or '_______________________' }}</span> তারিখ পর্যন্ত <span class="fill-inline value-days">{{ total_days or '_______' }}</span> দিনের নৈমিত্তিক ছুটিসহ ষ্টেশন লীভের প্রয়োজন।</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৫। ছুটিকালীন সময়ে যোগাযোগের ঠিকানাঃ-</div>
+        <div class="form-value">{{ address_during_leave }}</div>
+    </div>
+    <div class="form-row">
+        <div class="form-label">৬। আবেদনকারীর পরিবর্তে দায়িত্ব পালনকারীর নাম ও পদবী (প্রস্তাবিত)ঃ</div>
+        <div class="form-value">{{ substitute_name }}{% if substitute_designation %}, {{ substitute_designation }}{% endif %}</div>
+    </div>
+    </div>
+
+    <div class="sig-area">
+        <div class="sig-box">
+            <div class="sig-line"></div>
+            <div class="sig-caption-first">দায়িত্ব পালনকারীর স্বাক্ষর</div>
+        </div>
+        <div class="sig-box">
+            <div class="sig-line" style="margin-left: auto;"></div>
+            <div class="sig-caption-first sig-caption-first-right">আবেদনকারীর স্বাক্ষর ও তারিখ</div>
+        </div>
+    </div>
+
+    <div class="leave-summary">
+        <div class="leave-summary-left">
+            <p class="leave-line"><span class="leave-fill leave-fill-wide">{{ leave_year }}</span> সালের মোট নৈমিত্তিক ছুটির পরিমাণ <span class="leave-fill value-days">{{ annual_entitlement }}</span> দিন</p>
+            <p class="leave-line">এ পর্যন্ত নৈমিত্তিক ছুটি ভোগ করেছেন</p>
+            <div class="leave-two-fields">
+                <div class="leave-field-wrap">
+                    <div class="leave-fill">{{ leave_availed }}</div>
+                    <div class="leave-caption">জেন</div>
+                </div>
+                <div class="leave-field-wrap">
+                    <div class="leave-fill">{{ leave_availed_days }}</div>
+                    <div class="leave-caption">দিন</div>
+                </div>
+            </div>
+        </div>
+        <div class="leave-summary-right">
+            <div class="sig-dotted"></div>
+            <div class="sig-caption" style="text-align: center;">সংশ্লিষ্ট কর্মকর্তার স্বাক্ষর</div>
+        </div>
+    </div>
+
+    <div class="block-head">শিক্ষক, কর্মকর্তা ও কর্মচারীদের ক্ষেত্রেঃ</div>
+    <p class="block-statement indent">প্রস্তাবিত <span class="fill-inline value-days-long">{{ total_days or '_______' }}</span> দিনের নৈমিত্তিক ছুটিসহ ষ্টেশন লীভের অনুমোদন করা হলো/হলো না।</p>
+    <div class="block-sig">
+        <div class="sig-block-right">
+            <div class="sig-dotted"></div>
+            <span class="sig-label-below-right">বিভাগীয় প্রধান (অফিস সিলসহ)</span>
+        </div>
+    </div>
+
+    <div class="block-head">ডীন/ডিসিপ্লিন প্রধান/বিভাগীয় প্রধানের ক্ষেত্রেঃ</div>
+    <p class="block-statement indent"><span class="fill-inline value-days-long">{{ total_days or '_______' }}</span> দিনের নৈমিত্তিক ছুটিসহ ষ্টেশন লীভ মঞ্জুরীর প্রস্তাব অগ্রায়ন করা হলো।</p>
+    <div class="block-sig">
+        <div class="sig-block-right" style="width: 200pt;">
+            <div class="sig-dotted"></div>
+            <span class="sig-label-below-right">রেজিস্ট্রার</span>
+        </div>
+    </div>
+    <p class="block-statement indent"><span class="fill-inline value-days-long">{{ total_days or '_______' }}</span> দিনের নৈমিত্তিক ছুটিসহ ষ্টেশন লীভ মঞ্জুর করা হলো।</p>
+    <div class="block-sig">
+        <div class="sig-block-right" style="width: 200pt;">
+            <div class="sig-dotted"></div>
+            <span class="sig-label-below-right">উপাচার্য মহোদয়</span>
+        </div>
+    </div>
+</body>
+</html>
