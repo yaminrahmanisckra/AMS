@@ -4089,9 +4089,9 @@ def create_app():
             flash('This page is available only for Head or Dean accounts.', 'danger')
             return redirect(url_for('index'))
         
-        # Get all teachers (excluding Head of the Discipline)
+        # Get only internal teachers for duty assignment dropdown (excluding Head and external)
         from role_utils import get_teachers_excluding_head
-        teachers = get_teachers_excluding_head()
+        teachers = get_teachers_excluding_head(external_only=False)
         
         # Get all courses
         courses = Course.query.order_by(Course.course_code.asc()).all()
@@ -9448,9 +9448,9 @@ def create_app():
             
             saved_data['form_id'] = form_entry.id
             
-            # Fetch teachers for name dropdown
-            from blueprints.class_management.models import Teacher
-            teachers = Teacher.query.order_by(Teacher.name).all()
+            # Fetch teachers for name dropdown (excluding Head and deleted accounts)
+            from role_utils import get_teachers_excluding_head
+            teachers = get_teachers_excluding_head()
             
             # Fetch all curriculum year/term configurations and aggregate data
             all_configs = CurriculumYearTerm.query.all()

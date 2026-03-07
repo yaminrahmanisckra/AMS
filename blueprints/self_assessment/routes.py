@@ -4,7 +4,7 @@ import os
 import secrets
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
 from flask_login import login_required, current_user
-from role_utils import parse_roles
+from role_utils import parse_roles, get_teachers_excluding_head
 
 from . import self_assessment_bp
 from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse
@@ -219,7 +219,7 @@ def psac_committee():
         db.session.add(committee)
         db.session.commit()
     members = PsacCommitteeMember.query.filter_by(committee_id=committee.id).order_by(PsacCommitteeMember.is_adhoc, PsacCommitteeMember.id).all()
-    all_teachers = Teacher.query.order_by(Teacher.name).all()
+    all_teachers = get_teachers_excluding_head()
     member_teacher_ids = {m.teacher_id for m in members}
     return render_template(
         'self_assessment/psac_committee.html',

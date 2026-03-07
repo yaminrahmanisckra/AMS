@@ -28,6 +28,7 @@ STAFF_ROLES = TEACHING_ROLES | {'officer'}
 
 def get_teachers_excluding_head(external_only=None):
     """Get all teachers excluding Head of the Discipline, Teaching Assistants, and Admin users.
+    Only includes teachers who have an active (non-deleted) User account.
     This function should be used in all places where teacher lists are displayed.
     Args:
         external_only: None = all teachers, True = only External teachers, False = only Internal teachers.
@@ -41,8 +42,16 @@ def get_teachers_excluding_head(external_only=None):
         if not Teacher:
             return []
         
-        # Get all teachers
+        # Teachers that have an active User account (exclude deleted accounts – deleted users are removed from DB)
+        active_user_teacher_ids = {u.teacher_id for u in User.query.filter(User.teacher_id.isnot(None)).all()}
+        active_user_names = {u.full_name for u in User.query.all()}
+        
+        # Get all teachers that have an active account (by teacher_id or by matching full_name)
         all_teachers = Teacher.query.order_by(Teacher.name).all()
+        teachers_with_account = [
+            t for t in all_teachers
+            if t.id in active_user_teacher_ids or (t.name and t.name.strip() in active_user_names)
+        ]
         
         # Get Head of the Discipline users
         head_users = User.query.filter(
@@ -76,7 +85,7 @@ def get_teachers_excluding_head(external_only=None):
         
         # Filter out Head of the Discipline, Teaching Assistants, and Admin users from teachers list
         excluded_names = head_names | ta_names | admin_names
-        teachers = [teacher for teacher in all_teachers if teacher.name not in excluded_names]
+        teachers = [t for t in teachers_with_account if t.name not in excluded_names]
         # Optional: filter by External / Internal
         if external_only is not None:
             teachers = [t for t in teachers if getattr(t, 'is_external', False) == external_only]
