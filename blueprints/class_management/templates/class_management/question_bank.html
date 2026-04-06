@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}Question Bank{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h2 class="mb-0"><i class="fas fa-book-reader me-2"></i>Question Bank</h2>
+        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Back
+        </a>
+    </div>
+    <p class="text-muted mb-4">Past-year question PDFs for all users. Files are organized folder-wise.</p>
+
+    {% if can_manage %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <strong><i class="fas fa-folder-plus me-2"></i>Create Folder</strong>
+            <button class="btn btn-sm btn-light" type="button" data-bs-toggle="collapse" data-bs-target="#qbUploadMain" aria-expanded="false" aria-controls="qbUploadMain">
+                <i class="fas fa-chevron-down me-1"></i>Open
+            </button>
+        </div>
+        <div class="card-body collapse" id="qbUploadMain">
+            <form method="post" action="{{ url_for('class_management.create_question_bank_folder') }}" class="row g-3">
+                <div class="col-md-9">
+                    <label class="form-label">Folder Name *</label>
+                    <input type="text" class="form-control" name="folder_name" required>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100">
+                        <i class="fas fa-folder-plus me-1"></i>Create
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <strong><i class="fas fa-file-pdf me-2 text-danger"></i>Available Question Papers</strong>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#qbAvailableMain" aria-expanded="true" aria-controls="qbAvailableMain">
+                <i class="fas fa-chevron-down me-1"></i>Open
+            </button>
+        </div>
+        <div class="card-body p-0 collapse show" id="qbAvailableMain">
+            <div class="border-bottom bg-white p-2 p-md-3">
+                <form method="get" action="{{ url_for('class_management.question_bank') }}" class="row g-2 align-items-center">
+                    <div class="col-12 col-md-5">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="fas fa-folder"></i></span>
+                            <input type="text" class="form-control" name="folder_name" value="{{ filters.folder_name or '' }}" placeholder="Filter by folder name">
+                        </div>
+                    </div>
+                    <div class="col-8 col-md-3">
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="fas fa-calendar-alt"></i></span>
+                            <input type="text" class="form-control" name="question_year" value="{{ filters.question_year or '' }}" placeholder="Year">
+                        </div>
+                    </div>
+                    <div class="col-4 col-md-2 d-grid">
+                        <button type="submit" class="btn btn-sm btn-primary">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                    <div class="col-12 col-md-2 d-grid">
+                        <a href="{{ url_for('class_management.question_bank') }}" class="btn btn-sm btn-outline-secondary" role="button">Reset</a>
+                    </div>
+                </form>
+            </div>
+            {% if grouped_files %}
+            <div class="accordion accordion-flush" id="qbAccordion">
+                {% for group in grouped_files %}
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="qb-heading-{{ loop.index }}">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#qb-collapse-{{ loop.index }}" aria-expanded="false" aria-controls="qb-collapse-{{ loop.index }}">
+                            <span class="me-2"><i class="fas fa-folder text-warning"></i></span>
+                            <span class="fw-semibold">{{ group.folder_name }}</span>
+                            <span class="badge bg-secondary ms-2">{{ group.files|length }} file(s)</span>
+                        </button>
+                    </h2>
+                    <div id="qb-collapse-{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="qb-heading-{{ loop.index }}" data-bs-parent="#qbAccordion">
+                        <div class="accordion-body p-0">
+                            <div class="p-2 p-md-3 border-bottom bg-light d-flex flex-wrap justify-content-end gap-2">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-success"
+                                    data-folder-table="folder-{{ loop.index }}"
+                                    data-folder-name="{{ group.folder_name }}"
+                                    onclick='downloadSelectedFromButton(this)'>
+                                    <i class="fas fa-check-square me-1"></i>Download Selected
+                                </button>
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-primary"
+                                    data-file-ids="{% for f in group.files %}{{ f.id }}{% if not loop.last %},{% endif %}{% endfor %}"
+                                    data-folder-name="{{ group.folder_name }}"
+                                    onclick='bulkDownloadFolderFromCsv(this.dataset.fileIds, this.dataset.folderName)'>
+                                    <i class="fas fa-file-archive me-1"></i>Download All
+                                </button>
+                            </div>
+                            {% if can_upload %}
+                            <div class="p-3 border-bottom bg-white">
+                                <button class="btn btn-sm btn-success" type="button" data-bs-toggle="collapse" data-bs-target="#qb-upload-{{ loop.index }}" aria-expanded="false" aria-controls="qb-upload-{{ loop.index }}">
+                                    <i class="fas fa-plus me-1"></i>Upload more to this folder
+                                </button>
+                                <div class="collapse mt-3" id="qb-upload-{{ loop.index }}">
+                                    <form method="post" action="{{ url_for('class_management.upload_question_bank_file') }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+                                        <input type="hidden" name="folder_name" value="{{ group.folder_name }}">
+                                        <div class="col-md-3">
+                                            <label class="form-label">Year *</label>
+                                            <input type="text" class="form-control form-control-sm" name="question_year" placeholder="2023" required>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label class="form-label">Title (optional)</label>
+                                            <input type="text" class="form-control form-control-sm" name="title" placeholder="e.g. Set A">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">PDF Files *</label>
+                                            <input type="file" class="form-control form-control-sm" name="files" accept=".pdf,application/pdf" multiple required>
+                                        </div>
+                                        <div class="col-md-12">
+                                            <button type="submit" class="btn btn-success w-100">
+                                                <i class="fas fa-upload me-1"></i>Upload
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                            {% endif %}
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0" id="folder-{{ loop.index }}">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="width: 44px;" class="text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    class="form-check-input"
+                                                    title="Select all in this folder"
+                                                    onchange='toggleFolderSelection("folder-{{ loop.index }}", this.checked)'>
+                                            </th>
+                                            <th>Year</th>
+                                            <th>Title</th>
+                                            <th>Uploaded</th>
+                                            <th class="text-end">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for f in group.files %}
+                                        <tr>
+                                            <td class="text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    class="form-check-input qb-file-check"
+                                                    value="{{ f.id }}"
+                                                    title="Select file">
+                                            </td>
+                                            <td>{{ f.question_year }}</td>
+                                            <td>
+                                                {% if can_manage %}
+                                                <div class="d-flex align-items-center justify-content-between gap-2">
+                                                    <span class="text-truncate">{{ f.title }}</span>
+                                                    <button class="btn btn-sm btn-outline-secondary flex-shrink-0" type="button" data-bs-toggle="collapse" data-bs-target="#edit-title-{{ f.id }}" aria-expanded="false" aria-controls="edit-title-{{ f.id }}">
+                                                        <i class="fas fa-pen me-1"></i>Edit
+                                                    </button>
+                                                </div>
+                                                <div class="collapse mt-2" id="edit-title-{{ f.id }}">
+                                                    <form method="post" action="{{ url_for('class_management.edit_question_bank_file_title', file_id=f.id) }}" class="d-flex gap-2">
+                                                        <input type="text" name="title" value="{{ f.title }}" class="form-control form-control-sm" required>
+                                                        <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                                                    </form>
+                                                </div>
+                                                {% else %}
+                                                {{ f.title }}
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}</td>
+                                            <td class="text-end">
+                                                {% if can_manage %}
+                                                <form method="post" action="{{ url_for('class_management.delete_question_bank_file', file_id=f.id) }}" onsubmit="return confirm('Delete this question paper?');" class="d-inline">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                        <i class="fas fa-trash me-1"></i>Delete
+                                                    </button>
+                                                </form>
+                                                {% endif %}
+                                                <a href="{{ url_for('class_management.download_question_bank_file', file_id=f.id) }}" class="btn btn-sm btn-outline-primary">
+                                                    <i class="fas fa-download me-1"></i>Download
+                                                </a>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="fas fa-folder-open fa-2x mb-2"></i>
+                <p class="mb-0">No question PDFs uploaded yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function submitZipDownload(fileIds, folderName) {
+    if (!Array.isArray(fileIds) || fileIds.length === 0) {
+        alert('No files selected.');
+        return;
+    }
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = "{{ url_for('class_management.download_question_bank_zip') }}";
+    form.style.display = 'none';
+
+    const idsInput = document.createElement('input');
+    idsInput.type = 'hidden';
+    idsInput.name = 'file_ids';
+    idsInput.value = fileIds.join(',');
+    form.appendChild(idsInput);
+
+    const folderInput = document.createElement('input');
+    folderInput.type = 'hidden';
+    folderInput.name = 'folder_name';
+    folderInput.value = folderName || 'question_bank_selection';
+    form.appendChild(folderInput);
+
+    document.body.appendChild(form);
+    form.submit();
+    setTimeout(() => {
+        if (form.parentNode) form.parentNode.removeChild(form);
+    }, 1500);
+}
+
+function bulkDownloadFolderFromCsv(csv, folderName) {
+    const ids = String(csv || '')
+        .split(',')
+        .map(s => parseInt(s.trim(), 10))
+        .filter(id => Number.isInteger(id));
+    submitZipDownload(ids, folderName);
+}
+
+function toggleFolderSelection(folderTableId, checked) {
+    const table = document.getElementById(folderTableId);
+    if (!table) return;
+    const checks = table.querySelectorAll('.qb-file-check');
+    checks.forEach(cb => { cb.checked = checked; });
+}
+
+function downloadSelectedInFolder(folderTableId, folderName) {
+    const table = document.getElementById(folderTableId);
+    if (!table) return;
+    const selected = Array.from(table.querySelectorAll('.qb-file-check:checked'))
+        .map(cb => parseInt(cb.value, 10))
+        .filter(id => Number.isInteger(id));
+
+    if (selected.length === 0) {
+        alert('Please select at least one file.');
+        return;
+    }
+    submitZipDownload(selected, folderName);
+}
+
+function downloadSelectedFromButton(btn) {
+    const folderTableId = btn && btn.dataset ? btn.dataset.folderTable : '';
+    const folderName = btn && btn.dataset ? btn.dataset.folderName : '';
+    downloadSelectedInFolder(folderTableId, folderName);
+}
+</script>
+{% endblock %}

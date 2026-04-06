@@ -160,7 +160,7 @@
                     <div class="card-body">
                         {% if teacher_data.student_report_data %}
                             <div class="table-responsive">
-                                <table class="attendance-table">
+                                <table class="attendance-table" data-session-id="{{ teacher_data.session.id }}">
                                     <thead>
                                         <tr>
                                             <th rowspan="2" class="freeze-col-1">#</th>
@@ -341,7 +341,7 @@
                 </div>
 
                 <div class="table-responsive">
-                    <table class="attendance-table">
+                    <table class="attendance-table" data-session-id="{{ session.id }}">
                         <thead>
                             <tr>
                                 <th rowspan="2" class="freeze-col-1">#</th>
@@ -418,6 +418,8 @@
 <script>
 const editToggle = document.getElementById('editModeToggle');
 const toggleBaseUrl = "{{ url_for('class_management.toggle_attendance_record', record_id=0) }}".slice(0, -1);
+const createAttendanceBaseUrl = "{{ url_for('class_management.create_attendance_record', session_id=0) }}".replace(/\/0$/, '');
+const sessionId = {{ session.id }};
 
 // Restore edit mode state from localStorage
 if (editToggle) {
@@ -444,13 +446,13 @@ if (editToggle) {
 }
 
 function toggleEditableState(enabled) {
-    // Get all attendance cells from all tables (works for both split and non-split)
+    // Get all attendance cells from all tables (works for both split and non-split).
+    // When edit mode is on, all cells (including '-' with no record) are editable.
     const attendanceCells = document.querySelectorAll('.attendance-cell');
     attendanceCells.forEach(cell => {
-        const hasRecord = cell.dataset.recordId;
         cell.classList.remove('editable', 'editing');
         cell.removeEventListener('click', onAttendanceCellClick);
-        if (enabled && hasRecord) {
+        if (enabled) {
             cell.classList.add('editable');
             cell.addEventListener('click', onAttendanceCellClick);
         }
@@ -460,13 +462,59 @@ function toggleEditableState(enabled) {
 function onAttendanceCellClick(event) {
     const cell = event.currentTarget;
     const recordId = cell.dataset.recordId;
-    if (!recordId) return;
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:437',message:'Attendance cell clicked',data:{recordId:recordId,editModeChecked:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-    // #endregion
+    const date = cell.dataset.date;
+    const row = cell.closest('tr');
+    const classStudentId = row ? (row.dataset.studentDbId || cell.dataset.studentId) : null;
+
     cell.classList.add('editing');
     setTimeout(() => cell.classList.remove('editing'), 200);
 
+    function updateCellAndRow(data) {
+        if (!data.success) {
+            alert(data.message || 'Failed to update attendance.');
+            return;
+        }
+        const statusSpan = cell.querySelector('.status');
+        if (data.record_id) cell.dataset.recordId = data.record_id;
+        if (data.status === 'P') {
+            statusSpan.textContent = 'P';
+            statusSpan.className = 'status text-success fw-bold';
+        } else {
+            statusSpan.textContent = 'A';
+            statusSpan.className = 'status text-danger fw-bold';
+        }
+        {% if is_split_course %}
+        const editModeState = editToggle ? editToggle.checked : false;
+        localStorage.setItem('attendance_edit_mode_' + sessionId, editModeState ? 'true' : 'false');
+        window.location.reload();
+        {% else %}
+        if (row) {
+            const presentCell = row.querySelector('.present-count');
+            const percentageCell = row.querySelector('.percentage-cell');
+            const marksCell = row.querySelector('.marks-cell');
+            if (presentCell) presentCell.textContent = data.present_count;
+            if (percentageCell) percentageCell.textContent = data.percentage;
+            if (marksCell) {
+                const displaySpan = marksCell.querySelector('.marks-display');
+                const inputField = marksCell.querySelector('.marks-input-edit');
+                const manualBadge = marksCell.querySelector('.manual-badge');
+                if (data.marks_manual && displaySpan) { /* keep manual marks */ }
+                else if (displaySpan) {
+                    displaySpan.textContent = data.marks;
+                    if (inputField) {
+                        inputField.value = data.marks;
+                        inputField.dataset.originalValue = data.marks;
+                    }
+                    if (manualBadge && !data.marks_manual) manualBadge.style.display = 'none';
+                } else {
+                    marksCell.textContent = data.marks;
+                }
+            }
+        }
+        {% endif %}
+    }
+
+    if (recordId) {
     fetch(`${toggleBaseUrl}${recordId}`, {
         method: 'POST',
         headers: {
@@ -476,72 +524,26 @@ function onAttendanceCellClick(event) {
         body: JSON.stringify({})
     })
     .then(response => response.json())
-    .then(data => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:453',message:'Attendance toggle response received',data:{success:data.success,editModeCheckedBefore:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
-        if (!data.success) {
-            alert(data.message || 'Failed to update attendance.');
+    .then(updateCellAndRow)
+    .catch(() => alert('Failed to update attendance.'));
+    } else {
+        if (!classStudentId || !date) {
+            alert('Cannot add attendance: missing student or date.');
             return;
         }
-        const statusSpan = cell.querySelector('.status');
-        if (data.status === 'P') {
-            statusSpan.textContent = 'P';
-            statusSpan.className = 'status text-success fw-bold';
-        } else {
-            statusSpan.textContent = 'A';
-            statusSpan.className = 'status text-danger fw-bold';
-        }
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:465',message:'After updating status span',data:{editModeCheckedAfter:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
-        // For split courses, marks are calculated from combined attendance
-        // So we need to reload the page to get updated combined marks
-        // For non-split courses, update inline
-        {% if is_split_course %}
-        // Reload page to get updated combined marks for split courses
-        // Preserve edit mode state before reload
-        const editModeState = editToggle ? editToggle.checked : false;
-        localStorage.setItem('attendance_edit_mode_' + {{ session.id }}, editModeState ? 'true' : 'false');
-        window.location.reload();
-        {% else %}
-        const row = cell.closest('tr');
-        if (row) {
-            const presentCell = row.querySelector('.present-count');
-            const percentageCell = row.querySelector('.percentage-cell');
-            const marksCell = row.querySelector('.marks-cell');
-            if (presentCell) presentCell.textContent = data.present_count;
-            if (percentageCell) percentageCell.textContent = data.percentage;
-            if (marksCell) {
-                // Only update marks if not manually set, otherwise preserve manual marks
-                const displaySpan = marksCell.querySelector('.marks-display');
-                const inputField = marksCell.querySelector('.marks-input-edit');
-                const manualBadge = marksCell.querySelector('.manual-badge');
-                
-                // If manual marks exist, don't overwrite
-                if (data.marks_manual && displaySpan) {
-                    // Keep existing manual marks, just update present count and percentage
-                    // Don't update marks display
-                } else if (displaySpan) {
-                    // Update marks display
-                    displaySpan.textContent = data.marks;
-                    if (inputField) {
-                        inputField.value = data.marks;
-                        inputField.dataset.originalValue = data.marks;
-                    }
-                    // Hide manual badge if marks are not manual
-                    if (manualBadge && !data.marks_manual) {
-                        manualBadge.style.display = 'none';
-                    }
-                } else {
-                    // Fallback for old structure
-                    marksCell.textContent = data.marks;
-                }
-            }
-        }
-        {% endif %}
-    })
-    .catch(() => alert('Failed to update attendance.'));
+        const table = cell.closest('table');
+        const sessionIdForCreate = table && table.dataset.sessionId ? table.dataset.sessionId : sessionId;
+        const createUrl = createAttendanceBaseUrl + '/' + sessionIdForCreate;
+        fetch(createUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ class_student_id: parseInt(classStudentId, 10), date: date })
+        })
+        .then(response => response.json())
+        .then(updateCellAndRow)
+        .catch(() => alert('Failed to create attendance record.'));
+    }
 }
 
 // Initialize edit mode state (after localStorage restore)

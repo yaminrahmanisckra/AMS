@@ -358,7 +358,7 @@
                                                 {% endif %}
                                             </div>
                                             {% if msg.body %}
-                                                <div class="mt-1">{{ msg.body | urlize | replace('\n', '<br>') | safe }}</div>
+                                                <div class="mt-1 qa-message-body">{{ msg.body | qa_message_body }}</div>
                                             {% endif %}
                                             {% if msg.attachments %}
                                                 <div class="mt-2">

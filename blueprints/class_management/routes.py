@@ -21,8 +21,11 @@ from .models import (
     CourseQuestionThread,
     CourseQuestionMessage,
     CourseQuestionAttachment,
+    StudentNotification,
+    QuestionBankFile,
+    QuestionBankFolder,
 )
-from models import User  # Import the User model from the new models file
+from user_models import User  # Same User as login (users table); required for StudentNotification.user_id
 try:
     from blueprints.student_management.models import Student
 except ImportError:
@@ -86,6 +89,36 @@ def _class_students_for_sessions(session_ids, order=True):
     if order:
         q = q.order_by(ClassStudent.student_id)
     return q.all()
+
+
+def _notify_students_in_session(session_id, notif_type, title, link_url):
+    """Create a StudentNotification for each student in the given session (by student_id -> User.username)."""
+    try:
+        class_students = _class_students_for_session(session_id, order=False)
+        seen_user_ids = set()
+        for cs in class_students:
+            user = User.query.filter_by(username=cs.student_id).first()
+            if user and user.id not in seen_user_ids:
+                seen_user_ids.add(user.id)
+                n = StudentNotification(user_id=user.id, type=notif_type, title=title, link_url=link_url)
+                db.session.add(n)
+        db.session.commit()
+    except Exception as e:
+        current_app.logger.warning(f"Could not create student notifications: {e}")
+        db.session.rollback()
+
+
+def _notify_student_by_username(student_id_username, notif_type, title, link_url):
+    """Create a single StudentNotification for the user with username=student_id_username."""
+    try:
+        user = User.query.filter_by(username=student_id_username).first()
+        if user:
+            n = StudentNotification(user_id=user.id, type=notif_type, title=title, link_url=link_url)
+            db.session.add(n)
+            db.session.commit()
+    except Exception as e:
+        current_app.logger.warning(f"Could not create student notification: {e}")
+        db.session.rollback()
 
 
 # WeasyPrint lazy import - only import when needed to prevent startup hang
@@ -375,13 +408,24 @@ def restrict_to_teaching_roles():
         'class_management.student_reply_course_question',
         'class_management.download_course_question_attachment',
         'class_management.delete_course_question_thread',
-        'class_management.delete_course_question_message'
+        'class_management.delete_course_question_message',
+        'class_management.question_bank',
+        'class_management.upload_question_bank_file',
+        'class_management.download_question_bank_file',
+        'class_management.download_question_bank_folder',
+        'class_management.download_question_bank_zip',
+        'class_management.student_notification_read',
+        'class_management.student_notifications_page',
+        'class_management.student_notifications_mark_all_read',
     ]
     if request.endpoint in student_routes:
         return
     
     if has_teacher_privileges(current_user):
         return
+    # Students: redirect to their dashboard without showing the "teaching staff" message
+    if parse_roles(current_user.role) and 'student' in parse_roles(current_user.role):
+        return redirect(url_for('student_dashboard'))
     flash('Class Management is available only to teaching staff.', 'danger')
     return redirect(url_for('index'))
 
@@ -821,6 +865,10 @@ if not os.path.exists(UPLOAD_FOLDER):
 QA_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'qa_questions')
 if not os.path.exists(QA_UPLOAD_FOLDER):
     os.makedirs(QA_UPLOAD_FOLDER)
+
+QUESTION_BANK_UPLOAD_FOLDER = os.path.join(UPLOAD_FOLDER, 'question_bank')
+if not os.path.exists(QUESTION_BANK_UPLOAD_FOLDER):
+    os.makedirs(QUESTION_BANK_UPLOAD_FOLDER)
 
 
 def _get_qa_upload_dir(thread_id):
@@ -2092,6 +2140,72 @@ def toggle_attendance_record(record_id):
         'student_db_id': record.student_id
     })
 
+
+@class_management_bp.route('/create_attendance_record/<int:session_id>', methods=['POST'])
+@login_required
+def create_attendance_record(session_id):
+    """Create a new attendance record for a cell that currently shows '-' (no record)."""
+    session = Session.query.get_or_404(session_id)
+    teacher = _ensure_current_teacher()
+    if session.teacher_id != teacher.id:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    try:
+        data = request.get_json() or {}
+        class_student_id = data.get('class_student_id')
+        date_str = data.get('date')
+        if not class_student_id or not date_str:
+            return jsonify({'success': False, 'message': 'class_student_id and date required'}), 400
+        from datetime import datetime
+        try:
+            date_val = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'message': 'Invalid date format (use YYYY-MM-DD)'}), 400
+        class_student = ClassStudent.query.filter_by(
+            id=class_student_id,
+            session_id=session_id
+        ).first()
+        if not class_student:
+            return jsonify({'success': False, 'message': 'Student not found in this session'}), 404
+        new_record = ClassAttendance(
+            session_id=session_id,
+            student_id=class_student_id,
+            teacher_id=session.teacher_id,
+            date=date_val,
+            is_present=True
+        )
+        db.session.add(new_record)
+        db.session.commit()
+        attendance_summary = _build_attendance_summary(session)
+        student_public_id = class_student.student_id
+        student_stats = attendance_summary.get('per_student', {}).get(student_public_id, {'present': 0, 'percentage': 0, 'marks': 0})
+        try:
+            from utils.websocket_events import emit_attendance_update
+            emit_attendance_update(session_id, {
+                'record_id': new_record.id,
+                'status': 'P',
+                'student_id': student_public_id,
+                'student_db_id': class_student_id,
+                'present_count': student_stats.get('present', 0),
+                'percentage': student_stats.get('percentage', 0),
+                'marks': student_stats.get('marks', 0)
+            })
+        except Exception as e:
+            current_app.logger.warning(f'Failed to emit attendance update event: {e}')
+        return jsonify({
+            'success': True,
+            'record_id': new_record.id,
+            'status': 'P',
+            'present_count': student_stats.get('present', 0),
+            'percentage': f"{student_stats.get('percentage', 0):.2f}%",
+            'marks': student_stats.get('marks', 0),
+            'marks_manual': student_stats.get('marks_manual', False),
+            'student_db_id': class_student_id
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating attendance record: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @class_management_bp.route('/save_attendance_marks_manual/<int:session_id>', methods=['POST'])
 @login_required
 def save_attendance_marks_manual(session_id):
@@ -2957,8 +3071,15 @@ def upload_course_file(session_id):
         
         db.session.add(uploaded_file)
         db.session.commit()
-        
         current_app.logger.info(f"Course file uploaded successfully: {file_name} for session {session_id}")
+        try:
+            session_obj = Session.query.get(session_id)
+            course_label = (session_obj.course_name or session_obj.course_code or 'Course') if session_obj else 'Course'
+            title = f'New file shared: {file_name} ({course_label})'
+            link_url = url_for('class_management.student_course_files')
+            _notify_students_in_session(session_id, 'file_shared', title, link_url)
+        except Exception as notif_e:
+            current_app.logger.warning(f"Student notification (file shared): {notif_e}")
         flash(f'File "{file_name}" uploaded successfully!', 'success')
         return redirect(url_for('class_management.course_file', session_id=session_id))
         
@@ -5827,7 +5948,15 @@ def toggle_assessment_reveal(session_id):
         # Save to database
         session.assessment_revealed = json.dumps(reveal_status)
         db.session.commit()
-        
+        # Notify students when marks are revealed
+        if revealed:
+            try:
+                course_label = session.course_name or session.course_code or 'Course'
+                title = f'Assessment marks revealed: {course_label}'
+                link_url = url_for('class_management.student_view_scores')
+                _notify_students_in_session(session_id, 'marks_revealed', title, link_url)
+            except Exception as notif_e:
+                current_app.logger.warning(f"Student notification (marks revealed): {notif_e}")
         return jsonify({'success': True, 'message': 'Reveal status updated'})
         
     except Exception as e:
@@ -6100,41 +6229,42 @@ def student_view_scores():
             
             if session_obj.course_type == 'theory' and session_obj.category == 'ug':
                 # Use _build_combined_assessment_values which properly handles split courses
-                # This function combines assessments from Part A (assessments 1-2) and Part B (assessments 3-4)
                 combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session_obj)
-                
-                # Get combined assessment values for this student
                 student_combined_values = combined_values.get(student_id, {})
                 
-                # Build assessment_scores dict from combined values based on reveal status
+                # Build assessment_scores only for revealed assessments (students must not see unrevealed marks)
                 for i in range(1, 5):
                     assessment_key = f'assessment{i}'
                     if reveal_status.get(assessment_key, False):
-                        # Use combined value which includes assessments from all related sessions
                         value = student_combined_values.get(i, None)
                         assessment_scores[assessment_key] = value
                 
-                # Get best3_total from combined calculation (includes all assessments from split sessions)
-                best3_total = combined_best3.get(student_id, None)
+                # Total (Best 3) must be computed from REVEALED assessments only – do not include unrevealed marks
+                revealed_values = [assessment_scores[k] for k in ['assessment1', 'assessment2', 'assessment3', 'assessment4'] if assessment_scores.get(k) is not None]
+                if revealed_values:
+                    best3 = sorted([float(v) for v in revealed_values], reverse=True)[:3]
+                    best3_total = sum(best3) if best3 else None
+                else:
+                    best3_total = None
             elif session_obj.course_type == 'theory' and session_obj.category == 'pg':
-                # Use _build_combined_assessment_values which properly handles split courses
-                # This function combines assessments from Part A (assessments 1-2) and Part B (assessments 3-4)
                 combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session_obj)
-                
-                # Get combined assessment values for this student
                 student_combined_values = combined_values.get(student_id, {})
                 
-                # Build assessment_scores dict from combined values based on reveal status
+                # Build assessment_scores only for revealed assessments
                 for i in range(1, 5):
                     assessment_key = f'assessment{i}'
                     if reveal_status.get(assessment_key, False):
-                        # Use combined value which includes assessments from all related sessions
                         value = student_combined_values.get(i, None)
                         assessment_scores[assessment_key] = value
                 
-                # Get pg_total from combined calculation (includes all assessments from split sessions)
-                # This is calculated as: (best 3 sum / 30) * 40
-                pg_total = combined_pg_total.get(student_id, None)
+                # PG total (on 40 scale) must be computed from REVEALED assessments only
+                revealed_values = [assessment_scores[k] for k in ['assessment1', 'assessment2', 'assessment3', 'assessment4'] if assessment_scores.get(k) is not None]
+                if revealed_values:
+                    best3 = sorted([float(v) for v in revealed_values], reverse=True)[:3]
+                    best3_sum = sum(best3)
+                    pg_total = int(round((best3_sum / 30.0) * 40)) if best3_sum else None
+                else:
+                    pg_total = None
             # Note: Sessional courses are filtered out - only Theory courses should reach this point
             
             
@@ -6357,6 +6487,7 @@ def student_reply_course_question(thread_id):
             ))
 
         thread.updated_at = datetime.utcnow()
+        thread.teacher_read_at = None  # so teacher sees new reply in bell (unread)
         db.session.commit()
         flash('Reply sent successfully.', 'success')
     except Exception as e:
@@ -6377,6 +6508,17 @@ def course_questions(session_id):
     if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
         flash('You are not authorized to view these questions.', 'error')
         return redirect(url_for('class_management.index'))
+
+    # Mark all threads in this session as read for this teacher (for notification badge)
+    try:
+        from datetime import datetime as dt
+        CourseQuestionThread.query.filter_by(
+            session_id=session_id,
+            teacher_id=teacher.id
+        ).update({CourseQuestionThread.teacher_read_at: dt.utcnow()}, synchronize_session=False)
+        db.session.commit()
+    except Exception as e:
+        current_app.logger.warning(f"Could not mark question threads as read: {e}")
 
     try:
         from sqlalchemy.orm import selectinload
@@ -6444,6 +6586,17 @@ def teacher_reply_course_question(thread_id):
         thread.updated_at = datetime.utcnow()
         db.session.commit()
         flash('Reply sent successfully.', 'success')
+        # Notify student about teacher reply
+        try:
+            link_url = url_for('class_management.student_view_scores')
+            _notify_student_by_username(
+                thread.student_id,
+                'question_reply',
+                f'Teacher replied to your question: {thread.subject[:50]}{"..." if len(thread.subject) > 50 else ""}',
+                link_url
+            )
+        except Exception as notif_e:
+            current_app.logger.warning(f"Student notification (question reply): {notif_e}")
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error replying to question thread: {e}", exc_info=True)
@@ -6898,7 +7051,23 @@ def download_assessment_pdf(session_id):
 # Template filter for dynamic attribute access
 @class_management_bp.app_template_filter('getattr')
 def jinja_getattr(obj, name):
-    return getattr(obj, name) 
+    return getattr(obj, name)
+
+
+@class_management_bp.app_template_filter('qa_message_body')
+def qa_message_body_filter(value):
+    """Q&A message body: treat literal <br> as line breaks, preserve \\n, linkify URLs (XSS-safe)."""
+    import re
+    from markupsafe import Markup
+    from jinja2.utils import urlize
+
+    if value is None or value == '':
+        return Markup('')
+    text = str(value)
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    linked = urlize(text, trim_url_limit=True)
+    return Markup(str(linked).replace('\n', '<br />'))
 
 @class_management_bp.route('/evaluation/<int:session_id>')
 @login_required
@@ -6973,9 +7142,17 @@ def course_assessment(session_id):
         teachers_by_id=teachers_by_id
     )
 
-# Context processor to inject pending invites count into all templates
+# Context processor to inject pending invites count, question notifications, and student notifications
 @class_management_bp.app_context_processor
 def inject_invites_count():
+    from role_utils import parse_roles
+    out = {
+        'pending_invites_count': 0,
+        'question_notification_count': 0,
+        'question_notifications': [],
+        'student_notification_count': 0,
+        'student_notifications': [],
+    }
     try:
         if current_user.is_authenticated and has_teacher_privileges(current_user):
             teacher = Teacher.query.filter_by(name=current_user.full_name).first()
@@ -6983,10 +7160,100 @@ def inject_invites_count():
                 count = EvaluationInvite.query.filter_by(evaluator_teacher_id=teacher.id, status='invited').count()
                 exam_count = ExamScrutinizerInvite.query.filter_by(scrutinizer_teacher_id=teacher.id, status='invited').count()
                 split_count = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').count()
-                return { 'pending_invites_count': count + exam_count + split_count }
+                out['pending_invites_count'] = count + exam_count + split_count
+                unread = CourseQuestionThread.query.filter_by(
+                    teacher_id=teacher.id
+                ).filter(
+                    CourseQuestionThread.teacher_read_at.is_(None)
+                ).order_by(CourseQuestionThread.created_at.desc()).limit(20).all()
+                session_ids = list({t.session_id for t in unread})
+                sessions_by_id = {s.id: s for s in Session.query.filter(Session.id.in_(session_ids)).all()} if session_ids else {}
+                out['question_notification_count'] = len(unread)
+                out['question_notifications'] = [
+                    {
+                        'thread_id': t.id,
+                        'subject': t.subject,
+                        'student_name': t.student_name,
+                        'created_at': t.created_at,
+                        'session_id': t.session_id,
+                        'course_label': (sessions_by_id.get(t.session_id).course_name or sessions_by_id.get(t.session_id).course_code or 'Course') if sessions_by_id.get(t.session_id) else 'Course',
+                    }
+                    for t in unread
+                ]
+        if current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role):
+            unread_student = StudentNotification.query.filter_by(
+                user_id=current_user.id
+            ).filter(
+                StudentNotification.read_at.is_(None)
+            ).order_by(StudentNotification.created_at.desc()).limit(20).all()
+            out['student_notification_count'] = len(unread_student)
+            out['student_notifications'] = [
+                {'id': n.id, 'type': n.type, 'title': n.title, 'link_url': n.link_url, 'created_at': n.created_at}
+                for n in unread_student
+            ]
     except Exception:
         pass
-    return { 'pending_invites_count': 0 }
+    return out
+
+
+@class_management_bp.route('/notification/<int:notification_id>/read')
+@login_required
+def student_notification_read(notification_id):
+    """Mark a student notification as read and redirect to its target URL."""
+    if not (current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role)):
+        return redirect(url_for('index'))
+    notification = StudentNotification.query.filter_by(
+        id=notification_id,
+        user_id=current_user.id
+    ).first()
+    if notification:
+        try:
+            notification.read_at = datetime.utcnow()
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    target = (notification and notification.link_url and notification.link_url.strip()) or None
+    if target and (target.startswith('/') or target.startswith('http')):
+        return redirect(target)
+    return redirect(url_for('class_management.student_view_scores'))
+
+
+@class_management_bp.route('/student/notifications')
+@login_required
+def student_notifications_page():
+    """Single page for students to see all notifications (read + unread) and open/mark as read."""
+    if not (current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role)):
+        return redirect(url_for('index'))
+    notifications = (
+        StudentNotification.query.filter_by(user_id=current_user.id)
+        .order_by(StudentNotification.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    unread_count = sum(1 for n in notifications if n.read_at is None)
+    return render_template(
+        'class_management/student_notifications.html',
+        notifications=notifications,
+        unread_count=unread_count,
+    )
+
+
+@class_management_bp.route('/student/notifications/mark-all-read', methods=['POST'])
+@login_required
+def student_notifications_mark_all_read():
+    """Mark all student notifications as read and redirect back."""
+    if not (current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role)):
+        return redirect(url_for('index'))
+    try:
+        StudentNotification.query.filter_by(
+            user_id=current_user.id,
+            read_at=None
+        ).update({StudentNotification.read_at: datetime.utcnow()}, synchronize_session=False)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+    return redirect(url_for('class_management.student_notifications_page'))
+
 
 @class_management_bp.route('/invitations')
 @login_required
@@ -8698,3 +8965,397 @@ def student_download_uploaded_file(file_id):
         current_app.logger.error(f"Error in student_download_uploaded_file: {e}", exc_info=True)
         flash('An error occurred while downloading the file.', 'error')
         return redirect(url_for('class_management.student_course_files'))
+
+
+@class_management_bp.route('/question-bank')
+@login_required
+def question_bank():
+    """Past question bank page grouped by folder name."""
+    # Optional filters via querystring (GET)
+    folder_filter = (request.args.get('folder_name') or '').strip()
+    year_filter = (request.args.get('question_year') or '').strip()
+
+    query = QuestionBankFile.query
+    if folder_filter:
+        query = query.filter(QuestionBankFile.subject_name.ilike(f"%{folder_filter}%"))
+    if year_filter:
+        query = query.filter(QuestionBankFile.question_year == year_filter)
+
+    files = query.order_by(
+        QuestionBankFile.subject_name.asc(),
+        QuestionBankFile.question_year.desc(),
+        QuestionBankFile.created_at.desc()
+    ).all()
+    folders = QuestionBankFolder.query.order_by(QuestionBankFolder.name.asc()).all()
+    can_upload = current_user.is_authenticated
+    can_manage = has_teacher_privileges(current_user) or is_admin(current_user)
+    grouped_files = {}
+    for folder in folders:
+        folder_name = (folder.name or '').strip()
+        if not folder_name:
+            continue
+        grouped_files[folder_name] = {
+            'folder_name': folder_name,
+            'files': []
+        }
+    for f in files:
+        folder_label = (f.subject_name or '').strip() or 'Untitled Folder'
+        folder_key = folder_label
+        if folder_key not in grouped_files:
+            grouped_files[folder_key] = {
+                'folder_name': folder_label,
+                'files': []
+            }
+        grouped_files[folder_key]['files'].append(f)
+    return render_template(
+        'class_management/question_bank.html',
+        grouped_files=list(grouped_files.values()),
+        can_upload=can_upload,
+        can_manage=can_manage,
+        filters={
+            'folder_name': folder_filter,
+            'question_year': year_filter
+        }
+    )
+
+
+@class_management_bp.route('/question-bank/folder/create', methods=['POST'])
+@login_required
+def create_question_bank_folder():
+    """Teacher/admin can create an empty folder without uploading files."""
+    if not (has_teacher_privileges(current_user) or is_admin(current_user)):
+        flash('You are not authorized to create folders.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    folder_name = (request.form.get('folder_name') or '').strip()
+    if not folder_name:
+        flash('Folder name is required.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    existing = QuestionBankFolder.query.filter(func.lower(QuestionBankFolder.name) == folder_name.lower()).first()
+    if existing:
+        flash('Folder already exists.', 'info')
+        return redirect(url_for('class_management.question_bank'))
+
+    try:
+        db.session.add(
+            QuestionBankFolder(
+                name=folder_name,
+                created_by_user_id=getattr(current_user, 'id', None)
+            )
+        )
+        db.session.commit()
+        flash('Folder created successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating question bank folder: {e}", exc_info=True)
+        flash('Failed to create folder.', 'error')
+
+    return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/upload', methods=['POST'])
+@login_required
+def upload_question_bank_file():
+    """Upload one or multiple question PDFs (any logged-in user)."""
+
+    folder_name = (request.form.get('folder_name') or '').strip()
+    question_year = (request.form.get('question_year') or '').strip()
+    title = (request.form.get('title') or '').strip()  # optional (used as common title/prefix)
+
+    if not folder_name or not question_year:
+        flash('Folder name and year are required.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    # Upload allowed only inside existing folders (for all users).
+    existing_folder = QuestionBankFolder.query.filter(
+        func.lower(QuestionBankFolder.name) == folder_name.lower()
+    ).first()
+    if not existing_folder:
+        flash('Please upload inside an existing folder.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    try:
+        files = request.files.getlist('files')
+        if not files:
+            # backward compatibility: old single input name
+            legacy_file = request.files.get('file')
+            if legacy_file:
+                files = [legacy_file]
+
+        valid_files = [f for f in files if f and f.filename]
+        if not valid_files:
+            flash('Please choose at least one PDF file.', 'error')
+            return redirect(url_for('class_management.question_bank'))
+
+        uploaded_count = 0
+        for file in valid_files:
+            ext = os.path.splitext(file.filename)[1].lower()
+            if ext != '.pdf':
+                flash(f'Skipped non-PDF file: {file.filename}', 'warning')
+                continue
+
+            safe_name = secure_filename(file.filename)
+            timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            stored_name = f"{timestamp}_{uuid4().hex}_{safe_name}"
+            file_path = os.path.join(QUESTION_BANK_UPLOAD_FOLDER, stored_name)
+            file.save(file_path)
+
+            file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
+            file_stem = os.path.splitext(safe_name)[0]
+            effective_title = title if len(valid_files) == 1 and title else (f"{title} - {file_stem}" if title else file_stem)
+
+            entry = QuestionBankFile(
+                subject_name=folder_name,
+                course_code=None,
+                question_year=question_year,
+                title=effective_title,
+                file_path=file_path,
+                file_size=file_size,
+                uploaded_by_user_id=getattr(current_user, 'id', None)
+            )
+            db.session.add(entry)
+            uploaded_count += 1
+
+        if uploaded_count == 0:
+            flash('No valid PDF files were uploaded.', 'error')
+            return redirect(url_for('class_management.question_bank'))
+
+        db.session.commit()
+        flash(f'{uploaded_count} question PDF file(s) uploaded successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error uploading question bank PDF: {e}", exc_info=True)
+        flash('Failed to upload question PDF.', 'error')
+
+    return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/download/<int:file_id>')
+@login_required
+def download_question_bank_file(file_id):
+    """Download a question bank PDF (available to logged-in users)."""
+    qb_file = QuestionBankFile.query.get_or_404(file_id)
+    if not qb_file.file_path or not os.path.exists(qb_file.file_path):
+        flash('File not found.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+    return send_file(
+        qb_file.file_path,
+        as_attachment=True,
+        download_name=f"{qb_file.title}.pdf" if not qb_file.title.lower().endswith('.pdf') else qb_file.title
+    )
+
+
+@class_management_bp.route('/question-bank/folder/download')
+@login_required
+def download_question_bank_folder():
+    """Bulk download all PDFs from a folder as a ZIP file."""
+    try:
+        folder_name = (request.args.get('folder_name') or '').strip()
+        if not folder_name:
+            flash('Folder name is required for bulk download.', 'error')
+            return redirect(url_for('class_management.question_bank'))
+
+        files = QuestionBankFile.query.filter(
+            func.lower(QuestionBankFile.subject_name) == folder_name.lower()
+        ).order_by(
+            QuestionBankFile.question_year.desc(),
+            QuestionBankFile.created_at.desc()
+        ).all()
+
+        if not files:
+            flash('No files found in this folder.', 'warning')
+            return redirect(url_for('class_management.question_bank'))
+
+        import zipfile
+        zip_buffer = io.BytesIO()
+        added = 0
+
+        # Some cPanel builds lack zlib for ZIP_DEFLATED; fallback to ZIP_STORED.
+        compression_method = zipfile.ZIP_DEFLATED
+        try:
+            with zipfile.ZipFile(zip_buffer, mode='w', compression=compression_method) as zipf:
+                for f in files:
+                    if not f.file_path or not os.path.exists(f.file_path):
+                        continue
+                    base_title = (f.title or f"question_{f.id}").strip()
+                    safe_base = secure_filename(base_title) or f"question_{f.id}"
+                    year_part = (f.question_year or '').strip()
+                    arcname = f"{year_part}_{safe_base}.pdf" if year_part else f"{safe_base}.pdf"
+                    if arcname in zipf.namelist():
+                        arcname = f"{os.path.splitext(arcname)[0]}_{f.id}.pdf"
+                    zipf.write(f.file_path, arcname=arcname)
+                    added += 1
+        except Exception:
+            zip_buffer = io.BytesIO()
+            added = 0
+            with zipfile.ZipFile(zip_buffer, mode='w', compression=zipfile.ZIP_STORED) as zipf:
+                for f in files:
+                    if not f.file_path or not os.path.exists(f.file_path):
+                        continue
+                    base_title = (f.title or f"question_{f.id}").strip()
+                    safe_base = secure_filename(base_title) or f"question_{f.id}"
+                    year_part = (f.question_year or '').strip()
+                    arcname = f"{year_part}_{safe_base}.pdf" if year_part else f"{safe_base}.pdf"
+                    if arcname in zipf.namelist():
+                        arcname = f"{os.path.splitext(arcname)[0]}_{f.id}.pdf"
+                    zipf.write(f.file_path, arcname=arcname)
+                    added += 1
+
+        if added == 0:
+            flash('No downloadable files found in this folder.', 'warning')
+            return redirect(url_for('class_management.question_bank'))
+
+        folder_safe = secure_filename(folder_name) or "question_bank_folder"
+        zip_buffer.seek(0)
+        zip_filename = f"{folder_safe}.zip"
+
+        # Flask compatibility: try modern, then legacy, then raw Response.
+        try:
+            return send_file(
+                zip_buffer,
+                as_attachment=True,
+                download_name=zip_filename,
+                mimetype='application/zip'
+            )
+        except TypeError:
+            try:
+                return send_file(
+                    zip_buffer,
+                    as_attachment=True,
+                    attachment_filename=zip_filename,
+                    mimetype='application/zip'
+                )
+            except TypeError:
+                data = zip_buffer.getvalue()
+                return Response(
+                    data,
+                    mimetype='application/zip',
+                    headers={
+                        'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                        'Content-Length': str(len(data)),
+                    }
+                )
+    except Exception as e:
+        current_app.logger.error(f"Error bulk-downloading question bank folder: {e}", exc_info=True)
+        flash('Bulk download failed. Please try again.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/download-zip', methods=['POST'])
+@login_required
+def download_question_bank_zip():
+    """Download selected/all question files as a single ZIP (cPanel-safe response)."""
+    try:
+        raw_ids = (request.form.get('file_ids') or '').strip()
+        folder_name = (request.form.get('folder_name') or '').strip()
+        if not raw_ids:
+            flash('No files selected for ZIP download.', 'warning')
+            return redirect(url_for('class_management.question_bank'))
+
+        # Parse CSV ids safely.
+        parsed_ids = []
+        for tok in raw_ids.split(','):
+            tok = tok.strip()
+            if tok.isdigit():
+                parsed_ids.append(int(tok))
+        file_ids = sorted(set(parsed_ids))
+        if not file_ids:
+            flash('No valid files selected for ZIP download.', 'warning')
+            return redirect(url_for('class_management.question_bank'))
+
+        files = QuestionBankFile.query.filter(QuestionBankFile.id.in_(file_ids)).all()
+        if not files:
+            flash('Selected files were not found.', 'warning')
+            return redirect(url_for('class_management.question_bank'))
+
+        import zipfile
+        zip_buffer = io.BytesIO()
+        added = 0
+        with zipfile.ZipFile(zip_buffer, mode='w', compression=zipfile.ZIP_STORED) as zipf:
+            for f in files:
+                if not f.file_path or not os.path.exists(f.file_path):
+                    continue
+                base_title = (f.title or f"question_{f.id}").strip()
+                safe_base = secure_filename(base_title) or f"question_{f.id}"
+                year_part = (f.question_year or '').strip()
+                arcname = f"{year_part}_{safe_base}.pdf" if year_part else f"{safe_base}.pdf"
+                if arcname in zipf.namelist():
+                    arcname = f"{os.path.splitext(arcname)[0]}_{f.id}.pdf"
+                zipf.write(f.file_path, arcname=arcname)
+                added += 1
+
+        if added == 0:
+            flash('No downloadable files found in selection.', 'warning')
+            return redirect(url_for('class_management.question_bank'))
+
+        zip_data = zip_buffer.getvalue()
+        name_base = secure_filename(folder_name) or "question_bank_selection"
+        zip_filename = f"{name_base}.zip"
+        return Response(
+            zip_data,
+            mimetype='application/zip',
+            headers={
+                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                'Content-Length': str(len(zip_data)),
+            }
+        )
+    except Exception as e:
+        current_app.logger.error(f"Error generating question bank ZIP: {e}", exc_info=True)
+        flash('ZIP download failed. Please try again.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/file/<int:file_id>/delete', methods=['POST'])
+@login_required
+def delete_question_bank_file(file_id):
+    """Delete a question bank file entry and remove its PDF from disk."""
+    if not (has_teacher_privileges(current_user) or is_admin(current_user)):
+        flash('You are not authorized to delete question bank files.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    qb_file = QuestionBankFile.query.get_or_404(file_id)
+    try:
+        if qb_file.file_path and os.path.exists(qb_file.file_path):
+            os.remove(qb_file.file_path)
+    except Exception:
+        # Even if disk delete fails, keep DB consistent by removing the record.
+        pass
+
+    try:
+        db.session.delete(qb_file)
+        db.session.commit()
+        flash('Question paper deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting question bank file: {e}", exc_info=True)
+        flash('Failed to delete question paper.', 'error')
+
+    return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/file/<int:file_id>/edit-title', methods=['POST'])
+@login_required
+def edit_question_bank_file_title(file_id):
+    """Edit the display title (name) of a question bank file."""
+    if not (has_teacher_privileges(current_user) or is_admin(current_user)):
+        flash('You are not authorized to edit question bank files.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    qb_file = QuestionBankFile.query.get_or_404(file_id)
+    new_title = (request.form.get('title') or '').strip()
+
+    if not new_title:
+        flash('Title cannot be empty.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    try:
+        qb_file.title = new_title
+        db.session.commit()
+        flash('Title updated successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error editing question bank title: {e}", exc_info=True)
+        flash('Failed to update title.', 'error')
+
+    return redirect(url_for('class_management.question_bank'))

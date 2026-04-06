@@ -32,6 +32,7 @@ from blueprints.class_management.models import (
     StudentFeedbackResponse,
     Teacher,
     CourseOutline,
+    StudentNotification,
 )
 from blueprints.student_management.models import Student
 from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig
@@ -525,6 +526,23 @@ def create_app():
     def inject_role_helpers():
         from datetime import date, timedelta
         visible_items = get_visible_dashboard_items() if current_user.is_authenticated else {}
+        # Student notifications: inject on every page so bell shows on dashboard and elsewhere
+        student_notification_count = 0
+        student_notifications = []
+        if current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role):
+            try:
+                unread = StudentNotification.query.filter_by(
+                    user_id=current_user.id
+                ).filter(
+                    StudentNotification.read_at.is_(None)
+                ).order_by(StudentNotification.created_at.desc()).limit(20).all()
+                student_notification_count = len(unread)
+                student_notifications = [
+                    {'id': n.id, 'type': n.type, 'title': n.title, 'link_url': n.link_url, 'created_at': n.created_at}
+                    for n in unread
+                ]
+            except Exception:
+                pass
         return {
             'ROLE_LABELS': ROLE_LABELS,
             'ROLE_CHOICES': NON_ADMIN_ROLE_CHOICES,
@@ -539,6 +557,8 @@ def create_app():
             'date': date,
             'timedelta': timedelta,
             'datetime': datetime,
+            'student_notification_count': student_notification_count,
+            'student_notifications': student_notifications,
             **visible_items,  # Add visible dashboard items to context
         }
 

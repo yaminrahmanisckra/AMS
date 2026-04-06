@@ -124,6 +124,29 @@ class CourseFileUpload(db.Model):
     teacher = db.relationship('Teacher', backref=db.backref('uploaded_files', lazy='dynamic'))
 
 
+class QuestionBankFile(db.Model):
+    """Past-question PDF files shared for all students/teachers."""
+    __tablename__ = 'question_bank_file'
+    id = db.Column(db.Integer, primary_key=True)
+    subject_name = db.Column(db.String(200), nullable=False)
+    course_code = db.Column(db.String(50), nullable=True)
+    question_year = db.Column(db.String(20), nullable=False)  # e.g. 2023
+    title = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    file_size = db.Column(db.Integer, nullable=True)
+    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class QuestionBankFolder(db.Model):
+    """Folder for organizing question bank files."""
+    __tablename__ = 'question_bank_folder'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True, index=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class CourseQuestionThread(db.Model):
     """Student -> Teacher Q&A threads per course session."""
     __tablename__ = 'course_question_thread'
@@ -136,6 +159,7 @@ class CourseQuestionThread(db.Model):
     status = db.Column(db.String(20), nullable=False, default='open')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    teacher_read_at = db.Column(db.DateTime, nullable=True)  # when teacher saw this thread (for notifications)
 
     session = db.relationship('Session', backref=db.backref('question_threads', lazy='dynamic'))
     teacher = db.relationship('Teacher', backref=db.backref('question_threads', lazy='dynamic'))
@@ -175,6 +199,19 @@ class CourseQuestionAttachment(db.Model):
     file_size = db.Column(db.Integer, nullable=True)
     file_type = db.Column(db.String(100), nullable=True)
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class StudentNotification(db.Model):
+    """Notifications for students: question reply, marks revealed, file shared."""
+    __tablename__ = 'student_notification'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    type = db.Column(db.String(40), nullable=False)  # 'question_reply' | 'marks_revealed' | 'file_shared'
+    title = db.Column(db.String(300), nullable=False)
+    link_url = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    read_at = db.Column(db.DateTime, nullable=True)
+
 
 # Evaluation invitation for external/internal teacher to assess a course session
 class EvaluationInvite(db.Model):
