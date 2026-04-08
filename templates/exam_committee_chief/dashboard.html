@@ -27,7 +27,7 @@
     </div>
 
     <!-- Exam Committee Chief Card -->
-    {% if is_chief and current_session and current_year and current_term %}
+    {% if (is_chief or member_assignments) and current_session and current_year and current_term %}
     <div class="row g-3 mb-4">
         <div class="col-12">
             <div class="card shadow-sm">
@@ -202,13 +202,13 @@
                         <div class="row g-2 mb-3">
                             <div class="col-md-3">
                                 <label for="external_name" class="form-label">Name <span class="text-danger">*</span></label>
-                                <input type="text" class="form-control" id="external_name" list="external_teachers_list" placeholder="Enter name or select from teachers">
-                                <datalist id="external_teachers_list">
-                                    {% for teacher in teachers %}
+                                <select class="form-select" id="external_name">
+                                    <option value="">Select External Teacher</option>
+                                    {% for teacher in external_teachers %}
                                     <option value="{{ teacher.name }}" data-designation="{{ teacher.designation or '' }}" data-institute="{{ teacher.institute or '' }}">{{ teacher.name }}</option>
                                     {% endfor %}
-                                </datalist>
-                                <small class="text-muted">Type to search or select from list</small>
+                                </select>
+                                <small class="text-muted">Select from external teacher list</small>
                             </div>
                             <div class="col-md-3">
                                 <label for="external_designation" class="form-label">Designation <span class="text-danger">*</span></label>
@@ -828,81 +828,38 @@ document.addEventListener('DOMContentLoaded', function() {
         updateChiefDisplay();
     }
     
-    // Auto-fill external member designation and institute when name is entered/selected
+    // Auto-fill external member designation and institute when external teacher is selected
     const externalNameInput = document.getElementById('external_name');
     if (externalNameInput) {
-        // Check when name input loses focus (onblur) or when datalist option is selected
-        externalNameInput.addEventListener('blur', function() {
-            const name = this.value.trim();
-            if (!name) return;
-            
-            // Check if this name exists in datalist
-            const datalist = document.getElementById('external_teachers_list');
-            if (datalist) {
-                const option = Array.from(datalist.options).find(opt => opt.value === name);
-                if (option) {
-                    const designation = option.getAttribute('data-designation') || '';
-                    const institute = option.getAttribute('data-institute') || '';
-                    
-                    const designationSelect = document.getElementById('external_designation');
-                    const instituteInput = document.getElementById('external_institute');
-                    
-                    if (designationSelect && designation) {
-                        designationSelect.value = designation;
-                    }
-                    if (instituteInput) {
-                        instituteInput.value = institute;
-                    }
-                    
-                    return;
-                }
+        const setExternalDesignationValue = (designationValue) => {
+            const designationSelect = document.getElementById('external_designation');
+            if (!designationSelect || !designationValue) return;
+            const hasOption = Array.from(designationSelect.options).some(opt => opt.value === designationValue);
+            if (!hasOption) {
+                const option = document.createElement('option');
+                option.value = designationValue;
+                option.textContent = designationValue;
+                designationSelect.appendChild(option);
             }
-            
-            // If name not in datalist, try API fetch
-            fetch(`/api/get-teacher-by-name?name=${encodeURIComponent(name)}`)
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success && data.teacher) {
-                        const designationSelect = document.getElementById('external_designation');
-                        const instituteInput = document.getElementById('external_institute');
-                        
-                        if (designationSelect && data.teacher.designation) {
-                            designationSelect.value = data.teacher.designation;
-                        }
-                    if (instituteInput) {
-                        instituteInput.value = data.teacher.institute || '';
-                    }
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching teacher by name:', error);
-                });
-        });
-        
-        // Also check on input change for datalist selection
-        externalNameInput.addEventListener('input', function() {
-            const name = this.value.trim();
-            if (!name) return;
-            
-            const datalist = document.getElementById('external_teachers_list');
-            if (datalist) {
-                const option = Array.from(datalist.options).find(opt => opt.value === name);
-                if (option) {
-                    const designation = option.getAttribute('data-designation') || '';
-                    const institute = option.getAttribute('data-institute') || '';
-                    
-                    const designationSelect = document.getElementById('external_designation');
-                    const instituteInput = document.getElementById('external_institute');
-                    
-                    if (designationSelect && designation) {
-                        designationSelect.value = designation;
-                    }
-                    if (instituteInput) {
-                        instituteInput.value = institute;
-                    }
-                }
+            designationSelect.value = designationValue;
+        };
+        const applySelectedExternalInfo = function() {
+            const selectedOption = this.options[this.selectedIndex];
+            if (!selectedOption || !selectedOption.value) return;
+
+            const designation = selectedOption.getAttribute('data-designation') || '';
+            const institute = selectedOption.getAttribute('data-institute') || '';
+
+            if (designation) {
+                setExternalDesignationValue(designation);
             }
-        });
+            const instituteInput = document.getElementById('external_institute');
+            if (instituteInput) {
+                instituteInput.value = institute;
+            }
+        };
+
+        externalNameInput.addEventListener('change', applySelectedExternalInfo);
     }
 });
 
@@ -993,9 +950,12 @@ document.getElementById('addMemberBtn').addEventListener('click', function() {
 
 // Add External Member
 document.getElementById('addExternalBtn').addEventListener('click', function() {
-    const name = document.getElementById('external_name').value.trim();
-    const designation = document.getElementById('external_designation').value.trim();
-    const institute = document.getElementById('external_institute').value.trim();
+    const externalNameEl = document.getElementById('external_name');
+    const designationSelect = document.getElementById('external_designation');
+    const instituteInput = document.getElementById('external_institute');
+    const name = externalNameEl.value.trim();
+    const designation = designationSelect.value.trim();
+    const institute = instituteInput.value.trim();
     
     if (!name || !designation || !institute) {
         alert('Please fill all fields (Name, Designation, Institute)');
@@ -1012,9 +972,9 @@ document.getElementById('addExternalBtn').addEventListener('click', function() {
     updateExternalMembersList();
     
     // Clear inputs
-    document.getElementById('external_name').value = '';
-    if (designationSelect) designationSelect.value = '';
-    document.getElementById('external_institute').value = '';
+    externalNameEl.value = '';
+    designationSelect.value = '';
+    instituteInput.value = '';
 });
 
 // Update Internal Members List Display
@@ -1113,6 +1073,24 @@ document.getElementById('committeeMembersForm').addEventListener('submit', funct
     const year = document.getElementById('committee_year_hidden')?.value || document.getElementById('committee_year').value;
     const term = document.getElementById('committee_term_hidden')?.value || document.getElementById('committee_term').value;
     const remarks = document.getElementById('committee_remarks').value.trim();
+    // If user selected an external teacher but forgot clicking "Add",
+    // auto-add it before validation.
+    const pendingExternalName = document.getElementById('external_name')?.value.trim() || '';
+    const pendingExternalDesignation = document.getElementById('external_designation')?.value.trim() || '';
+    const pendingExternalInstitute = document.getElementById('external_institute')?.value.trim() || '';
+    if (
+        pendingExternalName &&
+        pendingExternalDesignation &&
+        pendingExternalInstitute &&
+        !selectedExternalMembers.find(m => m.name.toLowerCase() === pendingExternalName.toLowerCase())
+    ) {
+        selectedExternalMembers.push({
+            name: pendingExternalName,
+            designation: pendingExternalDesignation,
+            institute: pendingExternalInstitute
+        });
+        updateExternalMembersList();
+    }
     
     if (!session || !year || !term) {
         alert('Please select Academic Session, Year, and Term');
@@ -1782,6 +1760,7 @@ function renderSubjectsTable(subjects) {
     
     // Update table
     tableBody.innerHTML = html;
+    applyEvaluatorDefaults(subjects);
     
     console.log('Table rendered successfully with', subjects.length, 'subjects');
     
@@ -1793,6 +1772,40 @@ function renderSubjectsTable(subjects) {
     if (containerDiv) {
         containerDiv.style.display = 'block';
     }
+}
+
+function applyEvaluatorDefaults(subjects) {
+    if (!Array.isArray(subjects)) return;
+    subjects.forEach(subject => {
+        ['A', 'B'].forEach(part => {
+            const partData = part === 'A' ? subject.part_a : subject.part_b;
+            if (!partData || partData.assigned) return;
+
+            const qsSelect = document.getElementById(`question-setter-select-${subject.course_id}-${part}`);
+            const evalSelect = document.getElementById(`teacher-select-${subject.course_id}-${part}`);
+            const sameCheckbox = document.getElementById(`same-person-${subject.course_id}-${part}`);
+            if (!qsSelect || !evalSelect || !sameCheckbox) return;
+
+            const defaultQs = partData.default_question_setter_id ? String(partData.default_question_setter_id) : '';
+            const defaultEval = partData.default_assigned_teacher_id ? String(partData.default_assigned_teacher_id) : '';
+
+            // Apply defaults only when fields are empty; user changes remain untouched.
+            if (defaultQs && !qsSelect.value) {
+                qsSelect.value = defaultQs;
+            }
+            if (defaultEval && !evalSelect.value) {
+                evalSelect.value = defaultEval;
+            }
+
+            if (defaultQs && defaultEval && defaultQs === defaultEval && !sameCheckbox.checked) {
+                sameCheckbox.checked = true;
+                evalSelect.value = defaultEval;
+                evalSelect.disabled = true;
+            } else if (!sameCheckbox.checked) {
+                evalSelect.disabled = false;
+            }
+        });
+    });
 }
 
 function handleSamePersonCheck(courseId, part) {

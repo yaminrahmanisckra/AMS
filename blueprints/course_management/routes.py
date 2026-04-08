@@ -27,6 +27,25 @@ import hashlib
 from datetime import datetime
 
 
+def _normalize_session_course_type(raw_course_type):
+    """Map course types to compact values fitting class_session.course_type."""
+    value = (raw_course_type or '').strip().lower()
+    if not value:
+        return 'theory'
+    if 'dissertation' in value:
+        return 'dissertation'
+    if 'thesis' in value:
+        return 'thesis'
+    if 'sessional' in value:
+        return 'sessional'
+    if 'viva' in value:
+        return 'viva'
+    if 'theory' in value:
+        return 'theory'
+    # Keep a safe bounded fallback to avoid DataError on short DB column.
+    return value[:20]
+
+
 def _remove_students_from_class_sessions(course_code, academic_session, year, term, student_ids):
     """Remove students from class management sessions when registration is deleted"""
     if not Session or not ClassStudent or not Student:
@@ -3169,7 +3188,7 @@ def assign_teacher_session():
             course_code=course.course_code,
             course_name=course.course_name,
             teacher_id=teacher_id,
-            course_type=course.course_type.lower(),
+            course_type=_normalize_session_course_type(course.course_type),
             category=course.category,
             course_scope=course_scope,
             split_group_id=split_group_id  # Set split_group_id for split courses

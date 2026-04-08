@@ -475,6 +475,31 @@ def create_app():
             status='active'
         ).count() > 0
 
+    def _get_exam_committee_assignments(teacher, academic_session=None, year=None, term=None):
+        """Return active chief/member assignments for a teacher, optionally scoped by session/year/term."""
+        if not teacher:
+            return [], []
+        chief_query = DutyAssignment.query.filter_by(
+            duty_type='exam_committee_chief',
+            assigned_teacher_id=teacher.id,
+            status='active'
+        )
+        member_query = DutyAssignment.query.filter_by(
+            duty_type='exam_committee_member',
+            assigned_teacher_id=teacher.id,
+            status='active'
+        )
+        if academic_session is not None:
+            chief_query = chief_query.filter(DutyAssignment.academic_session == academic_session)
+            member_query = member_query.filter(DutyAssignment.academic_session == academic_session)
+        if year is not None:
+            chief_query = chief_query.filter(DutyAssignment.year == year)
+            member_query = member_query.filter(DutyAssignment.year == year)
+        if term is not None:
+            chief_query = chief_query.filter(DutyAssignment.term == term)
+            member_query = member_query.filter(DutyAssignment.term == term)
+        return chief_query.all(), member_query.all()
+
     def _is_tabulator():
         """Check if current user has an active tabulator assignment"""
         if not current_user.is_authenticated:
@@ -4309,7 +4334,7 @@ def create_app():
     @login_required
     def head_assign_duty_courses():
         roles = parse_roles(current_user.role)
-        if 'head' not in roles and 'dean' not in roles and not _is_exam_committee_chief():
+        if 'head' not in roles and 'dean' not in roles and not (_is_exam_committee_chief() or _is_exam_committee_member()):
             return jsonify({'success': False, 'message': 'Unauthorized'}), 403
         
         batch = request.args.get('batch', '').strip()
@@ -4675,15 +4700,16 @@ def create_app():
         # Check if user is Head/Dean or Exam Committee Chief
         is_head = 'head' in roles or 'dean' in roles
         is_chief = _is_exam_committee_chief()
-        
-        if not is_head and not is_chief:
+        is_member = _is_exam_committee_member()
+
+        if not is_head and not is_chief and not is_member:
             return jsonify({'success': False, 'message': 'Unauthorized'}), 403
         
         try:
             assignment = DutyAssignment.query.get_or_404(assignment_id)
             
-            # If Exam Committee Chief, only allow removing assignments they created
-            if is_chief and not is_head:
+            # If Exam Committee Chief/Member, only allow removing assignments they created
+            if (is_chief or is_member) and not is_head:
                 if assignment.assigned_by_id != current_user.id:
                     return jsonify({'success': False, 'message': 'You can only remove assignments you created'}), 403
                 # Only allow removing tabulator and scrutinizer assignments
@@ -5135,6 +5161,33 @@ def create_app():
         # Get all teachers for assignment (excluding Head of the Discipline)
         from role_utils import get_teachers_excluding_head
         teachers = get_teachers_excluding_head()
+        # External teachers/options for External Members dropdown.
+        # Source: Admin Users list (teacher-role users linked to Teacher and marked is_external=True).
+        external_teacher_options = []
+        seen_external_names = set()
+        user_teacher_rows = db.session.query(User, Teacher).join(
+            Teacher, User.teacher_id == Teacher.id
+        ).filter(
+            User.teacher_id.isnot(None),
+            Teacher.is_external.is_(True)
+        ).order_by(User.full_name.asc()).all()
+
+        for user_row, teacher_row in user_teacher_rows:
+            # Keep only teacher-role users from admin user list.
+            if 'teacher' not in parse_roles(getattr(user_row, 'role', None)):
+                continue
+            ext_name = (user_row.full_name or teacher_row.name or '').strip()
+            if not ext_name:
+                continue
+            key = ext_name.lower()
+            if key in seen_external_names:
+                continue
+            seen_external_names.add(key)
+            external_teacher_options.append({
+                'name': ext_name,
+                'designation': teacher_row.designation or '',
+                'institute': teacher_row.institute or ''
+            })
         # Convert teachers to dictionaries for JSON serialization
         teachers_dict = [{'id': t.id, 'name': t.name} for t in teachers]
         
@@ -5145,15 +5198,41 @@ def create_app():
         ).order_by(Session.academic_session.desc()).all()
         academic_sessions = [s[0] for s in sessions if s[0]]
 
-        # Use the matched chief_assignment for current values
+        # Determine active committee context.
+        # If the user is not chief for this context, allow internal-member context.
+        member_context_assignment = None
+        if url_session and url_year and url_term:
+            member_context_assignment = DutyAssignment.query.filter_by(
+                duty_type='exam_committee_member',
+                assigned_teacher_id=teacher.id,
+                academic_session=url_session,
+                year=url_year,
+                term=url_term,
+                status='active'
+            ).first()
+        if not member_context_assignment and internal_member_assignments:
+            member_context_assignment = internal_member_assignments[0]
+
+        # Use chief context first, otherwise member context.
         current_session = None
         current_year = None
         current_term = None
-        chief_assignment_details = chief_assignment  # Use the matched assignment from above
-        if chief_assignment_details:
-            current_session = chief_assignment_details.academic_session
-            current_year = chief_assignment_details.year
-            current_term = chief_assignment_details.term
+        active_context_assignment = chief_assignment or member_context_assignment
+        chief_assignment_details = chief_assignment
+        if active_context_assignment:
+            current_session = active_context_assignment.academic_session
+            current_year = active_context_assignment.year
+            current_term = active_context_assignment.term
+
+        # For member-only users, still load chief details for the same committee context.
+        if not chief_assignment_details and current_session and current_year and current_term:
+            chief_assignment_details = DutyAssignment.query.filter_by(
+                duty_type='exam_committee_chief',
+                academic_session=current_session,
+                year=current_year,
+                term=current_term,
+                status='active'
+            ).first()
         
         # Get assigned tabulators - filter by current committee's session/year/term
         tabulators_query = DutyAssignment.query.filter_by(
@@ -5186,7 +5265,7 @@ def create_app():
         scrutinizers = scrutinizers_query.order_by(DutyAssignment.created_at.desc()).all()
         
         available_entries = []
-        if chief_assignment_details and current_session and current_year and current_term:
+        if current_session and current_year and current_term:
             # Check if semester is active before fetching entries
             try:
                 from utils.semester_utils import is_semester_active
@@ -5360,6 +5439,7 @@ def create_app():
         
         return render_template('exam_committee_chief/dashboard.html',
                              teachers=teachers,
+                             external_teachers=external_teacher_options,
                              teachers_dict=teachers_dict,  # For JSON serialization in template
                              tabulators=tabulators,
                              scrutinizers=scrutinizers,
@@ -5378,28 +5458,26 @@ def create_app():
     @app.route('/exam-committee-chief/assign', methods=['POST'])
     @login_required
     def exam_committee_chief_assign():
-        """Assign tabulator or scrutinizer by Exam Committee Chief"""
-        # Check if current user is assigned as Exam Committee Chief
+        """Assign tabulator or scrutinizer by Exam Committee Chief/Internal Member"""
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
-        
-        if not chief_assignment:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        chief_assignment = chief_assignments[0] if chief_assignments else None
+        member_assignment = member_assignments[0] if member_assignments else None
+        base_assignment = chief_assignment or member_assignment
+
+        if not base_assignment:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         data = request.get_json() or {}
         duty_type = data.get('duty_type', '').strip()
         teacher_id = data.get('teacher_id')
-        # Auto-fill session, year, term from chief assignment if not provided
-        academic_session = data.get('academic_session', '').strip() or (chief_assignment.academic_session if chief_assignment else '')
-        year = data.get('year', '').strip() or (chief_assignment.year if chief_assignment else '')
-        term = data.get('term', '').strip() or (chief_assignment.term if chief_assignment else '')
+        # Auto-fill session, year, term from current committee assignment if not provided
+        academic_session = data.get('academic_session', '').strip() or (base_assignment.academic_session if base_assignment else '')
+        year = data.get('year', '').strip() or (base_assignment.year if base_assignment else '')
+        term = data.get('term', '').strip() or (base_assignment.term if base_assignment else '')
         batch = (data.get('batch', '') or '').strip()
         exam_entry_ids = data.get('exam_entry_ids') or []
         if isinstance(exam_entry_ids, str):
@@ -5421,7 +5499,7 @@ def create_app():
         course_code = course_code.upper() if course_code else None
         
         if duty_type not in {'tabulator', 'scrutinizer'}:
-            return jsonify({'success': False, 'message': 'Only Tabulator and Scrutinizer can be assigned by Exam Committee Chief'}), 400
+            return jsonify({'success': False, 'message': 'Only Tabulator and Scrutinizer can be assigned by Exam Committee Chief/Member'}), 400
         
         if not teacher_id:
             return jsonify({'success': False, 'message': 'Please select a teacher'}), 400
@@ -5555,19 +5633,15 @@ def create_app():
     @login_required
     def save_committee_members():
         """Save examination committee members"""
-        # Check if current user is assigned as Exam Committee Chief
+        # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
-        
-        if not chief_assignment:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        chief_assignment = chief_assignments[0] if chief_assignments else None
+        if not chief_assignment and not member_assignments:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         data = request.get_json() or {}
         academic_session = data.get('academic_session', '').strip()
@@ -5731,19 +5805,14 @@ def create_app():
     @login_required
     def archive_committee_members():
         """Archive all committee members for a session/year/term"""
-        # Check if current user is assigned as Exam Committee Chief
+        # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
-        
-        if not chief_assignment:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        if not chief_assignments and not member_assignments:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         data = request.get_json() or {}
         academic_session = data.get('academic_session', '').strip()
@@ -5864,19 +5933,14 @@ def create_app():
     @login_required
     def restore_committee_members():
         """Restore an archived examination committee back to active status"""
-        # Check if current user is assigned as Exam Committee Chief
+        # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
-        
-        if not chief_assignment:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        if not chief_assignments and not member_assignments:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         data = request.get_json() or {}
         academic_session = data.get('academic_session', '').strip()
@@ -5903,21 +5967,29 @@ def create_app():
                     'message': f'Cannot restore: An active committee already exists for {academic_session} - {year} - {term}. Please archive or deactivate the active committee first.'
                 }), 400
             
-            # Find all archived committee assignments for this session/year/term
-            # Only restore if the archived chief assignment belongs to current teacher
+            # Ensure requester is related to this committee in archived state too.
+            archived_role_assignment = DutyAssignment.query.filter(
+                DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
+                DutyAssignment.assigned_teacher_id == teacher.id,
+                DutyAssignment.academic_session == academic_session,
+                DutyAssignment.year == year,
+                DutyAssignment.term == term,
+                DutyAssignment.status == 'archived'
+            ).first()
+
+            # Find archived chief assignment for this session/year/term
             archived_chief_assignment = DutyAssignment.query.filter(
                 DutyAssignment.duty_type == 'exam_committee_chief',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
                 DutyAssignment.term == term,
-                DutyAssignment.status == 'archived',
-                DutyAssignment.assigned_teacher_id == teacher.id
+                DutyAssignment.status == 'archived'
             ).first()
-            
-            if not archived_chief_assignment:
+
+            if not archived_chief_assignment or not archived_role_assignment:
                 return jsonify({
                     'success': False,
-                    'message': f'No archived committee found for {academic_session} - {year} - {term} that belongs to you.'
+                    'message': f'No archived committee found for {academic_session} - {year} - {term} that you can restore.'
                 }), 404
             
             # Find all archived member assignments for this session/year/term
@@ -6112,7 +6184,7 @@ def create_app():
             
             current_app.logger.info(f'Found {len(matching_courses)} matching courses out of {len(all_courses)} total courses')
             
-            # Get existing assignments to filter out assigned subjects
+            # Get existing evaluator assignments
             existing_assignments = ExamPaperEvaluatorAssignment.query.filter_by(
                 academic_session=academic_session,
                 year=year,
@@ -6133,6 +6205,35 @@ def create_app():
             for assignment in existing_assignments:
                 key = (assignment.course_id, assignment.part)
                 assignment_id_map[key] = assignment.id
+
+            # Build default teacher mapping from curriculum/class course assignments.
+            # Rules:
+            # - Full course assignment (no section): Part A defaults to that teacher; Part B remains unassigned.
+            # - Split course assignments: Section A -> Part A default, Section B -> Part B default.
+            default_part_a_teacher = {}
+            default_part_b_teacher = {}
+            if matching_courses:
+                course_ids = [c.id for c in matching_courses]
+                session_assignments = CourseSessionAssignment.query.filter(
+                    CourseSessionAssignment.course_id.in_(course_ids),
+                    CourseSessionAssignment.academic_session == academic_session,
+                    CourseSessionAssignment.year == year,
+                    CourseSessionAssignment.term == term
+                ).all()
+
+                for sess_assign in session_assignments:
+                    if not sess_assign.teacher_id:
+                        continue
+                    raw_section = (sess_assign.section or '').strip().upper()
+                    # Full/blank section assignment -> only Part A default
+                    if not raw_section:
+                        if sess_assign.course_id not in default_part_a_teacher:
+                            default_part_a_teacher[sess_assign.course_id] = sess_assign.teacher_id
+                        continue
+                    if raw_section == 'A' and sess_assign.course_id not in default_part_a_teacher:
+                        default_part_a_teacher[sess_assign.course_id] = sess_assign.teacher_id
+                    elif raw_section == 'B' and sess_assign.course_id not in default_part_b_teacher:
+                        default_part_b_teacher[sess_assign.course_id] = sess_assign.teacher_id
             
             subjects = []
             for course in matching_courses:
@@ -6152,6 +6253,8 @@ def create_app():
                         'assignment_id': part_a_assignment_id,
                         'question_setter_id': question_setter_map.get((course.id, 'A')),
                         'is_same_person': is_same_map.get((course.id, 'A'), False),
+                        'default_assigned_teacher_id': default_part_a_teacher.get(course.id),
+                        'default_question_setter_id': default_part_a_teacher.get(course.id),
                         'has_content': bool(course.content_section_a)
                     },
                     'part_b': {
@@ -6160,6 +6263,8 @@ def create_app():
                         'assignment_id': part_b_assignment_id,
                         'question_setter_id': question_setter_map.get((course.id, 'B')),
                         'is_same_person': is_same_map.get((course.id, 'B'), False),
+                        'default_assigned_teacher_id': default_part_b_teacher.get(course.id),
+                        'default_question_setter_id': default_part_b_teacher.get(course.id),
                         'has_content': bool(course.content_section_b)
                     }
                 })
@@ -6567,19 +6672,14 @@ def create_app():
     @login_required
     def reset_committee_members():
         """Reset/Delete all committee members for a session/year/term"""
-        # Check if current user is assigned as Exam Committee Chief
+        # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
-        
-        if not chief_assignment:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        if not chief_assignments and not member_assignments:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         data = request.get_json() or {}
         academic_session = data.get('academic_session', '').strip()
@@ -6977,19 +7077,14 @@ def create_app():
     @login_required
     def exam_committee_chief_custom_remuneration_save():
         """Save custom remuneration form data to database"""
-        # Check if current user is assigned as Exam Committee Chief
+        # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
-        
-        if not chief_assignment:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        if not chief_assignments and not member_assignments:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         try:
             data = request.get_json()
@@ -6999,12 +7094,23 @@ def create_app():
             from blueprints.remuneration_management.models import RemunerationForm
             
             form_id = data.get('form_id')  # For editing existing form
-            
-            # Generate title
-            title_parts = []
             session = data.get('session', '')
             year = data.get('year', '')
             term = data.get('term', '')
+            allowed_combinations = {
+                (str(a.academic_session), str(a.year), str(a.term))
+                for a in (chief_assignments + member_assignments)
+                if a.academic_session and a.year and a.term
+            }
+            submitted_combination = (str(session), str(year), str(term))
+            if session and year and term and submitted_combination not in allowed_combinations:
+                return jsonify({
+                    'success': False,
+                    'message': f'You are not authorized for Session: {session}, Year: {year}, Term: {term}.'
+                }), 403
+            
+            # Generate title
+            title_parts = []
             
             if session:
                 title_parts.append(session)
@@ -7021,10 +7127,22 @@ def create_app():
             # Create or update form entry
             form_entry = None
             if form_id:
-                # Edit existing form
-                form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+                # Edit existing form (allow same-committee member editing too)
+                form_entry = RemunerationForm.query.filter_by(id=form_id).first()
                 if not form_entry:
                     return jsonify({'success': False, 'message': 'Form not found'}), 404
+                can_edit = form_entry.user_id == current_user.id
+                if not can_edit:
+                    for assignment in member_assignments:
+                        if (
+                            assignment.academic_session == form_entry.academic_year and
+                            assignment.year == form_entry.year and
+                            assignment.term == form_entry.term
+                        ):
+                            can_edit = True
+                            break
+                if not can_edit:
+                    return jsonify({'success': False, 'message': 'You do not have permission to edit this form'}), 403
             else:
                 # Create new form
                 form_entry = RemunerationForm(
@@ -7221,9 +7339,7 @@ def create_app():
                 # If member is editing Chief's form, keep the original user_id (Chief's ID)
                 # This way the form remains associated with the Chief
             else:
-                # Create new form - only Chiefs can create new forms
-                if not chief_assignments:
-                    return jsonify({'success': False, 'message': 'Only Exam Committee Chiefs can create new forms'}), 403
+                # Create new form - chiefs and internal members are both allowed.
                 form_entry = RemunerationForm(user_id=current_user.id, status='draft')
                 db.session.add(form_entry)
             
@@ -7540,18 +7656,22 @@ def create_app():
             if not session or not year or not term:
                 return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
             
-            # Find matching chief assignment
+            chief_assignments, member_assignments = _get_exam_committee_assignments(
+                teacher,
+                academic_session=session,
+                year=year,
+                term=term
+            )
+            if not chief_assignments and not member_assignments:
+                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief/Member for this session/year/term'}), 403
+
             chief_assignment = DutyAssignment.query.filter_by(
                 duty_type='exam_committee_chief',
-                assigned_teacher_id=teacher.id,
                 academic_session=session,
                 year=year,
                 term=term,
                 status='active'
             ).first()
-            
-            if not chief_assignment:
-                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief for this session/year/term'}), 403
             
             # Build examination committee
             examination_committee = []
@@ -7592,8 +7712,7 @@ def create_app():
                 DutyAssignment.academic_session == session,
                 DutyAssignment.year == year,
                 DutyAssignment.term == term,
-                DutyAssignment.status == 'active',
-                DutyAssignment.assigned_by_id == current_user.id
+                DutyAssignment.status == 'active'
             ).all()
             
             for assignment in committee_assignments:
@@ -7653,26 +7772,34 @@ def create_app():
     def exam_committee_chief_custom_remuneration_delete(form_id):
         """Delete a custom remuneration form"""
         try:
-            # Check if current user is assigned as Exam Committee Chief
+            # Check if current user is assigned as Exam Committee Chief or Member
             teacher = Teacher.query.filter_by(name=current_user.full_name).first()
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-            
-            chief_assignment = DutyAssignment.query.filter_by(
-                duty_type='exam_committee_chief',
-                assigned_teacher_id=teacher.id,
-                status='active'
-            ).first()
-            
-            if not chief_assignment:
-                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+            chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+            if not chief_assignments and not member_assignments:
+                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
             
             from blueprints.remuneration_management.models import RemunerationForm
             
             # Get the form
-            form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+            form_entry = RemunerationForm.query.filter_by(id=form_id).first()
             if not form_entry:
                 return jsonify({'success': False, 'message': 'Form not found'}), 404
+
+            can_delete = form_entry.user_id == current_user.id
+            if not can_delete:
+                for assignment in member_assignments:
+                    if (
+                        assignment.academic_session == form_entry.academic_year and
+                        assignment.year == form_entry.year and
+                        assignment.term == form_entry.term
+                    ):
+                        can_delete = True
+                        break
+            if not can_delete:
+                return jsonify({'success': False, 'message': 'You do not have permission to delete this form'}), 403
             
             # Delete the form
             db.session.delete(form_entry)
@@ -7694,24 +7821,18 @@ def create_app():
     @login_required
     def exam_committee_chief_custom_remuneration_export_pdf():
         """Export custom remuneration form to PDF matching scanned copy format"""
-        # Check if current user is assigned as Exam Committee Chief
+        # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        # Get all active exam committee chief assignments for this teacher
-        chief_assignments = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).all()
-        
-        if not chief_assignments:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        if not chief_assignments and not member_assignments:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         # Get allowed session/year/term combinations
         allowed_combinations = set()
-        for assignment in chief_assignments:
+        for assignment in (chief_assignments + member_assignments):
             if assignment.academic_session and assignment.year and assignment.term:
                 allowed_combinations.add((
                     str(assignment.academic_session),
@@ -7744,7 +7865,7 @@ def create_app():
                 if submitted_combination not in allowed_combinations:
                     return jsonify({
                         'success': False,
-                        'message': f'You are not authorized to export remuneration statement for Session: {session}, Year: {year}, Term: {term}. You can only export statements for the session/year/term combinations you are assigned as Exam Committee Chief.'
+                        'message': f'You are not authorized to export remuneration statement for Session: {session}, Year: {year}, Term: {term}. You can only export statements for the session/year/term combinations where you are assigned as Exam Committee Chief/Member.'
                     }), 403
             
             # Get chief name for signature from examination committee
@@ -8830,19 +8951,10 @@ def create_app():
     @login_required
     def get_committee_members():
         """Get examination committee members for a given session/year/term"""
-        # Check if current user is assigned as Exam Committee Chief
+        # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-        
-        chief_assignment = DutyAssignment.query.filter_by(
-            duty_type='exam_committee_chief',
-            assigned_teacher_id=teacher.id,
-            status='active'
-        ).first()
-        
-        if not chief_assignment:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
         
         academic_session = request.args.get('session', '').strip()
         year = request.args.get('year', '').strip()
@@ -8850,6 +8962,23 @@ def create_app():
         
         if not academic_session or not year or not term:
             return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(
+            teacher,
+            academic_session=academic_session,
+            year=year,
+            term=term
+        )
+        if not chief_assignments and not member_assignments:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief/Member for this session/year/term'}), 403
+
+        chief_assignment = DutyAssignment.query.filter_by(
+            duty_type='exam_committee_chief',
+            academic_session=academic_session,
+            year=year,
+            term=term,
+            status='active'
+        ).first()
         
         # Check if semester is active
         try:
@@ -8868,7 +8997,7 @@ def create_app():
         examination_committee = []
         
         # Add Chief (Chairman) - check if this session/year/term matches the chief's assignment
-        if (chief_assignment.academic_session == academic_session and 
+        if chief_assignment and (chief_assignment.academic_session == academic_session and 
             chief_assignment.year == year and 
             chief_assignment.term == term and
             chief_assignment.assigned_teacher):
@@ -8909,8 +9038,7 @@ def create_app():
             DutyAssignment.academic_session == academic_session,
             DutyAssignment.year == year,
             DutyAssignment.term == term,
-            DutyAssignment.status == 'active',
-            DutyAssignment.assigned_by_id == current_user.id
+            DutyAssignment.status == 'active'
         ).all()
         
         for assignment in committee_assignments:
@@ -10031,15 +10159,10 @@ def create_app():
             if not teacher:
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
             
-            # Check if current user is Exam Committee Chief
-            chief_assignment = DutyAssignment.query.filter_by(
-                duty_type='exam_committee_chief',
-                assigned_teacher_id=teacher.id,
-                status='active'
-            ).first()
-            
-            if not chief_assignment:
-                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief'}), 403
+            # Check if current user is Exam Committee Chief or Internal Member
+            chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+            if not chief_assignments and not member_assignments:
+                return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
             
             # Get tabulators assigned by this Exam Committee Chief for the given session/year/term
             # Simplified query - use filter_by for exact matches

@@ -358,38 +358,25 @@ def add_session():
         flash('Only the Head can create result sessions.', 'danger')
         return redirect(url_for('result_management.index'))
 
-    # Use curriculum year/term assignments for Result Management session creation.
+    # Use Active Semester configuration for Result Management session creation.
     session_year_term_options = []
     session_options = []
     year_options = []
     term_options = []
     assignment_rows = db.session.query(
-        CurriculumYearTerm.academic_session,
-        CurriculumYearTerm.year,
-        CurriculumYearTerm.term
+        ActiveSemesterConfig.academic_session,
+        ActiveSemesterConfig.year,
+        ActiveSemesterConfig.term
     ).filter(
-        CurriculumYearTerm.academic_session.isnot(None),
-        CurriculumYearTerm.year.isnot(None),
-        CurriculumYearTerm.term.isnot(None)
+        ActiveSemesterConfig.is_active.is_(True),
+        ActiveSemesterConfig.academic_session.isnot(None),
+        ActiveSemesterConfig.year.isnot(None),
+        ActiveSemesterConfig.term.isnot(None)
     ).distinct().order_by(
-        CurriculumYearTerm.academic_session.asc(),
-        CurriculumYearTerm.year.asc(),
-        CurriculumYearTerm.term.asc()
+        ActiveSemesterConfig.academic_session.asc(),
+        ActiveSemesterConfig.year.asc(),
+        ActiveSemesterConfig.term.asc()
     ).all()
-
-    # Fallback safety: if nothing in curriculum assignments, use active semester config so UI is not empty.
-    if not assignment_rows:
-        assignment_rows = db.session.query(
-            ActiveSemesterConfig.academic_session,
-            ActiveSemesterConfig.year,
-            ActiveSemesterConfig.term
-        ).filter(
-            ActiveSemesterConfig.is_active.is_(True)
-        ).distinct().order_by(
-            ActiveSemesterConfig.academic_session.asc(),
-            ActiveSemesterConfig.year.asc(),
-            ActiveSemesterConfig.term.asc()
-        ).all()
 
     if assignment_rows:
         session_options = sorted({r[0] for r in assignment_rows if r[0]})
@@ -428,14 +415,19 @@ def add_session():
         context['selected_year'] = year
         context['selected_term'] = term
 
-        if name and term:
+        valid_triplets = {
+            (row['academic_session'], row['year'], row['term'])
+            for row in session_year_term_options
+        }
+
+        if name and term and (name, year or '', term) in valid_triplets:
             new_session = RSession(name=name, term=term, year=year)
             db.session.add(new_session)
             db.session.commit()
-            flash('Session added successfully from curriculum-assigned session/year/term.', 'success')
+            flash('Session added successfully from active semester configuration.', 'success')
             return redirect(url_for('result_management.index'))
         else:
-            flash('Session name and term are required.', 'danger')
+            flash('Please select Session/Year/Term from active semester configuration.', 'danger')
 
     return render_template('rm_add_session.html', **context)
 

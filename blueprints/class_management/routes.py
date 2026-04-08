@@ -248,6 +248,24 @@ COURSE_SCOPE_LABELS = {
     SCOPE_PART_B: 'Part B',
 }
 
+
+def _normalize_session_course_type(raw_course_type):
+    """Map course types to compact values fitting class_session.course_type."""
+    value = (raw_course_type or '').strip().lower()
+    if not value:
+        return 'theory'
+    if 'dissertation' in value:
+        return 'dissertation'
+    if 'thesis' in value:
+        return 'thesis'
+    if 'sessional' in value:
+        return 'sessional'
+    if 'viva' in value:
+        return 'viva'
+    if 'theory' in value:
+        return 'theory'
+    return value[:20]
+
 def _generate_feedback_code():
     """Generate a short, URL-friendly code for feedback access."""
     while True:
@@ -1050,7 +1068,7 @@ def index():
                             course_code=course.course_code,
                             course_name=course.course_name,
                             teacher_id=teacher.id,
-                            course_type=course.course_type.lower() if course.course_type else 'theory',
+                            course_type=_normalize_session_course_type(course.course_type),
                             category=course.category if course.category else 'ug',
                             course_scope=course_scope
                         )

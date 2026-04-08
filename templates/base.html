@@ -122,7 +122,7 @@
                                     <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item" href="{{ url_for('exam_committee_management') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Management</a></li>
                                     {% endif %}
-                                    {% if is_exam_committee_chief() %}
+                                    {% if is_exam_committee_chief() or is_exam_committee_member() %}
                                     <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item" href="{{ url_for('exam_committee_chief_dashboard') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Chief</a></li>
                                     {% endif %}
@@ -295,7 +295,7 @@
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('exam_committee_management') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Management</a></li>
                                 {% endif %}
-                                {% if is_exam_committee_chief() %}
+                                {% if is_exam_committee_chief() or is_exam_committee_member() %}
                                 <li><hr class="dropdown-divider"></li>
                                 <li><a class="dropdown-item" href="{{ url_for('exam_committee_chief_dashboard') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Chief</a></li>
                                 {% endif %}
