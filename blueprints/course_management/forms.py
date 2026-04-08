@@ -24,8 +24,8 @@ class CourseForm(FlaskForm):
     ], validators=[DataRequired()])
     category = SelectField('Category', choices=[('ug', 'Undergraduate'), ('pg', 'Postgraduate')], default='ug', validators=[DataRequired()])
     core_optional = SelectField('Core/Optional', choices=[('Core', 'Core'), ('Optional', 'Optional')], validators=[DataRequired()])
-    year = StringField('Year', validators=[Length(max=50)], render_kw={'placeholder': 'Auto-filled from course code', 'readonly': True})
-    term = StringField('Term', validators=[Length(max=50)], render_kw={'placeholder': 'Auto-filled from course code', 'readonly': True})
+    year = StringField('Year', validators=[Length(max=50)], render_kw={'placeholder': 'Auto-filled from course code (editable)'})
+    term = StringField('Term', validators=[Length(max=50)], render_kw={'placeholder': 'Auto-filled from course code (editable)'})
     submit = SubmitField('Add Course')
 
 class CourseInfoForm(FlaskForm):

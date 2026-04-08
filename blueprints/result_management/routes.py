@@ -9,11 +9,12 @@ from io import BytesIO
 from .models import db, RSession, RStudent, RSubject, RMark, RCourseRegistration
 from role_utils import parse_roles, is_admin
 try:
-    from utils.semester_utils import filter_by_active_semester
+    from utils.semester_utils import filter_by_active_semester, get_active_semesters
 except ImportError:
     filter_by_active_semester = None
+    get_active_semesters = None
 from blueprints.class_management.models import Teacher, Session as ClassSession, ExamPaperEvaluation
-from blueprints.course_management.models import StudentCourseRegistration, Course
+from blueprints.course_management.models import StudentCourseRegistration, Course, ActiveSemesterConfig, CurriculumYearTerm
 from blueprints.student_management.models import Student as StudentProfile
 from blueprints.course_management.models import DutyAssignment
 import json
@@ -64,6 +65,65 @@ def _get_tabulator_assignments():
         duty_type='tabulator',
         status='active'
     ).all()
+
+
+def _normalize_year_term(value):
+    """Normalize common Year/Term formats for reliable matching."""
+    if not value:
+        return ''
+    v = str(value).strip().lower()
+    compact = v.replace('-', ' ').replace('_', ' ')
+    compact = ' '.join(compact.split())
+
+    # Handle mixed labels like "LLM First", "LLM Second", "First Year", etc.
+    if 'first' in compact or compact in {'1', '1st'}:
+        return 'first'
+    if 'second' in compact or compact in {'2', '2nd'}:
+        return 'second'
+    if 'third' in compact or compact in {'3', '3rd'}:
+        return 'third'
+    if 'fourth' in compact or compact in {'4', '4th'}:
+        return 'fourth'
+    if 'fifth' in compact or compact in {'5', '5th'}:
+        return 'fifth'
+    if compact == 'llm':
+        return 'llm'
+
+    mapping = {
+        '1': 'first', '1st': 'first', 'first': 'first',
+        '2': 'second', '2nd': 'second', 'second': 'second',
+        '3': 'third', '3rd': 'third', 'third': 'third',
+        '4': 'fourth', '4th': 'fourth', 'fourth': 'fourth',
+        '5': 'fifth', '5th': 'fifth', 'fifth': 'fifth',
+        'llm': 'llm',
+    }
+    return mapping.get(v, v)
+
+
+def _normalize_session_name(value):
+    """Normalize academic session label for robust matching."""
+    if not value:
+        return ''
+    return ' '.join(str(value).strip().lower().split())
+
+
+def _normalize_year_label(value):
+    """Normalize year label without collapsing LLM-specific years."""
+    if not value:
+        return ''
+    return ' '.join(str(value).strip().lower().replace('-', ' ').replace('_', ' ').split())
+
+
+def _normalize_term_label(value):
+    """Normalize term label to first/second etc."""
+    if not value:
+        return ''
+    v = ' '.join(str(value).strip().lower().replace('-', ' ').replace('_', ' ').split())
+    if 'first' in v or v in {'1', '1st'}:
+        return 'first'
+    if 'second' in v or v in {'2', '2nd'}:
+        return 'second'
+    return v
 
 def _can_access_session(session):
     """Check if current user can access a specific result session"""
@@ -212,11 +272,23 @@ def index():
     # Start with base query
     query = RSession.query.filter_by(is_archived=False)
     
-    # Apply active semester filtering (if not admin and filter function available)
-    if filter_by_active_semester and not is_admin(current_user):
-        # Get batch from RSession if available (RSession has batch field)
-        # For now, apply filter without batch since RSession batch might be different
-        query = filter_by_active_semester(query, RSession, batch=None, admin_override=False)
+    # Apply active semester filtering for non-admin users.
+    # NOTE: RSession uses `name` for academic session (no `academic_session` column),
+    # so we cannot use generic filter_by_active_semester() directly.
+    if not (is_admin(current_user) or _is_head_user()) and get_active_semesters:
+        active_semesters = get_active_semesters(batch=None)
+        if active_semesters:
+            from sqlalchemy import or_, and_
+            conditions = []
+            for sem in active_semesters:
+                conditions.append(and_(
+                    RSession.name == sem.academic_session,
+                    RSession.year == sem.year,
+                    RSession.term == sem.term
+                ))
+            query = query.filter(or_(*conditions)) if conditions else query.filter(False)
+        else:
+            query = query.filter(False)
     
     all_sessions = query.order_by(RSession.created_at.desc()).all()
     
@@ -286,36 +358,62 @@ def add_session():
         flash('Only the Head can create result sessions.', 'danger')
         return redirect(url_for('result_management.index'))
 
-    # Fetch distinct values from class sessions for dropdowns
-    session_options = [
-        value[0] for value in db.session.query(ClassSession.academic_session)
-        .filter(ClassSession.academic_session.isnot(None))
-        .distinct()
-        .order_by(ClassSession.academic_session.asc())
-        .all()
-        if value[0]
-    ]
-    year_options = [
-        value[0] for value in db.session.query(ClassSession.year)
-        .filter(ClassSession.year.isnot(None))
-        .distinct()
-        .order_by(ClassSession.year.asc())
-        .all()
-        if value[0]
-    ]
-    term_options = [
-        value[0] for value in db.session.query(ClassSession.term)
-        .filter(ClassSession.term.isnot(None))
-        .distinct()
-        .order_by(ClassSession.term.asc())
-        .all()
-        if value[0]
-    ]
+    # Use curriculum year/term assignments for Result Management session creation.
+    session_year_term_options = []
+    session_options = []
+    year_options = []
+    term_options = []
+    assignment_rows = db.session.query(
+        CurriculumYearTerm.academic_session,
+        CurriculumYearTerm.year,
+        CurriculumYearTerm.term
+    ).filter(
+        CurriculumYearTerm.academic_session.isnot(None),
+        CurriculumYearTerm.year.isnot(None),
+        CurriculumYearTerm.term.isnot(None)
+    ).distinct().order_by(
+        CurriculumYearTerm.academic_session.asc(),
+        CurriculumYearTerm.year.asc(),
+        CurriculumYearTerm.term.asc()
+    ).all()
+
+    # Fallback safety: if nothing in curriculum assignments, use active semester config so UI is not empty.
+    if not assignment_rows:
+        assignment_rows = db.session.query(
+            ActiveSemesterConfig.academic_session,
+            ActiveSemesterConfig.year,
+            ActiveSemesterConfig.term
+        ).filter(
+            ActiveSemesterConfig.is_active.is_(True)
+        ).distinct().order_by(
+            ActiveSemesterConfig.academic_session.asc(),
+            ActiveSemesterConfig.year.asc(),
+            ActiveSemesterConfig.term.asc()
+        ).all()
+
+    if assignment_rows:
+        session_options = sorted({r[0] for r in assignment_rows if r[0]})
+        year_options = sorted({r[1] for r in assignment_rows if r[1]})
+        term_options = sorted({r[2] for r in assignment_rows if r[2]})
+        seen = set()
+        for row in assignment_rows:
+            if not row[0] or not row[2]:
+                continue
+            key = (row[0], row[1] or '', row[2])
+            if key in seen:
+                continue
+            seen.add(key)
+            session_year_term_options.append({
+                'academic_session': row[0],
+                'year': row[1] or '',
+                'term': row[2]
+            })
 
     context = {
         'session_options': session_options,
         'year_options': year_options,
         'term_options': term_options,
+        'session_year_term_options': session_year_term_options,
         'selected_session': None,
         'selected_year': None,
         'selected_term': None,
@@ -334,7 +432,7 @@ def add_session():
             new_session = RSession(name=name, term=term, year=year)
             db.session.add(new_session)
             db.session.commit()
-            flash('Session added successfully!', 'success')
+            flash('Session added successfully from curriculum-assigned session/year/term.', 'success')
             return redirect(url_for('result_management.index'))
         else:
             flash('Session name and term are required.', 'danger')
@@ -463,22 +561,36 @@ def add_student(session_id):
     
     session = RSession.query.get_or_404(session_id)
     
-    # Auto-load students from Class Management based on session/year/term
+    # Auto-load students from Class Management and Course Registration based on session/year/term
     try:
         from blueprints.class_management.models import Session as ClassSession, ClassStudent
         from blueprints.student_management.models import Student
         
-        # Find all ClassSessions matching the result session's academic_session, year, and term
-        query_class_sessions = ClassSession.query.filter(
-            ClassSession.academic_session == session.name,
-            ClassSession.term == session.term
-        )
-        # Only filter by year if it's provided in the result session
-        if session.year:
-            query_class_sessions = query_class_sessions.filter(ClassSession.year == session.year)
+        # Find candidate ClassSessions, then robust-match academic session/year/term in Python.
+        # This handles formatting differences and stray spaces/case mismatches.
+        candidate_class_sessions = ClassSession.query.filter(
+            ClassSession.academic_session.isnot(None)
+        ).all()
+
+        target_session = _normalize_session_name(session.name)
+        target_year = _normalize_year_label(session.year)
+        target_term = _normalize_term_label(session.term)
+
+        matching_class_sessions = []
+        for cs in candidate_class_sessions:
+            if getattr(cs, 'archived', False):
+                continue
+            cs_session = _normalize_session_name(cs.academic_session)
+            if cs_session != target_session:
+                continue
+            cs_year = _normalize_year_label(cs.year)
+            cs_term = _normalize_term_label(cs.term)
+            year_match = (not target_year) or (cs_year == target_year)
+            term_match = (not target_term) or (cs_term == target_term)
+            if year_match and term_match:
+                matching_class_sessions.append(cs)
         
-        matching_class_sessions = query_class_sessions.all()
-        
+        auto_added_from_class = 0
         if matching_class_sessions:
             class_session_ids = [cs.id for cs in matching_class_sessions]
             # Get all student_ids from those class sessions
@@ -512,7 +624,58 @@ def add_student(session_id):
             if students_to_add:
                 db.session.bulk_save_objects(students_to_add)
                 db.session.commit()
-                flash(f'Auto-loaded {len(students_to_add)} student(s) from Class Management.', 'success')
+                auto_added_from_class = len(students_to_add)
+
+        auto_added_from_registration = 0
+        # Fallback/extension: also pull from student course registrations for matching term.
+        reg_filters = [
+            StudentCourseRegistration.academic_session.isnot(None),
+            StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
+        ]
+        registration_rows = StudentCourseRegistration.query.filter(*reg_filters).all()
+        matching_profile_ids = set()
+        for reg in registration_rows:
+            reg_session = _normalize_session_name(reg.academic_session)
+            reg_year = _normalize_year_label(reg.year)
+            reg_term = _normalize_term_label(reg.term)
+            if reg_session != target_session:
+                continue
+            if target_year and reg_year != target_year:
+                continue
+            if target_term and reg_term != target_term:
+                continue
+            if reg.student_id:
+                matching_profile_ids.add(reg.student_id)
+
+        if matching_profile_ids:
+            existing_rstudent_ids = {s.student_id for s in RStudent.query.filter_by(session_id=session_id).all()}
+            profile_students = Student.query.filter(Student.id.in_(list(matching_profile_ids))).all()
+            students_to_add = []
+            for profile in profile_students:
+                if not profile.student_id or profile.student_id in existing_rstudent_ids:
+                    continue
+                students_to_add.append(RStudent(
+                    student_id=profile.student_id,
+                    name=profile.name,
+                    session_id=session_id,
+                    year=profile.batch if profile.batch else None,
+                    discipline=None,
+                    school=None
+                ))
+                existing_rstudent_ids.add(profile.student_id)
+
+            if students_to_add:
+                db.session.bulk_save_objects(students_to_add)
+                db.session.commit()
+                auto_added_from_registration = len(students_to_add)
+
+        total_auto_added = auto_added_from_class + auto_added_from_registration
+        if total_auto_added:
+            flash(
+                f'Auto-loaded {total_auto_added} student(s) '
+                f'({auto_added_from_class} from Class Management, {auto_added_from_registration} from Course Registration).',
+                'success'
+            )
     except Exception as e:
         current_app.logger.error(f'Error auto-loading students: {str(e)}', exc_info=True)
         # Don't show error to user, just log it

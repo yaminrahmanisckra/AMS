@@ -28,7 +28,38 @@ class Curriculum(db.Model):
 
     def get_year_term_config(self, year, term):
         """Get configuration for a specific year/term combination"""
-        return self.year_term_configs.filter_by(year=year, term=term).first()
+        # Fast path: exact stored values
+        exact = self.year_term_configs.filter_by(year=year, term=term).first()
+        if exact:
+            return exact
+
+        # Fallback: normalize common label variations (e.g., LLM <-> Fifth, 1st <-> First)
+        def _norm(value, is_term=False):
+            if value is None:
+                return ''
+            v = str(value).strip().lower()
+            if is_term:
+                term_map = {
+                    '1': 'first', '1st': 'first', 'first': 'first',
+                    '2': 'second', '2nd': 'second', 'second': 'second',
+                }
+                return term_map.get(v, v)
+            year_map = {
+                '1': 'first', '1st': 'first', 'first': 'first',
+                '2': 'second', '2nd': 'second', 'second': 'second',
+                '3': 'third', '3rd': 'third', 'third': 'third',
+                '4': 'fourth', '4th': 'fourth', 'fourth': 'fourth',
+                '5': 'fifth', '5th': 'fifth', 'fifth': 'fifth',
+                'llm': 'fifth',
+            }
+            return year_map.get(v, v)
+
+        target_year = _norm(year, is_term=False)
+        target_term = _norm(term, is_term=True)
+        for cfg in self.year_term_configs.all():
+            if _norm(cfg.year, is_term=False) == target_year and _norm(cfg.term, is_term=True) == target_term:
+                return cfg
+        return None
 
     def __repr__(self):
         return f'<Curriculum {self.name}>'

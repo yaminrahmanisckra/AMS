@@ -35,7 +35,7 @@ from blueprints.class_management.models import (
     StudentNotification,
 )
 from blueprints.student_management.models import Student
-from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig
+from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig, CourseSessionAssignment
 from blueprints.remuneration_management.models import RemunerationForm
 
 try:
@@ -2183,9 +2183,33 @@ def create_app():
             CurriculumYearTerm.term.asc()
         ).all()
         
-        # Group by academic_session, year, term
+        # Group by academic_session, year, term (base from CurriculumYearTerm)
         sessions_dict = {}
         for row in available_sessions_data:
+            key = f"{row[0]}|{row[1]}|{row[2]}"
+            if key not in sessions_dict:
+                sessions_dict[key] = {
+                    'academic_session': row[0],
+                    'year': row[1],
+                    'term': row[2],
+                    'batches': []
+                }
+            if row[3] and row[3] not in sessions_dict[key]['batches']:
+                sessions_dict[key]['batches'].append(row[3])
+
+        # Merge batches from CourseSessionAssignment too (newly assigned batches may exist only here)
+        assignment_rows = db.session.query(
+            CourseSessionAssignment.academic_session,
+            CourseSessionAssignment.year,
+            CourseSessionAssignment.term,
+            CourseSessionAssignment.batch
+        ).filter(
+            CourseSessionAssignment.academic_session.isnot(None),
+            CourseSessionAssignment.year.isnot(None),
+            CourseSessionAssignment.term.isnot(None)
+        ).distinct().all()
+
+        for row in assignment_rows:
             key = f"{row[0]}|{row[1]}|{row[2]}"
             if key not in sessions_dict:
                 sessions_dict[key] = {
@@ -2239,7 +2263,7 @@ def create_app():
                 term=term,
                 batch=batch,
                 activated_by=activated_by,
-                deactivate_others=True
+                deactivate_others=False
             )
             
             return jsonify({

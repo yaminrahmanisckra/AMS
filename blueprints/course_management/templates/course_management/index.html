@@ -982,7 +982,7 @@
                             {% if course_form.year.errors %}
                                 <div class="text-danger small">{{ course_form.year.errors[0] }}</div>
                             {% endif %}
-                            <small class="text-muted">Auto-filled from course code</small>
+                            <small class="text-muted">Auto-filled from course code (editable)</small>
                         </div>
                         <div class="col-md-3 mb-3">
                             {{ course_form.term.label(class="form-label") }}
@@ -990,7 +990,7 @@
                             {% if course_form.term.errors %}
                                 <div class="text-danger small">{{ course_form.term.errors[0] }}</div>
                             {% endif %}
-                            <small class="text-muted">Auto-filled from course code</small>
+                            <small class="text-muted">Auto-filled from course code (editable)</small>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1512,10 +1512,16 @@ function getYearTermFromCourseCode(courseCode) {
         });
     }
     
+    // Track whether year/term were manually edited in Add Course modal.
+    let yearManuallyEdited = false;
+    let termManuallyEdited = false;
+
     // Reset course form when modal is closed
     if (addCourseModal && addCourseForm) {
         addCourseModal.addEventListener('hidden.bs.modal', function () {
             addCourseForm.reset();
+            yearManuallyEdited = false;
+            termManuallyEdited = false;
         });
     }
     
@@ -1597,12 +1603,28 @@ function getYearTermFromCourseCode(courseCode) {
         }
     }
     
+    if (yearInput) {
+        yearInput.addEventListener('input', function() {
+            yearManuallyEdited = true;
+        });
+    }
+    if (termInput) {
+        termInput.addEventListener('input', function() {
+            termManuallyEdited = true;
+        });
+    }
+
     if (courseCodeInput && yearInput && termInput) {
         courseCodeInput.addEventListener('input', function() {
             const courseCode = this.value.trim();
             const { year, term } = getYearTermFromCourseCode(courseCode);
-            yearInput.value = year || '';
-            termInput.value = term || '';
+            // Allow manual override: only auto-fill if user hasn't edited yet or field is currently empty.
+            if (!yearManuallyEdited || !yearInput.value.trim()) {
+                yearInput.value = year || '';
+            }
+            if (!termManuallyEdited || !termInput.value.trim()) {
+                termInput.value = term || '';
+            }
             
             // Auto-select Category: Postgraduate if first digit of last 4 digits is "5"
             if (categorySelect) {

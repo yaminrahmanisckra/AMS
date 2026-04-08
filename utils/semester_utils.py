@@ -71,6 +71,11 @@ def _normalize_year_term(value):
     if not value:
         return ''
     value_str = str(value).strip().lower()
+    # Handle labels like "First Year", "Second Term"
+    if value_str.endswith(' year'):
+        value_str = value_str[:-5].strip()
+    if value_str.endswith(' term'):
+        value_str = value_str[:-5].strip()
     
     # Year mappings
     year_map = {
@@ -79,7 +84,8 @@ def _normalize_year_term(value):
         '3': 'third', '3rd': 'third', 'third': 'third',
         '4': 'fourth', '4th': 'fourth', 'fourth': 'fourth',
         '5': 'fifth', '5th': 'fifth', 'fifth': 'fifth',
-        'llm': 'llm'
+        # Treat LLM and Fifth as equivalent PG year labels
+        'llm': 'fifth'
     }
     
     # Term mappings
@@ -142,15 +148,17 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
         # If active semester has academic_session, require exact match (no NULL allowance)
         # If active semester has no academic_session, allow NULL but require year/term match
         if sem.academic_session:
-            # Require exact academic_session match - no NULL allowance
-            # This is the key fix: don't allow NULL to match
-            academic_session_condition = getattr(model, 'academic_session') == sem.academic_session
+            # Require normalized academic_session match (trim + lower), no NULL allowance.
+            # This prevents false negatives caused by casing/whitespace differences.
+            from sqlalchemy import func
+            model_session_norm = func.lower(func.trim(func.cast(getattr(model, 'academic_session'), db.String)))
+            active_session_norm = str(sem.academic_session).strip().lower()
+            academic_session_condition = model_session_norm == active_session_norm
         else:
             # If active semester has no academic_session, allow NULL
             academic_session_condition = getattr(model, 'academic_session').is_(None)
         
         # Year and term: normalize and match format variations
-        from sqlalchemy import func
         model_year_lower = func.lower(func.trim(func.cast(getattr(model, 'year'), db.String)))
         model_term_lower = func.lower(func.trim(func.cast(getattr(model, 'term'), db.String)))
         
@@ -165,9 +173,9 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
         elif active_year_norm == 'fourth':
             year_variations.extend(['4', '4th', 'fourth'])
         elif active_year_norm == 'fifth':
-            year_variations.extend(['5', '5th', 'fifth'])
+            year_variations.extend(['5', '5th', 'fifth', 'llm'])
         elif active_year_norm == 'llm':
-            year_variations.extend(['llm'])
+            year_variations.extend(['5', '5th', 'fifth', 'llm'])
         
         # Build term condition: match normalized value and all common variations
         term_variations = [active_term_norm]
@@ -225,7 +233,7 @@ def get_active_semester_info(batch=None):
     return [sem.to_dict() for sem in active_semesters]
 
 
-def set_active_semester(academic_session, year, term, batch=None, activated_by=None, deactivate_others=True):
+def set_active_semester(academic_session, year, term, batch=None, activated_by=None, deactivate_others=False):
     """
     Set a semester as active. Optionally deactivate other semesters.
     
@@ -242,6 +250,10 @@ def set_active_semester(academic_session, year, term, batch=None, activated_by=N
     """
     from datetime import datetime
     
+    # Keep multiple year/term entries active simultaneously by default.
+    # This guard avoids accidental deactivation from older callers passing True.
+    deactivate_others = False
+
     # Check if already exists and is active
     existing_query = ActiveSemesterConfig.query.filter_by(
         academic_session=academic_session,
