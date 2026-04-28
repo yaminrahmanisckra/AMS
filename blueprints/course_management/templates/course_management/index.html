@@ -253,6 +253,71 @@
     padding: 0.5rem 1rem;
 }
 
+.year-term-selected-batches {
+    min-height: 34px;
+    border: 1px dashed rgba(255, 255, 255, 0.35);
+    border-radius: 8px;
+    padding: 0.35rem 0.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.year-term-selected-batches.empty::before {
+    content: "No batch selected";
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 0.8rem;
+}
+
+.year-term-batch-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    border-radius: 999px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+}
+
+.year-term-batch-chip.none {
+    background: rgba(255, 193, 7, 0.2);
+    border-color: rgba(255, 193, 7, 0.65);
+}
+
+.year-term-batch-chip .remove-batch-btn {
+    border: none;
+    background: transparent;
+    color: #fff;
+    padding: 0;
+    line-height: 1;
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.year-term-config-panel {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 10px;
+    padding: 0.75rem;
+}
+
+.year-term-session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.year-term-session-item {
+    background: rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 10px;
+    padding: 0.6rem;
+}
+
 @media (max-width: 576px) {
     .module-wrapper {
         padding: 1rem 0 1.5rem;
@@ -418,45 +483,96 @@
                                             <i class="fas fa-chevron-down"></i>
                                         </div>
                                         <div class="mt-2 pt-2 border-top border-light border-opacity-25" onclick="event.stopPropagation();">
-                                            {% set year_term_config = curriculum.get_year_term_config(year, term) if curriculum else None %}
-                                            <div class="row g-2">
-                                                <div class="col-md-4">
-                                                    <label class="form-label text-white-50 small mb-1">Academic Session</label>
-                                                    <input type="text" 
-                                                           class="form-control form-control-sm year-term-session" 
-                                                           data-year="{{ year }}" 
-                                                           data-term="{{ term }}"
-                                                           placeholder="e.g., 2023-2024"
-                                                           value="{{ year_term_config.academic_session if year_term_config else '' }}">
-                                                </div>
-                                                <div class="col-md-4">
-                                                    <label class="form-label text-white-50 small mb-1">Batch</label>
-                                                    <select class="form-select form-select-sm year-term-batch" 
-                                                            data-year="{{ year }}" 
-                                                            data-term="{{ term }}">
-                                                        <option value="">Select Batch</option>
-                                                        <option value="None" {% if year_term_config and year_term_config.batch == 'None' %}selected{% endif %}>
-                                                            None (Not Running)
-                                                        </option>
-                                                        {% for batch in curriculum_batches %}
-                                                        <option value="{{ batch }}" {% if year_term_config and year_term_config.batch == batch %}selected{% endif %}>
-                                                            {{ batch }}
-                                                        </option>
+                                            {% set config_key = year ~ '|||' ~ term %}
+                                            {% set year_term_session_configs = (year_term_configs_map.get(config_key) if year_term_configs_map else []) %}
+                                            <div class="year-term-config-panel" data-year="{{ year }}" data-term="{{ term }}">
+                                                <label class="form-label text-white-50 small mb-2 d-block">
+                                                    Academic Session + Batch Configuration
+                                                </label>
+                                                <div class="year-term-session-list" data-year="{{ year }}" data-term="{{ term }}">
+                                                    {% if year_term_session_configs %}
+                                                        {% for cfg in year_term_session_configs %}
+                                                            {% set cfg_batches = cfg.get('batches', []) %}
+                                                            <div class="year-term-session-item" data-year="{{ year }}" data-term="{{ term }}">
+                                                                <div class="row g-2">
+                                                                    <div class="col-md-4">
+                                                                        <label class="form-label text-white-50 small mb-1">Academic Session</label>
+                                                                        <input type="text"
+                                                                               class="form-control form-control-sm year-term-session"
+                                                                               placeholder="e.g., 2024-25"
+                                                                               value="{{ cfg.get('academic_session', '') }}">
+                                                                    </div>
+                                                                    <div class="col-md-6">
+                                                                        <label class="form-label text-white-50 small mb-1">Batch</label>
+                                                                        <select class="form-select form-select-sm year-term-batch-picker">
+                                                                            <option value="">Select batch to add</option>
+                                                                            <option value="None">None (Not Running)</option>
+                                                                            {% for batch in curriculum_batches %}
+                                                                            <option value="{{ batch }}">{{ batch }}</option>
+                                                                            {% endfor %}
+                                                                        </select>
+                                                                        <input type="hidden"
+                                                                               class="year-term-batches-value"
+                                                                               value="{{ cfg_batches|join(',') }}">
+                                                                        <div class="year-term-selected-batches mt-2 empty"></div>
+                                                                    </div>
+                                                                    <div class="col-md-2 d-flex align-items-end">
+                                                                        <button type="button" class="btn btn-sm btn-outline-light w-100 year-term-remove-session-btn">
+                                                                            Remove
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
                                                         {% endfor %}
-                                                    </select>
-                                                    <small class="form-text text-white-50 d-block mt-1">
-                                                        <i class="fas fa-info-circle me-1"></i>Select "None" if this term is not running
-                                                    </small>
+                                                    {% else %}
+                                                        <div class="year-term-session-item" data-year="{{ year }}" data-term="{{ term }}">
+                                                            <div class="row g-2">
+                                                                <div class="col-md-4">
+                                                                    <label class="form-label text-white-50 small mb-1">Academic Session</label>
+                                                                    <input type="text"
+                                                                           class="form-control form-control-sm year-term-session"
+                                                                           placeholder="e.g., 2024-25"
+                                                                           value="">
+                                                                </div>
+                                                                <div class="col-md-6">
+                                                                    <label class="form-label text-white-50 small mb-1">Batch</label>
+                                                                    <select class="form-select form-select-sm year-term-batch-picker">
+                                                                        <option value="">Select batch to add</option>
+                                                                        <option value="None">None (Not Running)</option>
+                                                                        {% for batch in curriculum_batches %}
+                                                                        <option value="{{ batch }}">{{ batch }}</option>
+                                                                        {% endfor %}
+                                                                    </select>
+                                                                    <input type="hidden" class="year-term-batches-value" value="">
+                                                                    <div class="year-term-selected-batches mt-2 empty"></div>
+                                                                </div>
+                                                                <div class="col-md-2 d-flex align-items-end">
+                                                                    <button type="button" class="btn btn-sm btn-outline-light w-100 year-term-remove-session-btn">
+                                                                        Remove
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    {% endif %}
                                                 </div>
-                                                <div class="col-md-4 d-flex align-items-end">
-                                                    <button type="button" 
-                                                            class="btn btn-sm btn-light year-term-save-btn" 
-                                                            data-year="{{ year }}" 
+                                                <div class="d-flex flex-wrap gap-2 mt-2">
+                                                    <button type="button"
+                                                            class="btn btn-sm btn-outline-light year-term-add-session-btn"
+                                                            data-year="{{ year }}"
+                                                            data-term="{{ term }}">
+                                                        <i class="fas fa-plus me-1"></i>Add Session
+                                                    </button>
+                                                    <button type="button"
+                                                            class="btn btn-sm btn-light year-term-save-btn"
+                                                            data-year="{{ year }}"
                                                             data-term="{{ term }}"
                                                             style="display: none;">
                                                         <i class="fas fa-save me-1"></i>Save
                                                     </button>
                                                 </div>
+                                                <small class="form-text text-white-50 d-block mt-1">
+                                                    <i class="fas fa-info-circle me-1"></i>একই batch একাধিক session-এ রাখা যাবে।
+                                                </small>
                                             </div>
                                         </div>
                                     </div>
@@ -1251,12 +1367,13 @@
                 </div>
                 <div class="modal-body">
                     {% set year_term_config = curriculum.get_year_term_config(course.display_year or course.year, course.display_term or course.term) if curriculum else None %}
+                    {% set configured_batches = year_term_config.batch.split(',') if year_term_config and year_term_config.batch else [] %}
                     <form id="assignTeacherForm{{ course.id }}">
                         <input type="hidden" name="course_id" value="{{ course.id }}">
                         <input type="hidden" name="curriculum_id" value="{{ curriculum.id }}">
                         <input type="hidden" name="year" value="{{ course.display_year or course.year }}">
                         <input type="hidden" name="term" value="{{ course.display_term or course.term }}">
-                        <input type="hidden" name="batch" value="{{ year_term_config.batch if year_term_config and year_term_config.batch and year_term_config.batch != 'None' else '' }}">
+                        <input type="hidden" name="batch" value="{{ configured_batches[0] if configured_batches and configured_batches[0] != 'None' else '' }}">
                         <input type="hidden" name="academic_session" value="{{ year_term_config.academic_session if year_term_config else '' }}">
                         
                         <div class="mb-3">
@@ -1286,8 +1403,8 @@
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
                             <strong>Note:</strong> This will automatically create a session in Class Management for the assigned teacher.
-                            {% if year_term_config and year_term_config.batch and year_term_config.batch != 'None' %}
-                                <br>Batch: <strong>{{ year_term_config.batch }}</strong> (from Year-Term configuration)
+                            {% if configured_batches and configured_batches[0] != 'None' %}
+                                <br>Batch(es): <strong>{{ configured_batches|join(', ') }}</strong> (from Year-Term configuration)
                             {% endif %}
                             {% if year_term_config and year_term_config.academic_session %}
                                 <br>Academic Session: <strong>{{ year_term_config.academic_session }}</strong> (from Year-Term configuration)
@@ -2223,50 +2340,241 @@ document.addEventListener('DOMContentLoaded', function() {
 });
     // Year/Term Configuration handlers
     {% if curriculum %}
-    const yearTermSessionInputs = document.querySelectorAll('.year-term-session');
-    const yearTermBatchSelects = document.querySelectorAll('.year-term-batch');
     const curriculumId = {{ curriculum.id }};
-    
+
     function toggleSaveButton(year, term) {
         const saveBtn = document.querySelector(`.year-term-save-btn[data-year="${year}"][data-term="${term}"]`);
         if (saveBtn) {
             saveBtn.style.display = 'inline-block';
         }
     }
-    
-    yearTermSessionInputs.forEach(input => {
-        input.addEventListener('input', function() {
+
+    function parseBatchValue(value) {
+        if (!value) return [];
+        return value
+            .split(',')
+            .map(v => v.trim())
+            .filter(v => v);
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function getRowYearTerm(rowElement) {
+        const panel = rowElement.closest('.year-term-config-panel');
+        return {
+            year: panel ? panel.dataset.year : '',
+            term: panel ? panel.dataset.term : ''
+        };
+    }
+
+    function renderBatchChips(rowElement) {
+        const hidden = rowElement.querySelector('.year-term-batches-value');
+        const container = rowElement.querySelector('.year-term-selected-batches');
+        if (!hidden || !container) return;
+
+        const batches = parseBatchValue(hidden.value);
+        if (batches.length === 0) {
+            container.classList.add('empty');
+            container.innerHTML = '';
+            return;
+        }
+
+        container.classList.remove('empty');
+        container.innerHTML = batches.map(batch => {
+            const chipClass = batch === 'None' ? 'year-term-batch-chip none' : 'year-term-batch-chip';
+            const safeBatch = escapeHtml(batch);
+            return `
+                <span class="${chipClass}">
+                    ${safeBatch}
+                    <button type="button" class="remove-batch-btn" data-batch="${encodeURIComponent(batch)}" title="Remove">&times;</button>
+                </span>
+            `;
+        }).join('');
+    }
+
+    function setBatchSelection(rowElement, batches, markDirty = true) {
+        const hidden = rowElement.querySelector('.year-term-batches-value');
+        if (!hidden) return;
+
+        const normalized = [];
+        const seen = new Set();
+        batches.forEach(batch => {
+            const clean = String(batch || '').trim();
+            if (!clean || seen.has(clean)) return;
+            seen.add(clean);
+            normalized.push(clean);
+        });
+
+        hidden.value = normalized.join(',');
+        renderBatchChips(rowElement);
+        if (markDirty) {
+            const { year, term } = getRowYearTerm(rowElement);
+            toggleSaveButton(year, term);
+        }
+    }
+
+    function wireSessionRow(rowElement) {
+        const sessionInput = rowElement.querySelector('.year-term-session');
+        const picker = rowElement.querySelector('.year-term-batch-picker');
+        const chipsContainer = rowElement.querySelector('.year-term-selected-batches');
+        const { year, term } = getRowYearTerm(rowElement);
+
+        if (sessionInput) {
+            sessionInput.addEventListener('input', function() {
+                toggleSaveButton(year, term);
+            });
+        }
+
+        if (picker) {
+            picker.addEventListener('change', function() {
+                const pickedValue = this.value;
+                if (!pickedValue) return;
+                const hidden = rowElement.querySelector('.year-term-batches-value');
+                let current = parseBatchValue(hidden ? hidden.value : '');
+
+                if (pickedValue === 'None') {
+                    current = ['None'];
+                } else {
+                    current = current.filter(v => v !== 'None');
+                    if (!current.includes(pickedValue)) {
+                        current.push(pickedValue);
+                    }
+                }
+
+                setBatchSelection(rowElement, current, true);
+                this.value = '';
+            });
+        }
+
+        if (chipsContainer) {
+            chipsContainer.addEventListener('click', function(e) {
+                const removeBtn = e.target.closest('.remove-batch-btn');
+                if (!removeBtn) return;
+                const removeValue = decodeURIComponent(removeBtn.dataset.batch || '');
+                const hidden = rowElement.querySelector('.year-term-batches-value');
+                const remaining = parseBatchValue(hidden ? hidden.value : '').filter(v => v !== removeValue);
+                setBatchSelection(rowElement, remaining, true);
+            });
+        }
+
+        renderBatchChips(rowElement);
+    }
+
+    function updateSessionRemoveButtons(year, term) {
+        const list = document.querySelector(`.year-term-session-list[data-year="${year}"][data-term="${term}"]`);
+        if (!list) return;
+        const rows = list.querySelectorAll('.year-term-session-item');
+        rows.forEach(row => {
+            const removeBtn = row.querySelector('.year-term-remove-session-btn');
+            if (!removeBtn) return;
+            removeBtn.disabled = rows.length <= 1;
+        });
+    }
+
+    const batchOptionsHtml = `
+        <option value="">Select batch to add</option>
+        <option value="None">None (Not Running)</option>
+        {% for batch in curriculum_batches %}
+        <option value="{{ batch }}">{{ batch }}</option>
+        {% endfor %}
+    `;
+
+    function createSessionRow(year, term) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'year-term-session-item';
+        wrapper.dataset.year = year;
+        wrapper.dataset.term = term;
+        wrapper.innerHTML = `
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <label class="form-label text-white-50 small mb-1">Academic Session</label>
+                    <input type="text" class="form-control form-control-sm year-term-session" placeholder="e.g., 2024-25" value="">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label text-white-50 small mb-1">Batch</label>
+                    <select class="form-select form-select-sm year-term-batch-picker">${batchOptionsHtml}</select>
+                    <input type="hidden" class="year-term-batches-value" value="">
+                    <div class="year-term-selected-batches mt-2 empty"></div>
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="button" class="btn btn-sm btn-outline-light w-100 year-term-remove-session-btn">Remove</button>
+                </div>
+            </div>
+        `;
+        wireSessionRow(wrapper);
+        return wrapper;
+    }
+
+    document.querySelectorAll('.year-term-session-list').forEach(list => {
+        const year = list.dataset.year;
+        const term = list.dataset.term;
+        list.querySelectorAll('.year-term-session-item').forEach(rowElement => {
+            wireSessionRow(rowElement);
+        });
+        updateSessionRemoveButtons(year, term);
+    });
+
+    document.querySelectorAll('.year-term-add-session-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
             const year = this.dataset.year;
             const term = this.dataset.term;
+            const list = document.querySelector(`.year-term-session-list[data-year="${year}"][data-term="${term}"]`);
+            if (!list) return;
+            list.appendChild(createSessionRow(year, term));
+            updateSessionRemoveButtons(year, term);
             toggleSaveButton(year, term);
         });
     });
-    
-    yearTermBatchSelects.forEach(select => {
-        select.addEventListener('change', function() {
-            const year = this.dataset.year;
-            const term = this.dataset.term;
-            toggleSaveButton(year, term);
-        });
+
+    document.addEventListener('click', function(e) {
+        const removeBtn = e.target.closest('.year-term-remove-session-btn');
+        if (!removeBtn) return;
+        const rowElement = removeBtn.closest('.year-term-session-item');
+        if (!rowElement) return;
+        const { year, term } = getRowYearTerm(rowElement);
+        const list = rowElement.closest('.year-term-session-list');
+        if (!list) return;
+        if (list.querySelectorAll('.year-term-session-item').length <= 1) return;
+        rowElement.remove();
+        updateSessionRemoveButtons(year, term);
+        toggleSaveButton(year, term);
     });
-    
+
     // Save Year/Term Configuration
     document.querySelectorAll('.year-term-save-btn').forEach(btn => {
         btn.addEventListener('click', function(e) {
             e.stopPropagation();
             const year = this.dataset.year;
             const term = this.dataset.term;
-            
-            const sessionInput = document.querySelector(`.year-term-session[data-year="${year}"][data-term="${term}"]`);
-            const batchSelect = document.querySelector(`.year-term-batch[data-year="${year}"][data-term="${term}"]`);
-            
-            const academicSession = sessionInput ? sessionInput.value.trim() : '';
-            const batch = batchSelect ? batchSelect.value : '';
-            
+            const list = document.querySelector(`.year-term-session-list[data-year="${year}"][data-term="${term}"]`);
+            const rows = list ? Array.from(list.querySelectorAll('.year-term-session-item')) : [];
+
+            const sessionConfigs = rows.map(rowElement => {
+                const sessionInput = rowElement.querySelector('.year-term-session');
+                const hiddenBatchInput = rowElement.querySelector('.year-term-batches-value');
+                return {
+                    academic_session: sessionInput ? sessionInput.value.trim() : '',
+                    batches: hiddenBatchInput ? parseBatchValue(hiddenBatchInput.value) : []
+                };
+            }).filter(cfg => cfg.academic_session || cfg.batches.length > 0);
+
+            if (sessionConfigs.some(cfg => !cfg.academic_session && cfg.batches.length > 0)) {
+                alert('Batch select করলে Academic Session দেওয়া বাধ্যতামূলক।');
+                return;
+            }
+
             const btnElement = this;
             btnElement.disabled = true;
             btnElement.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
-            
+
             fetch(`/course-management/curriculum/${curriculumId}/year-term-config`, {
                 method: 'POST',
                 headers: {
@@ -2275,15 +2583,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({
                     year: year,
                     term: term,
-                    academic_session: academicSession,
-                    batch: batch
+                    session_configs: sessionConfigs
                 })
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     btnElement.style.display = 'none';
-                    // Show success message
+                    btnElement.disabled = false;
+                    btnElement.innerHTML = '<i class="fas fa-save me-1"></i>Save';
                     const alertDiv = document.createElement('div');
                     alertDiv.className = 'alert alert-success alert-dismissible fade show';
                     alertDiv.innerHTML = `

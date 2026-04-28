@@ -239,9 +239,45 @@ def create_app():
     app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
     app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
     app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
+    # cPanel/local relay often uses port 25 with both TLS and SSL off; honor MAIL_USE_SSL from env
+    app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'False') == 'True'
     app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
     app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
     app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+    # Notification channel (e.g. noreply@) — separate from MAIL_* used for password recovery (recovery@)
+    def _env_bool(name, fallback):
+        v = os.getenv(name)
+        if v is None:
+            return fallback
+        return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    app.config['NOTIFICATION_MAIL_SERVER'] = os.getenv('NOTIFICATION_MAIL_SERVER') or app.config['MAIL_SERVER']
+    _notif_port = os.getenv('NOTIFICATION_MAIL_PORT')
+    app.config['NOTIFICATION_MAIL_PORT'] = int(_notif_port) if _notif_port else app.config['MAIL_PORT']
+    app.config['NOTIFICATION_MAIL_USE_TLS'] = _env_bool(
+        'NOTIFICATION_MAIL_USE_TLS', app.config['MAIL_USE_TLS']
+    )
+    app.config['NOTIFICATION_MAIL_USE_SSL'] = _env_bool(
+        'NOTIFICATION_MAIL_USE_SSL', app.config['MAIL_USE_SSL']
+    )
+    app.config['NOTIFICATION_MAIL_USERNAME'] = os.getenv('NOTIFICATION_MAIL_USERNAME')
+    app.config['NOTIFICATION_MAIL_PASSWORD'] = os.getenv('NOTIFICATION_MAIL_PASSWORD')
+    app.config['NOTIFICATION_MAIL_SENDER'] = os.getenv(
+        'NOTIFICATION_MAIL_SENDER', os.getenv('NOTIFICATION_MAIL_USERNAME')
+    )
+    # Re-merge from os.environ so cPanel/Passenger values always win over any stale defaults
+    for k in list(os.environ.keys()):
+        if not k.startswith('NOTIFICATION_MAIL_'):
+            continue
+        val = os.environ.get(k)
+        if val is None or str(val).strip() == '':
+            continue
+        if k.endswith('_PASSWORD'):
+            app.config[k] = str(val).rstrip('\r\n')
+        else:
+            app.config[k] = str(val).strip()
+    # Optional: public site URL (no trailing slash) for emails when reverse-proxy hides the real host
+    app.config['PUBLIC_APP_URL'] = (os.getenv('PUBLIC_APP_URL') or '').strip().rstrip('/')
     app.config['DEFAULT_STUDENT_PASSWORD'] = os.getenv('DEFAULT_STUDENT_PASSWORD', 'Student@123')
     
     # OpenAI API configuration
@@ -668,12 +704,36 @@ def create_app():
     def _ensure_teacher_for_user(user):
         if not user or not has_teacher_privileges(user):
             return None
-        teacher = Teacher.query.filter_by(name=user.full_name).first()
+        # Canonical mapping: prefer explicit users.teacher_id when available.
+        teacher = None
+        user_teacher_id = getattr(user, 'teacher_id', None)
+        if user_teacher_id:
+            teacher = Teacher.query.get(user_teacher_id)
+
+        if not teacher:
+            teacher = Teacher.query.filter_by(name=user.full_name).first()
+
+        if not teacher and getattr(user, 'full_name', None):
+            normalized_name = str(user.full_name).strip().casefold()
+            teacher = next(
+                (
+                    t for t in Teacher.query.all()
+                    if str(t.name or '').strip().casefold() == normalized_name
+                ),
+                None
+            )
+
         if teacher:
+            if hasattr(user, 'teacher_id') and user.teacher_id != teacher.id:
+                user.teacher_id = teacher.id
+                db.session.commit()
             return teacher
         short_name = _generate_teacher_short_name(user.username or user.full_name or 'teacher')
         teacher = Teacher(name=user.full_name, short_name=short_name)
         db.session.add(teacher)
+        if hasattr(user, 'teacher_id'):
+            db.session.flush()
+            user.teacher_id = teacher.id
         db.session.commit()
         return teacher
 
@@ -681,6 +741,19 @@ def create_app():
         if not current_user.is_authenticated:
             return None
         return _ensure_teacher_for_user(current_user)
+
+    def _teacher_identity_ids(teacher):
+        """Return all teacher IDs that likely represent the same person."""
+        if not teacher:
+            return set()
+        identity_ids = {teacher.id}
+        normalized_name = str(teacher.name or '').strip().casefold()
+        if not normalized_name:
+            return identity_ids
+        for candidate in Teacher.query.all():
+            if str(candidate.name or '').strip().casefold() == normalized_name:
+                identity_ids.add(candidate.id)
+        return identity_ids
 
     def _require_teacher_privileges():
         if not has_teacher_privileges(current_user):
@@ -758,8 +831,10 @@ def create_app():
                 'suggestions': request.form.get('suggestions', '').strip(),
             }
 
+            if not all([section_d['likes'], section_d['challenges'], section_d['suggestions']]):
+                flash('Section D (Praise and Suggestions)-এর সবগুলো ঘর পূরণ করা বাধ্যতামূলক।', 'warning')
             # Ensure at least one core question is answered
-            if not any(section_a.values()) and not any(section_b.values()) and not effort_focus and not section_d['likes'] and not section_d['challenges'] and not section_d['suggestions']:
+            elif not any(section_a.values()) and not any(section_b.values()) and not effort_focus and not section_d['likes'] and not section_d['challenges'] and not section_d['suggestions']:
                 flash('কমপক্ষে একটি প্রশ্নের উত্তর দিন।', 'warning')
             else:
                 payload = {
@@ -888,15 +963,15 @@ def create_app():
         if restriction:
             return restriction
         if request.method == 'POST':
-            batch = request.form.get('batch')
+            batch = (request.form.get('batch') or '').strip() or None
             academic_session = request.form.get('academic_session', '').strip() or None
             course_id = request.form.get('course_id', type=int)
             course_name = request.form.get('course_name')
             course_code = request.form.get('course_code')
             discipline = request.form.get('discipline', 'Law')
             school = request.form.get('school', 'Law')
-            year = request.form.get('year')
-            term = request.form.get('term')
+            year = (request.form.get('year') or '').strip() or None
+            term = (request.form.get('term') or '').strip() or None
             section = request.form.get('section')
             program_level = request.form.get('program_level', 'ug')
 
@@ -908,39 +983,38 @@ def create_app():
                     if course:
                         course_code = course.course_code
                         course_name = course.course_name
-                        if not year:
-                            year = course.year
-                        if not term:
-                            term = course.term
             except:
                 pass
 
             if not course_name or not course_code:
                 flash('Course name and course code are required.', 'danger')
+            elif not academic_session or not year or not term:
+                current_app.logger.warning(
+                    'Rejected exam entry due to missing running context: '
+                    f'academic_session={academic_session}, year={year}, term={term}, course_code={course_code}'
+                )
+                flash('Academic Session, Year, and Term are required to keep retake processing in the running term.', 'danger')
             else:
-                # Check for exam committee chief assignment only if session/year/term are provided
-                if academic_session or year or term:
-                    # First check if semester is active
-                    try:
-                        from utils.semester_utils import is_semester_active
-                        semester_session = academic_session or batch
-                        if not is_semester_active(semester_session, year, term, batch=batch):
-                            flash('This semester is not active. Please activate it in Active Semester Management first.', 'danger')
-                            return redirect(url_for('exam_evaluation'))
-                    except Exception as e:
-                        current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
-                        # Continue with chief check if error
-                    
-                    chief_exists = DutyAssignment.query.filter_by(
-                        duty_type='exam_committee_chief',
-                        academic_session=academic_session or batch or '',
-                        year=year or '',
-                        term=term or '',
-                        status='active'
-                    ).first()
-                    if not chief_exists:
-                        flash('No Exam Committee Chief is assigned for this session/year/term. Please assign a chief before submitting marksheets.', 'danger')
+                # First check if semester is active
+                try:
+                    from utils.semester_utils import is_semester_active
+                    if not is_semester_active(academic_session, year, term, batch=batch):
+                        flash('This semester is not active. Please activate it in Active Semester Management first.', 'danger')
                         return redirect(url_for('exam_evaluation'))
+                except Exception as e:
+                    current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
+                    # Continue with chief check if error
+                
+                chief_exists = DutyAssignment.query.filter_by(
+                    duty_type='exam_committee_chief',
+                    academic_session=academic_session,
+                    year=year,
+                    term=term,
+                    status='active'
+                ).first()
+                if not chief_exists:
+                    flash('No Exam Committee Chief is assigned for this session/year/term. Please assign a chief before submitting marksheets.', 'danger')
+                    return redirect(url_for('exam_evaluation'))
 
                 conflict_message = _has_section_conflict(course_code, section)
                 if conflict_message:
@@ -950,7 +1024,7 @@ def create_app():
                 record = ExamPaperEvaluation(
                     course_name=course_name,
                     course_code=course_code,
-                    academic_session=academic_session or batch,
+                    academic_session=academic_session,
                     batch=batch,
                     discipline=discipline,
                     school=school,
@@ -967,34 +1041,192 @@ def create_app():
                 return redirect(url_for('exam_evaluation'))
 
         current_teacher = _current_teacher()
-        base_query = ExamPaperEvaluation.query
-        if current_teacher:
-            base_query = base_query.filter_by(owner_teacher_id=current_teacher.id)
-        else:
-            base_query = base_query.filter_by(owner_teacher_id=None)
+        current_teacher_ids = _teacher_identity_ids(current_teacher)
+        committee_assignment_entry_ids = set()
 
-        # Apply active semester filtering (if not admin and filter function available)
-        try:
-            from utils.semester_utils import filter_by_active_semester
-            if filter_by_active_semester and not is_admin(current_user):
-                base_query = filter_by_active_semester(base_query, ExamPaperEvaluation, batch=None, admin_override=False)
-        except ImportError:
-            pass
-
-        entries = base_query.filter_by(archived=False).order_by(ExamPaperEvaluation.created_at.desc()).all()
-        archived_entries = base_query.filter_by(archived=True).order_by(ExamPaperEvaluation.created_at.desc()).all()
-        
-        # Check which entries are from evaluator assignment (Exam Committee Chief assigned)
-        # vs entries created by evaluator themselves
         from blueprints.class_management.models import ExamPaperEvaluatorAssignment
-        evaluator_assigned_entry_ids = set()
-        if entries:
-            entry_ids = [e.id for e in entries]
-            assignments = ExamPaperEvaluatorAssignment.query.filter(
-                ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.isnot(None),
-                ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.in_(entry_ids)
-            ).all()
-            evaluator_assigned_entry_ids = {a.exam_paper_evaluation_id for a in assignments if a.exam_paper_evaluation_id}
+        from blueprints.course_management.models import StudentCourseRegistration, Course, DutyAssignment, CurriculumYearTerm
+
+        teacher_assignments = []
+        active_semester_keys = None
+        if not is_admin(current_user):
+            try:
+                from utils.semester_utils import get_active_semesters, _normalize_year_term
+                active_semesters = get_active_semesters(batch=None)
+                active_semester_keys = {
+                    (
+                        str(sem.academic_session or '').strip().casefold(),
+                        _normalize_year_term(sem.year),
+                        _normalize_year_term(sem.term),
+                    )
+                    for sem in active_semesters
+                }
+            except Exception:
+                active_semester_keys = None
+
+        if current_teacher:
+            # Simple rule: evaluator page follows committee assignments directly.
+            try:
+                teacher_assignments = ExamPaperEvaluatorAssignment.query.filter(
+                    ExamPaperEvaluatorAssignment.assigned_teacher_id.in_(list(current_teacher_ids))
+                ).all()
+
+                if active_semester_keys is not None:
+                    def _assignment_key(assignment):
+                        try:
+                            from utils.semester_utils import _normalize_year_term
+                            return (
+                                str(assignment.academic_session or '').strip().casefold(),
+                                _normalize_year_term(assignment.year),
+                                _normalize_year_term(assignment.term),
+                            )
+                        except Exception:
+                            return (
+                                str(assignment.academic_session or '').strip().casefold(),
+                                str(assignment.year or '').strip().casefold(),
+                                str(assignment.term or '').strip().casefold(),
+                            )
+
+                    teacher_assignments = [
+                        assignment for assignment in teacher_assignments
+                        if _assignment_key(assignment) in active_semester_keys
+                    ]
+                repair_made = False
+
+                for assignment in teacher_assignments:
+                    part_label = (assignment.part or '').strip().upper()
+                    if part_label not in {'A', 'B'}:
+                        continue
+
+                    course = Course.query.get(assignment.course_id) if assignment.course_id else None
+                    if not course:
+                        continue
+
+                    linked_entry = assignment.exam_paper_evaluation
+                    linked_ok = bool(
+                        linked_entry
+                        and linked_entry.owner_teacher_id in current_teacher_ids
+                        and not bool(linked_entry.archived)
+                        and (linked_entry.course_code or '').strip() == (course.course_code or '').strip()
+                        and (linked_entry.academic_session or '').strip() == (assignment.academic_session or '').strip()
+                        and (linked_entry.year or '').strip() == (assignment.year or '').strip()
+                        and (linked_entry.term or '').strip() == (assignment.term or '').strip()
+                        and (linked_entry.section or '').strip() == f'Part {part_label}'
+                    )
+                    if linked_ok:
+                        committee_assignment_entry_ids.add(linked_entry.id)
+                        continue
+
+                    existing_entry = ExamPaperEvaluation.query.filter(
+                        ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)),
+                        ExamPaperEvaluation.course_code == (course.course_code or '').strip(),
+                        ExamPaperEvaluation.academic_session == (assignment.academic_session or '').strip(),
+                        ExamPaperEvaluation.year == (assignment.year or '').strip(),
+                        ExamPaperEvaluation.term == (assignment.term or '').strip(),
+                        ExamPaperEvaluation.section == f'Part {part_label}',
+                        ExamPaperEvaluation.archived.is_(False)
+                    ).order_by(ExamPaperEvaluation.created_at.desc()).first()
+
+                    if existing_entry:
+                        assignment.exam_paper_evaluation_id = existing_entry.id
+                        committee_assignment_entry_ids.add(existing_entry.id)
+                        repair_made = True
+                        continue
+
+                    resolved_batch = ''
+                    duty_ctx = DutyAssignment.query.filter(
+                        DutyAssignment.status == 'active',
+                        DutyAssignment.academic_session == (assignment.academic_session or '').strip(),
+                        DutyAssignment.year == (assignment.year or '').strip(),
+                        DutyAssignment.term == (assignment.term or '').strip(),
+                        DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
+                        DutyAssignment.batch.isnot(None),
+                        DutyAssignment.batch != ''
+                    ).order_by(DutyAssignment.created_at.desc()).first()
+                    if duty_ctx and duty_ctx.batch:
+                        resolved_batch = duty_ctx.batch.strip()
+                    if not resolved_batch:
+                        cfg = CurriculumYearTerm.query.filter_by(
+                            academic_session=(assignment.academic_session or '').strip(),
+                            year=(assignment.year or '').strip(),
+                            term=(assignment.term or '').strip()
+                        ).filter(
+                            CurriculumYearTerm.batch.isnot(None),
+                            CurriculumYearTerm.batch != '',
+                            CurriculumYearTerm.batch != 'None'
+                        ).order_by(CurriculumYearTerm.updated_at.desc()).first()
+                        if cfg and cfg.batch:
+                            resolved_batch = cfg.batch.split(',')[0].strip() if ',' in cfg.batch else cfg.batch.strip()
+
+                    created_entry = ExamPaperEvaluation(
+                        course_name=course.course_name,
+                        course_code=course.course_code,
+                        academic_session=assignment.academic_session,
+                        batch=resolved_batch or None,
+                        year=assignment.year,
+                        term=assignment.term,
+                        section=f'Part {part_label}',
+                        program_level=course.category or 'ug',
+                        owner_teacher_id=current_teacher.id,
+                        submitted_to_committee=False
+                    )
+                    db.session.add(created_entry)
+                    db.session.flush()
+                    assignment.exam_paper_evaluation_id = created_entry.id
+                    committee_assignment_entry_ids.add(created_entry.id)
+                    repair_made = True
+
+                if repair_made:
+                    db.session.commit()
+            except Exception as sync_exc:
+                db.session.rollback()
+                current_app.logger.warning(
+                    f'Failed to sync committee assignments for teacher_id={current_teacher.id}: {sync_exc}',
+                    exc_info=True
+                )
+
+        if current_teacher and teacher_assignments:
+            assigned_query = ExamPaperEvaluation.query.filter(
+                ExamPaperEvaluation.id.in_(list(committee_assignment_entry_ids)),
+            )
+            # Even in committee-driven mode, keep only active semester rows.
+            try:
+                from utils.semester_utils import filter_by_active_semester
+                if filter_by_active_semester and not is_admin(current_user):
+                    assigned_query = filter_by_active_semester(
+                        assigned_query,
+                        ExamPaperEvaluation,
+                        batch=None,
+                        admin_override=False
+                    )
+            except ImportError:
+                pass
+
+            entries = assigned_query.filter(
+                ExamPaperEvaluation.archived.is_(False)
+            ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+            archived_entries = assigned_query.filter(
+                ExamPaperEvaluation.archived.is_(True)
+            ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+        else:
+            base_query = ExamPaperEvaluation.query
+            if current_teacher:
+                base_query = base_query.filter(ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)))
+            else:
+                base_query = base_query.filter_by(owner_teacher_id=None)
+
+            # Fallback (no committee assignment): keep legacy active semester filtering.
+            try:
+                from utils.semester_utils import filter_by_active_semester
+                if filter_by_active_semester and not is_admin(current_user):
+                    base_query = filter_by_active_semester(base_query, ExamPaperEvaluation, batch=None, admin_override=False)
+            except ImportError:
+                pass
+
+            entries = base_query.filter_by(archived=False).order_by(ExamPaperEvaluation.created_at.desc()).all()
+            archived_entries = base_query.filter_by(archived=True).order_by(ExamPaperEvaluation.created_at.desc()).all()
+
+        evaluator_assigned_entry_ids = set(committee_assignment_entry_ids)
         scrutiny_entries = []
         scrutiny_invites_map = {}
         if current_teacher:
@@ -1030,6 +1262,83 @@ def create_app():
                     ExamScrutinizerInvite.status == 'accepted'
                 ).all()
                 scrutiny_invites_map = {inv.exam_entry_id: inv for inv in invites}
+
+        # Show "(Retake)" only when this entry maps to a merge-off retake registration.
+        retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
+        all_visible_entries = entries + archived_entries + scrutiny_entries
+        for entry in all_visible_entries:
+            entry.show_retake_label = False
+
+        all_visible_entry_ids = [entry.id for entry in all_visible_entries if getattr(entry, 'id', None)]
+        assignment_by_entry_id = {}
+        if all_visible_entry_ids:
+            all_assignments = ExamPaperEvaluatorAssignment.query.filter(
+                ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.isnot(None),
+                ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.in_(all_visible_entry_ids)
+            ).all()
+            assignment_by_entry_id = {
+                assignment.exam_paper_evaluation_id: assignment
+                for assignment in all_assignments
+                if assignment.exam_paper_evaluation_id
+            }
+
+        assignment_course_ids = {
+            assignment.course_id
+            for assignment in assignment_by_entry_id.values()
+            if getattr(assignment, 'course_id', None)
+        }
+        registrations = []
+        if assignment_course_ids:
+            registrations.extend(
+                StudentCourseRegistration.query.filter(
+                    StudentCourseRegistration.course_id.in_(assignment_course_ids),
+                    StudentCourseRegistration.use_relevant_for_committee.is_(False)
+                ).all()
+            )
+
+        registration_by_id = {}
+        for registration in registrations:
+            if registration and getattr(registration, 'id', None):
+                registration_by_id[registration.id] = registration
+
+        retake_course_keys = set()
+        for registration in registration_by_id.values():
+            remark_value = str(registration.remark or '').strip().lower()
+            if remark_value not in retake_remarks:
+                continue
+
+            relevant_context = (
+                str(registration.relevant_academic_session or '').strip(),
+                str(registration.relevant_year or '').strip(),
+                str(registration.relevant_term or '').strip()
+            )
+            running_context = (
+                str(registration.academic_session or '').strip(),
+                str(registration.year or '').strip(),
+                str(registration.term or '').strip()
+            )
+            registration_context = relevant_context if all(relevant_context) else running_context
+            if not all(registration_context):
+                continue
+
+            if registration.course_id:
+                retake_course_keys.add((registration.course_id, *registration_context))
+
+        for entry in all_visible_entries:
+            assignment = assignment_by_entry_id.get(entry.id)
+            if not assignment:
+                continue
+
+            assignment_context = (
+                str(assignment.academic_session or '').strip(),
+                str(assignment.year or '').strip(),
+                str(assignment.term or '').strip()
+            )
+            if not all(assignment_context):
+                continue
+
+            if (assignment.course_id, *assignment_context) in retake_course_keys:
+                entry.show_retake_label = True
         
         # Determine if current user is evaluator (owner) - if yes, hide scrutinizer info
         # Evaluators (owners) should not see scrutinizer info, but scrutinizers and admins should
@@ -1149,7 +1458,8 @@ def create_app():
             return restriction
         entry = ExamPaperEvaluation.query.get_or_404(entry_id)
         current_teacher = _current_teacher()
-        if not current_teacher or entry.owner_teacher_id != current_teacher.id:
+        current_teacher_ids = _teacher_identity_ids(current_teacher)
+        if not current_teacher or entry.owner_teacher_id not in current_teacher_ids:
             flash('Only the entry owner can submit to the Exam Committee.', 'danger')
             return redirect(url_for('exam_evaluation'))
         if entry.submitted_to_committee:
@@ -1169,7 +1479,8 @@ def create_app():
             return restriction
         entry = ExamPaperEvaluation.query.get_or_404(entry_id)
         current_teacher = _current_teacher()
-        if not current_teacher or entry.owner_teacher_id != current_teacher.id:
+        current_teacher_ids = _teacher_identity_ids(current_teacher)
+        if not current_teacher or entry.owner_teacher_id not in current_teacher_ids:
             flash('Only the entry owner can unsubmit a marksheet.', 'danger')
             return redirect(url_for('exam_evaluation'))
         if not entry.submitted_to_committee:
@@ -2245,8 +2556,38 @@ def create_app():
                 }
             if row[3] and row[3] not in sessions_dict[key]['batches']:
                 sessions_dict[key]['batches'].append(row[3])
+
+        # Merge batches from actual student registrations (retake/re-retake batches may exist only here)
+        registration_batch_rows = db.session.query(
+            StudentCourseRegistration.academic_session,
+            StudentCourseRegistration.year,
+            StudentCourseRegistration.term,
+            Student.batch
+        ).join(
+            Student, Student.id == StudentCourseRegistration.student_id
+        ).filter(
+            StudentCourseRegistration.academic_session.isnot(None),
+            StudentCourseRegistration.year.isnot(None),
+            StudentCourseRegistration.term.isnot(None),
+            Student.batch.isnot(None),
+            Student.batch != ''
+        ).distinct().all()
+
+        for row in registration_batch_rows:
+            key = f"{row[0]}|{row[1]}|{row[2]}"
+            if key not in sessions_dict:
+                sessions_dict[key] = {
+                    'academic_session': row[0],
+                    'year': row[1],
+                    'term': row[2],
+                    'batches': []
+                }
+            if row[3] and row[3] not in sessions_dict[key]['batches']:
+                sessions_dict[key]['batches'].append(row[3])
         
         available_sessions = list(sessions_dict.values())
+        for session_data in available_sessions:
+            session_data['batches'] = sorted(session_data['batches'])
         
         # Get unique academic sessions for dropdown (to avoid duplicates)
         unique_academic_sessions = sorted(set(s['academic_session'] for s in available_sessions if s['academic_session']))
@@ -5217,12 +5558,14 @@ def create_app():
         current_session = None
         current_year = None
         current_term = None
+        current_batch = None
         active_context_assignment = chief_assignment or member_context_assignment
         chief_assignment_details = chief_assignment
         if active_context_assignment:
             current_session = active_context_assignment.academic_session
             current_year = active_context_assignment.year
             current_term = active_context_assignment.term
+            current_batch = active_context_assignment.batch
 
         # For member-only users, still load chief details for the same committee context.
         if not chief_assignment_details and current_session and current_year and current_term:
@@ -5233,6 +5576,8 @@ def create_app():
                 term=current_term,
                 status='active'
             ).first()
+            if chief_assignment_details and chief_assignment_details.batch and not current_batch:
+                current_batch = chief_assignment_details.batch
         
         # Get assigned tabulators - filter by current committee's session/year/term
         tabulators_query = DutyAssignment.query.filter_by(
@@ -5331,9 +5676,14 @@ def create_app():
                 DutyAssignment.term == current_term,
                 DutyAssignment.status == 'active'
             ).all()
+            seen_internal_ids = set()
+            seen_external_names = set()
             
             for assignment in committee_assignments:
                 if assignment.assigned_teacher_id:
+                    if assignment.assigned_teacher_id in seen_internal_ids:
+                        continue
+                    seen_internal_ids.add(assignment.assigned_teacher_id)
                     # Internal member
                     designation = ''
                     institute = ''
@@ -5365,8 +5715,15 @@ def create_app():
                     try:
                         external_info = json.loads(assignment.remarks) if assignment.remarks else {}
                         if external_info.get('type') == 'external':
+                            external_name = (external_info.get('name') or '').strip()
+                            if not external_name:
+                                continue
+                            external_name_key = external_name.lower()
+                            if external_name_key in seen_external_names:
+                                continue
+                            seen_external_names.add(external_name_key)
                             saved_committee_members['external'].append({
-                                'name': external_info.get('name', ''),
+                                'name': external_name,
                                 'designation': external_info.get('designation', ''),
                                 'institute': external_info.get('institute', '')
                             })
@@ -5448,6 +5805,7 @@ def create_app():
                              current_session=current_session,
                              current_year=current_year,
                              current_term=current_term,
+                             current_batch=current_batch,
                              available_entries=available_entries,
                              saved_committee_members=saved_committee_members,
                              chief_info=chief_info,
@@ -5659,14 +6017,39 @@ def create_app():
             return jsonify({'success': False, 'message': 'Please add at least the Chief or one committee member (internal or external)'}), 400
         
         try:
+            # Normalize payload to avoid accidental duplicate entries from repeated UI actions.
+            normalized_internal_members = []
+            seen_internal_member_ids = set()
+            for member in (internal_members if isinstance(internal_members, list) else []):
+                member_id = member.get('id')
+                if not member_id or member_id in seen_internal_member_ids:
+                    continue
+                seen_internal_member_ids.add(member_id)
+                normalized_internal_members.append(member)
+
+            normalized_external_members = []
+            seen_external_names = set()
+            for member in (external_members if isinstance(external_members, list) else []):
+                name = (member.get('name') or '').strip()
+                if not name:
+                    continue
+                name_key = name.lower()
+                if name_key in seen_external_names:
+                    continue
+                seen_external_names.add(name_key)
+                normalized_external_members.append({
+                    'name': name,
+                    'designation': (member.get('designation') or '').strip(),
+                    'institute': (member.get('institute') or '').strip()
+                })
+
             # First, deactivate existing committee members for this session/year/term
             existing_members = DutyAssignment.query.filter_by(
                 duty_type='exam_committee_member',
                 academic_session=academic_session,
                 year=year,
                 term=term,
-                status='active',
-                assigned_by_id=current_user.id
+                status='active'
             ).all()
             
             for existing in existing_members:
@@ -5709,7 +6092,7 @@ def create_app():
                     chief_assignment_update.remarks = chief_info_json
             
             # Create assignments for internal members (with teacher_id and designation)
-            for member in internal_members:
+            for member in normalized_internal_members:
                 member_id = member.get('id')
                 if not member_id:
                     continue
@@ -5754,7 +6137,7 @@ def create_app():
                     db.session.add(assignment)
             
             # Create assignments for external members (without teacher_id, store info in remarks as JSON)
-            for member in external_members:
+            for member in normalized_external_members:
                 name = member.get('name', '').strip()
                 designation = member.get('designation', '').strip()
                 institute = member.get('institute', '').strip()
@@ -5787,8 +6170,8 @@ def create_app():
             
             db.session.commit()
             
-            internal_count = len(internal_members) if internal_members else 0
-            external_count = len(external_members) if external_members else 0
+            internal_count = len(normalized_internal_members)
+            external_count = len(normalized_external_members)
             total_count = internal_count + external_count
             
             return jsonify({
@@ -6132,7 +6515,7 @@ def create_app():
             # Continue anyway - don't block if there's an error
         
         try:
-            from blueprints.course_management.models import CurriculumYearTerm, Course
+            from blueprints.course_management.models import CurriculumYearTerm, Course, StudentCourseRegistration
             from blueprints.class_management.models import ExamPaperEvaluatorAssignment
             
             # Find curriculum year/term configs matching the criteria
@@ -6145,44 +6528,181 @@ def create_app():
             current_app.logger.info(f'Found {len(configs)} configs for session={academic_session}, year={year}, term={term}')
             
             if not configs:
-                return jsonify({
-                    'success': True, 
-                    'subjects': [],
-                    'message': f'No curriculum configuration found for Session: {academic_session}, Year: {year}, Term: {term}. Please configure the curriculum first.'
-                })
-            
-            # Get all curriculum IDs
-            curriculum_ids = [config.curriculum_id for config in configs]
-            
-            # Get all courses for these curricula - only Theory courses
-            all_courses = Course.query.filter(
-                Course.curriculum_id.in_(curriculum_ids),
-                Course.offered == True,
-                Course.course_type == 'Theory'
-            ).order_by(Course.course_code).all()
+                current_app.logger.info(
+                    f'No curriculum configuration found for session={academic_session}, year={year}, term={term}; '
+                    'continuing with separate-retake fallback rows if available.'
+                )
+                curriculum_ids = []
+                all_courses = []
+            else:
+                # Get all curriculum IDs
+                curriculum_ids = [config.curriculum_id for config in configs]
+
+                # Get all courses for these curricula - only Theory courses
+                all_courses = Course.query.filter(
+                    Course.curriculum_id.in_(curriculum_ids),
+                    Course.offered == True,
+                    Course.course_type == 'Theory'
+                ).order_by(Course.course_code).all()
             
             # Normalize year/term for comparison
-            def normalize_label(label):
+            def normalize_label(label, is_term=False):
                 if not label:
                     return ''
                 label = str(label).strip()
-                for suffix in [' Year', ' Term', 'Year', 'Term']:
-                    if label.lower().endswith(suffix.lower()):
-                        label = label[:-len(suffix)].strip()
-                return label
+                lower_label = label.lower()
+                if is_term:
+                    for suffix in [' term', 'semester', ' sem']:
+                        if lower_label.endswith(suffix):
+                            lower_label = lower_label[:-len(suffix)].strip()
+                    term_alias = {
+                        '1': 'first',
+                        '1st': 'first',
+                        'first': 'first',
+                        '2': 'second',
+                        '2nd': 'second',
+                        'second': 'second',
+                        '3': 'third',
+                        '3rd': 'third',
+                        'third': 'third',
+                        'thesis': 'thesis',
+                        'thesis term': 'thesis',
+                    }
+                    return term_alias.get(lower_label, lower_label)
+
+                for suffix in [' year', 'yr', ' years']:
+                    if lower_label.endswith(suffix):
+                        lower_label = lower_label[:-len(suffix)].strip()
+                year_alias = {
+                    '1': 'first',
+                    '1st': 'first',
+                    'first': 'first',
+                    '2': 'second',
+                    '2nd': 'second',
+                    'second': 'second',
+                    '3': 'third',
+                    '3rd': 'third',
+                    'third': 'third',
+                    '4': 'fourth',
+                    '4th': 'fourth',
+                    'fourth': 'fourth',
+                    '5': 'fifth',
+                    '5th': 'fifth',
+                    'fifth': 'fifth',
+                    'llm': 'fifth',
+                }
+                return year_alias.get(lower_label, lower_label)
             
-            normalized_year = normalize_label(year)
-            normalized_term = normalize_label(term)
+            normalized_year = normalize_label(year, is_term=False)
+            normalized_term = normalize_label(term, is_term=True)
             
             # Filter courses by year/term
             matching_courses = []
             for course in all_courses:
-                course_year = normalize_label(course.display_year or course.year or '')
-                course_term = normalize_label(course.display_term or course.term or '')
+                course_year = normalize_label(course.display_year or course.year or '', is_term=False)
+                course_term = normalize_label(course.display_term or course.term or '', is_term=True)
                 if course_year == normalized_year and course_term == normalized_term:
                     matching_courses.append(course)
             
             current_app.logger.info(f'Found {len(matching_courses)} matching courses out of {len(all_courses)} total courses')
+
+            # Merge duplicate regular subjects (same course_code across multiple curricula/syllabi)
+            # so committee UI treats them as one effective subject in this context.
+            merged_courses_by_code = {}
+            all_matching_course_ids = []
+            matching_courses_by_id = {}
+            regular_course_ids_by_code = {}
+            for course in matching_courses:
+                code_key = (course.course_code or '').strip()
+                if not code_key:
+                    continue
+                all_matching_course_ids.append(course.id)
+                matching_courses_by_id[course.id] = course
+                regular_course_ids_by_code.setdefault(code_key, set()).add(course.id)
+                existing = merged_courses_by_code.get(code_key)
+                # Prefer later-created (higher id) entry as canonical representative.
+                if existing is None or (course.id and existing.id and course.id > existing.id):
+                    merged_courses_by_code[code_key] = course
+
+            # Add separate retake-original subjects ONLY when merge is disabled.
+            # Rule selected by user:
+            # - merge ON  -> shared relevant-subject assignment (no extra row)
+            # - merge OFF -> show original retake subject as a separate row here
+            separate_retake_course_codes = set()
+            separate_retake_entries = {}
+            try:
+                from types import SimpleNamespace
+                from sqlalchemy import func as sa_func, or_
+                retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
+                separate_retake_regs = StudentCourseRegistration.query.filter(
+                    StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                    or_(
+                        StudentCourseRegistration.use_relevant_for_committee.is_(False),
+                        StudentCourseRegistration.use_relevant_for_committee.is_(None)
+                    ),
+                    StudentCourseRegistration.course_code.isnot(None),
+                    StudentCourseRegistration.course_code != ''
+                ).all()
+
+                for reg in separate_retake_regs:
+                    remark_value = str(reg.remark or '').strip().lower()
+                    if remark_value not in retake_remarks:
+                        continue
+                    reg_relevant_session = str(reg.relevant_academic_session or '').strip().casefold()
+                    if reg_relevant_session != str(academic_session or '').strip().casefold():
+                        continue
+                    reg_relevant_year = normalize_label(reg.relevant_year or '', is_term=False)
+                    reg_relevant_term = normalize_label(reg.relevant_term or '', is_term=True)
+                    if normalized_year and reg_relevant_year != normalized_year:
+                        continue
+                    if normalized_term and reg_relevant_term != normalized_term:
+                        continue
+
+                    code_key = (reg.course_code or '').strip()
+                    if not code_key:
+                        continue
+
+                    candidate_course = None
+                    if reg.course_id:
+                        candidate_course = Course.query.get(reg.course_id)
+                    # Fallback: prefer latest course row by code as ID carrier.
+                    if not candidate_course:
+                        candidate_course = Course.query.filter(
+                            Course.course_code == code_key
+                        ).order_by(Course.id.desc()).first()
+                    if not candidate_course:
+                        normalized_code = ''.join(ch for ch in code_key.lower() if not ch.isspace())
+                        candidate_course = Course.query.filter(
+                            sa_func.replace(sa_func.lower(Course.course_code), ' ', '') == normalized_code
+                        ).order_by(Course.id.desc()).first()
+                    if not candidate_course:
+                        candidate_course = SimpleNamespace(
+                            id=None,
+                            course_code=code_key,
+                            course_name=(reg.course_name or code_key),
+                            content_section_a='',
+                            content_section_b=''
+                        )
+
+                    separate_retake_course_codes.add(code_key)
+                    entry_key = f"course:{getattr(candidate_course, 'id', None)}" if getattr(candidate_course, 'id', None) else f"code:{code_key}"
+                    if entry_key not in separate_retake_entries:
+                        separate_retake_entries[entry_key] = {
+                            'course': candidate_course,
+                            'source_session': str(reg.academic_session or '').strip(),
+                            'source_year': str(reg.year or '').strip(),
+                            'source_term': str(reg.term or '').strip(),
+                        }
+                    if getattr(candidate_course, 'id', None):
+                        all_matching_course_ids.append(candidate_course.id)
+                        matching_courses_by_id[candidate_course.id] = candidate_course
+            except Exception as separate_retake_error:
+                current_app.logger.warning(
+                    f'Could not include separate retake subjects in evaluator list: {separate_retake_error}',
+                    exc_info=True
+                )
+
+            merged_courses = list(merged_courses_by_code.values())
             
             # Get existing evaluator assignments
             existing_assignments = ExamPaperEvaluatorAssignment.query.filter_by(
@@ -6194,26 +6714,34 @@ def create_app():
             assigned_map = {}  # {(course_id, part): teacher_id}
             question_setter_map = {}  # {(course_id, part): question_setter_id}
             is_same_map = {}  # {(course_id, part): is_same_person}
-            for assignment in existing_assignments:
-                key = (assignment.course_id, assignment.part)
-                assigned_map[key] = assignment.assigned_teacher_id
-                question_setter_map[key] = assignment.question_setter_id
-                is_same_map[key] = assignment.is_same_person
-            
-            # Build response with Part A and Part B
             assignment_id_map = {}  # {(course_id, part): assignment_id}
+
+            assignment_course_ids = [a.course_id for a in existing_assignments if a.course_id]
+            assignment_courses = {}
+            if assignment_course_ids:
+                assignment_courses = {
+                    c.id: c for c in Course.query.filter(Course.id.in_(assignment_course_ids)).all()
+                }
+
             for assignment in existing_assignments:
+                if not assignment.course_id:
+                    continue
                 key = (assignment.course_id, assignment.part)
-                assignment_id_map[key] = assignment.id
+                # Keep latest assignment when duplicates exist.
+                if key not in assignment_id_map or (assignment.id and assignment.id > assignment_id_map[key]):
+                    assigned_map[key] = assignment.assigned_teacher_id
+                    question_setter_map[key] = assignment.question_setter_id
+                    is_same_map[key] = assignment.is_same_person
+                    assignment_id_map[key] = assignment.id
 
             # Build default teacher mapping from curriculum/class course assignments.
             # Rules:
             # - Full course assignment (no section): Part A defaults to that teacher; Part B remains unassigned.
             # - Split course assignments: Section A -> Part A default, Section B -> Part B default.
-            default_part_a_teacher = {}
-            default_part_b_teacher = {}
-            if matching_courses:
-                course_ids = [c.id for c in matching_courses]
+            default_part_a_teacher = {}  # {course_code: teacher_id}
+            default_part_b_teacher = {}  # {course_code: teacher_id}
+            if all_matching_course_ids:
+                course_ids = all_matching_course_ids
                 session_assignments = CourseSessionAssignment.query.filter(
                     CourseSessionAssignment.course_id.in_(course_ids),
                     CourseSessionAssignment.academic_session == academic_session,
@@ -6224,47 +6752,112 @@ def create_app():
                 for sess_assign in session_assignments:
                     if not sess_assign.teacher_id:
                         continue
+                    sess_course = matching_courses_by_id.get(sess_assign.course_id)
+                    if not sess_course:
+                        continue
+                    code_key = (sess_course.course_code or '').strip()
+                    if not code_key:
+                        continue
                     raw_section = (sess_assign.section or '').strip().upper()
                     # Full/blank section assignment -> only Part A default
                     if not raw_section:
-                        if sess_assign.course_id not in default_part_a_teacher:
-                            default_part_a_teacher[sess_assign.course_id] = sess_assign.teacher_id
+                        if code_key not in default_part_a_teacher:
+                            default_part_a_teacher[code_key] = sess_assign.teacher_id
                         continue
-                    if raw_section == 'A' and sess_assign.course_id not in default_part_a_teacher:
-                        default_part_a_teacher[sess_assign.course_id] = sess_assign.teacher_id
-                    elif raw_section == 'B' and sess_assign.course_id not in default_part_b_teacher:
-                        default_part_b_teacher[sess_assign.course_id] = sess_assign.teacher_id
+                    if raw_section == 'A' and code_key not in default_part_a_teacher:
+                        default_part_a_teacher[code_key] = sess_assign.teacher_id
+                    elif raw_section == 'B' and code_key not in default_part_b_teacher:
+                        default_part_b_teacher[code_key] = sess_assign.teacher_id
             
+            subject_entries = []
+            for course in merged_courses:
+                code_key = (course.course_code or '').strip()
+                lookup_ids = list(regular_course_ids_by_code.get(code_key, []))
+                if getattr(course, 'id', None) and course.id not in lookup_ids:
+                    lookup_ids.append(course.id)
+                subject_entries.append({
+                    'course': course,
+                    'lookup_ids': lookup_ids,
+                    'is_separate_retake_subject': False,
+                    'source_context': None,
+                })
+
+            for separate_entry in separate_retake_entries.values():
+                separate_course = separate_entry['course']
+                subject_entries.append({
+                    'course': separate_course,
+                    'lookup_ids': [separate_course.id] if getattr(separate_course, 'id', None) else [],
+                    'is_separate_retake_subject': True,
+                    'source_context': {
+                        'academic_session': separate_entry['source_session'],
+                        'year': separate_entry['source_year'],
+                        'term': separate_entry['source_term'],
+                    }
+                })
+
+            def resolve_assignment(lookup_ids, part):
+                chosen = {
+                    'assigned_teacher_id': None,
+                    'question_setter_id': None,
+                    'is_same_person': False,
+                    'assignment_id': None
+                }
+                best_assignment_id = None
+                for cid in lookup_ids or []:
+                    key = (cid, part)
+                    assignment_id = assignment_id_map.get(key)
+                    if not assignment_id:
+                        continue
+                    if best_assignment_id is None or assignment_id > best_assignment_id:
+                        best_assignment_id = assignment_id
+                        chosen = {
+                            'assigned_teacher_id': assigned_map.get(key),
+                            'question_setter_id': question_setter_map.get(key),
+                            'is_same_person': is_same_map.get(key, False),
+                            'assignment_id': assignment_id
+                        }
+                return chosen
+
             subjects = []
-            for course in matching_courses:
-                # Check if Part A is assigned
-                part_a_assigned = assigned_map.get((course.id, 'A'))
-                part_b_assigned = assigned_map.get((course.id, 'B'))
-                part_a_assignment_id = assignment_id_map.get((course.id, 'A'))
-                part_b_assignment_id = assignment_id_map.get((course.id, 'B'))
+            for entry in subject_entries:
+                course = entry['course']
+                code_key = (course.course_code or '').strip()
+                part_a_assignment = resolve_assignment(entry['lookup_ids'], 'A')
+                part_b_assignment = resolve_assignment(entry['lookup_ids'], 'B')
+                course_name = course.course_name
+                if entry['is_separate_retake_subject']:
+                    course_name = f"{course_name} [Retake Separate]"
+                    if entry['source_context'] and all(entry['source_context'].values()):
+                        course_name = (
+                            f"{course_name} "
+                            f"(Source: {entry['source_context']['academic_session']} / "
+                            f"{entry['source_context']['year']} / {entry['source_context']['term']})"
+                        )
                 
                 subjects.append({
-                    'course_id': course.id,
+                    'course_id': getattr(course, 'id', None),
                     'course_code': course.course_code,
-                    'course_name': course.course_name,
+                    'course_name': course_name,
+                    'is_separate_retake_subject': entry['is_separate_retake_subject'] or (code_key in separate_retake_course_codes),
+                    'is_assignable': bool(getattr(course, 'id', None)),
                     'part_a': {
-                        'assigned': bool(part_a_assigned),
-                        'assigned_teacher_id': part_a_assigned,
-                        'assignment_id': part_a_assignment_id,
-                        'question_setter_id': question_setter_map.get((course.id, 'A')),
-                        'is_same_person': is_same_map.get((course.id, 'A'), False),
-                        'default_assigned_teacher_id': default_part_a_teacher.get(course.id),
-                        'default_question_setter_id': default_part_a_teacher.get(course.id),
+                        'assigned': bool(part_a_assignment['assigned_teacher_id']),
+                        'assigned_teacher_id': part_a_assignment['assigned_teacher_id'],
+                        'assignment_id': part_a_assignment['assignment_id'],
+                        'question_setter_id': part_a_assignment['question_setter_id'],
+                        'is_same_person': part_a_assignment['is_same_person'],
+                        'default_assigned_teacher_id': default_part_a_teacher.get(code_key),
+                        'default_question_setter_id': default_part_a_teacher.get(code_key),
                         'has_content': bool(course.content_section_a)
                     },
                     'part_b': {
-                        'assigned': bool(part_b_assigned),
-                        'assigned_teacher_id': part_b_assigned,
-                        'assignment_id': part_b_assignment_id,
-                        'question_setter_id': question_setter_map.get((course.id, 'B')),
-                        'is_same_person': is_same_map.get((course.id, 'B'), False),
-                        'default_assigned_teacher_id': default_part_b_teacher.get(course.id),
-                        'default_question_setter_id': default_part_b_teacher.get(course.id),
+                        'assigned': bool(part_b_assignment['assigned_teacher_id']),
+                        'assigned_teacher_id': part_b_assignment['assigned_teacher_id'],
+                        'assignment_id': part_b_assignment['assignment_id'],
+                        'question_setter_id': part_b_assignment['question_setter_id'],
+                        'is_same_person': part_b_assignment['is_same_person'],
+                        'default_assigned_teacher_id': default_part_b_teacher.get(code_key),
+                        'default_question_setter_id': default_part_b_teacher.get(code_key),
                         'has_content': bool(course.content_section_b)
                     }
                 })
@@ -6310,6 +6903,7 @@ def create_app():
         academic_session = data.get('academic_session', '').strip()
         year = data.get('year', '').strip()
         term = data.get('term', '').strip()
+        batch = data.get('batch', '').strip() or None
         
         # If is_same_person is True, set question_setter_id to assigned_teacher_id
         if is_same_person:
@@ -6335,18 +6929,52 @@ def create_app():
         try:
             from blueprints.course_management.models import Course
             from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+
+            # Backward-compatible fallback for older clients that don't send batch.
+            if not batch and academic_session and year and term:
+                context_assignment = DutyAssignment.query.filter(
+                    DutyAssignment.assigned_teacher_id == teacher.id,
+                    DutyAssignment.status == 'active',
+                    DutyAssignment.academic_session == academic_session,
+                    DutyAssignment.year == year,
+                    DutyAssignment.term == term,
+                    DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member'])
+                ).order_by(DutyAssignment.created_at.desc()).first()
+                if context_assignment and context_assignment.batch:
+                    batch = context_assignment.batch.strip()
+
+            # Final fallback: use first configured curriculum batch for this session/year/term.
+            if not batch and academic_session and year and term:
+                cfg = CurriculumYearTerm.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ).filter(
+                    CurriculumYearTerm.batch.isnot(None),
+                    CurriculumYearTerm.batch != '',
+                    CurriculumYearTerm.batch != 'None'
+                ).order_by(CurriculumYearTerm.updated_at.desc()).first()
+                if cfg and cfg.batch:
+                    batch = cfg.batch.split(',')[0].strip() if ',' in cfg.batch else cfg.batch.strip()
+
+            current_app.logger.info(
+                f'assign_evaluator payload: course_id={course_id}, part={part}, '
+                f'assigned_teacher_id={assigned_teacher_id}, question_setter_id={question_setter_id}, '
+                f'academic_session={academic_session}, year={year}, term={term}, batch={batch}'
+            )
             
             course = Course.query.get(course_id)
             if not course:
                 return jsonify({'success': False, 'message': 'Course not found'}), 404
             
-            # Check if already assigned
-            existing = ExamPaperEvaluatorAssignment.query.filter_by(
-                course_id=course_id,
-                part=part,
-                academic_session=academic_session,
-                year=year,
-                term=term
+            # Check if already assigned for this exact course row in the context.
+            # This allows separate-retake rows (different course_id, same code) to be assigned independently.
+            existing = ExamPaperEvaluatorAssignment.query.filter(
+                ExamPaperEvaluatorAssignment.course_id == course_id,
+                ExamPaperEvaluatorAssignment.part == part,
+                ExamPaperEvaluatorAssignment.academic_session == academic_session,
+                ExamPaperEvaluatorAssignment.year == year,
+                ExamPaperEvaluatorAssignment.term == term
             ).first()
             
             if existing:
@@ -6357,6 +6985,7 @@ def create_app():
                 course_name=course.course_name,
                 course_code=course.course_code,
                 academic_session=academic_session,
+                batch=batch,
                 year=year,
                 term=term,
                 section=f'Part {part}',
@@ -6508,6 +7137,350 @@ def create_app():
                 'success': False,
                 'message': f'Failed to get evaluator assignments: {str(exc)}'
             }), 500
+
+    @app.route('/exam-committee-chief/evaluator-assignments-pdf', methods=['GET'])
+    @login_required
+    def exam_committee_chief_evaluator_assignments_pdf():
+        """Download Question Setter + Evaluator assignments as PDF."""
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            flash('Teacher profile not found.', 'warning')
+            return redirect(url_for('exam_committee_chief_dashboard'))
+
+        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
+        if not chief_assignments and not member_assignments:
+            flash('You are not assigned as Exam Committee Chief or Member.', 'danger')
+            return redirect(url_for('index'))
+
+        academic_session = request.args.get('academic_session', '').strip()
+        year = request.args.get('year', '').strip()
+        term = request.args.get('term', '').strip()
+
+        if not all([academic_session, year, term]):
+            flash('Academic session, year, and term are required for PDF export.', 'warning')
+            return redirect(url_for('exam_committee_chief_dashboard'))
+
+        allowed_combinations = {
+            (str(a.academic_session or '').strip(), str(a.year or '').strip(), str(a.term or '').strip())
+            for a in (chief_assignments + member_assignments)
+            if a.academic_session and a.year and a.term
+        }
+        requested_combo = (academic_session, year, term)
+        if requested_combo not in allowed_combinations:
+            flash('You are not authorized to export this context.', 'danger')
+            return redirect(url_for('exam_committee_chief_dashboard'))
+
+        try:
+            from io import BytesIO
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import A4, landscape
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import mm
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+            from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+            from blueprints.course_management.models import Course, StudentCourseRegistration
+            from sqlalchemy import or_
+
+            assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+                academic_session=academic_session,
+                year=year,
+                term=term
+            ).all()
+
+            # Normalize by exact course row for assignments, then project into PDF rows.
+            course_ids = [a.course_id for a in assignments if a.course_id]
+            courses_by_id = {}
+            if course_ids:
+                courses_by_id = {
+                    c.id: c for c in Course.query.filter(Course.id.in_(course_ids)).all()
+                }
+
+            teacher_ids = set()
+            for assignment in assignments:
+                if assignment.assigned_teacher_id:
+                    teacher_ids.add(assignment.assigned_teacher_id)
+                if assignment.question_setter_id:
+                    teacher_ids.add(assignment.question_setter_id)
+            teachers_by_id = {}
+            if teacher_ids:
+                teachers_by_id = {
+                    t.id: t for t in Teacher.query.filter(Teacher.id.in_(list(teacher_ids))).all()
+                }
+
+            deduped_by_course_part = {}
+            for assignment in assignments:
+                if not assignment.course_id:
+                    continue
+                part_key = (assignment.part or '').strip().upper()
+                if part_key not in {'A', 'B'}:
+                    continue
+                key = (assignment.course_id, part_key)
+                if key not in deduped_by_course_part or (assignment.id and assignment.id > deduped_by_course_part[key].id):
+                    deduped_by_course_part[key] = assignment
+
+            # Build one row per subject:
+            # Subject Code | Subject Name | Part A (QS + Evaluator) | Part B (QS + Evaluator)
+            course_rows = {}
+
+            # Regular rows: keep one merged row by subject code.
+            for (course_id, part), assignment in deduped_by_course_part.items():
+                course = courses_by_id.get(course_id)
+                if not course:
+                    continue
+                course_code = (course.course_code or '').strip()
+                if not course_code:
+                    continue
+                if course_code not in course_rows:
+                    course_rows[course_code] = {
+                        'course_code': course_code,
+                        'course_name': (course.course_name or '-') or '-',
+                        'A': None,
+                        'B': None,
+                        'is_retake': False
+                    }
+                existing = course_rows[course_code].get(part)
+                if existing is None or ((assignment.id or 0) > (existing.id or 0)):
+                    course_rows[course_code][part] = assignment
+
+            # Separate-retake rows: include in PDF even when unassigned.
+            def normalize_label(label, is_term=False):
+                if not label:
+                    return ''
+                value = str(label).strip().lower()
+                if is_term:
+                    for suffix in [' term', 'semester', ' sem']:
+                        if value.endswith(suffix):
+                            value = value[:-len(suffix)].strip()
+                    term_alias = {
+                        '1': 'first', '1st': 'first', 'first': 'first',
+                        '2': 'second', '2nd': 'second', 'second': 'second',
+                        '3': 'third', '3rd': 'third', 'third': 'third',
+                        'thesis': 'thesis', 'thesis term': 'thesis',
+                    }
+                    return term_alias.get(value, value)
+                for suffix in [' year', 'yr', ' years']:
+                    if value.endswith(suffix):
+                        value = value[:-len(suffix)].strip()
+                year_alias = {
+                    '1': 'first', '1st': 'first', 'first': 'first',
+                    '2': 'second', '2nd': 'second', 'second': 'second',
+                    '3': 'third', '3rd': 'third', 'third': 'third',
+                    '4': 'fourth', '4th': 'fourth', 'fourth': 'fourth',
+                    '5': 'fifth', '5th': 'fifth', 'fifth': 'fifth',
+                    'llm': 'fifth',
+                }
+                return year_alias.get(value, value)
+
+            normalized_year = normalize_label(year, is_term=False)
+            normalized_term = normalize_label(term, is_term=True)
+            separate_retake_rows = {}
+            retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
+            separate_retake_regs = StudentCourseRegistration.query.filter(
+                StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                or_(
+                    StudentCourseRegistration.use_relevant_for_committee.is_(False),
+                    StudentCourseRegistration.use_relevant_for_committee.is_(None)
+                ),
+                StudentCourseRegistration.course_code.isnot(None),
+                StudentCourseRegistration.course_code != ''
+            ).all()
+
+            for reg in separate_retake_regs:
+                remark_value = str(reg.remark or '').strip().lower()
+                if remark_value not in retake_remarks:
+                    continue
+                reg_session = str(reg.relevant_academic_session or '').strip().casefold()
+                if reg_session != str(academic_session or '').strip().casefold():
+                    continue
+                reg_year = normalize_label(reg.relevant_year or '', is_term=False)
+                reg_term = normalize_label(reg.relevant_term or '', is_term=True)
+                if normalized_year and reg_year != normalized_year:
+                    continue
+                if normalized_term and reg_term != normalized_term:
+                    continue
+
+                course_code = (reg.course_code or '').strip()
+                if not course_code:
+                    continue
+                retake_key = f"retake:{reg.course_id}" if reg.course_id else f"retake:{course_code.lower()}"
+                if retake_key in separate_retake_rows:
+                    continue
+
+                matched_course = Course.query.get(reg.course_id) if reg.course_id else None
+                if not matched_course:
+                    matched_course = Course.query.filter(
+                        Course.course_code == course_code
+                    ).order_by(Course.id.desc()).first()
+                if not matched_course:
+                    # Show row in PDF even if source mapping/course row is missing.
+                    separate_retake_rows[retake_key] = {
+                        'course_code': course_code,
+                        'course_name': ((reg.course_name or course_code).strip() + ' (Retake)').strip(),
+                        'A': None,
+                        'B': None,
+                        'is_retake': True
+                    }
+                    continue
+
+                part_a_assignment = deduped_by_course_part.get((matched_course.id, 'A'))
+                part_b_assignment = deduped_by_course_part.get((matched_course.id, 'B'))
+                separate_retake_rows[retake_key] = {
+                    'course_code': (matched_course.course_code or course_code).strip(),
+                    'course_name': ((matched_course.course_name or reg.course_name or course_code).strip() + ' (Retake)').strip(),
+                    'A': part_a_assignment,
+                    'B': part_b_assignment,
+                    'is_retake': True
+                }
+
+            def _format_part_cell(part_assignment):
+                if not part_assignment:
+                    return 'Question Setter: -\nEvaluator: -'
+                evaluator = teachers_by_id.get(part_assignment.assigned_teacher_id)
+                question_setter = teachers_by_id.get(part_assignment.question_setter_id) if part_assignment.question_setter_id else None
+                evaluator_name = evaluator.name if evaluator else '-'
+                if part_assignment.is_same_person:
+                    question_setter_name = f'{evaluator_name} (Same)'
+                else:
+                    question_setter_name = question_setter.name if question_setter else '-'
+                return f'Question Setter: {question_setter_name}\nEvaluator: {evaluator_name}'
+
+            rows = []
+            all_rows_for_pdf = list(course_rows.values()) + list(separate_retake_rows.values())
+            for row_info in sorted(all_rows_for_pdf, key=lambda item: (item.get('course_code') or '', item.get('is_retake', False))):
+                rows.append([
+                    row_info['course_code'],
+                    row_info['course_name'],
+                    _format_part_cell(row_info.get('A')),
+                    _format_part_cell(row_info.get('B')),
+                ])
+
+            buffer = BytesIO()
+            doc = SimpleDocTemplate(
+                buffer,
+                pagesize=landscape(A4),
+                topMargin=14 * mm,
+                bottomMargin=14 * mm,
+                leftMargin=14 * mm,
+                rightMargin=14 * mm,
+            )
+
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle(
+                'EvaluatorAssignmentPdfTitle',
+                parent=styles['Heading2'],
+                alignment=1,
+                textColor=colors.HexColor('#0a3d62'),
+                spaceAfter=4,
+            )
+            meta_style = ParagraphStyle(
+                'EvaluatorAssignmentPdfMeta',
+                parent=styles['Normal'],
+                alignment=1,
+                fontSize=9,
+                textColor=colors.HexColor('#333333'),
+                spaceAfter=10,
+            )
+            cell_header_style = ParagraphStyle(
+                'EvaluatorAssignmentCellHeader',
+                parent=styles['Normal'],
+                alignment=1,
+                fontName='Helvetica-Bold',
+                fontSize=9,
+                leading=11,
+                wordWrap='CJK',
+            )
+            cell_style = ParagraphStyle(
+                'EvaluatorAssignmentCell',
+                parent=styles['Normal'],
+                fontSize=8.5,
+                leading=11,
+                wordWrap='CJK',
+            )
+            cell_center_style = ParagraphStyle(
+                'EvaluatorAssignmentCellCenter',
+                parent=cell_style,
+                alignment=1,
+            )
+
+            elements = [
+                Paragraph('Assign Exam Paper Question Setter & Evaluator', title_style),
+                Paragraph(
+                    f'Academic Session: {academic_session} | Year: {year} | Term: {term}',
+                    meta_style
+                ),
+            ]
+
+            from html import escape
+            table_data = [[
+                Paragraph('Subject Code', cell_header_style),
+                Paragraph('Subject Name', cell_header_style),
+                Paragraph('Part A (Question Setter + Evaluator)', cell_header_style),
+                Paragraph('Part B (Question Setter + Evaluator)', cell_header_style),
+            ]]
+            if rows:
+                for row in rows:
+                    table_data.append([
+                        Paragraph(escape(str(row[0] or '-')), cell_center_style),
+                        Paragraph(escape(str(row[1] or '-')), cell_style),
+                        Paragraph(escape(str(row[2] or '-')).replace('\n', '<br/>'), cell_style),
+                        Paragraph(escape(str(row[3] or '-')).replace('\n', '<br/>'), cell_style),
+                    ])
+            else:
+                table_data.append([
+                    Paragraph('-', cell_center_style),
+                    Paragraph('No assignments found for this context.', cell_style),
+                    Paragraph('-', cell_center_style),
+                    Paragraph('-', cell_center_style),
+                ])
+
+            table = Table(
+                table_data,
+                colWidths=[28 * mm, 72 * mm, 82 * mm, 82 * mm],
+                repeatRows=1
+            )
+            table.setStyle(TableStyle([
+                ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#333333')),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#eef3fb')),
+                ('ALIGN', (0, 1), (0, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fafcff')]),
+            ]))
+            elements.append(Spacer(1, 4))
+            elements.append(table)
+
+            doc.build(elements)
+            buffer.seek(0)
+            pdf_data = buffer.getvalue()
+
+            safe_session = academic_session.replace('/', '-').replace(' ', '_')
+            safe_year = year.replace(' ', '_')
+            safe_term = term.replace(' ', '_')
+            filename = f'Exam_Paper_Assignments_{safe_session}_{safe_year}_{safe_term}.pdf'
+
+            return Response(
+                pdf_data,
+                mimetype='application/pdf',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Length': str(len(pdf_data)),
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                }
+            )
+        except Exception as exc:
+            current_app.logger.error(f'Failed to export evaluator assignments PDF: {exc}', exc_info=True)
+            flash('Failed to export evaluator assignment PDF.', 'danger')
+            return redirect(url_for(
+                'exam_committee_chief_dashboard',
+                session=academic_session,
+                year=year,
+                term=term
+            ))
     
     @app.route('/exam-committee-chief/get-scrutinizers-with-scripts', methods=['GET'])
     @login_required
@@ -6696,8 +7669,7 @@ def create_app():
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
                 DutyAssignment.term == term,
-                DutyAssignment.status == 'active',
-                DutyAssignment.assigned_by_id == current_user.id
+                DutyAssignment.status == 'active'
             ).all()
             
             # Deactivate all assignments
@@ -8592,7 +9564,7 @@ def create_app():
         try:
             from blueprints.course_management.models import StudentCourseRegistration
             from blueprints.student_management.models import Student
-            from sqlalchemy import func
+            from sqlalchemy import func, or_, and_
 
             # Extract bare course code (e.g. "0421 28 Law 3201 - ..." → "0421 28 Law 3201")
             if ' - ' in course_code:
@@ -8612,19 +9584,33 @@ def create_app():
             normalized_year = normalize_label(year) if year else None
             normalized_term = normalize_label(term) if term else None
 
-            # Build query: course_code + session + (year/term) + status=finalized [+ batch]
+            # Build query:
+            # - direct registration match on running context, OR
+            # - relevant-course mapping match on relevant context.
             base_query = db.session.query(
                 func.count(func.distinct(StudentCourseRegistration.student_id))
             ).filter(
-                StudentCourseRegistration.course_code == course_code,
-                StudentCourseRegistration.academic_session == academic_session,
                 StudentCourseRegistration.status == 'finalized'
             )
 
+            direct_clause = and_(
+                StudentCourseRegistration.course_code == course_code,
+                StudentCourseRegistration.academic_session == academic_session
+            )
+            relevant_clause = and_(
+                StudentCourseRegistration.relevant_course_code == course_code,
+                StudentCourseRegistration.relevant_academic_session == academic_session,
+                StudentCourseRegistration.use_relevant_for_committee.is_(True)
+            )
+
             if normalized_year:
-                base_query = base_query.filter(StudentCourseRegistration.year == normalized_year)
+                direct_clause = and_(direct_clause, StudentCourseRegistration.year == normalized_year)
+                relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_year == normalized_year)
             if normalized_term:
-                base_query = base_query.filter(StudentCourseRegistration.term == normalized_term)
+                direct_clause = and_(direct_clause, StudentCourseRegistration.term == normalized_term)
+                relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_term == normalized_term)
+
+            base_query = base_query.filter(or_(direct_clause, relevant_clause))
             if batch:
                 base_query = base_query.join(
                     Student,
@@ -9788,6 +10774,8 @@ def create_app():
             return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
         
         try:
+            from sqlalchemy import or_
+
             # Find curriculum year/term configs matching the criteria
             try:
                 configs = CurriculumYearTerm.query.filter_by(
@@ -9798,21 +10786,20 @@ def create_app():
             except Exception as e:
                 current_app.logger.error(f'Error querying CurriculumYearTerm: {str(e)}', exc_info=True)
                 return jsonify({'success': False, 'message': 'Database error while fetching curriculum configs'}), 500
-            
-            if not configs:
-                return jsonify({'success': True, 'courses': []})
-            
-            # Get all curriculum IDs
-            curriculum_ids = [config.curriculum_id for config in configs]
-            
-            # Get all courses for these curricula
-            try:
-                all_courses = Course.query.filter(
-                    Course.curriculum_id.in_(curriculum_ids)
-                ).order_by(Course.course_code).all()
-            except Exception as e:
-                current_app.logger.error(f'Error querying Course: {str(e)}', exc_info=True)
-                return jsonify({'success': False, 'message': 'Database error while fetching courses'}), 500
+
+            all_courses = []
+            if configs:
+                # Get all curriculum IDs
+                curriculum_ids = [config.curriculum_id for config in configs]
+
+                # Get all courses for these curricula
+                try:
+                    all_courses = Course.query.filter(
+                        Course.curriculum_id.in_(curriculum_ids)
+                    ).order_by(Course.course_code).all()
+                except Exception as e:
+                    current_app.logger.error(f'Error querying Course: {str(e)}', exc_info=True)
+                    return jsonify({'success': False, 'message': 'Database error while fetching courses'}), 500
             
             # Filter courses by year/term (check both direct match and display_year/display_term)
             # Normalize year/term for comparison (remove 'Year'/'Term' suffix if present)
@@ -9841,6 +10828,56 @@ def create_app():
                 # Match if either direct or display matches
                 if (direct_year_match or display_year_match) and (direct_term_match or display_term_match):
                     matching_courses.append(course)
+
+            # Add separate (merge OFF) retake courses that belong to this relevant context.
+            retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
+            separate_retake_regs = StudentCourseRegistration.query.filter(
+                StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                or_(
+                    StudentCourseRegistration.use_relevant_for_committee.is_(False),
+                    StudentCourseRegistration.use_relevant_for_committee.is_(None)
+                ),
+                StudentCourseRegistration.course_code.isnot(None),
+                StudentCourseRegistration.course_code != ''
+            ).all()
+
+            separate_retake_entries = {}
+            for reg in separate_retake_regs:
+                remark_value = str(reg.remark or '').strip().lower()
+                if remark_value not in retake_remarks:
+                    continue
+                reg_session = str(reg.relevant_academic_session or '').strip().casefold()
+                if reg_session != str(academic_session or '').strip().casefold():
+                    continue
+                reg_year = normalize_label(reg.relevant_year)
+                reg_term = normalize_label(reg.relevant_term)
+                if reg_year != normalized_year or reg_term != normalized_term:
+                    continue
+
+                course_code = (reg.course_code or '').strip()
+                if not course_code:
+                    continue
+
+                candidate_course = Course.query.get(reg.course_id) if reg.course_id else None
+                if not candidate_course:
+                    candidate_course = Course.query.filter_by(course_code=course_code).order_by(Course.id.desc()).first()
+
+                if candidate_course:
+                    course_type = candidate_course.course_type or ''
+                    base_name = candidate_course.course_name or reg.course_name or course_code
+                else:
+                    course_type = reg.course_type or ''
+                    base_name = reg.course_name or course_code
+
+                retake_key = f"{course_code.lower()}::{base_name.strip().lower()}"
+                if retake_key in separate_retake_entries:
+                    continue
+                separate_retake_entries[retake_key] = {
+                    'id': reg.course_id or None,
+                    'course_code': course_code,
+                    'course_name': f"{base_name.strip()} (Retake)",
+                    'course_type': course_type
+                }
             
             courses_data = [{
                 'id': course.id,
@@ -9848,6 +10885,9 @@ def create_app():
                 'course_name': course.course_name,
                 'course_type': course.course_type or ''
             } for course in matching_courses]
+
+            # Keep separate retake subjects as distinct options in remuneration applicable lists.
+            courses_data.extend(separate_retake_entries.values())
             
             return jsonify({'success': True, 'courses': courses_data})
             
@@ -10225,7 +11265,7 @@ def create_app():
             from blueprints.course_management.models import StudentCourseRegistration
             from blueprints.student_management.models import Student
             from blueprints.class_management.models import Teacher, Session, ClassStudent
-            from sqlalchemy import func, or_
+            from sqlalchemy import func, or_, and_
             import re
             
             # Extract course code only (remove course name if present in format "CODE - Name")
@@ -10254,14 +11294,22 @@ def create_app():
             normalized_term = normalize_label(term) if term else None
             
             # PRIMARY: Count registered students from StudentCourseRegistration
-            # Filter by course_code, academic_session, year, term, status='finalized'
+            # Filter by direct original-course context OR relevant-course mapping context.
             # and (optionally) student.batch when batch is provided.
             base_query = db.session.query(
                 func.count(func.distinct(StudentCourseRegistration.student_id))
             ).filter(
-                StudentCourseRegistration.course_code == course_code,
-                StudentCourseRegistration.academic_session == academic_session,
                 StudentCourseRegistration.status == 'finalized'
+            )
+
+            direct_clause = and_(
+                StudentCourseRegistration.course_code == course_code,
+                StudentCourseRegistration.academic_session == academic_session
+            )
+            relevant_clause = and_(
+                StudentCourseRegistration.relevant_course_code == course_code,
+                StudentCourseRegistration.relevant_academic_session == academic_session,
+                StudentCourseRegistration.use_relevant_for_committee.is_(True)
             )
 
             if batch:
@@ -10272,11 +11320,15 @@ def create_app():
             
             # Add year filter if provided
             if normalized_year:
-                base_query = base_query.filter(StudentCourseRegistration.year == normalized_year)
+                direct_clause = and_(direct_clause, StudentCourseRegistration.year == normalized_year)
+                relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_year == normalized_year)
             
             # Add term filter if provided
             if normalized_term:
-                base_query = base_query.filter(StudentCourseRegistration.term == normalized_term)
+                direct_clause = and_(direct_clause, StudentCourseRegistration.term == normalized_term)
+                relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_term == normalized_term)
+
+            base_query = base_query.filter(or_(direct_clause, relevant_clause))
             
             # Get total registered count
             total_registered_count = base_query.scalar() or 0
@@ -10318,9 +11370,10 @@ def create_app():
                     
                     # Use section count if available, otherwise use total registered count
                     if section_count > 0:
+                        effective_count = max(section_count, total_registered_count)
                         return jsonify({
                             'success': True,
-                            'student_count': section_count
+                            'student_count': effective_count
                         })
                     else:
                         # If no students in sessions but we have registered students,

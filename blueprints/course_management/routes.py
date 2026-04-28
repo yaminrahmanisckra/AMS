@@ -13,6 +13,7 @@ except ImportError:
     filter_by_active_semester = None
 from user_models import User
 from sqlalchemy import or_, text
+from sqlalchemy.exc import IntegrityError
 from io import BytesIO
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -44,6 +45,132 @@ def _normalize_session_course_type(raw_course_type):
         return 'theory'
     # Keep a safe bounded fallback to avoid DataError on short DB column.
     return value[:20]
+
+
+def _normalize_source_year_term(payload_source_year, payload_source_term, running_year, running_term):
+    """Normalize course-origin metadata with safe running-context fallback."""
+    source_year = str(payload_source_year or '').strip() or str(running_year or '').strip() or None
+    source_term = str(payload_source_term or '').strip() or str(running_term or '').strip() or None
+    return source_year, source_term
+
+
+def _is_retake_remark(remark_value):
+    remark_normalized = str(remark_value or '').strip().lower()
+    return remark_normalized in {'retake', 're-retake', 're retake', 'reretake'}
+
+
+def _normalize_use_relevant_for_committee(raw_value, is_retake):
+    """Normalize per-registration merge flag for committee/remuneration counting."""
+    if not is_retake:
+        return False
+    # Backward-compatible default for retake rows: merge enabled.
+    if raw_value in (None, ''):
+        return True
+    if isinstance(raw_value, bool):
+        return raw_value
+    value = str(raw_value).strip().lower()
+    if value in {'1', 'true', 'yes', 'y', 'on'}:
+        return True
+    if value in {'0', 'false', 'no', 'n', 'off'}:
+        return False
+    return True
+
+
+def _resolve_use_relevant_for_committee(raw_value, is_retake, existing_value=None):
+    """
+    Resolve merge flag with safe preservation behavior.
+
+    - Non-retake rows are always False.
+    - For retake rows, when payload omits the field and an existing value is known,
+      preserve existing value instead of forcing fallback default.
+    """
+    if not is_retake:
+        return False
+    if raw_value in (None, '') and existing_value is not None:
+        return bool(existing_value)
+    return _normalize_use_relevant_for_committee(raw_value, is_retake)
+
+
+def _normalize_relevant_course_mapping(payload, default_year=None, default_term=None):
+    """Normalize relevant-course mapping fields from payload."""
+    payload = payload or {}
+    relevant_course_id = payload.get('relevant_course_id')
+    relevant_course_code = str(payload.get('relevant_course_code') or '').strip() or None
+    relevant_academic_session = str(payload.get('relevant_academic_session') or '').strip() or None
+    relevant_year = str(payload.get('relevant_year') or '').strip() or (str(default_year or '').strip() or None)
+    relevant_term = str(payload.get('relevant_term') or '').strip() or (str(default_term or '').strip() or None)
+
+    try:
+        relevant_course_id = int(relevant_course_id) if relevant_course_id not in (None, '') else None
+    except (TypeError, ValueError):
+        relevant_course_id = None
+
+    if relevant_course_id and not relevant_course_code:
+        mapped_course = Course.query.get(relevant_course_id)
+        if mapped_course:
+            relevant_course_code = (mapped_course.course_code or '').strip() or None
+
+    if relevant_course_code and not relevant_course_id:
+        mapped_course = Course.query.filter_by(course_code=relevant_course_code).first()
+        if mapped_course:
+            relevant_course_id = mapped_course.id
+
+    if not relevant_year or not relevant_term:
+        relevant_year = None
+        relevant_term = None
+    if not relevant_academic_session:
+        relevant_academic_session = None
+
+    # Allow year/term/session-only mapping for retake committee context.
+    # relevant_course_code can remain empty, but context should not be dropped.
+    if not relevant_course_code and not any([relevant_academic_session, relevant_year, relevant_term]):
+        return {
+            'relevant_course_id': None,
+            'relevant_course_code': None,
+            'relevant_academic_session': None,
+            'relevant_year': None,
+            'relevant_term': None,
+        }
+
+    return {
+        'relevant_course_id': relevant_course_id,
+        'relevant_course_code': relevant_course_code,
+        'relevant_academic_session': relevant_academic_session,
+        'relevant_year': relevant_year,
+        'relevant_term': relevant_term,
+    }
+
+
+def _resolve_class_target_context(registration_like, fallback_course_code, fallback_session, fallback_year, fallback_term):
+    """Resolve class session target using carry_on + relevant mapping policy."""
+    def _extract(name, default=None):
+        if isinstance(registration_like, dict):
+            return registration_like.get(name, default)
+        return getattr(registration_like, name, default)
+
+    remark = _extract('remark', 'Regular')
+    carry_on = bool(_extract('carry_on', False))
+    is_retake = _is_retake_remark(remark)
+
+    if is_retake and not carry_on:
+        relevant_course_code = str(_extract('relevant_course_code') or '').strip()
+        relevant_session = str(_extract('relevant_academic_session') or '').strip()
+        relevant_year = str(_extract('relevant_year') or '').strip()
+        relevant_term = str(_extract('relevant_term') or '').strip()
+        if relevant_course_code and relevant_session and relevant_year and relevant_term:
+            return {
+                'course_code': relevant_course_code,
+                'academic_session': relevant_session,
+                'year': relevant_year,
+                'term': relevant_term
+            }
+
+    return {
+        'course_code': fallback_course_code,
+        'academic_session': fallback_session,
+        'year': fallback_year,
+        'term': fallback_term
+    }
 
 
 def _remove_students_from_class_sessions(course_code, academic_session, year, term, student_ids):
@@ -130,82 +257,178 @@ def _add_students_to_class_sessions(course_code, academic_session, year, term, s
         return
     
     try:
-        # Find all sessions for this course, session, year, and term
-        sessions = Session.query.filter_by(
-            course_code=course_code,
-            academic_session=academic_session,
-            year=year,
-            term=term
-        ).all()
-        
-        if not sessions:
-            current_app.logger.info(f'No sessions found for course {course_code}, session {academic_session}, year {year}, term {term}')
-            return
-        
         added_to_sessions = 0
-        
-        for session in sessions:
-            for student_info in students_data:
-                # Handle both dict and int formats
-                if isinstance(student_info, dict):
-                    student_id = student_info.get('student_id')
-                    carry_on = student_info.get('carry_on', False)
-                else:
-                    student_id = student_info
-                    carry_on = False
-                
-                # Get student record
-                student = Student.query.get(student_id)
-                if not student:
-                    current_app.logger.warning(f'Student with id {student_id} not found in Student model, skipping...')
+
+        sessions_cache = {}
+
+        for student_info in students_data:
+            # Handle both dict and int formats
+            if isinstance(student_info, dict):
+                student_id = student_info.get('student_id')
+                carry_on = student_info.get('carry_on', False)
+                target_course_code = (student_info.get('target_course_code') or course_code or '').strip()
+                target_session = (student_info.get('target_academic_session') or academic_session or '').strip()
+                target_year = (student_info.get('target_year') or year or '').strip()
+                target_term = (student_info.get('target_term') or term or '').strip()
+            else:
+                student_id = student_info
+                carry_on = False
+                target_course_code = (course_code or '').strip()
+                target_session = (academic_session or '').strip()
+                target_year = (year or '').strip()
+                target_term = (term or '').strip()
+
+            if not target_course_code or not target_session or not target_year or not target_term:
+                current_app.logger.warning(
+                    'Skipping class placement due to incomplete target context: '
+                    f'student_id={student_id}, target={target_course_code}/{target_session}/{target_year}/{target_term}'
+                )
+                continue
+
+            target_key = (target_course_code, target_session, target_year, target_term)
+            if target_key not in sessions_cache:
+                sessions_cache[target_key] = Session.query.filter_by(
+                    course_code=target_course_code,
+                    academic_session=target_session,
+                    year=target_year,
+                    term=target_term
+                ).all()
+            sessions = sessions_cache[target_key]
+
+            if not sessions:
+                current_app.logger.info(
+                    'No sessions found for target class placement (exact match). '
+                    f'Attempting to auto-create from course assignments: '
+                    f'course={target_course_code}, session={target_session}, year={target_year}, term={target_term}'
+                )
+
+                try:
+                    assignments = CourseSessionAssignment.query.join(
+                        Course, Course.id == CourseSessionAssignment.course_id
+                    ).filter(
+                        Course.course_code == target_course_code,
+                        CourseSessionAssignment.academic_session == target_session,
+                        CourseSessionAssignment.year == target_year,
+                        CourseSessionAssignment.term == target_term
+                    ).all()
+
+                    created_sessions = []
+                    for assignment in assignments:
+                        if not assignment.teacher_id:
+                            continue
+
+                        section_value = (assignment.section or '').strip().upper()
+                        if section_value == 'A':
+                            scope_value = 'part_a'
+                        elif section_value == 'B':
+                            scope_value = 'part_b'
+                        else:
+                            scope_value = 'full'
+
+                        existing_session = Session.query.filter_by(
+                            teacher_id=assignment.teacher_id,
+                            course_code=target_course_code,
+                            academic_session=target_session,
+                            year=target_year,
+                            term=target_term,
+                            course_scope=scope_value
+                        ).first()
+                        if existing_session:
+                            created_sessions.append(existing_session)
+                            continue
+
+                        session_obj = Session(
+                            year=target_year,
+                            term=target_term,
+                            academic_session=target_session,
+                            course_code=target_course_code,
+                            course_name=(assignment.course.course_name if assignment.course else target_course_code),
+                            teacher_id=assignment.teacher_id,
+                            course_type=_normalize_session_course_type(assignment.course.course_type if assignment.course else 'theory'),
+                            category=(assignment.course.category if assignment.course and assignment.course.category else 'ug'),
+                            course_scope=scope_value
+                        )
+                        db.session.add(session_obj)
+                        db.session.flush()
+                        created_sessions.append(session_obj)
+
+                    if created_sessions:
+                        sessions = created_sessions
+                        sessions_cache[target_key] = sessions
+                        current_app.logger.info(
+                            f'Auto-created/found {len(created_sessions)} target session(s) for '
+                            f'{target_course_code} {target_session}/{target_year}/{target_term}'
+                        )
+                    else:
+                        current_app.logger.info(
+                            'No assignments found to auto-create target sessions for '
+                            f'course={target_course_code}, session={target_session}, year={target_year}, term={target_term}'
+                        )
+                        continue
+                except Exception as auto_create_error:
+                    current_app.logger.warning(
+                        f'Failed to auto-create target sessions for class placement: {auto_create_error}',
+                        exc_info=True
+                    )
                     continue
-                
-                current_app.logger.info(f'Processing student: {student.student_id} ({student.name}) for session {session.id} (course: {session.course_code})')
-                
+
+            # Get student record
+            student = Student.query.get(student_id)
+            if not student:
+                current_app.logger.warning(f'Student with id {student_id} not found in Student model, skipping...')
+                continue
+
+            for session_obj in sessions:
+                current_app.logger.info(
+                    f'Processing student: {student.student_id} ({student.name}) for session '
+                    f'{session_obj.id} (course: {session_obj.course_code})'
+                )
+
                 # Check if student already exists in this session
                 existing = ClassStudent.query.filter_by(
-                    session_id=session.id,
+                    session_id=session_obj.id,
                     student_id=student.student_id
                 ).first()
-                
+
                 if existing:
-                    current_app.logger.info(f'Student {student.student_id} ({student.name}) already exists in session {session.id} for course {course_code}, skipping...')
+                    current_app.logger.info(
+                        f'Student {student.student_id} ({student.name}) already exists in session '
+                        f'{session_obj.id} for course {target_course_code}, skipping...'
+                    )
                     continue
-                
-                current_app.logger.info(f'Student {student.student_id} ({student.name}) does not exist in session {session.id}, will add...')
-                
+
                 # Add student to session
                 class_student = ClassStudent(
                     student_id=student.student_id,
                     name=student.name,
-                    session_id=session.id,
-                    teacher_id=session.teacher_id
+                    session_id=session_obj.id,
+                    teacher_id=session_obj.teacher_id
                 )
                 db.session.add(class_student)
                 db.session.flush()  # Flush to get class_student.id
-                
+
                 # Carry on assessment marks if enabled
                 if carry_on:
                     try:
                         from blueprints.class_management.routes import _carry_on_assessment_marks
-                        _carry_on_assessment_marks(class_student, session)
+                        _carry_on_assessment_marks(class_student, session_obj)
                     except Exception as carry_on_error:
                         current_app.logger.warning(f'Error carrying on marks for {student.student_id}: {carry_on_error}')
-                
+
                 # Replicate to peer sessions for split courses
                 try:
                     from blueprints.class_management.routes import _replicate_student_to_peers
-                    _replicate_student_to_peers(session, class_student)
+                    _replicate_student_to_peers(session_obj, class_student)
                 except Exception as replicate_error:
                     current_app.logger.warning(f'Error replicating student to peers for {student.student_id}: {replicate_error}')
-                
+
                 added_to_sessions += 1
         
         if added_to_sessions > 0:
             db.session.commit()
-            current_app.logger.info(f'Successfully added {added_to_sessions} student(s) to {len(sessions)} session(s) for course {course_code}')
+            current_app.logger.info(f'Successfully added {added_to_sessions} student(s) to Class Management sessions')
         else:
-            current_app.logger.warning(f'No students were added to Class Management for course {course_code}. They may already exist in the sessions.')
+            current_app.logger.warning('No students were added to Class Management. They may already exist in target sessions.')
         
     except Exception as e:
         db.session.rollback()
@@ -251,26 +474,16 @@ def infer_year_and_term(course_code: str):
     return year_map.get(year_digit, ''), term_map.get(term_digit, '')
 
 def get_available_batches(exclude_curriculum_id=None):
-    """Get all distinct batches from Student model that are not already assigned to any curriculum"""
-    # Get all batches from Student model
-    all_batches = db.session.query(Student.batch).distinct().filter(Student.batch.isnot(None)).order_by(Student.batch.desc()).all()
+    """Get all distinct batches from Student model.
+
+    Same batch can be used in multiple curricula/syllabus definitions.
+    """
+    all_batches = db.session.query(Student.batch).distinct().filter(
+        Student.batch.isnot(None),
+        Student.batch != ''
+    ).order_by(Student.batch.desc()).all()
     all_batch_values = [batch[0] for batch in all_batches if batch[0]]
-    
-    # Get all batches that are already assigned to curricula
-    assigned_batches = set()
-    curricula = Curriculum.query.all()
-    for curriculum in curricula:
-        # Skip the current curriculum if we're editing it
-        if exclude_curriculum_id and curriculum.id == exclude_curriculum_id:
-            continue
-        if curriculum.applicable_batches:
-            batches_list = curriculum.get_batches_list()
-            assigned_batches.update(batches_list)
-    
-    # Filter out assigned batches
-    available_batches = [batch for batch in all_batch_values if batch not in assigned_batches]
-    
-    return [(batch, batch) for batch in available_batches]
+    return [(batch, batch) for batch in all_batch_values]
 
 @course_management_bp.route('/')
 @login_required
@@ -368,6 +581,25 @@ def view_curriculum(curriculum_id):
         course_assignments = {}
         teacher_map = {}
     
+    # Build year-term session configuration map for UI.
+    # Key format keeps lookups simple from Jinja: "<year>|||<term>".
+    year_term_configs_map = {}
+    try:
+        all_configs = CurriculumYearTerm.query.filter_by(curriculum_id=curriculum_id).all()
+        for cfg in all_configs:
+            config_key = f'{(cfg.year or "").strip()}|||{(cfg.term or "").strip()}'
+            parsed_batches = []
+            if cfg.batch and cfg.batch.strip():
+                parsed_batches = [b.strip() for b in cfg.batch.split(',') if b.strip()]
+            year_term_configs_map.setdefault(config_key, []).append({
+                'academic_session': (cfg.academic_session or '').strip(),
+                'batch': cfg.batch or '',
+                'batches': parsed_batches,
+                'updated_at': cfg.updated_at.isoformat() if cfg.updated_at else None
+            })
+    except Exception:
+        year_term_configs_map = {}
+
     return render_template('course_management/index.html', 
                          curriculum=curriculum, 
                          courses=courses, 
@@ -380,7 +612,8 @@ def view_curriculum(curriculum_id):
                          curriculum_batches=curriculum_batches,
                          teachers=teachers,
                          course_assignments=course_assignments,
-                         teacher_map=teacher_map)
+                         teacher_map=teacher_map,
+                         year_term_configs_map=year_term_configs_map)
 
 @course_management_bp.route('/curriculum/add', methods=['POST'])
 @login_required
@@ -906,8 +1139,11 @@ def get_courses_for_registration():
     if 'student' not in roles and 'teaching_assistant' not in roles and 'teacher' not in roles and 'head' not in roles and 'dean' not in roles:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
     
-    year = request.args.get('year', '').strip()
-    term = request.args.get('term', '').strip()
+    # Supports both legacy keys (year/term) and source keys (source_year/source_term)
+    year = request.args.get('source_year', '').strip() or request.args.get('year', '').strip()
+    term = request.args.get('source_term', '').strip() or request.args.get('term', '').strip()
+    session_name = request.args.get('session', '').strip()
+    batch_value = request.args.get('batch', '').strip()
     
     if not year or not term:
         return jsonify({'success': False, 'message': 'Year and Term are required'}), 400
@@ -930,6 +1166,48 @@ def get_courses_for_registration():
     except Exception as e:
         current_app.logger.warning(f'Error checking CurriculumYearTerm not-running filter: {e}', exc_info=True)
         not_running_curriculum_ids = set()
+
+    # Optional strict curriculum scope for coordinator mixed-registration flow:
+    # when session+batch are provided, only return courses from curricula configured for
+    # selected session/year/term and containing the selected batch.
+    allowed_curriculum_ids = None
+    curriculum_label = ''
+    if session_name and batch_value:
+        allowed_curriculum_ids = set()
+        try:
+            matching_configs = CurriculumYearTerm.query.filter(
+                CurriculumYearTerm.academic_session == session_name,
+                CurriculumYearTerm.year == year,
+                CurriculumYearTerm.term == term,
+                CurriculumYearTerm.batch.isnot(None),
+                CurriculumYearTerm.batch != '',
+                CurriculumYearTerm.batch != 'None'
+            ).all()
+
+            for cfg in matching_configs:
+                configured_batches = [b.strip() for b in (cfg.batch or '').split(',') if b.strip()]
+                if batch_value in configured_batches:
+                    allowed_curriculum_ids.add(cfg.curriculum_id)
+
+            # Respect curriculum-level applicable batch settings too.
+            if allowed_curriculum_ids:
+                refined_ids = set()
+                curricula = Curriculum.query.filter(Curriculum.id.in_(allowed_curriculum_ids)).all()
+                for curriculum in curricula:
+                    applicable_batches = curriculum.get_batches_list()
+                    if not applicable_batches or batch_value in applicable_batches:
+                        refined_ids.add(curriculum.id)
+                allowed_curriculum_ids = refined_ids
+
+            if allowed_curriculum_ids:
+                curricula = Curriculum.query.filter(Curriculum.id.in_(allowed_curriculum_ids)).order_by(Curriculum.name.asc()).all()
+                curriculum_label = ', '.join([c.name for c in curricula]) if curricula else ''
+            else:
+                curriculum_label = f'No configured curriculum for batch {batch_value}'
+        except Exception as e:
+            current_app.logger.warning(f'Error resolving curriculum scope by batch: {e}', exc_info=True)
+            allowed_curriculum_ids = set()
+            curriculum_label = 'Curriculum lookup failed'
     
     # Get all offered courses
     query = Course.query.filter_by(offered=True)
@@ -941,6 +1219,9 @@ def get_courses_for_registration():
         if c.display_year == year and c.display_term == term:
             if c.curriculum_id and c.curriculum_id in not_running_curriculum_ids:
                 continue
+            if allowed_curriculum_ids is not None:
+                if not c.curriculum_id or c.curriculum_id not in allowed_curriculum_ids:
+                    continue
             filtered_courses.append({
                 'id': c.id,
                 'course_code': c.course_code,
@@ -948,13 +1229,96 @@ def get_courses_for_registration():
                 'credit': c.credit,
                 'course_type': c.course_type,
                 'category': c.category,
-                'nature': c.core_optional or 'Core'
+                'nature': c.core_optional or 'Core',
+                'source_year': year,
+                'source_term': term
             })
     
     return jsonify({
         'success': True,
-        'courses': filtered_courses
+        'courses': filtered_courses,
+        'curriculum_label': curriculum_label
     })
+
+
+@course_management_bp.route('/coordinator/register-student/api/relevant-courses', methods=['GET'])
+@login_required
+def get_relevant_courses_for_retake():
+    """Get relevant-course candidates scoped by selected session/year/term."""
+    roles = parse_roles(current_user.role)
+    if 'head' not in roles and 'dean' not in roles and 'teacher' not in roles:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    session_name = request.args.get('session', '').strip()
+    year = request.args.get('year', '').strip()
+    term = request.args.get('term', '').strip()
+
+    if not session_name or not year or not term:
+        return jsonify({'success': False, 'message': 'Session, Year and Term are required'}), 400
+
+    try:
+        def normalize_label(label):
+            if not label:
+                return ''
+            label = str(label).strip()
+            for suffix in [' Year', ' Term', 'Year', 'Term']:
+                if label.lower().endswith(suffix.lower()):
+                    label = label[:-len(suffix)].strip()
+            return label
+
+        normalized_year = normalize_label(year)
+        normalized_term = normalize_label(term)
+
+        # Scope relevant candidates to curricula configured for the selected
+        # academic session + year + term.
+        configured_year_terms = CurriculumYearTerm.query.filter(
+            CurriculumYearTerm.academic_session == session_name
+        ).all()
+        allowed_curriculum_ids = {
+            row.curriculum_id
+            for row in configured_year_terms
+            if row.curriculum_id
+            and normalize_label(row.year or '') == normalized_year
+            and normalize_label(row.term or '') == normalized_term
+        }
+
+        if not allowed_curriculum_ids:
+            return jsonify({'success': True, 'courses': []})
+
+        offered_courses = Course.query.filter(
+            Course.offered.is_(True),
+            Course.curriculum_id.in_(allowed_curriculum_ids)
+        ).order_by(Course.course_code.asc(), Course.course_name.asc(), Course.id.asc()).all()
+
+        relevant_candidates = []
+        seen_course_codes = set()
+        for course in offered_courses:
+            course_year = normalize_label(course.display_year or course.year or '')
+            course_term = normalize_label(course.display_term or course.term or '')
+            if course_year != normalized_year or course_term != normalized_term:
+                continue
+
+            normalized_code = (course.course_code or '').strip().lower()
+            if normalized_code in seen_course_codes:
+                continue
+            seen_course_codes.add(normalized_code)
+
+            relevant_candidates.append({
+                'id': course.id,
+                'course_code': course.course_code,
+                'course_name': course.course_name,
+                'credit': course.credit,
+                'course_type': course.course_type,
+                'nature': course.core_optional or 'Core',
+                'relevant_academic_session': session_name,
+                'relevant_year': year,
+                'relevant_term': term,
+            })
+
+        return jsonify({'success': True, 'courses': relevant_candidates})
+    except Exception as exc:
+        current_app.logger.error(f'Failed to load relevant courses: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to load relevant courses'}), 500
 
 
 @course_management_bp.route('/student/registration/api/year-term', methods=['GET'])
@@ -1024,14 +1388,13 @@ def get_saved_registrations():
     if not student_record:
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
 
-    # Get finalized registrations (Head registrations are automatically finalized)
+    # Return all non-archived registrations so student/head/coordinator views stay in sync.
     reg_query = StudentCourseRegistration.query.filter_by(
         student_id=student_record.id,
         academic_session=session_name,
         year=year,
-        term=term,
-        status='finalized'
-    )
+        term=term
+    ).filter(StudentCourseRegistration.status != 'archived')
     
     # Apply active semester filtering (if not admin and filter function available)
     if filter_by_active_semester and not is_admin(current_user):
@@ -1044,13 +1407,24 @@ def get_saved_registrations():
     registrations = reg_query.order_by(StudentCourseRegistration.course_code.asc()).all()
 
     data = [{
+        # Keep `id` as course_id for UI compatibility and provide explicit registration_id.
         'id': reg.course_id,
+        'registration_id': reg.id,
+        'course_id': reg.course_id,
         'course_code': reg.course_code,
         'course_name': reg.course_name,
         'credit': reg.credit,
         'course_type': reg.course_type,
         'nature': reg.nature,
         'remark': reg.remark,
+        'source_year': (reg.source_year or reg.year),
+        'source_term': (reg.source_term or reg.term),
+        'relevant_course_id': reg.relevant_course_id,
+        'relevant_course_code': reg.relevant_course_code,
+        'relevant_academic_session': reg.relevant_academic_session,
+        'relevant_year': reg.relevant_year,
+        'relevant_term': reg.relevant_term,
+        'use_relevant_for_committee': reg.use_relevant_for_committee if hasattr(reg, 'use_relevant_for_committee') else True,
         'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False,
         'status': reg.status,
         'registered_by': reg.registered_by if hasattr(reg, 'registered_by') else 'student'
@@ -1250,6 +1624,9 @@ def save_course_registration():
             term=term
         ).all()
         existing_carry_on = {reg.course_code: getattr(reg, 'carry_on', False) for reg in existing_regs}
+        existing_use_relevant_for_committee = {
+            reg.course_code: getattr(reg, 'use_relevant_for_committee', True) for reg in existing_regs
+        }
         
         # If coordinator/head already created or finalized registrations, student cannot edit those
         coordinator_registrations = [reg for reg in existing_regs if reg.registered_by in ['coordinator', 'head'] or reg.status == 'finalized']
@@ -1267,13 +1644,8 @@ def save_course_registration():
             term=term
         ).all()
         
-        # Group by course_code to remove from Class Management
-        courses_to_remove = {}
-        for reg in existing_regs_to_delete:
-            if reg.status == 'finalized':  # Only remove from Class Management if finalized
-                if reg.course_code not in courses_to_remove:
-                    courses_to_remove[reg.course_code] = []
-                courses_to_remove[reg.course_code].append(student_record.id)
+        # Track finalized registrations so class entries can be removed from their actual target context.
+        finalized_regs_to_remove = [reg for reg in existing_regs_to_delete if reg.status == 'finalized']
         
         # Delete existing registrations (only student-initiated ones)
         StudentCourseRegistration.query.filter_by(
@@ -1283,11 +1655,22 @@ def save_course_registration():
             term=term
         ).delete()
         
-        # Remove students from Class Management for deleted registrations
-        for course_code, student_ids_list in courses_to_remove.items():
+        # Remove students from Class Management for deleted finalized registrations
+        for reg in finalized_regs_to_remove:
             try:
+                class_target = _resolve_class_target_context(
+                    reg,
+                    fallback_course_code=reg.course_code,
+                    fallback_session=session_name,
+                    fallback_year=year,
+                    fallback_term=term
+                )
                 _remove_students_from_class_sessions(
-                    course_code, session_name, year, term, student_ids_list
+                    class_target['course_code'],
+                    class_target['academic_session'],
+                    class_target['year'],
+                    class_target['term'],
+                    [student_record.id]
                 )
             except Exception as remove_error:
                 current_app.logger.error(f'Error removing students from Class Management: {remove_error}', exc_info=True)
@@ -1298,6 +1681,26 @@ def save_course_registration():
             registered_by = 'student'
             # Keep carry_on fallback from any prior draft if not provided
             carry_on_val = course.get('carry_on', existing_carry_on.get(course.get('course_code', ''), False))
+            remark_value = str(course.get('remark', 'Regular') or 'Regular').strip() or 'Regular'
+            is_retake = _is_retake_remark(remark_value)
+            normalized_source_year, normalized_source_term = _normalize_source_year_term(
+                course.get('source_year'),
+                course.get('source_term'),
+                year,
+                term
+            )
+            relevant_mapping = _normalize_relevant_course_mapping(
+                course,
+                default_year=normalized_source_year,
+                default_term=normalized_source_term
+            )
+            if not is_retake:
+                relevant_mapping = _normalize_relevant_course_mapping({})
+            use_relevant_for_committee = _resolve_use_relevant_for_committee(
+                course.get('use_relevant_for_committee'),
+                is_retake,
+                existing_value=existing_use_relevant_for_committee.get(course.get('course_code', ''))
+            )
                         
             reg = StudentCourseRegistration(
                 student_id=student_record.id,
@@ -1305,13 +1708,21 @@ def save_course_registration():
                 academic_session=session_name,
                 year=year,
                 term=term,
+                source_year=normalized_source_year,
+                source_term=normalized_source_term,
                 course_code=course.get('course_code', ''),
                 course_name=course.get('course_name', ''),
                 credit=course.get('credit', 0),
                 course_type=course.get('course_type', ''),
                 nature=course.get('nature', 'Core'),
-                remark=course.get('remark', 'Regular'),
+                remark=remark_value,
                 carry_on=carry_on_val,
+                relevant_course_id=relevant_mapping['relevant_course_id'],
+                relevant_course_code=relevant_mapping['relevant_course_code'],
+                relevant_academic_session=relevant_mapping['relevant_academic_session'],
+                relevant_year=relevant_mapping['relevant_year'],
+                relevant_term=relevant_mapping['relevant_term'],
+                use_relevant_for_committee=use_relevant_for_committee,
                 status=status,
                 registered_by=registered_by
             )
@@ -1322,6 +1733,13 @@ def save_course_registration():
         # Add this student to Class Management for each finalized registration (fresh set)
         try:
             for course in courses:
+                class_target = _resolve_class_target_context(
+                    course,
+                    fallback_course_code=course.get('course_code', ''),
+                    fallback_session=session_name,
+                    fallback_year=year,
+                    fallback_term=term
+                )
                 _add_students_to_class_sessions(
                     course_code=course.get('course_code', ''),
                     academic_session=session_name,
@@ -1329,7 +1747,11 @@ def save_course_registration():
                     term=term,
                     students_data=[{
                         'student_id': student_record.id,
-                        'carry_on': course.get('carry_on', False)
+                        'carry_on': course.get('carry_on', False),
+                        'target_course_code': class_target['course_code'],
+                        'target_academic_session': class_target['academic_session'],
+                        'target_year': class_target['year'],
+                        'target_term': class_target['term'],
                     }]
                 )
         except Exception as session_error:
@@ -1967,6 +2389,14 @@ def view_student_registration(student_id):
         'course_type': reg.course_type,
         'nature': reg.nature,
         'remark': reg.remark,
+        'source_year': (reg.source_year or reg.year),
+        'source_term': (reg.source_term or reg.term),
+        'relevant_course_id': reg.relevant_course_id,
+        'relevant_course_code': reg.relevant_course_code,
+        'relevant_academic_session': reg.relevant_academic_session,
+        'relevant_year': reg.relevant_year,
+        'relevant_term': reg.relevant_term,
+        'use_relevant_for_committee': reg.use_relevant_for_committee if hasattr(reg, 'use_relevant_for_committee') else True,
         'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False,
         'status': reg.status
     } for reg in registrations]
@@ -2006,7 +2436,7 @@ def remove_all_courses_from_registration():
     
     if not student_id or not session_name or not year or not term:
         return jsonify({'success': False, 'message': 'Student ID, Session, Year, and Term are required'}), 400
-    
+
     if not registration_ids or len(registration_ids) == 0:
         return jsonify({'success': False, 'message': 'No registration IDs provided'}), 400
     
@@ -2029,21 +2459,25 @@ def remove_all_courses_from_registration():
         # Remove from Class Management if registrations were finalized
         finalized_regs = [reg for reg in regs if reg.status == 'finalized']
         if finalized_regs:
-            # Group by course_code
-            courses_to_remove = {}
+            # Remove from Class Management using each registration's target context.
             for reg in finalized_regs:
-                if reg.course_code not in courses_to_remove:
-                    courses_to_remove[reg.course_code] = []
-                courses_to_remove[reg.course_code].append(reg.student_id)
-            
-            # Remove from Class Management for each course
-            for course_code, student_id_list in courses_to_remove.items():
                 try:
+                    class_target = _resolve_class_target_context(
+                        reg,
+                        fallback_course_code=reg.course_code,
+                        fallback_session=session_name,
+                        fallback_year=year,
+                        fallback_term=term
+                    )
                     _remove_students_from_class_sessions(
-                        course_code, session_name, year, term, student_id_list
+                        class_target['course_code'],
+                        class_target['academic_session'],
+                        class_target['year'],
+                        class_target['term'],
+                        [reg.student_id]
                     )
                 except Exception as remove_error:
-                    current_app.logger.error(f'Error removing students from Class Management for course {course_code}: {remove_error}', exc_info=True)
+                    current_app.logger.error(f'Error removing students from Class Management for course {reg.course_code}: {remove_error}', exc_info=True)
         
         # Delete related invites and registrations
         for reg in regs:
@@ -2109,8 +2543,19 @@ def remove_course_from_registration():
         # Remove from Class Management if registration was finalized
         if reg.status == 'finalized':
             try:
+                class_target = _resolve_class_target_context(
+                    reg,
+                    fallback_course_code=course_code,
+                    fallback_session=session_name,
+                    fallback_year=year,
+                    fallback_term=term
+                )
                 _remove_students_from_class_sessions(
-                    course_code, session_name, year, term, [student_id]
+                    class_target['course_code'],
+                    class_target['academic_session'],
+                    class_target['year'],
+                    class_target['term'],
+                    [student_id]
                 )
             except Exception as remove_error:
                 current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
@@ -2193,7 +2638,35 @@ def update_student_registration():
                 reg.credit = course.get('credit', reg.credit)
                 reg.course_type = course.get('course_type', reg.course_type)
                 reg.nature = course.get('nature', reg.nature)
-                reg.remark = course.get('remark', reg.remark)
+                remark_value = str(course.get('remark', reg.remark) or 'Regular').strip() or 'Regular'
+                is_retake = _is_retake_remark(remark_value)
+                reg.remark = remark_value
+                normalized_source_year, normalized_source_term = _normalize_source_year_term(
+                    course.get('source_year'),
+                    course.get('source_term'),
+                    year,
+                    term
+                )
+                relevant_mapping = _normalize_relevant_course_mapping(
+                    course,
+                    default_year=normalized_source_year,
+                    default_term=normalized_source_term
+                )
+                if not is_retake:
+                    relevant_mapping = _normalize_relevant_course_mapping({})
+                use_relevant_for_committee = _resolve_use_relevant_for_committee(
+                    course.get('use_relevant_for_committee'),
+                    is_retake,
+                    existing_value=reg.use_relevant_for_committee
+                )
+                reg.source_year = normalized_source_year
+                reg.source_term = normalized_source_term
+                reg.relevant_course_id = relevant_mapping['relevant_course_id']
+                reg.relevant_course_code = relevant_mapping['relevant_course_code']
+                reg.relevant_academic_session = relevant_mapping['relevant_academic_session']
+                reg.relevant_year = relevant_mapping['relevant_year']
+                reg.relevant_term = relevant_mapping['relevant_term']
+                reg.use_relevant_for_committee = use_relevant_for_committee
                 # Update carry_on if provided
                 if 'carry_on' in course:
                     reg.carry_on = course.get('carry_on', False)
@@ -2221,19 +2694,46 @@ def update_student_registration():
                     registered_by = 'student'  # Student initiated, coordinator is finalizing
                 else:
                     registered_by = 'head' if is_head else 'coordinator'
+                normalized_source_year, normalized_source_term = _normalize_source_year_term(
+                    course.get('source_year'),
+                    course.get('source_term'),
+                    year,
+                    term
+                )
+                remark_value = str(course.get('remark', 'Regular') or 'Regular').strip() or 'Regular'
+                is_retake = _is_retake_remark(remark_value)
+                relevant_mapping = _normalize_relevant_course_mapping(
+                    course,
+                    default_year=normalized_source_year,
+                    default_term=normalized_source_term
+                )
+                if not is_retake:
+                    relevant_mapping = _normalize_relevant_course_mapping({})
+                use_relevant_for_committee = _resolve_use_relevant_for_committee(
+                    course.get('use_relevant_for_committee'),
+                    is_retake
+                )
                 reg = StudentCourseRegistration(
                     student_id=student_id,
                     course_id=course.get('course_id'),
                     academic_session=session_name,
                     year=year,
                     term=term,
+                    source_year=normalized_source_year,
+                    source_term=normalized_source_term,
                     course_code=course_code,
                     course_name=course.get('course_name', ''),
                     credit=course.get('credit', 0),
                     course_type=course.get('course_type', ''),
                     nature=course.get('nature', 'Core'),
-                    remark=course.get('remark', 'Regular'),
+                    remark=remark_value,
                     carry_on=course.get('carry_on', False),
+                    relevant_course_id=relevant_mapping['relevant_course_id'],
+                    relevant_course_code=relevant_mapping['relevant_course_code'],
+                    relevant_academic_session=relevant_mapping['relevant_academic_session'],
+                    relevant_year=relevant_mapping['relevant_year'],
+                    relevant_term=relevant_mapping['relevant_term'],
+                    use_relevant_for_committee=use_relevant_for_committee,
                     status=update_status,
                     registered_by=registered_by
                 )
@@ -2246,8 +2746,19 @@ def update_student_registration():
                 # Remove from Class Management if registration was finalized
                 if reg.status == 'finalized':
                     try:
+                        class_target = _resolve_class_target_context(
+                            reg,
+                            fallback_course_code=reg.course_code,
+                            fallback_session=session_name,
+                            fallback_year=year,
+                            fallback_term=term
+                        )
                         _remove_students_from_class_sessions(
-                            reg.course_code, session_name, year, term, [student_id]
+                            class_target['course_code'],
+                            class_target['academic_session'],
+                            class_target['year'],
+                            class_target['term'],
+                            [student_id]
                         )
                     except Exception as remove_error:
                         current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
@@ -2366,32 +2877,40 @@ def update_student_registration():
                 else:
                     current_app.logger.info(f'Found {len(finalized_regs)} finalized registration(s) for student {student_id}')
                 
-                # Group by course_code to add to Class Management
-                courses_to_add = {}
+                current_app.logger.info(f'Preparing to add student to {len(finalized_regs)} finalized registration target(s) in Class Management')
+
+                # Add student to Class Management for each finalized registration
                 for reg in finalized_regs:
-                    if reg.course_code not in courses_to_add:
-                        courses_to_add[reg.course_code] = []
-                    courses_to_add[reg.course_code].append({
-                        'student_id': student_id,  # This is Student model's id (primary key)
-                        'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False
-                    })
-                
-                current_app.logger.info(f'Preparing to add student to {len(courses_to_add)} course(s) in Class Management')
-                
-                # Add students to Class Management for each finalized course
-                for course_code, students_data in courses_to_add.items():
                     try:
-                        current_app.logger.info(f'Adding student {student_id} ({student.student_id if student else "unknown"}) to Class Management for course {course_code}, session {session_name}, year {year}, term {term}')
+                        class_target = _resolve_class_target_context(
+                            reg,
+                            fallback_course_code=reg.course_code,
+                            fallback_session=session_name,
+                            fallback_year=year,
+                            fallback_term=term
+                        )
+                        current_app.logger.info(
+                            f'Adding student {student_id} ({student.student_id if student else "unknown"}) '
+                            f'to Class Management target {class_target["course_code"]}/'
+                            f'{class_target["academic_session"]}/{class_target["year"]}/{class_target["term"]}'
+                        )
                         _add_students_to_class_sessions(
-                            course_code=course_code,
+                            course_code=reg.course_code,
                             academic_session=session_name,
                             year=year,
                             term=term,
-                            students_data=students_data
+                            students_data=[{
+                                'student_id': student_id,
+                                'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False,
+                                'target_course_code': class_target['course_code'],
+                                'target_academic_session': class_target['academic_session'],
+                                'target_year': class_target['year'],
+                                'target_term': class_target['term'],
+                            }]
                         )
-                        current_app.logger.info(f'Successfully added student {student_id} to Class Management for course {course_code}')
+                        current_app.logger.info(f'Successfully added student {student_id} to Class Management for course {reg.course_code}')
                     except Exception as session_error:
-                        current_app.logger.error(f'Failed to add student to class sessions for course {course_code}: {session_error}', exc_info=True)
+                        current_app.logger.error(f'Failed to add student to class sessions for course {reg.course_code}: {session_error}', exc_info=True)
             except Exception as add_error:
                 current_app.logger.warning(f'Failed to add students to Class Management: {add_error}', exc_info=True)
                 # Don't fail the registration if session addition fails
@@ -2505,6 +3024,14 @@ def coordinator_save_student_registration():
     session_name = data.get('session', '').strip()
     year = data.get('year', '').strip()
     term = data.get('term', '').strip()
+    source_year = data.get('source_year', '').strip()
+    source_term = data.get('source_term', '').strip()
+    relevant_course_id = data.get('relevant_course_id')
+    relevant_course_code = data.get('relevant_course_code', '').strip()
+    relevant_academic_session = data.get('relevant_academic_session', '').strip()
+    relevant_year = data.get('relevant_year', '').strip()
+    relevant_term = data.get('relevant_term', '').strip()
+    use_relevant_for_committee = data.get('use_relevant_for_committee')
     
     # Support both old format (student_ids + remark) and new format (students array)
     students_data = data.get('students', [])  # New format: [{student_id, remark, carry_on}]
@@ -2536,8 +3063,19 @@ def coordinator_save_student_registration():
                     # Remove from Class Management if finalized
                     if reg_to_delete.status == 'finalized':
                         try:
+                            class_target = _resolve_class_target_context(
+                                reg_to_delete,
+                                fallback_course_code=course_code,
+                                fallback_session=session_name,
+                                fallback_year=year,
+                                fallback_term=term
+                            )
                             _remove_students_from_class_sessions(
-                                course_code, session_name, year, term, [student_id_to_remove]
+                                class_target['course_code'],
+                                class_target['academic_session'],
+                                class_target['year'],
+                                class_target['term'],
+                                [student_id_to_remove]
                             )
                         except Exception as remove_error:
                             current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
@@ -2583,6 +3121,14 @@ def coordinator_save_student_registration():
         return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
     
     try:
+        base_relevant_mapping = _normalize_relevant_course_mapping({
+            'relevant_course_id': relevant_course_id,
+            'relevant_course_code': relevant_course_code,
+            'relevant_academic_session': relevant_academic_session,
+            'relevant_year': relevant_year,
+            'relevant_term': relevant_term
+        }, default_year=source_year or year, default_term=source_term or term)
+
         # Get existing registrations for this course to identify removed students
         # CRITICAL: We need to track which students were in the PREVIOUS save operation for THIS teacher
         # We do this by checking for invites that belong to THIS teacher BEFORE we make any changes
@@ -2616,13 +3162,71 @@ def coordinator_save_student_registration():
             # Handle both dict and int formats
             if isinstance(student_info, dict):
                 student_id = student_info.get('student_id')
-                remark = student_info.get('remark', 'Regular').strip()
+                remark = str(student_info.get('remark', 'Regular') or 'Regular').strip() or 'Regular'
                 carry_on = student_info.get('carry_on', False)
+                row_use_relevant_for_committee = student_info.get('use_relevant_for_committee')
+                row_relevant_mapping = _normalize_relevant_course_mapping({
+                    'relevant_course_id': student_info.get('relevant_course_id'),
+                    'relevant_course_code': student_info.get('relevant_course_code'),
+                    'relevant_academic_session': student_info.get('relevant_academic_session'),
+                    'relevant_year': student_info.get('relevant_year'),
+                    'relevant_term': student_info.get('relevant_term')
+                }, default_year=source_year or year, default_term=source_term or term)
             else:
                 # Old format: just student_id
                 student_id = student_info
                 remark = 'Regular'
                 carry_on = False
+                row_use_relevant_for_committee = use_relevant_for_committee
+                row_relevant_mapping = _normalize_relevant_course_mapping({})
+
+            remark_normalized = remark.lower()
+            is_retake = remark_normalized in {'retake', 're-retake', 're retake', 'reretake'}
+            if is_retake and (not session_name or not year or not term):
+                return jsonify({
+                    'success': False,
+                    'message': 'Retake/Re-retake registration requires running Session, Year, and Term.'
+                }), 400
+            effective_relevant_mapping = row_relevant_mapping
+            if not effective_relevant_mapping['relevant_course_code']:
+                effective_relevant_mapping = base_relevant_mapping
+            if is_retake and not effective_relevant_mapping['relevant_course_code']:
+                return jsonify({
+                    'success': False,
+                    'message': f'Relevant course is required for retake/re-retake (Student ID: {student_id}).'
+                }), 400
+            if is_retake and (
+                not effective_relevant_mapping['relevant_academic_session']
+                or not effective_relevant_mapping['relevant_year']
+                or not effective_relevant_mapping['relevant_term']
+            ):
+                return jsonify({
+                    'success': False,
+                    'message': f'Relevant course context (session/year/term) is incomplete (Student ID: {student_id}).'
+                }), 400
+            if not is_retake:
+                effective_relevant_mapping = _normalize_relevant_course_mapping({})
+            existing_row = None
+            if student_id and course_code and session_name and year and term:
+                existing_row = StudentCourseRegistration.query.filter_by(
+                    student_id=student_id,
+                    course_code=course_code,
+                    academic_session=session_name,
+                    year=year,
+                    term=term
+                ).first()
+            effective_use_relevant_for_committee = _resolve_use_relevant_for_committee(
+                row_use_relevant_for_committee,
+                is_retake,
+                existing_value=(existing_row.use_relevant_for_committee if existing_row else None)
+            )
+            if is_retake:
+                current_app.logger.info(
+                    '[retake_context] coordinator_save_student_registration '
+                    f'student_id={student_id}, course={course_code}, session={session_name}, year={year}, term={term}, '
+                    f'remark={remark}, carry_on={bool(carry_on)}, '
+                    f'relevant={effective_relevant_mapping}'
+                )
             
             # Check if student exists
             student = Student.query.get(student_id)
@@ -2668,6 +3272,20 @@ def coordinator_save_student_registration():
                 existing_reg.nature = course.core_optional or 'Core'
                 existing_reg.remark = remark
                 existing_reg.carry_on = carry_on
+                normalized_source_year, normalized_source_term = _normalize_source_year_term(
+                    source_year,
+                    source_term,
+                    year,
+                    term
+                )
+                existing_reg.source_year = normalized_source_year
+                existing_reg.source_term = normalized_source_term
+                existing_reg.relevant_course_id = effective_relevant_mapping['relevant_course_id']
+                existing_reg.relevant_course_code = effective_relevant_mapping['relevant_course_code']
+                existing_reg.relevant_academic_session = effective_relevant_mapping['relevant_academic_session']
+                existing_reg.relevant_year = effective_relevant_mapping['relevant_year']
+                existing_reg.relevant_term = effective_relevant_mapping['relevant_term']
+                existing_reg.use_relevant_for_committee = effective_use_relevant_for_committee
                 existing_reg.status = registration_status
                 # Preserve registered_by if it was coordinator/head, otherwise update
                 if existing_reg.registered_by in ['coordinator', 'head']:
@@ -2675,12 +3293,20 @@ def coordinator_save_student_registration():
                 reg = existing_reg
             else:
                 # Create new registration
+                normalized_source_year, normalized_source_term = _normalize_source_year_term(
+                    source_year,
+                    source_term,
+                    year,
+                    term
+                )
                 reg = StudentCourseRegistration(
                     student_id=student_id,
                     course_id=course_id,
                     academic_session=session_name,
                     year=year,
                     term=term,
+                    source_year=normalized_source_year,
+                    source_term=normalized_source_term,
                     course_code=course_code,
                     course_name=course_name,
                     credit=course.credit,
@@ -2688,6 +3314,12 @@ def coordinator_save_student_registration():
                     nature=course.core_optional or 'Core',
                     remark=remark,
                     carry_on=carry_on,
+                    relevant_course_id=effective_relevant_mapping['relevant_course_id'],
+                    relevant_course_code=effective_relevant_mapping['relevant_course_code'],
+                    relevant_academic_session=effective_relevant_mapping['relevant_academic_session'],
+                    relevant_year=effective_relevant_mapping['relevant_year'],
+                    relevant_term=effective_relevant_mapping['relevant_term'],
+                    use_relevant_for_committee=effective_use_relevant_for_committee,
                     status=registration_status,
                     registered_by=registered_by
                 )
@@ -2753,9 +3385,30 @@ def coordinator_save_student_registration():
         if removed_student_ids and registration_status == 'finalized':
             try:
                 current_app.logger.warning(f'[coordinator_save] REMOVING {len(removed_student_ids)} student(s) from Class Management for course {course_code}. Student IDs: {removed_student_ids}')
-                _remove_students_from_class_sessions(
-                    course_code, session_name, year, term, list(removed_student_ids)
-                )
+                removed_regs = [
+                    inv.registration for inv in existing_invites_before_update
+                    if inv.registration and inv.registration.student_id in removed_student_ids
+                ]
+                if removed_regs:
+                    for reg in removed_regs:
+                        class_target = _resolve_class_target_context(
+                            reg,
+                            fallback_course_code=course_code,
+                            fallback_session=session_name,
+                            fallback_year=year,
+                            fallback_term=term
+                        )
+                        _remove_students_from_class_sessions(
+                            class_target['course_code'],
+                            class_target['academic_session'],
+                            class_target['year'],
+                            class_target['term'],
+                            [reg.student_id]
+                        )
+                else:
+                    _remove_students_from_class_sessions(
+                        course_code, session_name, year, term, list(removed_student_ids)
+                    )
                 current_app.logger.info(f'[coordinator_save] Successfully removed {len(removed_student_ids)} student(s) from Class Management')
             except Exception as remove_error:
                 current_app.logger.error(f'[coordinator_save] Error removing students from Class Management: {remove_error}', exc_info=True)
@@ -2770,12 +3423,52 @@ def coordinator_save_student_registration():
         # Only for finalized registrations (Head registrations are automatically finalized)
         if registration_status == 'finalized':
             try:
+                finalized_regs_for_students = StudentCourseRegistration.query.filter(
+                    StudentCourseRegistration.course_code == course_code,
+                    StudentCourseRegistration.academic_session == session_name,
+                    StudentCourseRegistration.year == year,
+                    StudentCourseRegistration.term == term,
+                    StudentCourseRegistration.status == 'finalized',
+                    StudentCourseRegistration.student_id.in_([s.get('student_id') for s in students_data if isinstance(s, dict)])
+                ).all()
+                reg_map = {reg.student_id: reg for reg in finalized_regs_for_students}
+                students_for_class = []
+                for student_info in students_data:
+                    if isinstance(student_info, dict):
+                        sid = student_info.get('student_id')
+                        carry_on_flag = student_info.get('carry_on', False)
+                    else:
+                        sid = student_info
+                        carry_on_flag = False
+                    reg_obj = reg_map.get(sid)
+                    class_target = _resolve_class_target_context(
+                        reg_obj or {
+                            'remark': student_info.get('remark') if isinstance(student_info, dict) else 'Regular',
+                            'carry_on': carry_on_flag,
+                            'relevant_course_code': (base_relevant_mapping or {}).get('relevant_course_code'),
+                            'relevant_academic_session': (base_relevant_mapping or {}).get('relevant_academic_session'),
+                            'relevant_year': (base_relevant_mapping or {}).get('relevant_year'),
+                            'relevant_term': (base_relevant_mapping or {}).get('relevant_term'),
+                        },
+                        fallback_course_code=course_code,
+                        fallback_session=session_name,
+                        fallback_year=year,
+                        fallback_term=term
+                    )
+                    students_for_class.append({
+                        'student_id': sid,
+                        'carry_on': carry_on_flag,
+                        'target_course_code': class_target['course_code'],
+                        'target_academic_session': class_target['academic_session'],
+                        'target_year': class_target['year'],
+                        'target_term': class_target['term'],
+                    })
                 _add_students_to_class_sessions(
                     course_code=course_code,
                     academic_session=session_name,
                     year=year,
                     term=term,
-                    students_data=students_data
+                    students_data=students_for_class
                 )
             except Exception as session_error:
                 current_app.logger.warning(f'Failed to add students to class sessions: {session_error}', exc_info=True)
@@ -2788,7 +3481,7 @@ def coordinator_save_student_registration():
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to save coordinator registration: {exc}', exc_info=True)
-        return jsonify({'success': False, 'message': 'Failed to save registration'}), 500
+        return jsonify({'success': False, 'message': f'Failed to save registration: {exc}'}), 500
 
 
 @course_management_bp.route('/coordinator/register-student/api/batches', methods=['GET'])
@@ -2817,7 +3510,17 @@ def get_batches_for_registration():
             CurriculumYearTerm.batch != 'None'  # Exclude "Not Running" entries
         ).order_by(CurriculumYearTerm.batch.desc()).all()
         
-        primary_batches = [b[0] for b in primary_batch_query if b[0] and b[0] != 'None']
+        primary_batches = []
+        seen_primary = set()
+        for row in primary_batch_query:
+            raw_value = (row[0] or '').strip()
+            if not raw_value or raw_value == 'None':
+                continue
+            for batch in [b.strip() for b in raw_value.split(',') if b.strip()]:
+                if batch == 'None' or batch in seen_primary:
+                    continue
+                seen_primary.add(batch)
+                primary_batches.append(batch)
         
         current_app.logger.info(f'[get_batches_for_registration] Session: {session_name}, Year: {year}, Term: {term}')
         current_app.logger.info(f'[get_batches_for_registration] Primary batch query returned: {primary_batch_query}')
@@ -2983,47 +3686,160 @@ def get_students_for_course_registration():
 @course_management_bp.route('/curriculum/<int:curriculum_id>/year-term-config', methods=['POST'])
 @login_required
 def save_year_term_config(curriculum_id):
-    """Save or update batch and academic session for a year/term combination"""
+    """Save year/term configuration with one or more academic sessions."""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
     
     data = request.get_json() or {}
     year = data.get('year', '').strip()
     term = data.get('term', '').strip()
     academic_session = data.get('academic_session', '').strip()
-    batch = data.get('batch', '').strip()
     
     if not year or not term:
         return jsonify({'success': False, 'message': 'Year and Term are required'}), 400
     
     try:
-        # Check if configuration already exists
-        config = CurriculumYearTerm.query.filter_by(
+        session_configs_payload = data.get('session_configs')
+
+        normalized_session_configs = []
+        if isinstance(session_configs_payload, list):
+            # New format: one year/term can have many academic sessions.
+            merged_by_session = {}
+            merged_session_name = {}
+            session_order = []
+            for item in session_configs_payload:
+                if not isinstance(item, dict):
+                    continue
+                session_value = str(item.get('academic_session', '') or '').strip()
+                raw_batches = item.get('batches', [])
+                if isinstance(raw_batches, str):
+                    raw_batches = [raw_batches]
+                elif not isinstance(raw_batches, list):
+                    raw_batches = []
+
+                cleaned_batches = []
+                seen_batches = set()
+                for raw_batch in raw_batches:
+                    batch_value = str(raw_batch or '').strip()
+                    if not batch_value or batch_value in seen_batches:
+                        continue
+                    seen_batches.add(batch_value)
+                    cleaned_batches.append(batch_value)
+
+                # Skip fully empty rows (e.g., an untouched newly-added row).
+                if not session_value and not cleaned_batches:
+                    continue
+                # Session name is required for a usable config row.
+                if not session_value:
+                    return jsonify({
+                        'success': False,
+                        'message': 'Each configuration row must include an Academic Session.'
+                    }), 400
+
+                # Keep session keys case-insensitive to avoid MySQL collation conflicts.
+                session_key = session_value.casefold()
+                if session_key not in merged_by_session:
+                    merged_by_session[session_key] = []
+                    merged_session_name[session_key] = session_value
+                    session_order.append(session_key)
+                merged_by_session[session_key].extend(cleaned_batches)
+
+            for session_key in session_order:
+                session_value = merged_session_name.get(session_key) or session_key
+                deduped_batches = []
+                seen = set()
+                for batch_value in merged_by_session[session_key]:
+                    if batch_value in seen:
+                        continue
+                    seen.add(batch_value)
+                    deduped_batches.append(batch_value)
+
+                if 'None' in deduped_batches:
+                    batch_value = 'None'
+                else:
+                    batch_value = ','.join(deduped_batches) if deduped_batches else None
+
+                normalized_session_configs.append({
+                    'academic_session': session_value,
+                    'batch': batch_value
+                })
+        else:
+            # Legacy format fallback: a single row payload.
+            batches = data.get('batches', [])
+            if isinstance(batches, str):
+                batches = [batches]
+            elif not isinstance(batches, list):
+                batches = []
+
+            legacy_batch = data.get('batch', '').strip()
+            if legacy_batch and not batches:
+                batches = [legacy_batch]
+
+            normalized_batches = []
+            seen_batches = set()
+            for raw_batch in batches:
+                batch_value = str(raw_batch).strip()
+                if not batch_value or batch_value in seen_batches:
+                    continue
+                seen_batches.add(batch_value)
+                normalized_batches.append(batch_value)
+
+            if 'None' in normalized_batches:
+                batch = 'None'
+            else:
+                batch = ','.join(normalized_batches) if normalized_batches else None
+
+            normalized_session_configs.append({
+                'academic_session': academic_session if academic_session else None,
+                'batch': batch
+            })
+
+        # Replace all configs for this year/term with submitted rows.
+        CurriculumYearTerm.query.filter_by(
             curriculum_id=curriculum_id,
             year=year,
             term=term
-        ).first()
-        
-        if config:
-            # Update existing
-            config.academic_session = academic_session if academic_session else None
-            config.batch = batch if batch else None
-            config.updated_at = datetime.utcnow()
-        else:
-            # Create new
-            config = CurriculumYearTerm(
+        ).delete(synchronize_session=False)
+
+        for cfg in normalized_session_configs:
+            db.session.add(CurriculumYearTerm(
                 curriculum_id=curriculum_id,
                 year=year,
                 term=term,
-                academic_session=academic_session if academic_session else None,
-                batch=batch if batch else None
-            )
-            db.session.add(config)
+                academic_session=cfg['academic_session'],
+                batch=cfg['batch']
+            ))
         
         db.session.commit()
         return jsonify({
             'success': True,
-            'message': 'Configuration saved successfully'
+            'message': 'Configuration saved successfully',
+            'saved_count': len(normalized_session_configs)
         })
+    except IntegrityError as exc:
+        db.session.rollback()
+        raw_error = str(getattr(exc, 'orig', exc))
+        current_app.logger.error(f'Year/term config integrity error: {raw_error}', exc_info=True)
+        normalized_error = raw_error.lower()
+        # Helpful message when production DB still has old unique key:
+        # uq_curriculum_year_term(curriculum_id, year, term)
+        if 'uq_curriculum_year_term' in normalized_error and 'session' not in normalized_error:
+            return jsonify({
+                'success': False,
+                'message': (
+                    'Database এখনও পুরনো unique rule ব্যবহার করছে। '
+                    'Please update curriculum_year_term unique key to '
+                    '(curriculum_id, year, term, academic_session) and try again.'
+                )
+            }), 400
+        if 'uq_curriculum_year_term_session' in normalized_error or 'duplicate entry' in normalized_error:
+            return jsonify({
+                'success': False,
+                'message': (
+                    'এই Year/Term এ একই Academic Session আগেই আছে। '
+                    'Please use a different session name.'
+                )
+            }), 400
+        return jsonify({'success': False, 'message': 'Configuration conflicts with an existing row.'}), 400
     except Exception as exc:
         db.session.rollback()
         current_app.logger.error(f'Failed to save year/term config: {exc}', exc_info=True)
@@ -3072,8 +3888,10 @@ def assign_teacher_session():
                 year_term_config = curriculum.get_year_term_config(year, term)
                 if year_term_config:
                     if not batch and year_term_config.batch and year_term_config.batch != 'None' and year_term_config.batch.strip():
-                        batch = year_term_config.batch.strip()
-                        current_app.logger.info(f'Using batch from year-term config: {batch}')
+                        configured_batches = [b.strip() for b in year_term_config.batch.split(',') if b.strip() and b.strip() != 'None']
+                        if configured_batches:
+                            batch = configured_batches[0]
+                            current_app.logger.info(f'Using first configured batch from year-term config: {batch}')
                     if not academic_session and year_term_config.academic_session and year_term_config.academic_session.strip():
                         academic_session = year_term_config.academic_session.strip()
                         current_app.logger.info(f'Using academic_session from year-term config: {academic_session}')
@@ -3142,59 +3960,88 @@ def assign_teacher_session():
                 # Use the existing split_group_id to link sessions
                 current_app.logger.info(f'Found existing split course session {existing_split_session.id} with split_group_id {split_group_id}, linking new session')
         
-        # Check if a session with similar parameters already exists in Class Management
-        # to avoid creating duplicate sessions
-        existing_sessions = Session.query.filter_by(
+        # Reuse an existing matching session whenever possible (especially archived sessions
+        # created during unassign), so attendance/history remains in a single session.
+        normalized_academic_session = (academic_session or '').strip()
+        all_matching_sessions = Session.query.filter_by(
             course_code=course.course_code,
-            teacher_id=teacher_id,
             year=year,
-            term=term,
-            archived=False
+            term=term
         ).all()
-        
-        if existing_sessions:
-            for existing_session in existing_sessions:
-                # Check course scope conflicts
+
+        reusable_session = None
+        for existing_session in all_matching_sessions:
+            existing_academic_session = (existing_session.academic_session or '').strip()
+            if existing_academic_session != normalized_academic_session:
+                continue
+
+            # Check course scope conflicts on active sessions.
+            if not existing_session.archived:
                 if existing_session.course_scope == SCOPE_FULL and course_scope != SCOPE_FULL:
                     return jsonify({
                         'success': False,
-                        'message': 'A full-course session already exists for this teacher. Delete it first to create section-specific sessions.'
+                        'message': 'A full-course session already exists for this course. Delete/unassign it first to create section-specific sessions.'
                     }), 400
-                elif course_scope == SCOPE_FULL and existing_session.course_scope != SCOPE_FULL:
+                if course_scope == SCOPE_FULL and existing_session.course_scope != SCOPE_FULL:
                     return jsonify({
                         'success': False,
-                        'message': 'Section-specific sessions already exist for this teacher. Delete them first to create a full-course session.'
+                        'message': 'Section-specific sessions already exist for this course. Delete/unassign them first to create a full-course session.'
                     }), 400
-                elif existing_session.course_scope == course_scope:
-                    # Check if this session is linked to an assignment
-                    linked_assignment = CourseSessionAssignment.query.filter_by(session_id=existing_session.id).first()
-                    if linked_assignment:
-                        # Session is properly linked to an assignment, this is a real conflict
-                        return jsonify({
-                            'success': False,
-                            'message': f'A session for this course and section already exists for teacher {teacher.name}. Please check Class Management.'
-                        }), 400
-                    else:
-                        # Orphaned session - archive it instead of blocking
-                        current_app.logger.warning(f'Found orphaned session {existing_session.id}, archiving it')
-                        existing_session.archived = True
-                        db.session.commit()
-        
-        # Create Session in Class Management
-        session_obj = Session(
-            year=year,
-            term=term,
-            academic_session=academic_session,
-            course_code=course.course_code,
-            course_name=course.course_name,
-            teacher_id=teacher_id,
-            course_type=_normalize_session_course_type(course.course_type),
-            category=course.category,
-            course_scope=course_scope,
-            split_group_id=split_group_id  # Set split_group_id for split courses
-        )
-        db.session.add(session_obj)
-        db.session.flush()  # Get session ID before commit
+
+            if existing_session.course_scope != course_scope:
+                continue
+
+            # Keep split link consistent if split scope is used.
+            if split_group_id and existing_session.split_group_id and existing_session.split_group_id != split_group_id:
+                continue
+
+            linked_assignment = CourseSessionAssignment.query.filter_by(session_id=existing_session.id).first()
+            if linked_assignment and not existing_session.archived:
+                # Active linked session already exists for this scope.
+                return jsonify({
+                    'success': False,
+                    'message': f'A session for this course and section is already assigned to {linked_assignment.teacher.name if linked_assignment.teacher else "another teacher"}.'
+                }), 400
+
+            # Prefer reusing archived/unlinked sessions and avoid creating a fresh session.
+            reusable_session = existing_session
+            if existing_session.archived:
+                break
+
+        reused_existing_session = reusable_session is not None
+        if reused_existing_session:
+            session_obj = reusable_session
+            session_obj.archived = False
+            session_obj.teacher_id = teacher_id
+            session_obj.academic_session = academic_session
+            session_obj.course_name = course.course_name
+            session_obj.course_type = _normalize_session_course_type(course.course_type)
+            session_obj.category = course.category
+            session_obj.course_scope = course_scope
+            session_obj.split_group_id = split_group_id
+            # Keep existing students attached to the newly assigned teacher.
+            ClassStudent.query.filter_by(session_id=session_obj.id).update(
+                {'teacher_id': teacher_id},
+                synchronize_session=False
+            )
+            db.session.flush()
+            current_app.logger.info(f'Reusing existing session {session_obj.id} instead of creating a new one')
+        else:
+            # Create Session in Class Management
+            session_obj = Session(
+                year=year,
+                term=term,
+                academic_session=academic_session,
+                course_code=course.course_code,
+                course_name=course.course_name,
+                teacher_id=teacher_id,
+                course_type=_normalize_session_course_type(course.course_type),
+                category=course.category,
+                course_scope=course_scope,
+                split_group_id=split_group_id  # Set split_group_id for split courses
+            )
+            db.session.add(session_obj)
+            db.session.flush()  # Get session ID before commit
         
         # Automatically add students from batch if available
         added_students_count = 0
@@ -3283,7 +4130,7 @@ def assign_teacher_session():
         
         db.session.commit()
         
-        message = f'Teacher assigned and session created successfully!'
+        message = f'Teacher assigned and session {"restored" if reused_existing_session else "created"} successfully!'
         if added_students_count > 0:
             message += f' {added_students_count} students added from batch {batch}.'
         

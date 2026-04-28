@@ -1,6 +1,7 @@
 """
 Utility functions for Active Semester Management
 """
+import re
 from extensions import db
 from sqlalchemy import or_, and_
 from blueprints.course_management.models import ActiveSemesterConfig
@@ -104,6 +105,43 @@ def _normalize_year_term(value):
     return normalized
 
 
+def _normalize_batch_tokens(value):
+    """
+    Build resilient batch tokens for matching across inconsistent formats.
+    Examples:
+    - '2023, 2021' -> ['2023', '2021']
+    - 'LLM 2026'   -> ['llm2026', 'llm', '2026']
+    """
+    if value is None:
+        return []
+    raw = str(value).strip().lower()
+    if not raw:
+        return []
+    tokens = set()
+
+    # Preserve comma-separated groups as compact tokens.
+    for comma_chunk in raw.split(','):
+        chunk = comma_chunk.strip()
+        if not chunk:
+            continue
+        compact = ''.join(ch for ch in chunk if ch.isalnum())
+        if compact:
+            tokens.add(compact)
+
+        # Add finer tokens split by non-alphanumeric boundaries.
+        for part in re.split(r'[^a-z0-9]+', chunk):
+            part = part.strip()
+            if part:
+                tokens.add(part)
+
+    # Whole-value compact token catches "2023,2021" style exact compact matches.
+    whole_compact = ''.join(ch for ch in raw if ch.isalnum())
+    if whole_compact:
+        tokens.add(whole_compact)
+
+    return sorted(tokens)
+
+
 def filter_by_active_semester(query, model, batch=None, admin_override=False):
     """
     Filter a query to only include records from active semesters.
@@ -141,6 +179,7 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
     # Year/Term: normalized matching for format variations
     conditions = []
     for sem in active_semesters:
+        from sqlalchemy import func
         active_year_norm = _normalize_year_term(sem.year)
         active_term_norm = _normalize_year_term(sem.term)
         
@@ -150,7 +189,6 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
         if sem.academic_session:
             # Require normalized academic_session match (trim + lower), no NULL allowance.
             # This prevents false negatives caused by casing/whitespace differences.
-            from sqlalchemy import func
             model_session_norm = func.lower(func.trim(func.cast(getattr(model, 'academic_session'), db.String)))
             active_session_norm = str(sem.academic_session).strip().lower()
             academic_session_condition = model_session_norm == active_session_norm
@@ -195,10 +233,42 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
             term_condition
         )
         
-        # If semester config has a specific batch, filter by batch too
-        # Note: Only apply batch filter if model has batch field
+        # If semester config has a specific batch, filter by batch too.
+        # Support comma-separated multi-batch values on either side by token overlap.
+        # Example matches:
+        # - active: "2023,2021" with model: "2023"
+        # - active: "2023" with model: "2023,2021"
+        # - active: "2023,2021" with model: "2023,2021"
         if sem.batch and hasattr(model, 'batch'):
-            condition = and_(condition, getattr(model, 'batch') == sem.batch)
+            sem_batch_tokens = _normalize_batch_tokens(sem.batch)
+            if sem_batch_tokens:
+                model_batch_raw = func.lower(
+                    func.trim(func.cast(getattr(model, 'batch'), db.String))
+                )
+                model_batch_norm = func.lower(
+                    func.replace(
+                        model_batch_raw,
+                        ' ',
+                        ''
+                    )
+                )
+
+                token_overlap_conditions = []
+                for token in sem_batch_tokens:
+                    token_overlap_conditions.extend([
+                        model_batch_norm == token,
+                        model_batch_norm.like(f'%{token}%'),
+                        model_batch_norm.like(f'{token},%'),
+                        model_batch_norm.like(f'%,{token}'),
+                        model_batch_norm.like(f'%,{token},%'),
+                        model_batch_raw.like(f'%{token}%')
+                    ])
+
+                batch_condition = or_(
+                    getattr(model, 'batch').is_(None),
+                    *token_overlap_conditions
+                )
+                condition = and_(condition, batch_condition)
         
         conditions.append(condition)
     

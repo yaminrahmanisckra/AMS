@@ -63,6 +63,9 @@
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
                                                             {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment1') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment1') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -73,6 +76,9 @@
                                                                 {{ course.assessment_scores.get('assessment2') }}
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment2') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment2') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
@@ -85,6 +91,9 @@
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
                                                             {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment3') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment3') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -95,6 +104,9 @@
                                                                 {{ course.assessment_scores.get('assessment4') }}
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment4') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment4') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
@@ -137,6 +149,9 @@
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
                                                             {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment1') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment1') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -147,6 +162,9 @@
                                                                 {{ course.assessment_scores.get('assessment2') }}
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment2') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment2') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
@@ -159,6 +177,9 @@
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
                                                             {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment3') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment3') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -169,6 +190,9 @@
                                                                 {{ course.assessment_scores.get('assessment4') }}
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                            {% if course.highest_assessment_scores.get('assessment4') is not none %}
+                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment4') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>

@@ -7,7 +7,7 @@
         <a href="{{ url_for('result_management.index') }}" class="btn btn-secondary">Back to Sessions</a>
             </div>
 
-    <!-- Subjects are auto-loaded based on session/year/term -->
+    <!-- Subjects are auto-loaded from curriculum and running-course registrations -->
 
 
     <h4>Existing Subjects</h4>
@@ -38,7 +38,7 @@
                             {% endfor %}
                             {% else %}
                             <tr>
-                                <td colspan="5" class="text-center">No subjects found for this session. Subjects are auto-loaded from curriculum based on session, year, and term.</td>
+                                <td colspan="5" class="text-center">No subjects found for this session. Subjects are auto-loaded from curriculum and running course registrations based on session, year, and term.</td>
                             </tr>
                             {% endif %}
                         </tbody>

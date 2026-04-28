@@ -29,7 +29,10 @@ class Curriculum(db.Model):
     def get_year_term_config(self, year, term):
         """Get configuration for a specific year/term combination"""
         # Fast path: exact stored values
-        exact = self.year_term_configs.filter_by(year=year, term=term).first()
+        exact = self.year_term_configs.filter_by(year=year, term=term).order_by(
+            CurriculumYearTerm.updated_at.desc(),
+            CurriculumYearTerm.id.desc()
+        ).first()
         if exact:
             return exact
 
@@ -56,10 +59,17 @@ class Curriculum(db.Model):
 
         target_year = _norm(year, is_term=False)
         target_term = _norm(term, is_term=True)
+        matched_configs = []
         for cfg in self.year_term_configs.all():
             if _norm(cfg.year, is_term=False) == target_year and _norm(cfg.term, is_term=True) == target_term:
-                return cfg
-        return None
+                matched_configs.append(cfg)
+        if not matched_configs:
+            return None
+        return sorted(
+            matched_configs,
+            key=lambda cfg: (cfg.updated_at or datetime.min, cfg.id or 0),
+            reverse=True
+        )[0]
 
     def __repr__(self):
         return f'<Curriculum {self.name}>'
@@ -79,7 +89,7 @@ class CurriculumYearTerm(db.Model):
     curriculum = db.relationship('Curriculum', back_populates='year_term_configs')
     
     __table_args__ = (
-        db.UniqueConstraint('curriculum_id', 'year', 'term', name='uq_curriculum_year_term'),
+        db.UniqueConstraint('curriculum_id', 'year', 'term', 'academic_session', name='uq_curriculum_year_term_session'),
     )
 
     def __repr__(self):
@@ -236,6 +246,22 @@ class StudentCourseRegistration(db.Model):
     academic_session = db.Column(db.String(50), nullable=False)
     year = db.Column(db.String(20), nullable=False)
     term = db.Column(db.String(20), nullable=False)
+    # Source year/term keeps course-origin metadata for mixed regular+retake registration.
+    # Running processing scope still uses academic_session/year/term above.
+    source_year = db.Column(db.String(20), nullable=True)
+    source_term = db.Column(db.String(20), nullable=True)
+    # Relevant-course mapping for retake/re-retake:
+    # evaluator/question-setter/committee count may use this context,
+    # while marks/result remain on original course_code context.
+    relevant_course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=True)
+    relevant_course_code = db.Column(db.String(50), nullable=True)
+    relevant_academic_session = db.Column(db.String(50), nullable=True)
+    relevant_year = db.Column(db.String(20), nullable=True)
+    relevant_term = db.Column(db.String(20), nullable=True)
+    # Retake merge control:
+    # True  -> committee/remuneration count may merge through relevant-course context.
+    # False -> keep separate; count only in original retake subject context.
+    use_relevant_for_committee = db.Column(db.Boolean, nullable=False, default=True)
     course_code = db.Column(db.String(50), nullable=False)
     course_name = db.Column(db.String(150), nullable=False)
     credit = db.Column(db.Float, nullable=False)
@@ -249,7 +275,12 @@ class StudentCourseRegistration(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     student = db.relationship('Student', backref=db.backref('course_registrations', lazy='dynamic', cascade='all, delete-orphan'))
-    course = db.relationship('Course', backref=db.backref('student_registrations', lazy='dynamic'))
+    course = db.relationship(
+        'Course',
+        foreign_keys=[course_id],
+        backref=db.backref('student_registrations', lazy='dynamic')
+    )
+    relevant_course = db.relationship('Course', foreign_keys=[relevant_course_id], lazy='joined')
 
     __table_args__ = (
         db.UniqueConstraint(

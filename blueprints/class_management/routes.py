@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy import or_, text, func
+from sqlalchemy.orm import aliased
 from .models import (
     db,
     Teacher,
@@ -119,6 +120,96 @@ def _notify_student_by_username(student_id_username, notif_type, title, link_url
     except Exception as e:
         current_app.logger.warning(f"Could not create student notification: {e}")
         db.session.rollback()
+
+
+def _absolute_url_student_my_scores():
+    """Absolute URL for My Scores (reveal emails). Prefer PUBLIC_APP_URL behind reverse proxies."""
+    public = (current_app.config.get('PUBLIC_APP_URL') or os.environ.get('PUBLIC_APP_URL') or '').strip().rstrip('/')
+    if public:
+        return f"{public}/class-management/student/view-scores"
+    try:
+        return url_for('class_management.student_view_scores', _external=True)
+    except Exception:
+        pass
+    try:
+        rel = url_for('class_management.student_view_scores')
+        if request and getattr(request, 'host_url', None):
+            return request.host_url.rstrip('/') + rel
+    except Exception:
+        pass
+    return url_for('class_management.student_view_scores')
+
+
+def _send_marks_revealed_email_to_session_students(session_id, course_label, assessment_type=None):
+    """Send marks-revealed email via NOTIFICATION_MAIL_* (noreply); falls back to MAIL_* if unset."""
+    from utils.notification_email import _notification_smtp_configured, send_notification_batch
+
+    cfg = current_app.config
+    if _notification_smtp_configured():
+        pass
+    elif not (cfg.get('MAIL_USERNAME') and cfg.get('MAIL_PASSWORD')):
+        current_app.logger.error(
+            "marks_revealed email skipped: set NOTIFICATION_MAIL_USERNAME/PASSWORD/SENDER "
+            "or MAIL_USERNAME/MAIL_PASSWORD for legacy send"
+        )
+        return
+
+    try:
+        class_students = _class_students_for_session(session_id, order=False)
+        seen_emails = set()
+        view_scores_url = _absolute_url_student_my_scores()
+        assessment_label = (assessment_type or 'assessment').replace('_', ' ').title()
+        subject = f"Assessment Marks Revealed: {course_label}"
+        skipped_no_user = 0
+        skipped_no_email = 0
+
+        entries = []
+        for cs in class_students:
+            user = User.query.filter_by(username=cs.student_id).first()
+            if not user:
+                skipped_no_user += 1
+                continue
+            if not (user.email and str(user.email).strip()):
+                skipped_no_email += 1
+                continue
+            email_key = user.email.strip().lower()
+            if email_key in seen_emails:
+                continue
+            seen_emails.add(email_key)
+
+            text_body = (
+                f"Dear {user.full_name or 'Student'},\n\n"
+                f"Your {assessment_label} marks for {course_label} have been revealed.\n"
+                f"You can check details from your My Scores page:\n{view_scores_url}\n\n"
+                "Academic Management System"
+            )
+            html_body = (
+                f"<p>Dear {user.full_name or 'Student'},</p>"
+                f"<p>Your <strong>{assessment_label}</strong> marks for "
+                f"<strong>{course_label}</strong> have been revealed.</p>"
+                f"<p><a href=\"{view_scores_url}\">Open My Scores</a></p>"
+                "<p>Academic Management System</p>"
+            )
+            entries.append({
+                'recipient': user.email.strip(),
+                'text_body': text_body,
+                'html_body': html_body,
+            })
+
+        if not entries:
+            current_app.logger.warning(
+                f"marks_revealed email: session {session_id} has no recipients "
+                f"(class_students={len(class_students)}, no_user={skipped_no_user}, no_email={skipped_no_email})"
+            )
+            return
+
+        sent_count = send_notification_batch(subject, entries)
+        current_app.logger.info(
+            f"Marks-revealed email for session {session_id}: {sent_count} message(s) sent "
+            f"(unique recipients={len(entries)})"
+        )
+    except Exception as e:
+        current_app.logger.error(f"marks_revealed email unexpected error: {e}", exc_info=True)
 
 
 # WeasyPrint lazy import - only import when needed to prevent startup hang
@@ -482,6 +573,32 @@ def _get_related_sessions(session, include_archived=False):
     return related or [session]
 
 
+def _resolve_attendance_related_sessions(session, include_archived=False):
+    """Resolve related sessions for attendance calculations and reports."""
+    related_sessions = _get_related_sessions(session, include_archived=include_archived)
+    if not session or session.course_scope not in SPLIT_PARTS:
+        return related_sessions
+
+    # Fallback for reassign/unassign history where split_group linkage may drift.
+    query = Session.query.filter(
+        Session.course_code == session.course_code,
+        Session.year == session.year,
+        Session.term == session.term,
+        Session.course_scope.in_(list(SPLIT_PARTS))
+    )
+    if session.academic_session:
+        query = query.filter(Session.academic_session == session.academic_session)
+    else:
+        query = query.filter(or_(Session.academic_session.is_(None), Session.academic_session == ''))
+    if not include_archived:
+        query = query.filter_by(archived=False)
+
+    merged = {s.id: s for s in related_sessions if s}
+    for peer in query.order_by(Session.id.asc()).all():
+        merged[peer.id] = peer
+    return sorted(merged.values(), key=lambda s: s.id)
+
+
 def _carry_on_assessment_marks(class_student, session):
     """Carry on previous assessment marks for retake students if carry_on is enabled in registration"""
     if not StudentCourseRegistration or not Student:
@@ -763,9 +880,9 @@ def _calculate_attendance_mark_from_percentage(percentage):
     return 0
 
 
-def _build_attendance_summary(session):
+def _build_attendance_summary(session, include_archived=False):
     """Aggregate attendance across split sessions."""
-    related_sessions = _get_related_sessions(session)
+    related_sessions = _resolve_attendance_related_sessions(session, include_archived=include_archived)
     session_ids = [s.id for s in related_sessions if s]
     if not session_ids:
         return {'total_classes': 0, 'per_student': {}, 'per_session_totals': defaultdict(int), 'related_sessions': related_sessions}
@@ -1318,9 +1435,13 @@ def index():
                 if thread.messages:
                     last_message = max(
                         thread.messages,
-                        key=lambda m: m.created_at or datetime.min
+                        key=lambda m: (m.created_at or datetime.min, m.id or 0)
                     )
-                if last_message and last_message.sender_role == 'student':
+                if (
+                    last_message
+                    and last_message.sender_role == 'student'
+                    and thread.teacher_read_at is None
+                ):
                     qa_notification_map[thread.session_id] = qa_notification_map.get(thread.session_id, 0) + 1
     except Exception as e:
         current_app.logger.warning(f'Error loading Q&A notifications: {e}')
@@ -1870,7 +1991,7 @@ def view_attendance(session_id):
             flash('You do not have permission to view attendance for this session.', 'danger')
             return redirect(url_for('class_management.index'))
     
-    attendance_summary = _build_attendance_summary(session)
+    attendance_summary = _build_attendance_summary(session, include_archived=True)
     part_total_classes = None
     if session.course_scope in SPLIT_PARTS:
         part_total_classes = attendance_summary.get('per_session_totals', {}).get(session.id, 0)
@@ -1879,7 +2000,9 @@ def view_attendance(session_id):
     is_split_course = session.split_group_id and session.course_scope in SPLIT_PARTS
     related_sessions = []
     if is_split_course:
-        related_sessions = _get_related_sessions(session, include_archived=True)
+        # Include archived peers as well; they may contain historical attendance from
+        # earlier assignment cycles. We merge same teacher/scope sessions below.
+        related_sessions = _resolve_attendance_related_sessions(session, include_archived=True)
     
     # For split courses, prepare separate attendance data for each teacher
     teacher_attendance_data = []
@@ -1898,34 +2021,68 @@ def view_attendance(session_id):
         # Get all students from all related sessions (for marks calculation; exclude deleted students)
         all_session_ids = [s.id for s in related_sessions]
         all_students = _class_students_for_sessions(all_session_ids)
-        student_lookup = {stu.student_id: stu for stu in all_students}
+        students_by_session = defaultdict(list)
+        for stu in all_students:
+            students_by_session[stu.session_id].append(stu)
         
         # Get combined attendance summary for marks (this stays the same)
         agg_student_map = attendance_summary.get('per_student', {})
         agg_total_classes = attendance_summary.get('total_classes', 0)
         
-        # Prepare data for each teacher/session (filtered by permissions)
+        # Group sessions by teacher + scope so old/new session splits are rendered as one report.
+        grouped_sessions = {}
         for related_session in related_sessions:
             # Skip if user doesn't have permission to view this session
             if not can_view_all:
                 if not current_teacher or related_session.teacher_id != current_teacher.id:
                     continue
-            session_students = _class_students_for_session(related_session.id)
-            session_attendance_records = ClassAttendance.query.filter_by(session_id=related_session.id).order_by(ClassAttendance.date, ClassAttendance.id).all()
-            
-            if not session_attendance_records:
+            key = (related_session.teacher_id, related_session.course_scope)
+            grouped_sessions.setdefault(key, []).append(related_session)
+
+        # Prepare merged attendance data for each teacher/scope group.
+        for _, grouped in grouped_sessions.items():
+            grouped = sorted(grouped, key=lambda s: s.id)
+            grouped_session_ids = [s.id for s in grouped]
+            current_scope_session = next((s for s in grouped if s.id == session.id), None)
+            primary_session = current_scope_session or grouped[-1]
+
+            # Build a canonical student list by public student_id, preferring the current session row.
+            group_students = []
+            for sid in grouped_session_ids:
+                group_students.extend(students_by_session.get(sid, []))
+            if not group_students:
                 continue
-            
-            # Build attendance data for this session
+
+            students_by_public_id = {}
+            for stu in sorted(group_students, key=lambda x: (x.student_id, x.id)):
+                selected = students_by_public_id.get(stu.student_id)
+                if selected is None:
+                    students_by_public_id[stu.student_id] = stu
+                    continue
+                if stu.session_id == primary_session.id and selected.session_id != primary_session.id:
+                    students_by_public_id[stu.student_id] = stu
+
+            class_student_to_public = {stu.id: stu.student_id for stu in group_students}
+            group_attendance_records = ClassAttendance.query.filter(
+                ClassAttendance.session_id.in_(grouped_session_ids)
+            ).order_by(ClassAttendance.date, ClassAttendance.id).all()
+            if not group_attendance_records:
+                continue
+
             attendance_by_date = defaultdict(list)
-            for record in session_attendance_records:
-                attendance_by_date[record.date].append(record)
+            student_attendance_by_public = defaultdict(lambda: defaultdict(list))
+            for record in group_attendance_records:
+                public_id = class_student_to_public.get(record.student_id)
+                if not public_id:
+                    continue
+                attendance_by_date[record.date].append((public_id, record))
+                student_attendance_by_public[public_id][record.date].append(record)
             
             daily_class_counts = {}
             for date, records in attendance_by_date.items():
                 student_counts_on_date = defaultdict(int)
-                for record in records:
-                    student_counts_on_date[record.student_id] += 1
+                for public_id, _record in records:
+                    student_counts_on_date[public_id] += 1
                 daily_class_counts[date] = max(student_counts_on_date.values()) if student_counts_on_date else 0
             
             headers_with_meta = []
@@ -1939,18 +2096,15 @@ def view_attendance(session_id):
                         headers_with_meta.append({'label': f"{date.strftime('%b %d')} ({i})", 'date': date.strftime('%Y-%m-%d'), 'slot': i})
             
             student_report_data = []
-            for student in session_students:
-                student_records = [r for r in session_attendance_records if r.student_id == student.id]
+            for student in sorted(students_by_public_id.values(), key=lambda s: s.student_id):
+                student_public_id = student.student_id
+                student_records_by_date = student_attendance_by_public.get(student_public_id, {})
                 # Use combined stats for marks calculation
-                agg_stats = agg_student_map.get(student.student_id, {'present': 0, 'percentage': 0, 'marks': 0})
+                agg_stats = agg_student_map.get(student_public_id, {'present': 0, 'percentage': 0, 'marks': 0})
                 
                 attendance_row = []
-                student_attendance_by_date = defaultdict(list)
-                for r in student_records:
-                    student_attendance_by_date[r.date].append(r)
-                
                 for date in sorted_dates:
-                    records_for_date = student_attendance_by_date[date]
+                    records_for_date = student_records_by_date.get(date, [])
                     num_classes_on_day = daily_class_counts.get(date, 0)
                     for i in range(num_classes_on_day):
                         cell = {
@@ -1976,13 +2130,16 @@ def view_attendance(session_id):
                 student_report_data.append(student_data)
             
             teacher_attendance_data.append({
-                'session': related_session,
-                'teacher_name': related_session.teacher.name if related_session.teacher else 'Unknown',
-                'teacher_short': related_session.teacher.short_name if related_session.teacher else '',
-                'scope_label': COURSE_SCOPE_LABELS.get(related_session.course_scope, 'Part'),
+                'session': primary_session,
+                'teacher_name': primary_session.teacher.name if primary_session.teacher else 'Unknown',
+                'teacher_short': primary_session.teacher.short_name if primary_session.teacher else '',
+                'scope_label': COURSE_SCOPE_LABELS.get(primary_session.course_scope, 'Part'),
                 'headers_with_meta': headers_with_meta,
                 'student_report_data': student_report_data,
-                'part_total_classes': attendance_summary.get('per_session_totals', {}).get(related_session.id, 0),
+                'part_total_classes': sum(
+                    attendance_summary.get('per_session_totals', {}).get(sid, 0)
+                    for sid in grouped_session_ids
+                ),
                 'unique_dates': sorted(attendance_by_date.keys(), reverse=True)  # For delete modal
             })
         
@@ -2014,13 +2171,25 @@ def view_attendance(session_id):
 
     headers_with_meta = []
     if not all_attendance_records:
+        # Show enrolled students even when no attendance has been taken yet.
+        # This avoids an empty report experience after students are added.
+        empty_student_rows = []
+        for student in students:
+            empty_student_rows.append({
+                'info': student,
+                'attendance_row': [],
+                'total_classes': 0,
+                'present_count': 0,
+                'percentage': "0.00%",
+                'marks': 0
+            })
         return render_template(
             'class_management/view_attendance.html',
             session=session,
             students=students,
             headers=[],
             headers_with_meta=headers_with_meta,
-            student_report_data=[],
+            student_report_data=empty_student_rows,
             unique_dates=[],
             split_meta=_build_split_context(session, attendance_summary),
             attendance_summary=attendance_summary,
@@ -5309,23 +5478,38 @@ def download_attendance_sheet(session_id):
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
         session = Session.query.get_or_404(session_id)
-        attendance_summary = _build_attendance_summary(session)
+        attendance_summary = _build_attendance_summary(session, include_archived=True)
 
-        related_sessions = _get_related_sessions(session, include_archived=True)
+        related_sessions = _resolve_attendance_related_sessions(session, include_archived=True)
         session_ids = [s.id for s in related_sessions if s]
         attendance_records = ClassAttendance.query.filter(
             ClassAttendance.session_id.in_(session_ids)
         ).order_by(ClassAttendance.date.asc(), ClassAttendance.id.asc()).all()
 
+        all_students = _class_students_for_sessions(session_ids)
+        class_student_to_public = {stu.id: stu.student_id for stu in all_students}
+        students_by_public = {}
+        for stu in all_students:
+            selected = students_by_public.get(stu.student_id)
+            if selected is None:
+                students_by_public[stu.student_id] = stu
+            elif selected.session_id != session_id and stu.session_id == session_id:
+                # Prefer the current session row for display metadata/order.
+                students_by_public[stu.student_id] = stu
+        students = sorted(students_by_public.values(), key=lambda s: s.student_id)
+
         attendance_by_date = defaultdict(list)
         for record in attendance_records:
-            attendance_by_date[record.date].append(record)
+            public_id = class_student_to_public.get(record.student_id)
+            if not public_id:
+                continue
+            attendance_by_date[record.date].append((public_id, record))
 
         daily_class_counts = {}
         for date, records in attendance_by_date.items():
             student_counts = defaultdict(int)
-            for r in records:
-                student_counts[r.student_id] += 1
+            for public_id, _r in records:
+                student_counts[public_id] += 1
             daily_class_counts[date] = max(student_counts.values()) if student_counts else 0
 
         sorted_dates = sorted(daily_class_counts.keys())
@@ -5347,7 +5531,13 @@ def download_attendance_sheet(session_id):
             flash('No attendance data to download.', 'warning')
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
 
-        students = _class_students_for_session(session_id)
+        student_records_by_public = defaultdict(list)
+        for record in attendance_records:
+            public_id = class_student_to_public.get(record.student_id)
+            if public_id:
+                student_records_by_public[public_id].append(record)
+        for public_id in student_records_by_public:
+            student_records_by_public[public_id].sort(key=lambda x: (x.date, x.id))
 
         # Prepare data for template
         data_rows = []
@@ -5355,7 +5545,7 @@ def download_attendance_sheet(session_id):
         total_classes = attendance_summary.get('total_classes', sum(daily_class_counts.values()))
 
         for idx, student in enumerate(students, start=1):
-            student_records = [r for r in attendance_records if r.student_id == student.id]
+            student_records = student_records_by_public.get(student.student_id, [])
             student_attendance_by_date = defaultdict(list)
             for r in student_records:
                 student_attendance_by_date[r.date].append(r)
@@ -5582,24 +5772,38 @@ def download_attendance_sheet_weasyprint(session_id):
         from error_handler import log_error
         
         session = Session.query.get_or_404(session_id)
-        attendance_summary = _build_attendance_summary(session)
+        attendance_summary = _build_attendance_summary(session, include_archived=True)
         
         # Get related sessions for split courses
-        related_sessions = _get_related_sessions(session, include_archived=True)
+        related_sessions = _resolve_attendance_related_sessions(session, include_archived=True)
         session_ids = [s.id for s in related_sessions if s]
         attendance_records = ClassAttendance.query.filter(
             ClassAttendance.session_id.in_(session_ids)
         ).order_by(ClassAttendance.date.asc(), ClassAttendance.id.asc()).all()
+
+        all_students = _class_students_for_sessions(session_ids)
+        class_student_to_public = {stu.id: stu.student_id for stu in all_students}
+        students_by_public = {}
+        for stu in all_students:
+            selected = students_by_public.get(stu.student_id)
+            if selected is None:
+                students_by_public[stu.student_id] = stu
+            elif selected.session_id != session_id and stu.session_id == session_id:
+                students_by_public[stu.student_id] = stu
+        students = sorted(students_by_public.values(), key=lambda s: s.student_id)
         
         attendance_by_date = defaultdict(list)
         for record in attendance_records:
-            attendance_by_date[record.date].append(record)
+            public_id = class_student_to_public.get(record.student_id)
+            if not public_id:
+                continue
+            attendance_by_date[record.date].append((public_id, record))
         
         daily_class_counts = {}
         for date, records in attendance_by_date.items():
             student_counts = defaultdict(int)
-            for r in records:
-                student_counts[r.student_id] += 1
+            for public_id, _r in records:
+                student_counts[public_id] += 1
             daily_class_counts[date] = max(student_counts.values()) if student_counts else 0
         
         sorted_dates = sorted(daily_class_counts.keys())
@@ -5619,7 +5823,13 @@ def download_attendance_sheet_weasyprint(session_id):
             flash('No attendance data to download.', 'warning')
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
         
-        students = _class_students_for_session(session_id)
+        student_records_by_public = defaultdict(list)
+        for record in attendance_records:
+            public_id = class_student_to_public.get(record.student_id)
+            if public_id:
+                student_records_by_public[public_id].append(record)
+        for public_id in student_records_by_public:
+            student_records_by_public[public_id].sort(key=lambda x: (x.date, x.id))
         
         # Prepare data for template
         data_rows = []
@@ -5627,10 +5837,7 @@ def download_attendance_sheet_weasyprint(session_id):
         total_classes = attendance_summary.get('total_classes', sum(daily_class_counts.values()))
         
         for idx, student in enumerate(students, start=1):
-            # Filter records for this specific student
-            student_records = [r for r in attendance_records if r.student_id == student.id]
-            # Sort student records by date and id to ensure correct order
-            student_records.sort(key=lambda x: (x.date, x.id))
+            student_records = student_records_by_public.get(student.student_id, [])
             
             student_attendance_by_date = defaultdict(list)
             for r in student_records:
@@ -5968,13 +6175,24 @@ def toggle_assessment_reveal(session_id):
         db.session.commit()
         # Notify students when marks are revealed
         if revealed:
+            course_label = session.course_name or session.course_code or 'Course'
+            title = f'Assessment marks revealed: {course_label}'
+            link_url = url_for('class_management.student_view_scores')
             try:
-                course_label = session.course_name or session.course_code or 'Course'
-                title = f'Assessment marks revealed: {course_label}'
-                link_url = url_for('class_management.student_view_scores')
                 _notify_students_in_session(session_id, 'marks_revealed', title, link_url)
             except Exception as notif_e:
-                current_app.logger.warning(f"Student notification (marks revealed): {notif_e}")
+                current_app.logger.warning(f"Student in-app notification (marks revealed): {notif_e}")
+            try:
+                _send_marks_revealed_email_to_session_students(
+                    session_id=session_id,
+                    course_label=course_label,
+                    assessment_type=assessment_type
+                )
+            except Exception as mail_e:
+                current_app.logger.error(
+                    f"Student email (marks revealed) failed: {mail_e}",
+                    exc_info=True,
+                )
         return jsonify({'success': True, 'message': 'Reveal status updated'})
         
     except Exception as e:
@@ -6096,7 +6314,7 @@ def student_view_scores():
         # First pass: collect all sessions and identify split groups
         # Filter: Only show Theory courses (course_type == 'theory')
         session_records_map = {}  # session_id -> Session
-        split_group_processed = set()  # Track processed split_group_ids to avoid duplicate processing
+        split_group_processed = set()  # Track processed split course identity to avoid duplicate processing
         processed_sessions = set()  # Track which sessions we've processed
         course_map = {}  # unique_course_key -> {'session_ids': set(), 'student_record_ids': set(), 'student_records': []}
         
@@ -6119,20 +6337,29 @@ def student_view_scores():
             session_records_map[session_obj.id] = session_obj
         
         # Second pass: Group sessions by course (handle split courses properly)
-        for session_id, session_obj in session_records_map.items():
+        # Iterate over a snapshot because we may add related sessions into the map below.
+        # Direct iteration on a mutating dict raises:
+        # "dictionary changed size during iteration".
+        for session_id, session_obj in list(session_records_map.items()):
             if session_id in processed_sessions:
                 continue
             
             # Create unique key for grouping by course
-            if session_obj.split_group_id:
-                # Split course: group by split_group_id
-                # Process all related sessions at once to avoid duplicates
-                if session_obj.split_group_id in split_group_processed:
+            if session_obj.course_scope in SPLIT_PARTS:
+                # Split course: group by course identity (more stable than split_group_id
+                # after unassign/reassign cycles).
+                split_identity = (
+                    str(session_obj.course_code or '').strip().lower(),
+                    str(session_obj.year or '').strip(),
+                    str(session_obj.term or '').strip(),
+                    str(session_obj.academic_session or '').strip(),
+                )
+                if split_identity in split_group_processed:
                     continue  # Already processed this split group
-                split_group_processed.add(session_obj.split_group_id)
+                split_group_processed.add(split_identity)
                 
-                course_key = f"split_{session_obj.split_group_id}"
-                related_sessions = _get_related_sessions(session_obj)
+                course_key = f"split_{split_identity[0]}_{split_identity[1]}_{split_identity[2]}_{split_identity[3]}"
+                related_sessions = _resolve_attendance_related_sessions(session_obj, include_archived=True)
                 
                 if course_key not in course_map:
                     course_map[course_key] = {
@@ -6143,7 +6370,7 @@ def student_view_scores():
                 
                 # Add all related sessions and their student records
                 for related_session in related_sessions:
-                    if related_session.course_type != 'theory' or related_session.archived:
+                    if related_session.course_type != 'theory':
                         continue
                     # Additional check: Filter out courses with "Sessional" in the name
                     if related_session.course_name and 'sessional' in related_session.course_name.lower():
@@ -6242,6 +6469,7 @@ def student_view_scores():
             # Build assessment scores based on reveal status
             # For split courses, use _build_combined_assessment_values to properly combine from all related sessions
             assessment_scores = {}
+            highest_assessment_scores = {}
             best3_total = None
             pg_total = None
             
@@ -6249,6 +6477,13 @@ def student_view_scores():
                 # Use _build_combined_assessment_values which properly handles split courses
                 combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session_obj)
                 student_combined_values = combined_values.get(student_id, {})
+                for i in range(1, 5):
+                    max_value = None
+                    for combined_student_values in combined_values.values():
+                        current_value = combined_student_values.get(i)
+                        if current_value is not None and (max_value is None or current_value > max_value):
+                            max_value = current_value
+                    highest_assessment_scores[f'assessment{i}'] = max_value
                 
                 # Build assessment_scores only for revealed assessments (students must not see unrevealed marks)
                 for i in range(1, 5):
@@ -6267,6 +6502,13 @@ def student_view_scores():
             elif session_obj.course_type == 'theory' and session_obj.category == 'pg':
                 combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session_obj)
                 student_combined_values = combined_values.get(student_id, {})
+                for i in range(1, 5):
+                    max_value = None
+                    for combined_student_values in combined_values.values():
+                        current_value = combined_student_values.get(i)
+                        if current_value is not None and (max_value is None or current_value > max_value):
+                            max_value = current_value
+                    highest_assessment_scores[f'assessment{i}'] = max_value
                 
                 # Build assessment_scores only for revealed assessments
                 for i in range(1, 5):
@@ -6292,7 +6534,7 @@ def student_view_scores():
             if reveal_status.get('attendance', True):  # Default to True if not set
                 # Use _build_attendance_summary which already handles split courses correctly
                 # It aggregates attendance from all related sessions automatically
-                attendance_summary = _build_attendance_summary(session_obj)
+                attendance_summary = _build_attendance_summary(session_obj, include_archived=True)
                 
                 # Find the student's attendance stats from the summary
                 # Use student_id (string) for lookup
@@ -6309,9 +6551,9 @@ def student_view_scores():
             # Build teacher options (split courses may have multiple teachers)
             teacher_options = []
             try:
-                related_sessions = _get_related_sessions(session_obj)
+                related_sessions = _resolve_attendance_related_sessions(session_obj, include_archived=False)
                 for related_session in related_sessions:
-                    if related_session and related_session.teacher:
+                    if related_session and not related_session.archived and related_session.teacher:
                         teacher_options.append({
                             'session_id': related_session.id,
                             'teacher_id': related_session.teacher.id,
@@ -6341,7 +6583,7 @@ def student_view_scores():
                         if thread.messages:
                             last_message = max(
                                 thread.messages,
-                                key=lambda m: m.created_at or datetime.min
+                                key=lambda m: (m.created_at or datetime.min, m.id or 0)
                             )
                         thread.last_message_role = last_message.sender_role if last_message else None
                         if thread.last_message_role == 'teacher':
@@ -6353,6 +6595,7 @@ def student_view_scores():
                 'session': session_obj,
                 'student_record': primary_record,
                 'assessment_scores': assessment_scores,
+                'highest_assessment_scores': highest_assessment_scores,
                 'best3_total': best3_total,
                 'pg_total': pg_total,
                 'attendance_data': attendance_data,
@@ -6527,17 +6770,6 @@ def course_questions(session_id):
         flash('You are not authorized to view these questions.', 'error')
         return redirect(url_for('class_management.index'))
 
-    # Mark all threads in this session as read for this teacher (for notification badge)
-    try:
-        from datetime import datetime as dt
-        CourseQuestionThread.query.filter_by(
-            session_id=session_id,
-            teacher_id=teacher.id
-        ).update({CourseQuestionThread.teacher_read_at: dt.utcnow()}, synchronize_session=False)
-        db.session.commit()
-    except Exception as e:
-        current_app.logger.warning(f"Could not mark question threads as read: {e}")
-
     try:
         from sqlalchemy.orm import selectinload
         threads = CourseQuestionThread.query.options(
@@ -6548,9 +6780,12 @@ def course_questions(session_id):
             if thread.messages:
                 last_message = max(
                     thread.messages,
-                    key=lambda m: m.created_at or datetime.min
+                    key=lambda m: (m.created_at or datetime.min, m.id or 0)
                 )
             thread.last_message_role = last_message.sender_role if last_message else None
+            thread.is_unread_for_teacher = bool(
+                thread.last_message_role == 'student' and thread.teacher_read_at is None
+            )
     except Exception as e:
         current_app.logger.error(f"Error loading course questions: {e}", exc_info=True)
         threads = []
@@ -6602,6 +6837,7 @@ def teacher_reply_course_question(thread_id):
             ))
 
         thread.updated_at = datetime.utcnow()
+        thread.teacher_read_at = datetime.utcnow()
         db.session.commit()
         flash('Reply sent successfully.', 'success')
         # Notify student about teacher reply
@@ -6619,6 +6855,30 @@ def teacher_reply_course_question(thread_id):
         db.session.rollback()
         current_app.logger.error(f"Error replying to question thread: {e}", exc_info=True)
         flash('Failed to send reply. Please try again.', 'error')
+
+    return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
+
+
+@class_management_bp.route('/course-questions/<int:thread_id>/mark-read', methods=['POST'])
+@login_required
+def mark_course_question_thread_read(thread_id):
+    """Mark a single course question thread as read for the teacher."""
+    thread = CourseQuestionThread.query.get_or_404(thread_id)
+    session_obj = Session.query.get_or_404(thread.session_id)
+    teacher = _ensure_current_teacher()
+
+    if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
+        flash('You are not authorized to update this thread.', 'error')
+        return redirect(url_for('class_management.index'))
+
+    try:
+        thread.teacher_read_at = datetime.utcnow()
+        db.session.commit()
+        flash('Thread marked as read.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error marking thread as read: {e}", exc_info=True)
+        flash('Failed to mark thread as read.', 'error')
 
     return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
 
@@ -7160,6 +7420,31 @@ def course_assessment(session_id):
         teachers_by_id=teachers_by_id
     )
 
+def _pending_teacher_question_threads_query(teacher_id):
+    """Threads where the teacher has not acknowledged (teacher_read_at is null) and the latest message is from the student."""
+    last_msg_sq = (
+        db.session.query(
+            CourseQuestionMessage.thread_id.label('t_id'),
+            func.max(CourseQuestionMessage.id).label('max_msg_id'),
+        )
+        .group_by(CourseQuestionMessage.thread_id)
+        .subquery()
+    )
+    latest_msg = aliased(CourseQuestionMessage)
+    return (
+        CourseQuestionThread.query.join(
+            last_msg_sq, CourseQuestionThread.id == last_msg_sq.c.t_id
+        )
+        .join(latest_msg, latest_msg.id == last_msg_sq.c.max_msg_id)
+        .filter(
+            CourseQuestionThread.teacher_id == teacher_id,
+            CourseQuestionThread.teacher_read_at.is_(None),
+            latest_msg.sender_role == 'student',
+        )
+        .order_by(CourseQuestionThread.updated_at.desc())
+    )
+
+
 # Context processor to inject pending invites count, question notifications, and student notifications
 @class_management_bp.app_context_processor
 def inject_invites_count():
@@ -7179,14 +7464,11 @@ def inject_invites_count():
                 exam_count = ExamScrutinizerInvite.query.filter_by(scrutinizer_teacher_id=teacher.id, status='invited').count()
                 split_count = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').count()
                 out['pending_invites_count'] = count + exam_count + split_count
-                unread = CourseQuestionThread.query.filter_by(
-                    teacher_id=teacher.id
-                ).filter(
-                    CourseQuestionThread.teacher_read_at.is_(None)
-                ).order_by(CourseQuestionThread.created_at.desc()).limit(20).all()
+                pending_q = _pending_teacher_question_threads_query(teacher.id)
+                out['question_notification_count'] = pending_q.count()
+                unread = pending_q.limit(20).all()
                 session_ids = list({t.session_id for t in unread})
                 sessions_by_id = {s.id: s for s in Session.query.filter(Session.id.in_(session_ids)).all()} if session_ids else {}
-                out['question_notification_count'] = len(unread)
                 out['question_notifications'] = [
                     {
                         'thread_id': t.id,
@@ -9008,32 +9290,139 @@ def question_bank():
     can_upload = current_user.is_authenticated
     can_manage = has_teacher_privileges(current_user) or is_admin(current_user)
     grouped_files = {}
+    folder_options = []
     for folder in folders:
-        folder_name = (folder.name or '').strip()
+        folder_name = _qb_normalize_folder_path(folder.name)
         if not folder_name:
             continue
+        folder_parts = folder_name.split('/')
+        folder_options.append({
+            'value': folder_name,
+            'label': folder_name,
+            'depth': max(len(folder_parts) - 1, 0),
+            'basename': folder_parts[-1],
+        })
         grouped_files[folder_name] = {
             'folder_name': folder_name,
+            'folder_basename': folder_parts[-1] if folder_parts else folder_name,
+            'folder_depth': max(len(folder_parts) - 1, 0),
             'files': []
         }
     for f in files:
-        folder_label = (f.subject_name or '').strip() or 'Untitled Folder'
+        folder_label = _qb_normalize_folder_path(f.subject_name) or 'Untitled Folder'
         folder_key = folder_label
         if folder_key not in grouped_files:
+            folder_parts = folder_label.split('/')
+            folder_options.append({
+                'value': folder_label,
+                'label': folder_label,
+                'depth': max(len(folder_parts) - 1, 0),
+                'basename': folder_parts[-1],
+            })
             grouped_files[folder_key] = {
                 'folder_name': folder_label,
+                'folder_basename': folder_parts[-1] if folder_parts else folder_label,
+                'folder_depth': max(len(folder_parts) - 1, 0),
                 'files': []
             }
         grouped_files[folder_key]['files'].append(f)
+    grouped_items = list(grouped_files.values())
+    grouped_items.sort(key=lambda item: (item.get('folder_name') or '').lower())
+
+    # Build nested folder tree from slash-delimited folder paths.
+    tree_nodes = {}
+    for item in grouped_items:
+        folder_path = _qb_normalize_folder_path(item.get('folder_name'))
+        if not folder_path:
+            continue
+        dom_id = ''.join(ch.lower() if ch.isalnum() else '-' for ch in folder_path).strip('-')
+        if not dom_id:
+            dom_id = f"qb-folder-{len(tree_nodes) + 1}"
+        tree_nodes[folder_path] = {
+            'folder_name': folder_path,
+            'folder_basename': item.get('folder_basename') or folder_path.split('/')[-1],
+            'folder_depth': item.get('folder_depth', 0),
+            'files': item.get('files', []),
+            'children': [],
+            'dom_id': dom_id,
+        }
+
+    folder_tree = []
+    for folder_path, node in sorted(tree_nodes.items(), key=lambda x: (len(x[0].split('/')), x[0].lower())):
+        parent_path = '/'.join(folder_path.split('/')[:-1])
+        parent_node = tree_nodes.get(parent_path)
+        if parent_node:
+            parent_node['children'].append(node)
+        else:
+            folder_tree.append(node)
+
+    def _sort_children(nodes):
+        def _qb_year_sort_key(node):
+            label = (node.get('folder_basename') or node.get('folder_name') or '').lower()
+            # Normalize common inputs
+            label = label.replace('year', '').replace('term', '').strip()
+
+            # Order requested:
+            # First Year -> Second Year -> Third Year -> Fourth Year -> LLM
+            if 'llm' in label:
+                order = 4
+            elif 'first' in label or label.startswith('1'):
+                order = 0
+            elif 'second' in label or label.startswith('2'):
+                order = 1
+            elif 'third' in label or label.startswith('3'):
+                order = 2
+            elif 'fourth' in label or label.startswith('4'):
+                order = 3
+            else:
+                order = 5
+            return (order, label)
+        for n in nodes:
+            _sort_children(n.get('children', []))
+
+        nodes.sort(key=_qb_year_sort_key)
+
+    _sort_children(folder_tree)
+    folder_options = sorted(
+        {f"{opt['label']}::{opt['value']}": opt for opt in folder_options}.values(),
+        key=lambda opt: (opt.get('label') or '').lower()
+    )
     return render_template(
         'class_management/question_bank.html',
-        grouped_files=list(grouped_files.values()),
+        grouped_files=grouped_items,
+        folder_tree=folder_tree,
+        folder_options=folder_options,
         can_upload=can_upload,
         can_manage=can_manage,
         filters={
             'folder_name': folder_filter,
             'question_year': year_filter
         }
+    )
+
+
+def _qb_normalize_folder_path(raw_value):
+    value = str(raw_value or '').replace('\\', '/').strip()
+    if not value:
+        return ''
+    parts = [p.strip() for p in value.split('/') if p and p.strip()]
+    return '/'.join(parts)
+
+
+def _qb_is_descendant(path, maybe_ancestor):
+    path = _qb_normalize_folder_path(path).lower()
+    maybe_ancestor = _qb_normalize_folder_path(maybe_ancestor).lower()
+    if not path or not maybe_ancestor:
+        return False
+    return path == maybe_ancestor or path.startswith(maybe_ancestor + '/')
+
+
+def _qb_subtree_filter(column_attr, folder_path):
+    normalized = _qb_normalize_folder_path(folder_path)
+    lowered = normalized.lower()
+    return or_(
+        func.lower(column_attr) == lowered,
+        func.lower(column_attr).like(f"{lowered}/%")
     )
 
 
@@ -9046,11 +9435,19 @@ def create_question_bank_folder():
         return redirect(url_for('class_management.question_bank'))
 
     folder_name = (request.form.get('folder_name') or '').strip()
+    parent_folder = _qb_normalize_folder_path(request.form.get('parent_folder'))
     if not folder_name:
         flash('Folder name is required.', 'error')
         return redirect(url_for('class_management.question_bank'))
 
-    existing = QuestionBankFolder.query.filter(func.lower(QuestionBankFolder.name) == folder_name.lower()).first()
+    full_folder_name = _qb_normalize_folder_path(f"{parent_folder}/{folder_name}" if parent_folder else folder_name)
+    if not full_folder_name:
+        flash('Folder name is invalid.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    existing = QuestionBankFolder.query.filter(
+        func.lower(QuestionBankFolder.name) == full_folder_name.lower()
+    ).first()
     if existing:
         flash('Folder already exists.', 'info')
         return redirect(url_for('class_management.question_bank'))
@@ -9058,7 +9455,7 @@ def create_question_bank_folder():
     try:
         db.session.add(
             QuestionBankFolder(
-                name=folder_name,
+                name=full_folder_name,
                 created_by_user_id=getattr(current_user, 'id', None)
             )
         )
@@ -9070,6 +9467,235 @@ def create_question_bank_folder():
         flash('Failed to create folder.', 'error')
 
     return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/folder/rename', methods=['POST'])
+@login_required
+def rename_question_bank_folder():
+    """Rename a folder path and cascade rename to child folders/files."""
+    if not (has_teacher_privileges(current_user) or is_admin(current_user)):
+        flash('You are not authorized to rename folders.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    folder_name = _qb_normalize_folder_path(request.form.get('folder_name'))
+    new_name_input = (request.form.get('new_folder_name') or '').strip()
+    if not folder_name or not new_name_input:
+        flash('Both current folder and new folder name are required.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    parent_path = '/'.join(folder_name.split('/')[:-1])
+    new_root = _qb_normalize_folder_path(f"{parent_path}/{new_name_input}" if parent_path else new_name_input)
+    if not new_root:
+        flash('New folder name is invalid.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+    if new_root.lower() == folder_name.lower():
+        flash('Folder name is unchanged.', 'info')
+        return redirect(url_for('class_management.question_bank'))
+
+    subtree_folders = QuestionBankFolder.query.filter(_qb_subtree_filter(QuestionBankFolder.name, folder_name)).all()
+    if not subtree_folders:
+        flash('Folder not found.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    all_folder_names = {
+        _qb_normalize_folder_path(f.name).lower()
+        for f in QuestionBankFolder.query.all()
+        if _qb_normalize_folder_path(f.name)
+    }
+    old_subtree_names = {
+        _qb_normalize_folder_path(f.name).lower()
+        for f in subtree_folders
+        if _qb_normalize_folder_path(f.name)
+    }
+
+    for folder in subtree_folders:
+        old_path = _qb_normalize_folder_path(folder.name)
+        suffix = old_path[len(folder_name):]
+        candidate = _qb_normalize_folder_path(f"{new_root}{suffix}")
+        if candidate.lower() in all_folder_names and candidate.lower() not in old_subtree_names:
+            flash(f'Cannot rename: target path "{candidate}" already exists.', 'error')
+            return redirect(url_for('class_management.question_bank'))
+
+    subtree_files = QuestionBankFile.query.filter(_qb_subtree_filter(QuestionBankFile.subject_name, folder_name)).all()
+
+    try:
+        for folder in subtree_folders:
+            old_path = _qb_normalize_folder_path(folder.name)
+            suffix = old_path[len(folder_name):]
+            folder.name = _qb_normalize_folder_path(f"{new_root}{suffix}")
+
+        for qb_file in subtree_files:
+            old_path = _qb_normalize_folder_path(qb_file.subject_name)
+            suffix = old_path[len(folder_name):]
+            qb_file.subject_name = _qb_normalize_folder_path(f"{new_root}{suffix}")
+
+        db.session.commit()
+        flash('Folder renamed successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error renaming question bank folder: {e}", exc_info=True)
+        flash('Failed to rename folder.', 'error')
+
+    return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/folder/delete', methods=['POST'])
+@login_required
+def delete_question_bank_folder():
+    """Delete a folder recursively (subfolders + files)."""
+    if not (has_teacher_privileges(current_user) or is_admin(current_user)):
+        flash('You are not authorized to delete folders.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    folder_name = _qb_normalize_folder_path(request.form.get('folder_name'))
+    if not folder_name:
+        flash('Folder name is required.', 'error')
+        return redirect(url_for('class_management.question_bank'))
+
+    folders_to_delete = QuestionBankFolder.query.filter(_qb_subtree_filter(QuestionBankFolder.name, folder_name)).all()
+    files_to_delete = QuestionBankFile.query.filter(_qb_subtree_filter(QuestionBankFile.subject_name, folder_name)).all()
+    if not folders_to_delete and not files_to_delete:
+        flash('Folder not found.', 'warning')
+        return redirect(url_for('class_management.question_bank'))
+
+    for qb_file in files_to_delete:
+        try:
+            if qb_file.file_path and os.path.exists(qb_file.file_path):
+                os.remove(qb_file.file_path)
+        except Exception:
+            pass
+
+    try:
+        for qb_file in files_to_delete:
+            db.session.delete(qb_file)
+        for folder in folders_to_delete:
+            db.session.delete(folder)
+        db.session.commit()
+        flash('Folder and its contents deleted successfully.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting question bank folder: {e}", exc_info=True)
+        flash('Failed to delete folder.', 'error')
+
+    return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/file/move', methods=['POST'])
+@login_required
+def move_question_bank_files():
+    """Move selected files to another folder."""
+    if not (has_teacher_privileges(current_user) or is_admin(current_user)):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    payload = request.get_json(silent=True) or request.form
+    target_folder = _qb_normalize_folder_path((payload.get('target_folder') or '').strip())
+    raw_file_ids = payload.get('file_ids') or ''
+    if isinstance(raw_file_ids, str):
+        file_ids = [int(x) for x in raw_file_ids.split(',') if x.strip().isdigit()]
+    elif isinstance(raw_file_ids, list):
+        file_ids = [int(x) for x in raw_file_ids if str(x).isdigit()]
+    else:
+        file_ids = []
+
+    if not target_folder:
+        return jsonify({'success': False, 'message': 'Target folder is required.'}), 400
+    if not file_ids:
+        return jsonify({'success': False, 'message': 'No file selected.'}), 400
+
+    target_exists = QuestionBankFolder.query.filter(
+        func.lower(QuestionBankFolder.name) == target_folder.lower()
+    ).first()
+    if not target_exists:
+        return jsonify({'success': False, 'message': 'Target folder does not exist.'}), 400
+
+    files = QuestionBankFile.query.filter(QuestionBankFile.id.in_(sorted(set(file_ids)))).all()
+    if not files:
+        return jsonify({'success': False, 'message': 'Selected files were not found.'}), 404
+
+    try:
+        for qb_file in files:
+            qb_file.subject_name = target_folder
+        db.session.commit()
+        return jsonify({'success': True, 'message': f'Moved {len(files)} file(s).'})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error moving question bank files: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to move files.'}), 500
+
+
+@class_management_bp.route('/question-bank/folder/move', methods=['POST'])
+@login_required
+def move_question_bank_folders():
+    """Move selected folder(s) under another folder."""
+    if not (has_teacher_privileges(current_user) or is_admin(current_user)):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    payload = request.get_json(silent=True) or request.form
+    target_folder = _qb_normalize_folder_path((payload.get('target_folder') or '').strip())
+    raw_folder_paths = payload.get('folder_paths') or ''
+    if isinstance(raw_folder_paths, str):
+        folder_paths = [_qb_normalize_folder_path(x) for x in raw_folder_paths.split(',') if _qb_normalize_folder_path(x)]
+    elif isinstance(raw_folder_paths, list):
+        folder_paths = [_qb_normalize_folder_path(x) for x in raw_folder_paths if _qb_normalize_folder_path(x)]
+    else:
+        folder_paths = []
+
+    if not target_folder:
+        return jsonify({'success': False, 'message': 'Target folder is required.'}), 400
+    if not folder_paths:
+        return jsonify({'success': False, 'message': 'No folder selected.'}), 400
+
+    target_exists = QuestionBankFolder.query.filter(
+        func.lower(QuestionBankFolder.name) == target_folder.lower()
+    ).first()
+    if not target_exists:
+        return jsonify({'success': False, 'message': 'Target folder does not exist.'}), 400
+
+    unique_sources = []
+    for source in sorted(set(folder_paths), key=lambda p: len(p.split('/'))):
+        if source.lower() == target_folder.lower() or _qb_is_descendant(target_folder, source):
+            return jsonify({'success': False, 'message': f'Cannot move "{source}" into itself or its child.'}), 400
+        if any(_qb_is_descendant(source, kept) for kept in unique_sources):
+            continue
+        unique_sources.append(source)
+
+    all_folder_names = {
+        _qb_normalize_folder_path(f.name).lower()
+        for f in QuestionBankFolder.query.all()
+        if _qb_normalize_folder_path(f.name)
+    }
+
+    move_plan = []
+    for source in unique_sources:
+        source_exists = QuestionBankFolder.query.filter(
+            func.lower(QuestionBankFolder.name) == source.lower()
+        ).first()
+        if not source_exists:
+            return jsonify({'success': False, 'message': f'Source folder not found: {source}'}), 404
+        basename = source.split('/')[-1]
+        destination_root = _qb_normalize_folder_path(f"{target_folder}/{basename}")
+        if destination_root.lower() in all_folder_names and destination_root.lower() != source.lower():
+            return jsonify({'success': False, 'message': f'Target already contains "{basename}".'}), 400
+        move_plan.append((source, destination_root))
+
+    try:
+        for source, destination_root in move_plan:
+            subtree_folders = QuestionBankFolder.query.filter(_qb_subtree_filter(QuestionBankFolder.name, source)).all()
+            subtree_files = QuestionBankFile.query.filter(_qb_subtree_filter(QuestionBankFile.subject_name, source)).all()
+            for folder in subtree_folders:
+                old_path = _qb_normalize_folder_path(folder.name)
+                suffix = old_path[len(source):]
+                folder.name = _qb_normalize_folder_path(f"{destination_root}{suffix}")
+            for qb_file in subtree_files:
+                old_path = _qb_normalize_folder_path(qb_file.subject_name)
+                suffix = old_path[len(source):]
+                qb_file.subject_name = _qb_normalize_folder_path(f"{destination_root}{suffix}")
+        db.session.commit()
+        return jsonify({'success': True, 'message': f'Moved {len(move_plan)} folder(s).'})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error moving question bank folders: {e}", exc_info=True)
+        return jsonify({'success': False, 'message': 'Failed to move folder(s).'}), 500
 
 
 @class_management_bp.route('/question-bank/upload', methods=['POST'])

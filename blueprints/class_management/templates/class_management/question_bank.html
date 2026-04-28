@@ -4,6 +4,96 @@
 
 {% block content %}
 <div class="container my-4">
+    <style>
+        .qb-shell {
+            border: 1px solid #e9ecef;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #fff;
+        }
+        .qb-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f4;
+            background: #f8fafc;
+        }
+        .qb-toolbar-left,
+        .qb-toolbar-right {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+        .qb-breadcrumb {
+            font-size: 0.85rem;
+            color: #4b5563;
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 6px 10px;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .qb-breadcrumb button {
+            border: none;
+            background: transparent;
+            color: #2563eb;
+            padding: 0 2px;
+        }
+        .qb-folder-meta {
+            font-size: 0.74rem;
+            color: #6b7280;
+            margin-left: 6px;
+        }
+        .qb-folder-label {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 340px;
+        }
+        .qb-folder-dropzone.drag-over {
+            background: #e8f4ff !important;
+        }
+        .qb-active-folder .accordion-button {
+            background: #eaf3ff;
+            border-left: 3px solid #0d6efd;
+        }
+        .qb-file-row.dragging,
+        .qb-folder-handle.dragging {
+            opacity: 0.6;
+        }
+        .qb-indent {
+            display: inline-block;
+            width: 18px;
+        }
+        .qb-compact-table td,
+        .qb-compact-table th {
+            padding-top: 0.45rem !important;
+            padding-bottom: 0.45rem !important;
+            font-size: 0.88rem;
+        }
+        @media (max-width: 768px) {
+            .qb-folder-label {
+                max-width: 170px;
+            }
+            .qb-toolbar {
+                padding: 8px;
+            }
+            .qb-breadcrumb {
+                width: 100%;
+                margin-top: 4px;
+            }
+            .qb-hide-mobile {
+                display: none !important;
+            }
+        }
+    </style>
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <h2 class="mb-0"><i class="fas fa-book-reader me-2"></i>Question Bank</h2>
         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
@@ -22,7 +112,16 @@
         </div>
         <div class="card-body collapse" id="qbUploadMain">
             <form method="post" action="{{ url_for('class_management.create_question_bank_folder') }}" class="row g-3">
-                <div class="col-md-9">
+                <div class="col-md-4">
+                    <label class="form-label">Parent Folder (optional)</label>
+                    <select class="form-select" name="parent_folder">
+                        <option value="">/ (Root)</option>
+                        {% for folder in folder_options %}
+                        <option value="{{ folder.value }}">{{ folder.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-5">
                     <label class="form-label">Folder Name *</label>
                     <input type="text" class="form-control" name="folder_name" required>
                 </div>
@@ -68,134 +167,242 @@
                     </div>
                 </form>
             </div>
-            {% if grouped_files %}
-            <div class="accordion accordion-flush" id="qbAccordion">
-                {% for group in grouped_files %}
-                <div class="accordion-item">
-                    <h2 class="accordion-header" id="qb-heading-{{ loop.index }}">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#qb-collapse-{{ loop.index }}" aria-expanded="false" aria-controls="qb-collapse-{{ loop.index }}">
-                            <span class="me-2"><i class="fas fa-folder text-warning"></i></span>
-                            <span class="fw-semibold">{{ group.folder_name }}</span>
-                            <span class="badge bg-secondary ms-2">{{ group.files|length }} file(s)</span>
-                        </button>
-                    </h2>
-                    <div id="qb-collapse-{{ loop.index }}" class="accordion-collapse collapse" aria-labelledby="qb-heading-{{ loop.index }}" data-bs-parent="#qbAccordion">
-                        <div class="accordion-body p-0">
-                            <div class="p-2 p-md-3 border-bottom bg-light d-flex flex-wrap justify-content-end gap-2">
-                                <button
-                                    type="button"
-                                    class="btn btn-sm btn-outline-success"
-                                    data-folder-table="folder-{{ loop.index }}"
-                                    data-folder-name="{{ group.folder_name }}"
-                                    onclick='downloadSelectedFromButton(this)'>
-                                    <i class="fas fa-check-square me-1"></i>Download Selected
-                                </button>
-                                <button
-                                    type="button"
-                                    class="btn btn-sm btn-outline-primary"
-                                    data-file-ids="{% for f in group.files %}{{ f.id }}{% if not loop.last %},{% endif %}{% endfor %}"
-                                    data-folder-name="{{ group.folder_name }}"
-                                    onclick='bulkDownloadFolderFromCsv(this.dataset.fileIds, this.dataset.folderName)'>
-                                    <i class="fas fa-file-archive me-1"></i>Download All
-                                </button>
-                            </div>
-                            {% if can_upload %}
-                            <div class="p-3 border-bottom bg-white">
-                                <button class="btn btn-sm btn-success" type="button" data-bs-toggle="collapse" data-bs-target="#qb-upload-{{ loop.index }}" aria-expanded="false" aria-controls="qb-upload-{{ loop.index }}">
-                                    <i class="fas fa-plus me-1"></i>Upload more to this folder
-                                </button>
-                                <div class="collapse mt-3" id="qb-upload-{{ loop.index }}">
-                                    <form method="post" action="{{ url_for('class_management.upload_question_bank_file') }}" enctype="multipart/form-data" class="row g-2 align-items-end">
-                                        <input type="hidden" name="folder_name" value="{{ group.folder_name }}">
-                                        <div class="col-md-3">
-                                            <label class="form-label">Year *</label>
-                                            <input type="text" class="form-control form-control-sm" name="question_year" placeholder="2023" required>
-                                        </div>
-                                        <div class="col-md-3">
-                                            <label class="form-label">Title (optional)</label>
-                                            <input type="text" class="form-control form-control-sm" name="title" placeholder="e.g. Set A">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="form-label">PDF Files *</label>
-                                            <input type="file" class="form-control form-control-sm" name="files" accept=".pdf,application/pdf" multiple required>
-                                        </div>
-                                        <div class="col-md-12">
-                                            <button type="submit" class="btn btn-success w-100">
-                                                <i class="fas fa-upload me-1"></i>Upload
-                                            </button>
-                                        </div>
-                                    </form>
-                                </div>
-                            </div>
-                            {% endif %}
-                            <div class="table-responsive">
-                                <table class="table table-hover mb-0" id="folder-{{ loop.index }}">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th style="width: 44px;" class="text-center">
-                                                <input
-                                                    type="checkbox"
-                                                    class="form-check-input"
-                                                    title="Select all in this folder"
-                                                    onchange='toggleFolderSelection("folder-{{ loop.index }}", this.checked)'>
-                                            </th>
-                                            <th>Year</th>
-                                            <th>Title</th>
-                                            <th>Uploaded</th>
-                                            <th class="text-end">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for f in group.files %}
-                                        <tr>
-                                            <td class="text-center">
-                                                <input
-                                                    type="checkbox"
-                                                    class="form-check-input qb-file-check"
-                                                    value="{{ f.id }}"
-                                                    title="Select file">
-                                            </td>
-                                            <td>{{ f.question_year }}</td>
-                                            <td>
-                                                {% if can_manage %}
-                                                <div class="d-flex align-items-center justify-content-between gap-2">
-                                                    <span class="text-truncate">{{ f.title }}</span>
-                                                    <button class="btn btn-sm btn-outline-secondary flex-shrink-0" type="button" data-bs-toggle="collapse" data-bs-target="#edit-title-{{ f.id }}" aria-expanded="false" aria-controls="edit-title-{{ f.id }}">
-                                                        <i class="fas fa-pen me-1"></i>Edit
-                                                    </button>
-                                                </div>
-                                                <div class="collapse mt-2" id="edit-title-{{ f.id }}">
-                                                    <form method="post" action="{{ url_for('class_management.edit_question_bank_file_title', file_id=f.id) }}" class="d-flex gap-2">
-                                                        <input type="text" name="title" value="{{ f.title }}" class="form-control form-control-sm" required>
-                                                        <button type="submit" class="btn btn-sm btn-primary">Save</button>
-                                                    </form>
-                                                </div>
-                                                {% else %}
-                                                {{ f.title }}
-                                                {% endif %}
-                                            </td>
-                                            <td>{{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}</td>
-                                            <td class="text-end">
-                                                {% if can_manage %}
-                                                <form method="post" action="{{ url_for('class_management.delete_question_bank_file', file_id=f.id) }}" onsubmit="return confirm('Delete this question paper?');" class="d-inline">
-                                                    <button type="submit" class="btn btn-sm btn-outline-danger">
-                                                        <i class="fas fa-trash me-1"></i>Delete
-                                                    </button>
-                                                </form>
-                                                {% endif %}
-                                                <a href="{{ url_for('class_management.download_question_bank_file', file_id=f.id) }}" class="btn btn-sm btn-outline-primary">
-                                                    <i class="fas fa-download me-1"></i>Download
-                                                </a>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
+            {% macro render_qb_folder(node, can_manage, can_upload) %}
+            <div class="accordion-item qb-folder-item" data-folder-path="{{ node.folder_name }}" data-folder-depth="{{ node.folder_depth or 0 }}">
+                <h2 class="accordion-header" id="qb-heading-{{ node.dom_id }}">
+                    <div
+                        class="accordion-button collapsed qb-folder-dropzone"
+                        role="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#qb-collapse-{{ node.dom_id }}"
+                        aria-expanded="false"
+                        aria-controls="qb-collapse-{{ node.dom_id }}"
+                        data-folder-name="{{ node.folder_name }}"
+                        ondragover="onFolderDragOver(event)"
+                        ondragleave="onFolderDragLeave(event)"
+                        ondrop="onFolderDrop(event)">
+                        {% if can_manage %}
+                        <input
+                            type="checkbox"
+                            class="form-check-input me-2 qb-folder-select"
+                            value="{{ node.folder_name }}"
+                            title="Select folder"
+                            onclick="event.stopPropagation();">
+                        {% endif %}
+                        <span class="me-2 qb-folder-handle" data-folder-path="{{ node.folder_name }}" draggable="{{ 'true' if can_manage else 'false' }}" ondragstart="onFolderHandleDragStart(event)" ondragend="onDragEnd(event)">
+                            <i class="fas fa-folder text-warning"></i>
+                        </span>
+                        <span class="fw-semibold qb-folder-label" title="{{ node.folder_name }}">{{ node.folder_basename or node.folder_name }}</span>
+                        <span class="badge bg-secondary ms-2">{{ node.files|length }} file(s)</span>
+                        <span class="qb-folder-meta qb-hide-mobile">/{{ node.folder_name }}</span>
+                        {% if can_manage %}
+                        <div class="dropdown ms-auto" onclick="event.stopPropagation();">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-ellipsis-v"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <button type="button" class="dropdown-item" data-folder-path="{{ node.folder_name }}" onclick="event.stopPropagation(); quickCreateChildFolderFromButton(this)">
+                                        <i class="fas fa-folder-plus me-2 text-success"></i>নিউ ফোল্ডার
+                                    </button>
+                                </li>
+                                <li>
+                                    <button type="button" class="dropdown-item" data-folder-path="{{ node.folder_name }}" onclick="event.stopPropagation(); quickRenameFolderFromButton(this)">
+                                        <i class="fas fa-edit me-2 text-primary"></i>এডিট
+                                    </button>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li>
+                                    <button type="button" class="dropdown-item text-danger" data-folder-path="{{ node.folder_name }}" onclick="event.stopPropagation(); confirmDeleteFolderFromButton(this)">
+                                        <i class="fas fa-trash me-2"></i>ডিলিট
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                        {% endif %}
+                    </div>
+                </h2>
+                <div id="qb-collapse-{{ node.dom_id }}" class="accordion-collapse collapse" aria-labelledby="qb-heading-{{ node.dom_id }}">
+                    <div class="accordion-body p-0">
+                        <div class="p-2 p-md-3 border-bottom bg-light d-flex flex-wrap justify-content-end gap-2">
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-success"
+                                data-folder-table="folder-{{ node.dom_id }}"
+                                data-folder-name="{{ node.folder_name }}"
+                                onclick='downloadSelectedFromButton(this)'>
+                                <i class="fas fa-check-square me-1"></i>Download Selected
+                            </button>
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-primary"
+                                data-file-ids="{% for f in node.files %}{{ f.id }}{% if not loop.last %},{% endif %}{% endfor %}"
+                                data-folder-name="{{ node.folder_name }}"
+                                onclick='bulkDownloadFolderFromCsv(this.dataset.fileIds, this.dataset.folderName)'>
+                                <i class="fas fa-file-archive me-1"></i>Download All
+                            </button>
+                        </div>
+                        {% if can_upload %}
+                        <div class="p-3 border-bottom bg-white">
+                            <button class="btn btn-sm btn-success" type="button" data-bs-toggle="collapse" data-bs-target="#qb-upload-{{ node.dom_id }}" aria-expanded="false" aria-controls="qb-upload-{{ node.dom_id }}">
+                                <i class="fas fa-plus me-1"></i>Upload more to this folder
+                            </button>
+                            <div class="collapse mt-3" id="qb-upload-{{ node.dom_id }}">
+                                <form method="post" action="{{ url_for('class_management.upload_question_bank_file') }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+                                    <input type="hidden" name="folder_name" value="{{ node.folder_name }}">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Year *</label>
+                                        <input type="text" class="form-control form-control-sm" name="question_year" placeholder="2023" required>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label">Title (optional)</label>
+                                        <input type="text" class="form-control form-control-sm" name="title" placeholder="e.g. Set A">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label">PDF Files *</label>
+                                        <input type="file" class="form-control form-control-sm" name="files" accept=".pdf,application/pdf" multiple required>
+                                    </div>
+                                    <div class="col-md-12">
+                                        <button type="submit" class="btn btn-success w-100">
+                                            <i class="fas fa-upload me-1"></i>Upload
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
+                        {% endif %}
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 qb-compact-table" id="folder-{{ node.dom_id }}">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 44px;" class="text-center">
+                                            <input
+                                                type="checkbox"
+                                                class="form-check-input"
+                                                title="Select all in this folder"
+                                                onchange='toggleFolderSelection("folder-{{ node.dom_id }}", this.checked)'>
+                                        </th>
+                                        <th>Year</th>
+                                        <th>Title</th>
+                                        <th>Uploaded</th>
+                                        <th class="text-end">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for f in node.files %}
+                                    <tr class="qb-file-row" data-file-id="{{ f.id }}" draggable="{{ 'true' if can_manage else 'false' }}" ondragstart="onFileRowDragStart(event)" ondragend="onDragEnd(event)">
+                                        <td class="text-center">
+                                            <input
+                                                type="checkbox"
+                                                class="form-check-input qb-file-check"
+                                                value="{{ f.id }}"
+                                                title="Select file">
+                                        </td>
+                                        <td>{{ f.question_year }}</td>
+                                        <td>
+                                            {% if can_manage %}
+                                            <div class="d-flex align-items-center justify-content-between gap-2">
+                                                <span class="text-truncate">{{ f.title }}</span>
+                                                <button class="btn btn-sm btn-outline-secondary flex-shrink-0" type="button" data-bs-toggle="collapse" data-bs-target="#edit-title-{{ f.id }}" aria-expanded="false" aria-controls="edit-title-{{ f.id }}">
+                                                    <i class="fas fa-pen me-1"></i>Edit
+                                                </button>
+                                            </div>
+                                            <div class="collapse mt-2" id="edit-title-{{ f.id }}">
+                                                <form method="post" action="{{ url_for('class_management.edit_question_bank_file_title', file_id=f.id) }}" class="d-flex gap-2">
+                                                    <input type="text" name="title" value="{{ f.title }}" class="form-control form-control-sm" required>
+                                                    <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                                                </form>
+                                            </div>
+                                            {% else %}
+                                            {{ f.title }}
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}</td>
+                                        <td class="text-end">
+                                            {% if can_manage %}
+                                            <form method="post" action="{{ url_for('class_management.delete_question_bank_file', file_id=f.id) }}" onsubmit="return confirm('Delete this question paper?');" class="d-inline">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    <i class="fas fa-trash me-1"></i>Delete
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                            <a href="{{ url_for('class_management.download_question_bank_file', file_id=f.id) }}" class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-download me-1"></i>Download
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% if node.children %}
+                        <div class="p-2 p-md-3 border-top bg-white">
+                            <div class="accordion accordion-flush ms-2 ms-md-4 border-start ps-2" id="qb-children-{{ node.dom_id }}">
+                                {% for child in node.children %}
+                                    {{ render_qb_folder(child, can_manage, can_upload) }}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
+            </div>
+            {% endmacro %}
+
+            {% if grouped_files %}
+            <div class="qb-shell">
+            <div class="qb-toolbar">
+                <div class="qb-toolbar-left">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="qbNavHome" title="Root/Home">
+                        <i class="fas fa-home"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="qbNavUp" title="Go to parent folder">
+                        <i class="fas fa-level-up-alt"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary qb-hide-mobile" id="qbExpandAll" title="Expand all folders">
+                        <i class="fas fa-expand-alt me-1"></i>Expand
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary qb-hide-mobile" id="qbCollapseAll" title="Collapse all folders">
+                        <i class="fas fa-compress-alt me-1"></i>Collapse
+                    </button>
+                </div>
+                <div class="qb-toolbar-right">
+                    <div class="qb-breadcrumb" id="qbBreadcrumb">Root</div>
+                </div>
+            </div>
+            {% if can_manage %}
+            <div class="p-2 p-md-3 border-bottom bg-light">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label small mb-1">Move selected files/folders to</label>
+                        <select id="qbMoveTargetFolder" class="form-select form-select-sm">
+                            <option value="">Select target folder</option>
+                            {% for folder in folder_options %}
+                            <option value="{{ folder.value }}">{{ folder.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="moveSelectedFiles()">
+                            <i class="fas fa-file-export me-1"></i>Move Files
+                        </button>
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="moveSelectedFolders()">
+                            <i class="fas fa-folder-open me-1"></i>Move Folders
+                        </button>
+                    </div>
+                    <div class="col-md-3">
+                        <small class="text-muted">Tip: ফাইল বা ফোল্ডার টেনে (drag) অন্য ফোল্ডারে drop করলেও move হবে।</small>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            <div class="accordion accordion-flush" id="qbAccordion">
+                {% for node in folder_tree %}
+                    {{ render_qb_folder(node, can_manage, can_upload) }}
                 {% endfor %}
+            </div>
             </div>
             {% else %}
             <div class="text-center py-5 text-muted">
@@ -208,6 +415,14 @@
 </div>
 
 <script>
+const QB_ENDPOINTS = {
+    moveFiles: "{{ url_for('class_management.move_question_bank_files') }}",
+    moveFolders: "{{ url_for('class_management.move_question_bank_folders') }}",
+    renameFolder: "{{ url_for('class_management.rename_question_bank_folder') }}",
+    deleteFolder: "{{ url_for('class_management.delete_question_bank_folder') }}",
+    createFolder: "{{ url_for('class_management.create_question_bank_folder') }}"
+};
+
 function submitZipDownload(fileIds, folderName) {
     if (!Array.isArray(fileIds) || fileIds.length === 0) {
         alert('No files selected.');
@@ -271,5 +486,274 @@ function downloadSelectedFromButton(btn) {
     const folderName = btn && btn.dataset ? btn.dataset.folderName : '';
     downloadSelectedInFolder(folderTableId, folderName);
 }
+
+function getSelectedFileIds() {
+    return Array.from(document.querySelectorAll('.qb-file-check:checked'))
+        .map(cb => parseInt(cb.value, 10))
+        .filter(id => Number.isInteger(id));
+}
+
+function getSelectedFolderPaths() {
+    return Array.from(document.querySelectorAll('.qb-folder-select:checked'))
+        .map(cb => String(cb.value || '').trim())
+        .filter(Boolean);
+}
+
+async function moveSelectedFiles() {
+    const target = document.getElementById('qbMoveTargetFolder')?.value || '';
+    const ids = getSelectedFileIds();
+    if (!target) return alert('Target folder select করুন।');
+    if (!ids.length) return alert('কমপক্ষে একটি file select করুন।');
+    const res = await fetch(QB_ENDPOINTS.moveFiles, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_ids: ids, target_folder: target })
+    });
+    const data = await res.json();
+    if (data.success) window.location.reload();
+    else alert(data.message || 'Failed to move files.');
+}
+
+async function moveSelectedFolders() {
+    const target = document.getElementById('qbMoveTargetFolder')?.value || '';
+    const paths = getSelectedFolderPaths();
+    if (!target) return alert('Target folder select করুন।');
+    if (!paths.length) return alert('কমপক্ষে একটি folder select করুন।');
+    const res = await fetch(QB_ENDPOINTS.moveFolders, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_paths: paths, target_folder: target })
+    });
+    const data = await res.json();
+    if (data.success) window.location.reload();
+    else alert(data.message || 'Failed to move folders.');
+}
+
+function postWithHiddenForm(url, payload) {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = url;
+    form.style.display = 'none';
+    Object.entries(payload || {}).forEach(([k, v]) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = k;
+        input.value = v == null ? '' : String(v);
+        form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function quickCreateChildFolder(parentPath) {
+    const name = prompt('New folder name:');
+    if (!name || !name.trim()) return;
+    postWithHiddenForm(QB_ENDPOINTS.createFolder, { folder_name: name.trim(), parent_folder: parentPath });
+}
+
+function quickCreateChildFolderFromButton(btn) {
+    const parentPath = btn?.dataset?.folderPath || '';
+    quickCreateChildFolder(parentPath);
+}
+
+function quickRenameFolder(currentPath) {
+    const parts = String(currentPath || '').split('/');
+    const currentName = parts[parts.length - 1] || '';
+    const name = prompt('Rename folder:', currentName);
+    if (!name || !name.trim()) return;
+    postWithHiddenForm(QB_ENDPOINTS.renameFolder, { folder_name: currentPath, new_folder_name: name.trim() });
+}
+
+function quickRenameFolderFromButton(btn) {
+    const currentPath = btn?.dataset?.folderPath || '';
+    quickRenameFolder(currentPath);
+}
+
+function confirmDeleteFolder(folderPath) {
+    if (!confirm(`Delete folder "${folderPath}" and all subfolders/files?`)) return;
+    postWithHiddenForm(QB_ENDPOINTS.deleteFolder, { folder_name: folderPath });
+}
+
+function confirmDeleteFolderFromButton(btn) {
+    const folderPath = btn?.dataset?.folderPath || '';
+    confirmDeleteFolder(folderPath);
+}
+
+function onFileDragStart(event, fileId) {
+    event.currentTarget.classList.add('dragging');
+    const selected = getSelectedFileIds();
+    const fileIds = selected.includes(fileId) ? selected : [fileId];
+    event.dataTransfer.setData('application/x-qb-type', 'file');
+    event.dataTransfer.setData('application/x-qb-file-ids', JSON.stringify(fileIds));
+}
+
+function onFileRowDragStart(event) {
+    const fileId = parseInt(event.currentTarget?.dataset?.fileId || '', 10);
+    if (!Number.isInteger(fileId)) return;
+    onFileDragStart(event, fileId);
+}
+
+function onFolderDragStart(event, folderPath) {
+    event.currentTarget.classList.add('dragging');
+    const selected = getSelectedFolderPaths();
+    const folderPaths = selected.includes(folderPath) ? selected : [folderPath];
+    event.dataTransfer.setData('application/x-qb-type', 'folder');
+    event.dataTransfer.setData('application/x-qb-folder-paths', JSON.stringify(folderPaths));
+}
+
+function onFolderHandleDragStart(event) {
+    const folderPath = event.currentTarget?.dataset?.folderPath || '';
+    if (!folderPath) return;
+    onFolderDragStart(event, folderPath);
+}
+
+function onFolderDragOver(event) {
+    event.preventDefault();
+    const zone = event.currentTarget;
+    zone.classList.add('drag-over');
+}
+
+function onFolderDragLeave(event) {
+    event.currentTarget.classList.remove('drag-over');
+}
+
+async function onFolderDrop(event) {
+    event.preventDefault();
+    const zone = event.currentTarget;
+    zone.classList.remove('drag-over');
+    const targetFolder = zone.dataset.folderName || '';
+    if (!targetFolder) return;
+    const dragType = event.dataTransfer.getData('application/x-qb-type');
+    if (dragType === 'file') {
+        const ids = JSON.parse(event.dataTransfer.getData('application/x-qb-file-ids') || '[]');
+        if (!ids.length) return;
+        const res = await fetch(QB_ENDPOINTS.moveFiles, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_ids: ids, target_folder: targetFolder })
+        });
+        const data = await res.json();
+        if (data.success) window.location.reload();
+        else alert(data.message || 'Failed to move files.');
+    } else if (dragType === 'folder') {
+        const paths = JSON.parse(event.dataTransfer.getData('application/x-qb-folder-paths') || '[]');
+        if (!paths.length) return;
+        const res = await fetch(QB_ENDPOINTS.moveFolders, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder_paths: paths, target_folder: targetFolder })
+        });
+        const data = await res.json();
+        if (data.success) window.location.reload();
+        else alert(data.message || 'Failed to move folders.');
+    }
+}
+
+function onDragEnd(event) {
+    event.currentTarget.classList.remove('dragging');
+    document.querySelectorAll('.qb-folder-dropzone.drag-over').forEach(el => el.classList.remove('drag-over'));
+}
+
+let qbCurrentFolder = '';
+
+function qbParentPath(path) {
+    const parts = String(path || '').split('/').filter(Boolean);
+    if (parts.length <= 1) return '';
+    return parts.slice(0, -1).join('/');
+}
+
+function qbEscapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function qbRenderBreadcrumb(path) {
+    const el = document.getElementById('qbBreadcrumb');
+    if (!el) return;
+    const parts = String(path || '').split('/').filter(Boolean);
+    if (!parts.length) {
+        el.innerHTML = '<strong>Root</strong>';
+        return;
+    }
+    let html = '<button type="button" onclick="qbSetCurrentFolder(\'\')">Root</button>';
+    let acc = '';
+    parts.forEach((part, idx) => {
+        acc = acc ? `${acc}/${part}` : part;
+        html += ` <span class="text-muted">/</span> <button type="button" onclick="qbSetCurrentFolder(${JSON.stringify(acc).replace(/"/g, '&quot;')})">${qbEscapeHtml(part)}</button>`;
+    });
+    el.innerHTML = html;
+}
+
+function qbApplyFolderState() {
+    const items = Array.from(document.querySelectorAll('.qb-folder-item'));
+    items.forEach(item => item.classList.remove('qb-active-folder'));
+    if (!qbCurrentFolder) {
+        qbRenderBreadcrumb('');
+        return;
+    }
+    items.forEach(item => {
+        const path = item.dataset.folderPath || '';
+        if (path === qbCurrentFolder) {
+            item.classList.add('qb-active-folder');
+        }
+    });
+    qbRenderBreadcrumb(qbCurrentFolder);
+}
+
+function qbExpandFolder(path) {
+    const item = document.querySelector(`.qb-folder-item[data-folder-path="${CSS.escape(path)}"]`);
+    if (!item) return;
+    const btn = item.querySelector('.accordion-button');
+    if (btn && btn.classList.contains('collapsed')) btn.click();
+}
+
+function qbSetCurrentFolder(path) {
+    qbCurrentFolder = String(path || '');
+    qbApplyFolderState();
+    if (qbCurrentFolder) qbExpandFolder(qbCurrentFolder);
+}
+
+function qbExpandAll() {
+    document.querySelectorAll('#qbAccordion .accordion-collapse').forEach(el => {
+        if (!el.classList.contains('show')) {
+            const inst = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
+            inst.show();
+        }
+    });
+}
+
+function qbCollapseAll() {
+    document.querySelectorAll('#qbAccordion .accordion-collapse.show').forEach(el => {
+        const inst = bootstrap.Collapse.getOrCreateInstance(el, { toggle: false });
+        inst.hide();
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.qb-folder-item .accordion-button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const folder = btn.dataset.folderName || '';
+            qbSetCurrentFolder(folder);
+        });
+    });
+
+    const navHome = document.getElementById('qbNavHome');
+    if (navHome) navHome.addEventListener('click', () => qbSetCurrentFolder(''));
+
+    const navUp = document.getElementById('qbNavUp');
+    if (navUp) navUp.addEventListener('click', () => qbSetCurrentFolder(qbParentPath(qbCurrentFolder)));
+
+    const expandBtn = document.getElementById('qbExpandAll');
+    if (expandBtn) expandBtn.addEventListener('click', qbExpandAll);
+
+    const collapseBtn = document.getElementById('qbCollapseAll');
+    if (collapseBtn) collapseBtn.addEventListener('click', qbCollapseAll);
+
+    qbSetCurrentFolder('');
+});
 </script>
 {% endblock %}

@@ -114,6 +114,7 @@
                             <th>Credit</th>
                             <th>Type</th>
                             <th>Nature</th>
+                            <th>Source Year/Term</th>
                             <th>Remarks</th>
                             <th>Carry On</th>
                             <th>Action</th>
@@ -182,8 +183,10 @@ function showStatus(message, type = 'info') {
 }
 
 function isSameCourse(existing, course) {
-    if (existing.id && course.id) {
-        return existing.id === course.id;
+    const existingCourseId = existing.course_id || existing.id;
+    const incomingCourseId = course.course_id || course.id;
+    if (existingCourseId && incomingCourseId) {
+        return String(existingCourseId) === String(incomingCourseId);
     }
     return existing.course_code === course.course_code;
 }
@@ -318,14 +321,19 @@ function loadSavedRegistrations(session, year, term) {
         .then(data => {
             if (data.success && data.registrations) {
                 selectedCourses = data.registrations.map(course => ({
-                    id: course.id,
+                    id: course.course_id || course.id || null,
+                    course_id: course.course_id || course.id || null,
+                    registration_id: course.registration_id || null,
                     course_code: course.course_code,
                     course_name: course.course_name,
                     credit: course.credit,
                     course_type: course.course_type,
                     nature: course.nature || 'Core',
+                    source_year: course.source_year || course.year || currentYear,
+                    source_term: course.source_term || course.term || currentTerm,
                     remark: course.remark || 'Regular',
                     carry_on: course.carry_on || false,
+                    use_relevant_for_committee: typeof course.use_relevant_for_committee === 'boolean' ? course.use_relevant_for_committee : true,
                     registered_by: course.registered_by || 'student',
                     status: course.status || 'pending'  // Include status to check if finalized
                 }));
@@ -458,13 +466,18 @@ function addCourse(id, code, name, credit, type, nature, remark, carryOn = false
     
     selectedCourses.push({
         id: id,
+        course_id: id,
+        registration_id: null,
         course_code: code,
         course_name: name,
         credit: credit,
         course_type: type,
         nature: nature,
+        source_year: currentYear,
+        source_term: currentTerm,
         remark: remark || 'Regular',
         carry_on: carryOn || false,
+        use_relevant_for_committee: (remark === 'Retake' || remark === 'Re-retake'),
         registered_by: 'student',  // New courses added by student
         status: 'pending'  // New courses are pending by default
     });
@@ -479,6 +492,12 @@ function updateSelectedCourseRemark(courseIdOrIndex, remark) {
         course.remark = remark;
         if (remark === 'Regular') {
             course.carry_on = false;
+            course.use_relevant_for_committee = false;
+        } else if (remark === 'Retake' || remark === 'Re-retake') {
+            // Keep existing explicit choice if any; otherwise default to merged behavior.
+            if (typeof course.use_relevant_for_committee !== 'boolean') {
+                course.use_relevant_for_committee = true;
+            }
         }
         updateSelectedTable();
     }
@@ -491,11 +510,11 @@ function updateSelectedCourseCarryOn(courseIdOrIndex, carryOn) {
     }
 }
 
-function removeCourse(id, code) {
+function removeCourse(registrationId, code) {
     // Find the course to remove
     const courseToRemove = selectedCourses.find(c => {
-        if (c.id && id) {
-            return c.id === id;
+        if (registrationId && c.registration_id) {
+            return String(c.registration_id) === String(registrationId);
         }
         return c.course_code === code;
     });
@@ -511,7 +530,7 @@ function removeCourse(id, code) {
     }
     
     // If course has registration ID (saved in backend), need to deregister from backend
-    if (courseToRemove.id && currentSession && currentYear && currentTerm) {
+    if (courseToRemove.registration_id && currentSession && currentYear && currentTerm) {
         if (!confirm(`Are you sure you want to remove ${courseToRemove.course_code} - ${courseToRemove.course_name}?`)) {
             return;
         }
@@ -524,7 +543,7 @@ function removeCourse(id, code) {
                 session: currentSession,
                 year: currentYear,
                 term: currentTerm,
-                registration_id: courseToRemove.id
+                registration_id: courseToRemove.registration_id
             })
         })
         .then(response => response.json())
@@ -532,8 +551,8 @@ function removeCourse(id, code) {
             if (data.success) {
                 // Remove from selectedCourses array
                 selectedCourses = selectedCourses.filter(c => {
-                    if (c.id && id) {
-                        return c.id !== id;
+                    if (registrationId && c.registration_id) {
+                        return String(c.registration_id) !== String(registrationId);
                     }
                     return c.course_code !== code;
                 });
@@ -555,8 +574,8 @@ function removeCourse(id, code) {
     } else {
         // If not saved yet, just remove from array
         selectedCourses = selectedCourses.filter(c => {
-            if (c.id && id) {
-                return c.id !== id;
+            if (registrationId && c.registration_id) {
+                return String(c.registration_id) !== String(registrationId);
             }
             return c.course_code !== code;
         });
@@ -587,7 +606,9 @@ function removeAllCourses() {
     }
     
     // Get registration IDs for courses that are saved in backend
-    const registrationIds = removableCourses.filter(c => c.id).map(c => c.id);
+    const registrationIds = removableCourses
+        .filter(c => c.registration_id)
+        .map(c => c.registration_id);
     
     if (registrationIds.length > 0 && currentSession && currentYear && currentTerm) {
         // Call backend to bulk deregister
@@ -694,6 +715,7 @@ function updateSelectedTable() {
             <td>${course.credit}</td>
             <td>${course.course_type}</td>
             <td>${course.nature || 'Core'}</td>
+            <td>${(course.source_year || currentYear || '-')}/${(course.source_term || currentTerm || '-')}</td>
             <td>
                 ${isCoordinatorReg ? 
                     `<span class="badge bg-info">${course.remark || 'Regular'}</span>` :
@@ -720,7 +742,7 @@ function updateSelectedTable() {
             <td>
                 ${isCoordinatorReg ? 
                     '<span class="text-muted small">Read-only</span>' :
-                    `<button class="btn btn-sm btn-danger" onclick="removeCourse(${course.id || 'null'}, '${course.course_code.replace(/'/g, "\\'")}')">
+                    `<button class="btn btn-sm btn-danger" onclick="removeCourse(${course.registration_id || 'null'}, '${course.course_code.replace(/'/g, "\\'")}')">
                         <i class="fas fa-trash me-1"></i>Remove
                     </button>`
                 }
@@ -733,7 +755,7 @@ function updateSelectedTable() {
     html += `<tr class="table-info fw-bold">
         <td colspan="3" class="text-end">Total Credits:</td>
         <td>${totalCredits.toFixed(1)}</td>
-        <td colspan="5"></td>
+        <td colspan="6"></td>
     </tr>`;
     
     selectedTable.innerHTML = html;

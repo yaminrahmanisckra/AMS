@@ -33,8 +33,13 @@
                     </div>
                 </div>
                 <div class="d-flex gap-2 align-items-center">
-                    {% if thread.last_message_role == 'student' %}
+                    {% if thread.is_unread_for_teacher %}
                         <span class="badge bg-warning text-dark">New Question</span>
+                        <form method="POST" action="{{ url_for('class_management.mark_course_question_thread_read', thread_id=thread.id) }}">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">
+                                <i class="fas fa-check me-1"></i>Mark as Read
+                            </button>
+                        </form>
                     {% endif %}
                     <span class="badge bg-secondary text-uppercase">{{ thread.status }}</span>
                     <form method="POST" action="{{ url_for('class_management.delete_course_question_thread', thread_id=thread.id) }}" onsubmit="return confirm('Delete this question?');">

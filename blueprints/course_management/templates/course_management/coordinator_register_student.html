@@ -25,16 +25,16 @@
 
     <div id="registrationStatus"></div>
 
-    <!-- Session (once) -->
+    <!-- Running Context (once) -->
     <div class="card shadow-sm mb-3 card-session">
         <div class="card-header py-2">
-            <span class="small fw-bold"><i class="fas fa-calendar-alt me-1"></i>Session &amp; Semester</span>
+            <span class="small fw-bold"><i class="fas fa-calendar-alt me-1"></i>শিক্ষার্থীর বর্তমান সেশন ও সেমিস্টার</span>
         </div>
         <div class="card-body py-3">
             <div class="row g-2 align-items-end">
                 <div class="col-md-3">
-                    <label for="session" class="form-label small mb-0">Session</label>
-                    <select class="form-select form-select-sm" id="session">
+                    <label for="runningSession" class="form-label small mb-0">Session</label>
+                    <select class="form-select form-select-sm" id="runningSession">
                         <option value="">Select</option>
                         {% for s in academic_sessions %}
                         <option value="{{ s }}">{{ s }}</option>
@@ -42,8 +42,8 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label for="year" class="form-label small mb-0">Year</label>
-                    <select class="form-select form-select-sm" id="year">
+                    <label for="runningYear" class="form-label small mb-0">Year</label>
+                    <select class="form-select form-select-sm" id="runningYear">
                         <option value="">Select</option>
                         <option value="First">First</option>
                         <option value="Second">Second</option>
@@ -54,8 +54,8 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <label for="term" class="form-label small mb-0">Term</label>
-                    <select class="form-select form-select-sm" id="term">
+                    <label for="runningTerm" class="form-label small mb-0">Term</label>
+                    <select class="form-select form-select-sm" id="runningTerm">
                         <option value="">Select</option>
                         <option value="First">First</option>
                         <option value="Second">Second</option>
@@ -73,22 +73,73 @@
         </div>
         <div class="card-body">
             <div class="row g-2 mb-2 align-items-end">
-                <div class="col-md-4">
-                    <label for="courseSelect" class="form-label small mb-0">Course</label>
-                    <select class="form-select form-select-sm" id="courseSelect" disabled>
-                        <option value="">Select session, year &amp; term first</option>
+                <div class="col-12">
+                    <label class="form-label small fw-semibold mb-1">শিক্ষার্থী যে সেশন ও সেমিস্টারে রেজিস্ট্রেশন করতে চায়:</label>
+                </div>
+                <div class="col-md-2">
+                    <label for="sourceYear" class="form-label small mb-0">Source Year</label>
+                    <select class="form-select form-select-sm" id="sourceYear">
+                        <option value="">Select</option>
                     </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
+                    <label for="sourceTerm" class="form-label small mb-0">Source Term</label>
+                    <select class="form-select form-select-sm" id="sourceTerm">
+                        <option value="">Select</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <label for="batchFilter" class="form-label small mb-0">Batch</label>
                     <select class="form-select form-select-sm" id="batchFilter" disabled>
                         <option value="">Select batch</option>
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <label for="curriculumLoaded" class="form-label small mb-0">Loaded Curriculum</label>
+                    <input type="text" class="form-control form-control-sm" id="curriculumLoaded" value="" readonly placeholder="Will load automatically">
+                </div>
+                <div class="col-md-3">
+                    <label for="courseSelect" class="form-label small mb-0">Course</label>
+                    <select class="form-select form-select-sm" id="courseSelect" disabled>
+                        <option value="">Select source year, term &amp; batch first</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
                     <button type="button" class="btn btn-sm btn-success w-100" id="btnLoadStudents">
                         <i class="fas fa-users me-1"></i>Load
                     </button>
+                </div>
+            </div>
+            <div class="row g-2 mb-2 align-items-end">
+                <div class="col-12">
+                    <label class="form-label small fw-semibold mb-1">শুধুমাত্র রিটেকের ক্ষেত্রে প্রযোজ‍্য:</label>
+                </div>
+                <div class="col-md-2">
+                    <label for="relevantSession" class="form-label small mb-0">Relevant Session</label>
+                    <select class="form-select form-select-sm" id="relevantSession">
+                        <option value="">Select Session</option>
+                        {% for s in academic_sessions %}
+                        <option value="{{ s }}">{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="relevantYear" class="form-label small mb-0">Relevant Year</label>
+                    <select class="form-select form-select-sm" id="relevantYear">
+                        <option value="">Select</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label for="relevantTerm" class="form-label small mb-0">Relevant Term</label>
+                    <select class="form-select form-select-sm" id="relevantTerm">
+                        <option value="">Select</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label for="relevantCourseSelect" class="form-label small mb-0">Relevant Course (for Retake/Re-retake)</label>
+                    <select class="form-select form-select-sm" id="relevantCourseSelect" disabled>
+                        <option value="">Select relevant session/year/term first</option>
+                    </select>
                 </div>
             </div>
             <div id="studentsListWrap" class="mb-2" style="display: none;">
@@ -132,23 +183,179 @@ let allCourses = [];
 let currentSession = '';
 let currentYear = '';
 let currentTerm = '';
+let currentSourceYear = '';
+let currentSourceTerm = '';
 let currentCourse = null;
-let registrationBlocks = []; // [{ course: {...}, students: [{id, student_id, name, remark, carryOn}, ...] }, ...]
+let currentRelevantCourse = null;
+let registrationBlocks = []; // [{ running:{session,year,term}, source:{year,term}, course:{...}, relevant:{...}, students:[...] }, ...]
 
 const statusBox = document.getElementById('registrationStatus');
 function showStatus(msg, type) {
     statusBox.innerHTML = '<div class="alert alert-' + (type || 'info') + ' alert-dismissible py-2 small"><span>' + msg + '</span><button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button></div>';
 }
 
+function escapeForAttr(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function resetCourseAndCurriculum() {
+    const courseSelect = document.getElementById('courseSelect');
+    courseSelect.innerHTML = '<option value="">Select source year, term &amp; batch first</option>';
+    courseSelect.disabled = true;
+    currentCourse = null;
+    document.getElementById('curriculumLoaded').value = '';
+}
+
+function resetRelevantCourse() {
+    const relevantSel = document.getElementById('relevantCourseSelect');
+    relevantSel.innerHTML = '<option value="">Select relevant session/year/term first</option>';
+    relevantSel.disabled = true;
+    currentRelevantCourse = null;
+}
+
+function resetRelevantYearTermOptions() {
+    document.getElementById('relevantYear').innerHTML = '<option value="">Select</option>';
+    document.getElementById('relevantTerm').innerHTML = '<option value="">Select</option>';
+}
+
+function sortCoursesByCode(courses) {
+    return [...(courses || [])].sort((a, b) =>
+        String(a.course_code || '').localeCompare(String(b.course_code || ''), undefined, {
+            numeric: true,
+            sensitivity: 'base'
+        })
+    );
+}
+
+function bindStudentRowEvents() {
+    document.querySelectorAll('.student-cb').forEach(cb => cb.addEventListener('change', updateAddCount));
+
+    document.querySelectorAll('.remark-select').forEach(select => {
+        select.addEventListener('change', function() {
+            const row = this.closest('tr');
+            const carryOnInput = row ? row.querySelector('.carry-on-cb') : null;
+            const carryOnLabel = row ? row.querySelector('.form-check-label') : null;
+            const mergeInput = row ? row.querySelector('.merge-relevant-cb') : null;
+            const mergeLabel = row ? row.querySelector('.merge-relevant-label') : null;
+            const studentCheckbox = row ? row.querySelector('.student-cb') : null;
+            const selectedRemark = this.value;
+            const isRetake = selectedRemark === 'Retake' || selectedRemark === 'Re-retake';
+
+            if (carryOnInput) {
+                carryOnInput.style.display = isRetake ? '' : 'none';
+                if (!isRetake) carryOnInput.checked = false;
+            }
+            if (carryOnLabel) {
+                carryOnLabel.textContent = isRetake ? 'Carry On' : '-';
+                carryOnLabel.className = isRetake ? 'form-check-label small' : 'form-check-label small text-muted';
+            }
+            if (mergeInput) {
+                mergeInput.style.display = isRetake ? '' : 'none';
+                if (isRetake) {
+                    mergeInput.checked = true;
+                } else {
+                    mergeInput.checked = false;
+                }
+            }
+            if (mergeLabel) {
+                mergeLabel.textContent = isRetake ? 'Merge' : '-';
+                mergeLabel.className = isRetake ? 'form-check-label small merge-relevant-label' : 'form-check-label small text-muted merge-relevant-label';
+            }
+            if (studentCheckbox) {
+                studentCheckbox.dataset.remark = selectedRemark;
+                studentCheckbox.dataset.carryOn = carryOnInput && carryOnInput.checked ? 'true' : 'false';
+                studentCheckbox.dataset.useRelevantForCommittee = mergeInput && mergeInput.checked ? 'true' : 'false';
+            }
+            updateAddCount();
+        });
+    });
+
+    document.querySelectorAll('.carry-on-cb').forEach(carryCb => {
+        carryCb.addEventListener('change', function() {
+            const row = this.closest('tr');
+            const studentCheckbox = row ? row.querySelector('.student-cb') : null;
+            if (studentCheckbox) {
+                studentCheckbox.dataset.carryOn = this.checked ? 'true' : 'false';
+            }
+            updateAddCount();
+        });
+    });
+
+    document.querySelectorAll('.merge-relevant-cb').forEach(mergeCb => {
+        mergeCb.addEventListener('change', function() {
+            const row = this.closest('tr');
+            const studentCheckbox = row ? row.querySelector('.student-cb') : null;
+            if (studentCheckbox) {
+                studentCheckbox.dataset.useRelevantForCommittee = this.checked ? 'true' : 'false';
+            }
+            updateAddCount();
+        });
+    });
+}
+
+function renderStudentsTable(students) {
+    if (!students || !students.length) {
+        document.getElementById('studentsList').innerHTML = '<p class="text-muted small mb-0">No students in this batch.</p>';
+        return;
+    }
+
+    let html = '<table class="table table-sm table-hover"><thead class="table-light"><tr><th></th><th>ID</th><th>Name</th><th>Status</th><th>Remarks</th><th>Carry On</th><th>Committee Merge</th><th>Action</th></tr></thead><tbody>';
+    students.forEach(s => {
+        const reg = s.is_registered;
+        const safeNameAttr = escapeForAttr(s.name || '');
+        const safeSidAttr = escapeForAttr(s.student_id || '');
+        const safeBatchAttr = escapeForAttr(s.batch || '');
+        const safeNameJs = (s.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        const safeSidJs = (s.student_id || '').replace(/'/g, "\\'");
+
+        const studentCell = reg
+            ? ''
+            : '<input type="checkbox" class="form-check-input student-cb" data-id="' + s.id + '" data-sid="' + safeSidAttr + '" data-name="' + safeNameAttr + '" data-batch="' + safeBatchAttr + '" data-remark="Regular" data-carry-on="false" data-use-relevant-for-committee="false">';
+        const remarkCell = reg
+            ? '<span class="text-muted">-</span>'
+            : '<select class="form-select form-select-sm remark-select"><option value="Regular" selected>Regular</option><option value="Retake">Retake</option><option value="Re-retake">Re-retake</option></select>';
+        const carryOnCell = reg
+            ? '<span class="text-muted">-</span>'
+            : '<div class="form-check form-switch"><input class="form-check-input carry-on-cb" type="checkbox" style="display:none;"><label class="form-check-label small text-muted">-</label></div>';
+        const committeeMergeCell = reg
+            ? '<span class="text-muted">-</span>'
+            : '<div class="form-check form-switch"><input class="form-check-input merge-relevant-cb" type="checkbox" style="display:none;"><label class="form-check-label small text-muted merge-relevant-label">-</label></div>';
+
+        html += '<tr class="' + (reg ? 'table-warning' : '') + '"><td>' + studentCell + '</td>';
+        html += '<td>' + (s.student_id || '') + '</td><td>' + (s.name || '') + '</td>';
+        html += '<td>' + (reg ? '<span class="badge bg-warning text-dark">Registered</span>' : '<span class="badge bg-success">Available</span>') + '</td>';
+        html += '<td>' + remarkCell + '</td>';
+        html += '<td>' + carryOnCell + '</td>';
+        html += '<td>' + committeeMergeCell + '</td>';
+        html += '<td>' + (reg ? '<button type="button" class="btn btn-sm btn-danger btn-deregister" onclick="deregisterStudent(' + s.id + ', \'' + safeSidJs + '\', \'' + safeNameJs + '\')" title="Deregister from this course"><i class="fas fa-times-circle me-1"></i>Deregister</button>' : '–') + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('studentsList').innerHTML = html;
+    bindStudentRowEvents();
+    updateAddCount();
+}
+
 // Session change: load year/term
-document.getElementById('session').addEventListener('change', function() {
+document.getElementById('runningSession').addEventListener('change', function() {
     const session = this.value;
-    const yearEl = document.getElementById('year');
-    const termEl = document.getElementById('term');
+    const yearEl = document.getElementById('runningYear');
+    const termEl = document.getElementById('runningTerm');
+    const sourceYearEl = document.getElementById('sourceYear');
+    const sourceTermEl = document.getElementById('sourceTerm');
     yearEl.innerHTML = '<option value="">Select</option>';
     termEl.innerHTML = '<option value="">Select</option>';
-    document.getElementById('courseSelect').innerHTML = '<option value="">Select session, year &amp; term first</option>';
-    document.getElementById('courseSelect').disabled = true;
+    sourceYearEl.innerHTML = '<option value="">Select</option>';
+    sourceTermEl.innerHTML = '<option value="">Select</option>';
+    const relevantSessionEl = document.getElementById('relevantSession');
+    if (relevantSessionEl) relevantSessionEl.value = '';
+    resetRelevantYearTermOptions();
+    resetCourseAndCurriculum();
+    resetRelevantCourse();
     document.getElementById('batchFilter').innerHTML = '<option value="">Select batch</option>';
     document.getElementById('batchFilter').disabled = true;
     document.getElementById('studentsListWrap').style.display = 'none';
@@ -159,42 +366,59 @@ document.getElementById('session').addEventListener('change', function() {
             if (data.success && data.year_term_options && data.year_term_options.length) {
                 const years = [...new Set(data.year_term_options.map(yt => yt.year))].sort();
                 const terms = [...new Set(data.year_term_options.map(yt => yt.term))].sort();
-                years.forEach(y => { yearEl.appendChild(new Option(y, y)); });
-                terms.forEach(t => { termEl.appendChild(new Option(t, t)); });
+                years.forEach(y => {
+                    yearEl.appendChild(new Option(y, y));
+                    sourceYearEl.appendChild(new Option(y, y));
+                });
+                terms.forEach(t => {
+                    termEl.appendChild(new Option(t, t));
+                    sourceTermEl.appendChild(new Option(t, t));
+                });
             } else {
-                ['First','Second','Third','Fourth','Fifth','LLM'].forEach(y => yearEl.appendChild(new Option(y, y)));
-                ['First','Second','Thesis Term'].forEach(t => termEl.appendChild(new Option(t, t)));
+                ['First','Second','Third','Fourth','Fifth','LLM'].forEach(y => {
+                    yearEl.appendChild(new Option(y, y));
+                    sourceYearEl.appendChild(new Option(y, y));
+                });
+                ['First','Second','Thesis Term'].forEach(t => {
+                    termEl.appendChild(new Option(t, t));
+                    sourceTermEl.appendChild(new Option(t, t));
+                });
             }
         });
 });
 
 function loadCourses() {
-    const session = document.getElementById('session').value;
-    const year = document.getElementById('year').value;
-    const term = document.getElementById('term').value;
+    const session = document.getElementById('runningSession').value;
+    const sourceYear = document.getElementById('sourceYear').value;
+    const sourceTerm = document.getElementById('sourceTerm').value;
+    const batch = document.getElementById('batchFilter').value;
     const sel = document.getElementById('courseSelect');
-    if (!session || !year || !term) {
-        sel.innerHTML = '<option value="">Select session, year &amp; term first</option>';
+    if (!session || !sourceYear || !sourceTerm || !batch) {
+        sel.innerHTML = '<option value="">Select source year, term &amp; batch first</option>';
         sel.disabled = true;
-        document.getElementById('batchFilter').innerHTML = '<option value="">Select batch</option>';
-        document.getElementById('batchFilter').disabled = true;
+        document.getElementById('curriculumLoaded').value = '';
+        resetRelevantCourse();
         return;
     }
     sel.disabled = true;
     sel.innerHTML = '<option value="">Loading…</option>';
-    fetch('/course-management/student/registration/api/courses?year=' + encodeURIComponent(year) + '&term=' + encodeURIComponent(term))
+    fetch('/course-management/student/registration/api/courses?session=' + encodeURIComponent(session) + '&source_year=' + encodeURIComponent(sourceYear) + '&source_term=' + encodeURIComponent(sourceTerm) + '&batch=' + encodeURIComponent(batch))
         .then(r => r.json())
         .then(data => {
+            document.getElementById('curriculumLoaded').value = data.curriculum_label || '';
             if (data.success && data.courses && data.courses.length) {
-                allCourses = data.courses;
+                const sortedCourses = sortCoursesByCode(data.courses);
+                allCourses = sortedCourses;
                 sel.innerHTML = '<option value="">Select course</option>';
-                data.courses.forEach(c => {
+                sortedCourses.forEach(c => {
                     const opt = new Option(c.course_code + ' – ' + c.course_name, c.id);
                     opt.dataset.code = c.course_code;
                     opt.dataset.name = c.course_name;
                     opt.dataset.credit = c.credit;
                     opt.dataset.type = c.course_type || '';
                     opt.dataset.nature = c.nature || 'Core';
+                    opt.dataset.sourceYear = sourceYear;
+                    opt.dataset.sourceTerm = sourceTerm;
                     sel.appendChild(opt);
                 });
                 sel.disabled = false;
@@ -202,22 +426,110 @@ function loadCourses() {
                 sel.innerHTML = '<option value="">No courses</option>';
             }
         })
-        .catch(() => { sel.innerHTML = '<option value="">Error</option>'; });
+        .catch(() => {
+            sel.innerHTML = '<option value="">Error</option>';
+            document.getElementById('curriculumLoaded').value = '';
+        });
 }
 
-document.getElementById('year').addEventListener('change', loadCourses);
-document.getElementById('term').addEventListener('change', loadCourses);
+function loadRelevantYearTermOptions() {
+    const relevantSession = document.getElementById('relevantSession').value;
+    const relevantYearEl = document.getElementById('relevantYear');
+    const relevantTermEl = document.getElementById('relevantTerm');
+    resetRelevantYearTermOptions();
+    resetRelevantCourse();
+    if (!relevantSession) return;
+
+    fetch('/course-management/student/registration/api/year-term?session=' + encodeURIComponent(relevantSession))
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.year_term_options && data.year_term_options.length) {
+                const years = [...new Set(data.year_term_options.map(yt => yt.year))].sort();
+                const terms = [...new Set(data.year_term_options.map(yt => yt.term))].sort();
+                years.forEach(y => relevantYearEl.appendChild(new Option(y, y)));
+                terms.forEach(t => relevantTermEl.appendChild(new Option(t, t)));
+            } else {
+                ['First','Second','Third','Fourth','Fifth','LLM'].forEach(y => relevantYearEl.appendChild(new Option(y, y)));
+                ['First','Second','Thesis Term'].forEach(t => relevantTermEl.appendChild(new Option(t, t)));
+            }
+        })
+        .catch(() => {
+            ['First','Second','Third','Fourth','Fifth','LLM'].forEach(y => relevantYearEl.appendChild(new Option(y, y)));
+            ['First','Second','Thesis Term'].forEach(t => relevantTermEl.appendChild(new Option(t, t)));
+        });
+}
+
+function loadRelevantCourses() {
+    const relevantSession = document.getElementById('relevantSession').value;
+    const relevantYear = document.getElementById('relevantYear').value;
+    const relevantTerm = document.getElementById('relevantTerm').value;
+    const relevantSel = document.getElementById('relevantCourseSelect');
+    if (!relevantSession || !relevantYear || !relevantTerm) {
+        resetRelevantCourse();
+        return;
+    }
+    relevantSel.disabled = true;
+    relevantSel.innerHTML = '<option value="">Loading relevant courses…</option>';
+
+    const url = '/course-management/coordinator/register-student/api/relevant-courses?session=' + encodeURIComponent(relevantSession) +
+        '&year=' + encodeURIComponent(relevantYear) + '&term=' + encodeURIComponent(relevantTerm);
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.courses && data.courses.length) {
+                const sortedRelevantCourses = sortCoursesByCode(data.courses);
+                relevantSel.innerHTML = '<option value="">Select relevant course (for retake/re-retake)</option>';
+                sortedRelevantCourses.forEach(c => {
+                    const title = c.course_code + ' – ' + c.course_name + ' [' + (c.relevant_academic_session || '-') + ']';
+                    const opt = new Option(title, c.id);
+                    opt.dataset.code = c.course_code;
+                    opt.dataset.name = c.course_name;
+                    opt.dataset.session = c.relevant_academic_session || '';
+                    opt.dataset.year = c.relevant_year || '';
+                    opt.dataset.term = c.relevant_term || '';
+                    relevantSel.appendChild(opt);
+                });
+                relevantSel.disabled = false;
+            } else {
+                relevantSel.innerHTML = '<option value="">No relevant courses found</option>';
+                relevantSel.disabled = false;
+            }
+        })
+        .catch(() => {
+            relevantSel.innerHTML = '<option value="">Failed to load relevant courses</option>';
+            relevantSel.disabled = false;
+        });
+}
+
+document.getElementById('sourceYear').addEventListener('change', function() {
+    resetCourseAndCurriculum();
+    loadBatches();
+});
+document.getElementById('sourceTerm').addEventListener('change', function() {
+    resetCourseAndCurriculum();
+    loadBatches();
+});
+document.getElementById('relevantSession').addEventListener('change', function() {
+    loadRelevantYearTermOptions();
+});
+document.getElementById('relevantYear').addEventListener('change', function() {
+    loadRelevantCourses();
+});
+document.getElementById('relevantTerm').addEventListener('change', function() {
+    loadRelevantCourses();
+});
 
 // Batches when session/year/term set
 function loadBatches() {
-    const session = document.getElementById('session').value;
-    const year = document.getElementById('year').value;
-    const term = document.getElementById('term').value;
+    const session = document.getElementById('runningSession').value;
+    const sourceYear = document.getElementById('sourceYear').value;
+    const sourceTerm = document.getElementById('sourceTerm').value;
     const batchSel = document.getElementById('batchFilter');
-    if (!session || !year || !term) return;
+    if (!session || !sourceYear || !sourceTerm) return;
     batchSel.disabled = true;
     batchSel.innerHTML = '<option value="">Loading…</option>';
-    fetch('/course-management/coordinator/register-student/api/batches?session=' + encodeURIComponent(session) + '&year=' + encodeURIComponent(year) + '&term=' + encodeURIComponent(term))
+    resetCourseAndCurriculum();
+    fetch('/course-management/coordinator/register-student/api/batches?session=' + encodeURIComponent(session) + '&year=' + encodeURIComponent(sourceYear) + '&term=' + encodeURIComponent(sourceTerm))
         .then(r => r.json())
         .then(data => {
             if (data.success && data.batches && data.batches.length) {
@@ -226,6 +538,7 @@ function loadBatches() {
                 batchSel.disabled = false;
                 if (defaultBatchForRegistration && Array.from(batchSel.options).some(o => o.value === defaultBatchForRegistration)) {
                     batchSel.value = defaultBatchForRegistration;
+                    loadCourses();
                 }
             } else {
                 batchSel.innerHTML = '<option value="">No batches</option>';
@@ -234,8 +547,74 @@ function loadBatches() {
         })
         .catch(() => { batchSel.innerHTML = '<option value="">Error</option>'; batchSel.disabled = false; });
 }
-document.getElementById('year').addEventListener('change', loadBatches);
-document.getElementById('term').addEventListener('change', loadBatches);
+document.getElementById('batchFilter').addEventListener('change', loadCourses);
+
+function loadStudentsForSelectedCourse(showValidationAlerts) {
+    const session = document.getElementById('runningSession').value;
+    const year = document.getElementById('runningYear').value;
+    const term = document.getElementById('runningTerm').value;
+    const sourceYear = document.getElementById('sourceYear').value;
+    const sourceTerm = document.getElementById('sourceTerm').value;
+    const courseId = document.getElementById('courseSelect').value;
+    const batch = document.getElementById('batchFilter').value;
+    const shouldAlert = showValidationAlerts === true;
+
+    if (!session || !year || !term) {
+        if (shouldAlert) alert('Select session, year and term first.');
+        return;
+    }
+    if (!courseId) {
+        if (shouldAlert) alert('Select a course.');
+        document.getElementById('studentsListWrap').style.display = 'none';
+        return;
+    }
+    if (!sourceYear || !sourceTerm) {
+        if (shouldAlert) alert('Select source year and term first.');
+        return;
+    }
+    if (!batch) {
+        if (shouldAlert) alert('Select a batch.');
+        return;
+    }
+
+    const opt = document.getElementById('courseSelect').selectedOptions[0];
+    currentCourse = {
+        id: opt.value,
+        code: opt.dataset.code,
+        name: opt.dataset.name,
+        credit: opt.dataset.credit,
+        type: opt.dataset.type,
+        nature: opt.dataset.nature,
+        source_year: sourceYear,
+        source_term: sourceTerm
+    };
+    currentSession = session;
+    currentYear = year;
+    currentTerm = term;
+    currentSourceYear = sourceYear;
+    currentSourceTerm = sourceTerm;
+    document.getElementById('currentCourseLabel').textContent = currentCourse.code + ' – ' + currentCourse.name;
+    document.getElementById('studentsListWrap').style.display = 'block';
+    document.getElementById('studentsLoading').style.display = 'block';
+    document.getElementById('studentsList').innerHTML = '';
+    const url = '/course-management/coordinator/register-student/api/students?batch=' + encodeURIComponent(batch) +
+        '&course_code=' + encodeURIComponent(currentCourse.code) + '&session=' + encodeURIComponent(session) +
+        '&year=' + encodeURIComponent(year) + '&term=' + encodeURIComponent(term);
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('studentsLoading').style.display = 'none';
+            if (data.success) {
+                renderStudentsTable(data.students || []);
+            } else {
+                document.getElementById('studentsList').innerHTML = '<p class="text-muted small mb-0">No students in this batch.</p>';
+            }
+        })
+        .catch(() => {
+            document.getElementById('studentsLoading').style.display = 'none';
+            document.getElementById('studentsList').innerHTML = '<p class="text-danger small">Failed to load.</p>';
+        });
+}
 
 // Current course from dropdown
 document.getElementById('courseSelect').addEventListener('change', function() {
@@ -251,75 +630,33 @@ document.getElementById('courseSelect').addEventListener('change', function() {
         name: opt.dataset.name,
         credit: opt.dataset.credit,
         type: opt.dataset.type,
-        nature: opt.dataset.nature
+        nature: opt.dataset.nature,
+        source_year: opt.dataset.sourceYear || '',
+        source_term: opt.dataset.sourceTerm || ''
     };
     document.getElementById('currentCourseLabel').textContent = currentCourse.code + ' – ' + currentCourse.name;
+    loadStudentsForSelectedCourse(false);
+});
+
+document.getElementById('relevantCourseSelect').addEventListener('change', function() {
+    const opt = this.selectedOptions[0];
+    if (!opt || !opt.value) {
+        currentRelevantCourse = null;
+        return;
+    }
+    currentRelevantCourse = {
+        id: opt.value,
+        code: opt.dataset.code || '',
+        name: opt.dataset.name || '',
+        relevant_academic_session: opt.dataset.session || '',
+        relevant_year: opt.dataset.year || '',
+        relevant_term: opt.dataset.term || ''
+    };
 });
 
 // Load students
 document.getElementById('btnLoadStudents').addEventListener('click', function() {
-    const session = document.getElementById('session').value;
-    const year = document.getElementById('year').value;
-    const term = document.getElementById('term').value;
-    const courseId = document.getElementById('courseSelect').value;
-    const batch = document.getElementById('batchFilter').value;
-    if (!session || !year || !term) {
-        alert('Select session, year and term first.');
-        return;
-    }
-    if (!courseId) {
-        alert('Select a course.');
-        return;
-    }
-    if (!batch) {
-        alert('Select a batch.');
-        return;
-    }
-    const opt = document.getElementById('courseSelect').selectedOptions[0];
-    currentCourse = {
-        id: opt.value,
-        code: opt.dataset.code,
-        name: opt.dataset.name,
-        credit: opt.dataset.credit,
-        type: opt.dataset.type,
-        nature: opt.dataset.nature
-    };
-    currentSession = session;
-    currentYear = year;
-    currentTerm = term;
-    document.getElementById('currentCourseLabel').textContent = currentCourse.code + ' – ' + currentCourse.name;
-    document.getElementById('studentsListWrap').style.display = 'block';
-    document.getElementById('studentsLoading').style.display = 'block';
-    document.getElementById('studentsList').innerHTML = '';
-    const url = '/course-management/coordinator/register-student/api/students?batch=' + encodeURIComponent(batch) +
-        '&course_code=' + encodeURIComponent(currentCourse.code) + '&session=' + encodeURIComponent(session) +
-        '&year=' + encodeURIComponent(year) + '&term=' + encodeURIComponent(term);
-    fetch(url)
-        .then(r => r.json())
-        .then(data => {
-            document.getElementById('studentsLoading').style.display = 'none';
-            if (data.success && data.students && data.students.length) {
-                let html = '<table class="table table-sm table-hover"><thead class="table-light"><tr><th></th><th>ID</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody>';
-                data.students.forEach(s => {
-                    const reg = s.is_registered;
-                    const nameEsc = (s.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                    html += '<tr class="' + (reg ? 'table-warning' : '') + '"><td>' + (reg ? '' : '<input type="checkbox" class="form-check-input student-cb" data-id="' + s.id + '" data-sid="' + (s.student_id || '') + '" data-name="' + (s.name || '').replace(/"/g, '&quot;') + '" data-batch="' + (s.batch || '') + '">') + '</td>';
-                    html += '<td>' + (s.student_id || '') + '</td><td>' + (s.name || '') + '</td>';
-                    html += '<td>' + (reg ? '<span class="badge bg-warning text-dark">Registered</span>' : '<span class="badge bg-success">Available</span>') + '</td>';
-                    html += '<td>' + (reg ? '<button type="button" class="btn btn-sm btn-danger btn-deregister" onclick="deregisterStudent(' + s.id + ', \'' + (s.student_id || '').replace(/'/g, "\\'") + '\', \'' + nameEsc + '\')" title="Deregister from this course"><i class="fas fa-times-circle me-1"></i>Deregister</button>' : '–') + '</td></tr>';
-                });
-                html += '</tbody></table>';
-                document.getElementById('studentsList').innerHTML = html;
-                updateAddCount();
-                document.querySelectorAll('.student-cb').forEach(cb => cb.addEventListener('change', updateAddCount));
-            } else {
-                document.getElementById('studentsList').innerHTML = '<p class="text-muted small mb-0">No students in this batch.</p>';
-            }
-        })
-        .catch(() => {
-            document.getElementById('studentsLoading').style.display = 'none';
-            document.getElementById('studentsList').innerHTML = '<p class="text-danger small">Failed to load.</p>';
-        });
+    loadStudentsForSelectedCourse(true);
 });
 
 function toggleSelectAll() {
@@ -330,7 +667,17 @@ function toggleSelectAll() {
 }
 
 function updateAddCount() {
-    const n = document.querySelectorAll('.student-cb:checked').length;
+    const selectedCbs = Array.from(document.querySelectorAll('.student-cb:checked'));
+    selectedCbs.forEach(cb => {
+        const row = cb.closest('tr');
+        const remarkSelect = row ? row.querySelector('.remark-select') : null;
+        const carryOnInput = row ? row.querySelector('.carry-on-cb') : null;
+        const mergeInput = row ? row.querySelector('.merge-relevant-cb') : null;
+        if (remarkSelect) cb.dataset.remark = remarkSelect.value || 'Regular';
+        cb.dataset.carryOn = carryOnInput && carryOnInput.checked ? 'true' : 'false';
+        cb.dataset.useRelevantForCommittee = mergeInput && mergeInput.checked ? 'true' : 'false';
+    });
+    const n = selectedCbs.length;
     document.getElementById('addCount').textContent = n;
     const btn = document.getElementById('btnAddRegistration');
     btn.disabled = n === 0;
@@ -349,6 +696,8 @@ function deregisterStudent(studentId, studentIdStr, studentName) {
         session: currentSession,
         year: currentYear,
         term: currentTerm,
+        source_year: currentSourceYear,
+        source_term: currentSourceTerm,
         remove_student_ids: [studentId]
     };
     fetch('/course-management/coordinator/register-student/save', {
@@ -381,21 +730,7 @@ function reloadStudentsList() {
         .then(r => r.json())
         .then(data => {
             document.getElementById('studentsLoading').style.display = 'none';
-            if (data.success && data.students && data.students.length) {
-                let html = '<table class="table table-sm table-hover"><thead class="table-light"><tr><th></th><th>ID</th><th>Name</th><th>Status</th><th>Action</th></tr></thead><tbody>';
-                data.students.forEach(s => {
-                    const reg = s.is_registered;
-                    const nameEsc = (s.name || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                    html += '<tr class="' + (reg ? 'table-warning' : '') + '"><td>' + (reg ? '' : '<input type="checkbox" class="form-check-input student-cb" data-id="' + s.id + '" data-sid="' + (s.student_id || '') + '" data-name="' + (s.name || '').replace(/"/g, '&quot;') + '" data-batch="' + (s.batch || '') + '">') + '</td>';
-                    html += '<td>' + (s.student_id || '') + '</td><td>' + (s.name || '') + '</td>';
-                    html += '<td>' + (reg ? '<span class="badge bg-warning text-dark">Registered</span>' : '<span class="badge bg-success">Available</span>') + '</td>';
-                    html += '<td>' + (reg ? '<button type="button" class="btn btn-sm btn-danger btn-deregister" onclick="deregisterStudent(' + s.id + ', \'' + (s.student_id || '').replace(/'/g, "\\'") + '\', \'' + nameEsc + '\')" title="Deregister from this course"><i class="fas fa-times-circle me-1"></i>Deregister</button>' : '–') + '</td></tr>';
-                });
-                html += '</tbody></table>';
-                document.getElementById('studentsList').innerHTML = html;
-                updateAddCount();
-                document.querySelectorAll('.student-cb').forEach(cb => cb.addEventListener('change', updateAddCount));
-            }
+            if (data.success) renderStudentsTable(data.students || []);
         })
         .catch(() => { document.getElementById('studentsLoading').style.display = 'none'; });
 }
@@ -416,10 +751,22 @@ document.getElementById('btnAddRegistration').addEventListener('click', function
         student_id: cb.dataset.sid,
         name: cb.dataset.name,
         batch: cb.dataset.batch || '',
-        remark: 'Regular',
-        carryOn: false
+        remark: cb.dataset.remark || 'Regular',
+        carryOn: cb.dataset.carryOn === 'true',
+        useRelevantForCommittee: cb.dataset.useRelevantForCommittee === 'true'
     }));
-    registrationBlocks.push({ course: Object.assign({}, currentCourse), students: students });
+    const hasRetake = students.some(s => s.remark === 'Retake' || s.remark === 'Re-retake');
+    if (hasRetake && !currentRelevantCourse) {
+        alert('Select a Relevant Course for retake/re-retake students.');
+        return;
+    }
+    registrationBlocks.push({
+        running: { session: currentSession, year: currentYear, term: currentTerm },
+        source: { year: currentSourceYear, term: currentSourceTerm },
+        course: Object.assign({}, currentCourse),
+        relevant: currentRelevantCourse ? Object.assign({}, currentRelevantCourse) : null,
+        students: students
+    });
     renderList();
     checked.forEach(cb => { cb.checked = false; });
     const selAll = document.getElementById('selectAllStudents');
@@ -443,7 +790,12 @@ function renderList() {
     registrationBlocks.forEach((block, idx) => {
         const li = document.createElement('li');
         li.className = 'list-group-item d-flex justify-content-between align-items-center py-2';
-        li.innerHTML = '<span class="small">' + block.course.code + ' – ' + block.course.name + ' <span class="badge bg-info">' + block.students.length + ' student(s)</span></span>' +
+        li.innerHTML = '<span class="small">' + block.course.code + ' – ' + block.course.name +
+            ' <span class="badge bg-info">' + block.students.length + ' student(s)</span>' +
+            ' <span class="badge bg-secondary ms-1">Running: ' + block.running.year + ' / ' + block.running.term + '</span>' +
+            ' <span class="badge bg-dark ms-1">Source: ' + (block.source.year || '-') + ' / ' + (block.source.term || '-') + '</span>' +
+            (block.relevant ? ' <span class="badge bg-primary ms-1">Relevant: ' + block.relevant.code + ' [' + (block.relevant.relevant_academic_session || '-') + ']</span>' : '') +
+            '</span>' +
             '<button type="button" class="btn btn-sm btn-outline-danger" onclick="removeBlock(' + idx + ')" title="Remove from list"><i class="fas fa-trash me-1"></i>Remove</button>';
         ul.appendChild(li);
     });
@@ -470,10 +822,30 @@ document.getElementById('saveAllBtn').addEventListener('click', async function()
             course_id: block.course.id,
             course_code: block.course.code,
             course_name: block.course.name,
-            session: currentSession,
-            year: currentYear,
-            term: currentTerm,
-            students: block.students.map(s => ({ student_id: s.id, remark: s.remark, carry_on: s.carryOn || false }))
+            session: block.running.session,
+            year: block.running.year,
+            term: block.running.term,
+            source_year: block.source.year,
+            source_term: block.source.term,
+            relevant_course_id: block.relevant ? block.relevant.id : null,
+            relevant_course_code: block.relevant ? block.relevant.code : '',
+            relevant_academic_session: block.relevant ? block.relevant.relevant_academic_session : '',
+            relevant_year: block.relevant ? block.relevant.relevant_year : '',
+            relevant_term: block.relevant ? block.relevant.relevant_term : '',
+            students: block.students.map(s => {
+                const isRetake = s.remark === 'Retake' || s.remark === 'Re-retake';
+                return {
+                    student_id: s.id,
+                    remark: s.remark,
+                    carry_on: s.carryOn || false,
+                    use_relevant_for_committee: isRetake ? (s.useRelevantForCommittee !== false) : false,
+                    relevant_course_id: isRetake && block.relevant ? block.relevant.id : null,
+                    relevant_course_code: isRetake && block.relevant ? block.relevant.code : '',
+                    relevant_academic_session: isRetake && block.relevant ? block.relevant.relevant_academic_session : '',
+                    relevant_year: isRetake && block.relevant ? block.relevant.relevant_year : '',
+                    relevant_term: isRetake && block.relevant ? block.relevant.relevant_term : ''
+                };
+            })
         };
         try {
             const res = await fetch('/course-management/coordinator/register-student/save', {

@@ -13,6 +13,12 @@
             <p class="text-muted mb-0">Manage Tabulators and Scrutinizers</p>
         </div>
         <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if current_session and current_year and current_term %}
+            <a class="btn btn-outline-primary btn-sm"
+               href="{{ url_for('exam_committee_chief_evaluator_assignments_pdf', academic_session=current_session, year=current_year, term=current_term) }}">
+                <i class="fas fa-file-pdf me-1"></i>Download QS + Evaluator PDF
+            </a>
+            {% endif %}
             {% if current_session or current_year or current_term %}
             <div class="alert alert-info px-4 py-2 mb-0">
                 <div class="fw-semibold">Current Assignment Context</div>
@@ -253,7 +259,15 @@
 
                     <!-- Assign Exam Paper Evaluator -->
                     <div class="mb-4">
-                        <h5 class="mb-3"><i class="fas fa-clipboard-check me-2"></i>Assign Exam Paper Evaluator</h5>
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <h5 class="mb-0"><i class="fas fa-clipboard-check me-2"></i>Assign Exam Paper Evaluator</h5>
+                            {% if current_session and current_year and current_term %}
+                            <a class="btn btn-sm btn-outline-primary"
+                               href="{{ url_for('exam_committee_chief_evaluator_assignments_pdf', academic_session=current_session, year=current_year, term=current_term) }}">
+                                <i class="fas fa-file-pdf me-1"></i>Download Question Setter + Evaluator PDF
+                            </a>
+                            {% endif %}
+                        </div>
                         <div class="alert alert-info">
                             <i class="fas fa-info-circle me-2"></i>
                             Assign teachers to evaluate exam papers for subjects from the curriculum. Each subject has Part A and Part B.
@@ -1664,6 +1678,8 @@ function renderSubjectsTable(subjects) {
     
     let html = '';
     subjects.forEach(subject => {
+        const canAssign = subject.is_assignable !== false;
+        const nonAssignableMessage = '<div class="text-muted small">Assignment unavailable: source course mapping not found.</div>';
         // Part A - Evaluator and Question Setter
         const partAEvaluator = teacherMap[subject.part_a.assigned_teacher_id] || 'N/A';
         const partAQuestionSetter = subject.part_a.is_same_person 
@@ -1682,6 +1698,8 @@ function renderSubjectsTable(subjects) {
                     <i class="fas fa-times"></i> Unassign
                 </button>
                </div>`
+            : !canAssign
+            ? nonAssignableMessage
             : `<div id="assign-form-${subject.course_id}-A">
                 <div class="mb-2">
                     <label class="form-label small">Question Setter:</label>
@@ -1724,6 +1742,8 @@ function renderSubjectsTable(subjects) {
                     <i class="fas fa-times"></i> Unassign
                 </button>
                </div>`
+            : !canAssign
+            ? nonAssignableMessage
             : `<div id="assign-form-${subject.course_id}-B">
                 <div class="mb-2">
                     <label class="form-label small">Question Setter:</label>
@@ -1871,6 +1891,7 @@ function assignEvaluatorInline(courseId, part, courseCode) {
     const session = {{ (current_session or "")|tojson }};
     const year = {{ (current_year or "")|tojson }};
     const term = {{ (current_term or "")|tojson }};
+    const batch = {{ (current_batch or "")|tojson }};
     
     const requestData = {
         course_id: parseInt(courseId),
@@ -1880,7 +1901,8 @@ function assignEvaluatorInline(courseId, part, courseCode) {
         is_same_person: isSamePerson,
         academic_session: session,
         year: year,
-        term: term
+        term: term,
+        batch: batch
     };
     
     // Disable button and show loading

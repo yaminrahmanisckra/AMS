@@ -54,9 +54,42 @@ def create_app():
     app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
     app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
     app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
+    app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'False') == 'True'
     app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
     app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
     app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config.get('MAIL_USERNAME'))
+
+    def _env_bool_sa(name, fallback):
+        v = os.getenv(name)
+        if v is None:
+            return fallback
+        return str(v).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    app.config['NOTIFICATION_MAIL_SERVER'] = os.getenv('NOTIFICATION_MAIL_SERVER') or app.config['MAIL_SERVER']
+    _np = os.getenv('NOTIFICATION_MAIL_PORT')
+    app.config['NOTIFICATION_MAIL_PORT'] = int(_np) if _np else app.config['MAIL_PORT']
+    app.config['NOTIFICATION_MAIL_USE_TLS'] = _env_bool_sa(
+        'NOTIFICATION_MAIL_USE_TLS', app.config['MAIL_USE_TLS']
+    )
+    app.config['NOTIFICATION_MAIL_USE_SSL'] = _env_bool_sa(
+        'NOTIFICATION_MAIL_USE_SSL', app.config['MAIL_USE_SSL']
+    )
+    app.config['NOTIFICATION_MAIL_USERNAME'] = os.getenv('NOTIFICATION_MAIL_USERNAME')
+    app.config['NOTIFICATION_MAIL_PASSWORD'] = os.getenv('NOTIFICATION_MAIL_PASSWORD')
+    app.config['NOTIFICATION_MAIL_SENDER'] = os.getenv(
+        'NOTIFICATION_MAIL_SENDER', os.getenv('NOTIFICATION_MAIL_USERNAME')
+    )
+    for k in list(os.environ.keys()):
+        if not k.startswith('NOTIFICATION_MAIL_'):
+            continue
+        val = os.environ.get(k)
+        if val is None or str(val).strip() == '':
+            continue
+        if k.endswith('_PASSWORD'):
+            app.config[k] = str(val).rstrip('\r\n')
+        else:
+            app.config[k] = str(val).strip()
+
     app.config['DEFAULT_STUDENT_PASSWORD'] = os.getenv('DEFAULT_STUDENT_PASSWORD', 'Student@123')
 
     mail.init_app(app)

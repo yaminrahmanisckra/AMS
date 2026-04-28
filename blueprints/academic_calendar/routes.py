@@ -2,6 +2,7 @@ from flask import render_template, request, redirect, url_for, flash, jsonify, c
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta, time
 from sqlalchemy import or_, and_
+from collections import defaultdict
 from extensions import db
 from .models import AcademicCalendarEvent, BatchCustomEvent
 from user_models import User
@@ -18,6 +19,157 @@ def can_edit_calendar():
     if getattr(current_user, 'active_role', None):
         roles = set(parse_roles(current_user.active_role))
     return 'head' in roles or 'teaching_assistant' in roles
+
+
+def _normalize_semester_label(label):
+    return str(label or '').strip()
+
+
+def _extract_semester_context(event):
+    """Extract Year/Term/Session metadata from semester event title/description."""
+    context = {'year': '', 'term': '', 'session': ''}
+    description = str(getattr(event, 'description', '') or '')
+    for raw_line in description.splitlines():
+        line = raw_line.strip()
+        if ':' not in line:
+            continue
+        key, value = line.split(':', 1)
+        normalized_key = key.strip().lower()
+        normalized_value = value.strip()
+        if normalized_key == 'year':
+            context['year'] = normalized_value
+        elif normalized_key == 'term':
+            context['term'] = normalized_value
+        elif normalized_key in ('academic session', 'session'):
+            context['session'] = normalized_value
+
+    title = str(getattr(event, 'title', '') or '')
+    if '(' in title and ')' in title and title.rfind(')') > title.rfind('('):
+        inside = title[title.rfind('(') + 1:title.rfind(')')]
+        for part in [p.strip() for p in inside.split(',') if p.strip()]:
+            lower_part = part.lower()
+            if lower_part.startswith('year '):
+                context['year'] = context['year'] or part[5:].strip()
+            elif lower_part.startswith('term '):
+                context['term'] = context['term'] or part[5:].strip()
+            elif lower_part.startswith('session '):
+                context['session'] = context['session'] or part[8:].strip()
+    return context
+
+
+def _build_semester_grouped_event(event_type, grouped_events, event_day):
+    """Create one combined display/export item from multiple semester events."""
+    if not grouped_events:
+        return None
+
+    default_title = 'Semester Start' if event_type == 'semester_start' else 'Semester End'
+    first_title = _normalize_semester_label(getattr(grouped_events[0], 'title', ''))
+    base_title = first_title.split(' (', 1)[0].strip() if first_title else default_title
+    if not base_title:
+        base_title = default_title
+
+    context_set = set()
+    for event in grouped_events:
+        ctx = _extract_semester_context(event)
+        context_set.add((ctx.get('year', ''), ctx.get('term', ''), ctx.get('session', '')))
+
+    sorted_contexts = sorted(
+        context_set,
+        key=lambda x: (_normalize_semester_label(x[2]), _normalize_semester_label(x[0]), _normalize_semester_label(x[1]))
+    )
+    context_lines = []
+    for year_value, term_value, session_value in sorted_contexts:
+        pieces = []
+        if year_value:
+            pieces.append(f'Year: {year_value}')
+        if term_value:
+            pieces.append(f'Term: {term_value}')
+        if session_value:
+            pieces.append(f'Academic Session: {session_value}')
+        if pieces:
+            context_lines.append(' | '.join(pieces))
+
+    summary_title = f"{base_title} ({len(grouped_events)})" if len(grouped_events) > 1 else base_title
+    summary_description = '\n'.join(context_lines)
+    latest_updated = max(
+        [getattr(event, 'updated_at', None) for event in grouped_events if getattr(event, 'updated_at', None)],
+        default=None
+    )
+    earliest_created = min(
+        [getattr(event, 'created_at', None) for event in grouped_events if getattr(event, 'created_at', None)],
+        default=None
+    )
+
+    return {
+        'id': f"semester_group_{event_type}_{event_day.strftime('%Y%m%d')}",
+        'title': summary_title,
+        'description': summary_description,
+        'event_date': event_day,
+        'end_date': event_day,
+        'event_type': event_type,
+        'is_grouped_semester': True,
+        'group_count': len(grouped_events),
+        'contexts': context_lines,
+        'source_event_ids': [event.id for event in grouped_events],
+        'created_at': earliest_created,
+        'updated_at': latest_updated,
+    }
+
+
+def _merge_semester_events_for_day(day_events, event_day):
+    """Merge same-day semester start/end entries into single entries."""
+    semester_buckets = defaultdict(list)
+    preserved_items = []
+
+    for item in day_events:
+        if isinstance(item, dict):
+            preserved_items.append(item)
+            continue
+        event_type = getattr(item, 'event_type', None)
+        if event_type in ('semester_start', 'semester_end'):
+            semester_buckets[event_type].append(item)
+        else:
+            preserved_items.append(item)
+
+    for semester_type in ('semester_start', 'semester_end'):
+        grouped_events = semester_buckets.get(semester_type, [])
+        if not grouped_events:
+            continue
+        if len(grouped_events) == 1:
+            preserved_items.append(grouped_events[0])
+            continue
+        grouped_item = _build_semester_grouped_event(semester_type, grouped_events, event_day)
+        if grouped_item:
+            preserved_items.append(grouped_item)
+
+    return preserved_items
+
+
+def _merge_upcoming_semester_events(upcoming_events):
+    """Merge duplicate semester start/end rows in the upcoming list."""
+    grouped = defaultdict(list)
+    preserved = []
+
+    for event_date, event in upcoming_events:
+        if isinstance(event, dict):
+            preserved.append((event_date, event))
+            continue
+        event_type = getattr(event, 'event_type', None)
+        if event_type in ('semester_start', 'semester_end'):
+            grouped[(event.event_date, event_type)].append(event)
+        else:
+            preserved.append((event_date, event))
+
+    for (event_day, event_type), grouped_events in grouped.items():
+        if len(grouped_events) == 1:
+            preserved.append((event_day, grouped_events[0]))
+            continue
+        grouped_item = _build_semester_grouped_event(event_type, grouped_events, event_day)
+        if grouped_item:
+            preserved.append((event_day, grouped_item))
+
+    preserved.sort(key=lambda x: x[0])
+    return preserved
 
 @academic_calendar_bp.route('/')
 @login_required
@@ -210,6 +362,14 @@ def index():
                     'is_batch_event': True,
                     'batch': batch_event.batch
                 })
+
+        # Merge same-day duplicate semester start/end entries into one visible row
+        for day_str, day_events in list(events_by_date.items()):
+            try:
+                event_day = datetime.strptime(day_str, '%Y-%m-%d').date()
+            except ValueError:
+                continue
+            events_by_date[day_str] = _merge_semester_events_for_day(day_events, event_day)
         
         can_edit = can_edit_calendar()
         
@@ -254,6 +414,7 @@ def index():
                 }))
         
         upcoming_events_list.sort(key=lambda x: x[0])
+        upcoming_events_list = _merge_upcoming_semester_events(upcoming_events_list)
         
         return render_template(
             'academic_calendar/index.html',
@@ -715,7 +876,7 @@ def export_all_ics():
         events = AcademicCalendarEvent.query.order_by(AcademicCalendarEvent.event_date.asc()).all()
         
         # Generate ICS content for all events
-        ics_content = generate_ics_calendar(events, include_weekly_holidays=True)
+        ics_content = generate_ics_calendar(events, include_weekly_holidays=False)
         
         # Return as downloadable file or calendar feed
         response = Response(ics_content, mimetype='text/calendar')
@@ -850,32 +1011,66 @@ def generate_ics_calendar(events, include_weekly_holidays=False):
             if current_date.year > end_year:
                 break
     
-    # Add regular events
+    def escape_ics_text(text):
+        if not text:
+            return ''
+        text = str(text).replace('\\', '\\\\')
+        text = text.replace(',', '\\,')
+        text = text.replace(';', '\\;')
+        text = text.replace('\n', '\\n')
+        return text
+
+    # Merge semester start/end duplicates for ICS output.
+    semester_groups = defaultdict(list)
+    normalized_events = []
     for event in events:
-        dtstart = event.event_date.strftime('%Y%m%d')
-        dtend = event.end_date.strftime('%Y%m%d') if event.end_date else event.event_date.strftime('%Y%m%d')
-        
-        if event.end_date and event.end_date > event.event_date:
-            end_date_calc = event.end_date + timedelta(days=1)
+        if getattr(event, 'event_type', None) in ('semester_start', 'semester_end'):
+            semester_groups[(event.event_date, event.event_type)].append(event)
+        else:
+            normalized_events.append(event)
+
+    for (event_day, event_type), grouped_events in semester_groups.items():
+        if len(grouped_events) == 1:
+            normalized_events.append(grouped_events[0])
+            continue
+        grouped_event = _build_semester_grouped_event(event_type, grouped_events, event_day)
+        if grouped_event:
+            normalized_events.append(grouped_event)
+
+    normalized_events.sort(
+        key=lambda e: e['event_date'] if isinstance(e, dict) else e.event_date
+    )
+
+    # Add regular and grouped events
+    for event in normalized_events:
+        if isinstance(event, dict):
+            event_date = event.get('event_date')
+            end_date = event.get('end_date')
+            title_raw = event.get('title')
+            description_raw = event.get('description')
+            uid = f"{event.get('id', 'academic-event')}-ics@khulna-university"
+            created_at = event.get('created_at')
+            updated_at = event.get('updated_at')
+        else:
+            event_date = event.event_date
+            end_date = event.end_date
+            title_raw = event.title
+            description_raw = event.description or ''
+            uid = f"academic-event-{event.id}@khulna-university"
+            created_at = event.created_at
+            updated_at = event.updated_at
+
+        dtstart = event_date.strftime('%Y%m%d')
+        if end_date and end_date > event_date:
+            end_date_calc = end_date + timedelta(days=1)
             dtend = end_date_calc.strftime('%Y%m%d')
         else:
-            end_date_calc = event.event_date + timedelta(days=1)
+            end_date_calc = event_date + timedelta(days=1)
             dtend = end_date_calc.strftime('%Y%m%d')
-        
-        uid = f"academic-event-{event.id}@khulna-university"
-        
-        def escape_ics_text(text):
-            if not text:
-                return ''
-            text = str(text).replace('\\', '\\\\')
-            text = text.replace(',', '\\,')
-            text = text.replace(';', '\\;')
-            text = text.replace('\n', '\\n')
-            return text
-        
-        title = escape_ics_text(event.title)
-        description = escape_ics_text(event.description or '')
-        
+
+        title = escape_ics_text(title_raw)
+        description = escape_ics_text(description_raw or '')
+
         ics_lines.extend([
             'BEGIN:VEVENT',
             f'UID:{uid}',
@@ -884,8 +1079,8 @@ def generate_ics_calendar(events, include_weekly_holidays=False):
             f'SUMMARY:{title}',
             f'DESCRIPTION:{description}',
             f'DTSTAMP:{datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")}',
-            f'CREATED:{event.created_at.strftime("%Y%m%dT%H%M%SZ") if event.created_at else datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")}',
-            f'LAST-MODIFIED:{event.updated_at.strftime("%Y%m%dT%H%M%SZ") if event.updated_at else datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")}',
+            f'CREATED:{created_at.strftime("%Y%m%dT%H%M%SZ") if created_at else datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")}',
+            f'LAST-MODIFIED:{updated_at.strftime("%Y%m%dT%H%M%SZ") if updated_at else datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")}',
             'STATUS:CONFIRMED',
             'TRANSP:OPAQUE',
             'END:VEVENT'

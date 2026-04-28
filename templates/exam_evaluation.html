@@ -47,7 +47,12 @@
                                 <tbody>
                                     {% for entry in entries %}
                                     <tr>
-                                        <td data-label="Course">{{ entry.course_name }}</td>
+                                        <td data-label="Course">
+                                            {{ entry.course_name }}
+                                            {% if entry.show_retake_label %}
+                                                <span class="text-danger fw-semibold ms-1">(Retake)</span>
+                                            {% endif %}
+                                        </td>
                                         <td data-label="Code">{{ entry.course_code }}</td>
                                         <td data-label="Part">
                                             {% if entry.section %}
@@ -72,7 +77,7 @@
                                     </tr>
                                     <tr class="table-light">
                                         <td colspan="{{ 7 if not hide_scrutinizer_info else 6 }}">
-                                            <div class="d-flex flex-wrap gap-2">
+                                            <div class="d-flex flex-wrap gap-2 align-items-center">
                                                 {% if entry.submitted_to_committee %}
                                                 <button class="btn btn-outline-primary btn-sm" disabled title="Cannot edit marks after submission. Please unsubmit first.">Marks Entry</button>
                                                 {% else %}
@@ -92,13 +97,33 @@
                                                     {% endif %}
                                                 {% endif %}
                                                 {# If entry is NOT from evaluator assignment (evaluator created it themselves), no submit button #}
-                                                <a href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}" class="btn btn-outline-warning btn-sm">Edit</a>
-                                                <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0">
-                                                    <button type="submit" class="btn btn-outline-secondary btn-sm" onclick="return confirm('Archive this entry?');">Archive</button>
-                                                </form>
-                                                <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0">
-                                                    <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this entry?');">Delete</button>
-                                                </form>
+                                                <div class="dropdown">
+                                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="entry-more-{{ entry.id }}" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More actions">
+                                                        <i class="fas fa-ellipsis-h me-1"></i>More
+                                                    </button>
+                                                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="entry-more-{{ entry.id }}">
+                                                        <li>
+                                                            <a class="dropdown-item" href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}">
+                                                                <i class="fas fa-edit me-2 text-warning"></i>Edit
+                                                            </a>
+                                                        </li>
+                                                        <li><hr class="dropdown-divider"></li>
+                                                        <li>
+                                                            <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Archive this entry?');">
+                                                                <button type="submit" class="dropdown-item">
+                                                                    <i class="fas fa-archive me-2 text-secondary"></i>Archive
+                                                                </button>
+                                                            </form>
+                                                        </li>
+                                                        <li>
+                                                            <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this entry?');">
+                                                                <button type="submit" class="dropdown-item text-danger">
+                                                                    <i class="fas fa-trash-alt me-2"></i>Delete
+                                                                </button>
+                                                            </form>
+                                                        </li>
+                                                    </ul>
+                                                </div>
                                             </div>
                                             {% if entry.submitted_to_committee %}
                                             <div class="mt-2 small {{ 'text-success' if entry.submitted_to_committee else 'text-muted' }}">
@@ -144,7 +169,12 @@
                                 <tbody>
                                     {% for entry in archived_entries %}
                                     <tr class="text-muted">
-                                        <td>{{ entry.course_name }}</td>
+                                        <td>
+                                            {{ entry.course_name }}
+                                            {% if entry.show_retake_label %}
+                                                <span class="text-danger fw-semibold ms-1">(Retake)</span>
+                                            {% endif %}
+                                        </td>
                                         <td>{{ entry.course_code }}</td>
                                         <td>
                                             {% if entry.section %}
@@ -203,6 +233,9 @@
                                 <tr>
                                     <td data-label="Course">
                                         {{ entry.course_name }}
+                                        {% if entry.show_retake_label %}
+                                        <span class="text-danger fw-semibold ms-1">(Retake)</span>
+                                        {% endif %}
                                         {% if entry.section %}
                                         <div class="text-info small mt-1"><strong>Part: {{ entry.section }}</strong></div>
                                         {% endif %}
@@ -270,10 +303,17 @@
                 <form method="POST" id="examEntryForm">
                     <input type="hidden" id="selected_batch" name="batch" value="">
                     <input type="hidden" id="curriculum_id_hidden" name="curriculum_id" value="">
-                    <input type="hidden" name="academic_session" value="">
-                    <input type="hidden" name="year" value="">
-                    <input type="hidden" name="term" value="">
+                    <input type="hidden" id="entry_academic_session" name="academic_session" value="">
+                    <input type="hidden" id="entry_year" name="year" value="">
+                    <input type="hidden" id="entry_term" name="term" value="">
                     <input type="hidden" id="course_id" name="course_id" value="">
+
+                    <div class="alert alert-info py-2">
+                        <small>
+                            <i class="fas fa-calendar-alt me-1"></i>
+                            Context: <strong id="entry_context_label">Not set</strong>
+                        </small>
+                    </div>
                     
                     <!-- Course Name (Text Input) -->
                     <div class="mb-3">
@@ -347,6 +387,76 @@
 document.addEventListener('DOMContentLoaded', function() {
     const courseCodeInput = document.getElementById('course_code');
     const courseNameInput = document.getElementById('course_name');
+    const contextLabel = document.getElementById('entry_context_label');
+    const academicSessionInput = document.getElementById('entry_academic_session');
+    const yearInput = document.getElementById('entry_year');
+    const termInput = document.getElementById('entry_term');
+    const batchInput = document.getElementById('selected_batch');
+
+    function normalize(value) {
+        return String(value || '').trim();
+    }
+
+    function setEntryContext(academicSession, year, term, batch) {
+        const cleanSession = normalize(academicSession);
+        const cleanYear = normalize(year);
+        const cleanTerm = normalize(term);
+        const cleanBatch = normalize(batch);
+
+        if (academicSessionInput) academicSessionInput.value = cleanSession;
+        if (yearInput) yearInput.value = cleanYear;
+        if (termInput) termInput.value = cleanTerm;
+        if (batchInput && cleanBatch) batchInput.value = cleanBatch;
+
+        if (contextLabel) {
+            const sessionText = cleanSession || '-';
+            const yearText = cleanYear || '-';
+            const termText = cleanTerm || '-';
+            contextLabel.textContent = `${sessionText} | ${yearText} Year | ${termText} Term`;
+        }
+    }
+
+    function initializeEntryContext() {
+        const params = new URLSearchParams(window.location.search);
+        const qsSession = normalize(params.get('academic_session') || params.get('session'));
+        const qsYear = normalize(params.get('year'));
+        const qsTerm = normalize(params.get('term'));
+        const qsBatch = normalize(params.get('batch'));
+        if (qsSession && qsYear && qsTerm) {
+            setEntryContext(qsSession, qsYear, qsTerm, qsBatch);
+            return;
+        }
+
+        const rawConfigs = {{ curriculum_configs_json|safe if curriculum_configs_json else '{}' }};
+        const configRows = [];
+        Object.keys(rawConfigs || {}).forEach(curriculumId => {
+            const configs = Array.isArray(rawConfigs[curriculumId]) ? rawConfigs[curriculumId] : [];
+            configs.forEach(cfg => {
+                const rowSession = normalize(cfg.academic_session);
+                const rowYear = normalize(cfg.year);
+                const rowTerm = normalize(cfg.term);
+                if (!rowSession || !rowYear || !rowTerm) return;
+                configRows.push({
+                    academic_session: rowSession,
+                    year: rowYear,
+                    term: rowTerm,
+                    batch: normalize(cfg.batch)
+                });
+            });
+        });
+        if (configRows.length > 0) {
+            const defaultRow = configRows[0];
+            setEntryContext(
+                defaultRow.academic_session,
+                defaultRow.year,
+                defaultRow.term,
+                defaultRow.batch
+            );
+            return;
+        }
+
+        setEntryContext('', '', '', '');
+    }
     
     // Function to check course code pattern and auto-select program level
     function checkAndSetProgramLevel(courseCode) {
@@ -393,8 +503,11 @@ document.addEventListener('DOMContentLoaded', function() {
             if (form) {
                 form.reset();
             }
+            initializeEntryContext();
         });
     }
+
+    initializeEntryContext();
 });
 </script>
 {% endblock %}

@@ -394,6 +394,7 @@ function viewRegistration(studentId, session, year, term, isPending) {
                                 <th>Credit</th>
                                 <th>Type</th>
                                 <th>Nature</th>
+                                <th>Source Year/Term</th>
                                 <th>Remarks</th>
                                 <th>Carry On</th>
                                 <th>Action</th>
@@ -406,13 +407,17 @@ function viewRegistration(studentId, session, year, term, isPending) {
                 const isRetake = course.remark === 'Retake' || course.remark === 'Re-retake';
                 const carryOnId = `carryOn_${course.id}_${index}`;
                 html += `
-                    <tr data-course-id="${course.id}" data-course-table-id="${course.course_id || course.id}">
+                    <tr data-course-id="${course.id}" data-course-table-id="${course.course_id || course.id}"
+                        data-source-year="${course.source_year || data.year || ''}"
+                        data-source-term="${course.source_term || data.term || ''}"
+                        data-use-relevant-for-committee="${typeof course.use_relevant_for_committee === 'boolean' ? course.use_relevant_for_committee : true}">
                         <td>${index + 1}</td>
                         <td>${course.course_code}</td>
                         <td>${course.course_name}</td>
                         <td>${course.credit}</td>
                         <td>${course.course_type}</td>
                         <td>${course.nature || 'Core'}</td>
+                        <td>${course.source_year || data.year || '-'} / ${course.source_term || data.term || '-'}</td>
                         <td>
                             <select class="form-select form-select-sm remark-select" data-course-id="${course.id}" data-index="${index}">
                                 <option value="Regular" ${course.remark === 'Regular' ? 'selected' : ''}>Regular</option>
@@ -443,7 +448,7 @@ function viewRegistration(studentId, session, year, term, isPending) {
                             <tr class="table-info fw-bold">
                                 <td colspan="3" class="text-end">Total Credits:</td>
                                 <td id="totalCreditsEdit">${data.total_credits.toFixed(1)}</td>
-                                <td colspan="5"></td>
+                                <td colspan="6"></td>
                             </tr>
                         </tfoot>
                     </table>
@@ -469,6 +474,7 @@ function viewRegistration(studentId, session, year, term, isPending) {
                     const index = this.getAttribute('data-index');
                     const remark = this.value;
                     const isRetake = remark === 'Retake' || remark === 'Re-retake';
+                    const row = this.closest('tr');
                     
                     const carryOnContainer = document.getElementById(`carryOnContainer_${courseId}_${index}`);
                     const carryOnPlaceholder = document.getElementById(`carryOnPlaceholder_${courseId}_${index}`);
@@ -477,9 +483,13 @@ function viewRegistration(studentId, session, year, term, isPending) {
                         if (isRetake) {
                             carryOnContainer.style.display = 'block';
                             carryOnPlaceholder.style.display = 'none';
+                            if (row && !row.getAttribute('data-use-relevant-for-committee')) {
+                                row.setAttribute('data-use-relevant-for-committee', 'true');
+                            }
                         } else {
                             carryOnContainer.style.display = 'none';
                             carryOnPlaceholder.style.display = 'inline';
+                            if (row) row.setAttribute('data-use-relevant-for-committee', 'false');
                             // Uncheck carry on if Regular is selected
                             const carryOnCheckbox = document.getElementById(`carryOn_${courseId}_${index}`);
                             if (carryOnCheckbox) {
@@ -658,6 +668,9 @@ function addCourseToEdit(courseId, courseCode, courseName, credit, courseType, n
     const newRow = document.createElement('tr');
     newRow.setAttribute('data-course-id', courseId); // For new courses, this is the Course ID
     newRow.setAttribute('data-course-table-id', courseId); // Store Course table ID
+    newRow.setAttribute('data-source-year', currentEditData ? currentEditData.year : '');
+    newRow.setAttribute('data-source-term', currentEditData ? currentEditData.term : '');
+    newRow.setAttribute('data-use-relevant-for-committee', 'false');
     newRow.innerHTML = `
         <td>${newIndex}</td>
         <td>${courseCode}</td>
@@ -665,6 +678,7 @@ function addCourseToEdit(courseId, courseCode, courseName, credit, courseType, n
         <td>${credit}</td>
         <td>${courseType}</td>
         <td>${nature}</td>
+        <td>${currentEditData ? currentEditData.year : '-'} / ${currentEditData ? currentEditData.term : '-'}</td>
         <td>
             <select class="form-select form-select-sm remark-select" data-course-id="${courseId}" data-index="${newIndex}">
                 <option value="Regular" selected>Regular</option>
@@ -704,9 +718,16 @@ function addCourseToEdit(courseId, courseCode, courseName, credit, courseType, n
                 if (isRetake) {
                     carryOnContainer.style.display = 'block';
                     carryOnPlaceholder.style.display = 'none';
+                    if (!newRow.getAttribute('data-use-relevant-for-committee')) {
+                        newRow.setAttribute('data-use-relevant-for-committee', 'true');
+                    } else if (newRow.getAttribute('data-use-relevant-for-committee') === 'false') {
+                        // New row defaults to merged behavior for retake unless explicitly changed elsewhere.
+                        newRow.setAttribute('data-use-relevant-for-committee', 'true');
+                    }
                 } else {
                     carryOnContainer.style.display = 'none';
                     carryOnPlaceholder.style.display = 'inline';
+                    newRow.setAttribute('data-use-relevant-for-committee', 'false');
                     const carryOnCheckbox = document.getElementById(`carryOn_${courseId}_${index}`);
                     if (carryOnCheckbox) {
                         carryOnCheckbox.checked = false;
@@ -829,9 +850,15 @@ document.getElementById('saveEditBtn').addEventListener('click', function() {
     rows.forEach(row => {
         const courseId = row.getAttribute('data-course-id'); // StudentCourseRegistration ID (for existing) or Course ID (for new)
         const courseTableId = row.getAttribute('data-course-table-id') || courseId; // Course table ID
+        const sourceYear = row.getAttribute('data-source-year') || currentEditData.year;
+        const sourceTerm = row.getAttribute('data-source-term') || currentEditData.term;
+        const rawUseRelevant = row.getAttribute('data-use-relevant-for-committee');
         const remarkSelect = row.querySelector('.remark-select');
         const remark = remarkSelect ? remarkSelect.value : 'Regular';
         const isRetake = remark === 'Retake' || remark === 'Re-retake';
+        const useRelevantForCommittee = isRetake
+            ? (rawUseRelevant === null || rawUseRelevant === '' ? true : rawUseRelevant === 'true')
+            : false;
         
         // Get carry on checkbox value
         let carryOn = false;
@@ -851,8 +878,11 @@ document.getElementById('saveEditBtn').addEventListener('click', function() {
             credit: parseFloat(row.cells[3].textContent) || 0,
             course_type: row.cells[4].textContent.trim(),
             nature: row.cells[5].textContent.trim() || 'Core',
+            source_year: sourceYear,
+            source_term: sourceTerm,
             remark: remark,
-            carry_on: carryOn
+            carry_on: carryOn,
+            use_relevant_for_committee: useRelevantForCommittee
         });
     });
     

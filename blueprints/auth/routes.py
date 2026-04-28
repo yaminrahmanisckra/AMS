@@ -288,11 +288,17 @@ def forgot_password():
                 Best regards,
                 Academic Management System Team
                 """
+                # Password recovery: always MAIL_* / recovery@ (never NOTIFICATION_MAIL_*)
+                reset_sender = (
+                    current_app.config.get('MAIL_DEFAULT_SENDER')
+                    or current_app.config.get('MAIL_USERNAME')
+                )
                 msg = Message(
                     subject=subject,
                     recipients=[user.email],
                     html=html_body,
-                    body=text_body
+                    body=text_body,
+                    sender=reset_sender,
                 )
                 print("Trying to send email...", file=sys.stderr)
                 mail.send(msg)

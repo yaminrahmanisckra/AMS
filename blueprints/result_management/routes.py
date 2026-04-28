@@ -125,6 +125,26 @@ def _normalize_term_label(value):
         return 'second'
     return v
 
+
+def _build_original_course_registration_filters(student_profile_ids, subject_code, session_name=None, year=None, term=None, statuses=None):
+    """Build strict filters anchored to original course_code context only."""
+    filters = [
+        StudentCourseRegistration.student_id.in_(student_profile_ids),
+        # Intentionally do NOT match relevant_course_code in result/marks scope.
+        StudentCourseRegistration.course_code == subject_code
+    ]
+    if statuses:
+        filters.append(StudentCourseRegistration.status.in_(statuses))
+    else:
+        filters.append(StudentCourseRegistration.status == 'finalized')
+    if session_name:
+        filters.append(StudentCourseRegistration.academic_session == session_name)
+    if year:
+        filters.append(StudentCourseRegistration.year == year)
+    if term:
+        filters.append(StudentCourseRegistration.term == term)
+    return filters
+
 def _can_access_session(session):
     """Check if current user can access a specific result session"""
     if is_admin(current_user):
@@ -1048,6 +1068,97 @@ def add_subject(session_id):
                             db.session.bulk_save_objects(subjects_to_add)
                             db.session.commit()
                             flash(f'Auto-loaded {len(subjects_to_add)} subject(s) from curriculum for {session.name} - Year {session.year} - Term {session.term}.', 'success')
+
+            # Second pass: ensure running-context registered subjects are present in Result Subjects.
+            # This keeps retake/regular results inside the same running session/year/term.
+            if session.name and session.year and session.term:
+                existing_codes = {
+                    (s.code or '').strip()
+                    for s in RSubject.query.filter_by(session_id=session_id).all()
+                    if (s.code or '').strip()
+                }
+
+                registered_rows = StudentCourseRegistration.query.filter(
+                    StudentCourseRegistration.academic_session == session.name,
+                    StudentCourseRegistration.year == session.year,
+                    StudentCourseRegistration.term == session.term,
+                    StudentCourseRegistration.status.in_(['draft', 'pending', 'finalized'])
+                ).all()
+
+                registered_by_code = {}
+                for reg in registered_rows:
+                    code = (reg.course_code or '').strip()
+                    if not code:
+                        continue
+                    prev = registered_by_code.get(code)
+                    if prev is None or (reg.updated_at or reg.created_at or datetime.min) > (prev.updated_at or prev.created_at or datetime.min):
+                        registered_by_code[code] = reg
+
+                missing_codes = [code for code in registered_by_code.keys() if code not in existing_codes]
+                if missing_codes:
+                    canonical_courses = Course.query.filter(
+                        Course.course_code.in_(missing_codes)
+                    ).order_by(Course.id.desc()).all()
+                    course_by_code = {}
+                    for c in canonical_courses:
+                        code = (c.course_code or '').strip()
+                        if code and code not in course_by_code:
+                            course_by_code[code] = c
+
+                    reg_synced_subjects = []
+                    for code in missing_codes:
+                        reg = registered_by_code.get(code)
+                        if not reg:
+                            continue
+
+                        canonical_course = course_by_code.get(code)
+                        dissertation_type = None
+                        if canonical_course:
+                            subject_name = canonical_course.course_name
+                            subject_credit = canonical_course.credit
+                            subject_type = _determine_subject_type(canonical_course)
+                            if canonical_course.course_type == 'Dissertation Proposal (PG)':
+                                dissertation_type = 'Type1'
+                            elif canonical_course.course_type == 'Dissertation Defence (PG)':
+                                dissertation_type = 'Type2'
+                        else:
+                            raw_course_type = (reg.course_type or '').strip().lower()
+                            subject_name = reg.course_name or code
+                            subject_credit = float(reg.credit or 0)
+                            if 'dissertation proposal' in raw_course_type:
+                                subject_type = 'Dissertation'
+                                dissertation_type = 'Type1'
+                            elif 'dissertation defence' in raw_course_type:
+                                subject_type = 'Dissertation'
+                                dissertation_type = 'Type2'
+                            elif 'dissertation' in raw_course_type:
+                                subject_type = 'Dissertation'
+                            elif 'sessional' in raw_course_type:
+                                subject_type = 'Sessional'
+                            elif 'viva' in raw_course_type:
+                                subject_type = 'Viva'
+                            else:
+                                subject_type = 'Theory'
+
+                        reg_synced_subjects.append(
+                            RSubject(
+                                code=code,
+                                name=subject_name,
+                                credit=subject_credit,
+                                subject_type=subject_type,
+                                dissertation_type=dissertation_type,
+                                session_id=session_id
+                            )
+                        )
+
+                    if reg_synced_subjects:
+                        db.session.bulk_save_objects(reg_synced_subjects)
+                        db.session.commit()
+                        flash(
+                            f'Auto-synced {len(reg_synced_subjects)} subject(s) from running course registrations for '
+                            f'{session.name} - Year {session.year} - Term {session.term}.',
+                            'info'
+                        )
     except Exception as e:
         current_app.logger.error(f'Error auto-loading subjects: {str(e)}', exc_info=True)
         # Don't show error to user, just log it
@@ -1140,15 +1251,14 @@ def refresh_marks(session_id):
         if not student_profile_id_to_rstudent_id:
             students = []
         else:
-            course_filters = [
-                StudentCourseRegistration.student_id.in_(student_profile_id_to_rstudent_id.keys()),
-                StudentCourseRegistration.course_code == selected_subject.code,
-                StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
-            ]
-            if session.year:
-                course_filters.append(StudentCourseRegistration.year == session.year)
-            if session.term:
-                course_filters.append(StudentCourseRegistration.term == session.term)
+            course_filters = _build_original_course_registration_filters(
+                student_profile_id_to_rstudent_id.keys(),
+                selected_subject.code,
+                session_name=session.name,
+                year=session.year,
+                term=session.term,
+                statuses=['finalized', 'pending', 'archived']
+            )
             
             registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
             
@@ -2283,28 +2393,22 @@ def add_marks(session_id):
                 current_app.logger.warning(f'No student profiles found for session {session_id}. Cannot load registered students.')
                 students = []
             else:
-                # Build filters - make matching more flexible
-                # Include 'finalized', 'pending', and 'archived' statuses
-                course_filters = [
-                    StudentCourseRegistration.student_id.in_(student_profile_id_to_rstudent_id.keys()),
-                    StudentCourseRegistration.course_code == selected_subject.code,
-                    StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
-                ]
-                
-                # Try exact match first (year + term)
-                registered_regs = None
-                if session.year and session.term:
-                    exact_filters = course_filters + [
-                        StudentCourseRegistration.year == session.year,
-                        StudentCourseRegistration.term == session.term
-                    ]
-                    registered_regs = StudentCourseRegistration.query.filter(*exact_filters).all()
-                    current_app.logger.debug(f'Exact match (year={session.year}, term={session.term}): {len(registered_regs)} registrations found')
-                
-                # Fallback: try without year/term if exact match found nothing
-                if not registered_regs or len(registered_regs) == 0:
-                    registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
-                    current_app.logger.debug(f'Fallback match (course_code only): {len(registered_regs)} registrations found')
+                # Strict original-course scope for marks entry.
+                course_filters = _build_original_course_registration_filters(
+                    student_profile_id_to_rstudent_id.keys(),
+                    selected_subject.code,
+                    session_name=session.name,
+                    year=session.year,
+                    term=session.term,
+                    statuses=['finalized', 'pending', 'archived']
+                )
+
+                registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
+                current_app.logger.debug(
+                    'Strict registration match for add_marks '
+                    f'(session={session.name}, year={session.year}, term={session.term}, code={selected_subject.code}): '
+                    f'{len(registered_regs)} registrations found'
+                )
                 
                 # Map registration student_id (Student profile ID) back to RStudent.id
                 registered_rstudent_ids = set()
@@ -2355,18 +2459,15 @@ def add_marks(session_id):
                 if profile.student_id in student_id_to_rstudent_id
             }
             
-            # Get registrations from Course Management
-            course_filters = [
-                StudentCourseRegistration.student_id.in_(student_profile_id_to_rstudent_id.keys()),
-                StudentCourseRegistration.course_code == selected_subject.code,
-                StudentCourseRegistration.status == 'finalized'
-            ]
-            if session.name:
-                course_filters.append(StudentCourseRegistration.academic_session == session.name)
-            if session.year:
-                course_filters.append(StudentCourseRegistration.year == session.year)
-            if session.term:
-                course_filters.append(StudentCourseRegistration.term == session.term)
+            # Strict original-course scope for retake flags in marks UI.
+            course_filters = _build_original_course_registration_filters(
+                student_profile_id_to_rstudent_id.keys(),
+                selected_subject.code,
+                session_name=session.name,
+                year=session.year,
+                term=session.term,
+                statuses=['finalized']
+            )
             
             registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
             
@@ -3089,6 +3190,8 @@ def auto_save_marks(session_id):
             StudentCourseRegistration.course_code == subject.code,
             StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
         ]
+        if session.name:
+            course_filters.append(StudentCourseRegistration.academic_session == session.name)
         if session.year:
             course_filters.append(StudentCourseRegistration.year == session.year)
         if session.term:
@@ -3570,21 +3673,17 @@ def course_registration(session_id):
             }
 
             if student_profile_id_to_result_id:
-                course_filters = [
-                    StudentCourseRegistration.student_id.in_(student_profile_id_to_result_id.keys()),
-                    StudentCourseRegistration.course_code == selected_subject.code
-                ]
-                if session.name:
-                    course_filters.append(StudentCourseRegistration.academic_session == session.name)
-                if session.year:
-                    course_filters.append(StudentCourseRegistration.year == session.year)
-                if session.term:
-                    course_filters.append(StudentCourseRegistration.term == session.term)
-
                 allowed_statuses = ['draft', 'pending', 'finalized']
+                course_filters = _build_original_course_registration_filters(
+                    student_profile_id_to_result_id.keys(),
+                    selected_subject.code,
+                    session_name=session.name,
+                    year=session.year,
+                    term=session.term,
+                    statuses=allowed_statuses
+                )
                 auto_regs = StudentCourseRegistration.query.filter(
-                    *course_filters,
-                    StudentCourseRegistration.status.in_(allowed_statuses)
+                    *course_filters
                 ).all()
 
                 for auto_reg in auto_regs:
