@@ -6421,9 +6421,12 @@ def student_view_scores():
                         course_map[course_key]['student_record_ids'].add(rec.id)
                         course_map[course_key]['student_records'].append(rec)
         
+        teacher_callsign_cache = {}
+
         # Second pass: build reveal status by combining all sessions with same course key
         for course_key, course_data in course_map.items():
             reveal_status = {}
+            reveal_callsigns = defaultdict(set)
             # Default attendance to revealed
             reveal_status['attendance'] = True
             
@@ -6434,13 +6437,26 @@ def student_view_scores():
                     try:
                         all_reveals = json.loads(session_obj.assessment_revealed)
                         for teacher_id, teacher_reveals in all_reveals.items():
+                            callsign = teacher_callsign_cache.get(teacher_id)
+                            if teacher_id not in teacher_callsign_cache:
+                                teacher_obj = Teacher.query.get(int(teacher_id)) if str(teacher_id).isdigit() else None
+                                callsign = ''
+                                if teacher_obj:
+                                    callsign = (teacher_obj.call_sign or teacher_obj.short_name or '').strip()
+                                teacher_callsign_cache[teacher_id] = callsign
                             for assessment_type, is_revealed in teacher_reveals.items():
                                 if is_revealed:
                                     reveal_status[assessment_type] = True
+                                    if callsign:
+                                        reveal_callsigns[assessment_type].add(callsign)
                     except:
                         pass
             
             course_data['reveal_status'] = reveal_status
+            course_data['reveal_callsigns'] = {
+                assessment_type: ', '.join(sorted(callsigns))
+                for assessment_type, callsigns in reveal_callsigns.items()
+            }
             # Convert session_ids set to list and get primary session
             session_ids_list = sorted(list(course_data['session_ids']))
             course_data['primary_session'] = session_records_map[session_ids_list[0]]  # Use first session as primary
@@ -6461,7 +6477,12 @@ def student_view_scores():
             
             student_records = course_data['student_records']
             reveal_status = course_data['reveal_status']
+            reveal_callsigns = course_data.get('reveal_callsigns', {})
             all_session_ids = course_data['session_ids']
+            is_split_course = any(
+                (session_records_map.get(session_id) and session_records_map.get(session_id).course_scope in SPLIT_PARTS)
+                for session_id in all_session_ids
+            )
             
             # Use the first student record as primary (prioritize non-null values)
             primary_record = student_records[0]
@@ -6600,6 +6621,8 @@ def student_view_scores():
                 'pg_total': pg_total,
                 'attendance_data': attendance_data,
                 'reveal_status': reveal_status,
+                'reveal_callsigns': reveal_callsigns,
+                'is_split_course': is_split_course,
                 'qa_threads': qa_threads,
                 'qa_new_reply_count': qa_new_reply_count,
                 'teacher_options': teacher_options

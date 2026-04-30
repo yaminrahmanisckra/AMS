@@ -66,6 +66,9 @@
                                                             {% if course.highest_assessment_scores.get('assessment1') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment1') }}</div>
                                                             {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment1') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment1') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -79,6 +82,9 @@
                                                             {% endif %}
                                                             {% if course.highest_assessment_scores.get('assessment2') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment2') }}</div>
+                                                            {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment2') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment2') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
@@ -94,6 +100,9 @@
                                                             {% if course.highest_assessment_scores.get('assessment3') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment3') }}</div>
                                                             {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment3') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment3') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -107,6 +116,9 @@
                                                             {% endif %}
                                                             {% if course.highest_assessment_scores.get('assessment4') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment4') }}</div>
+                                                            {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment4') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment4') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
@@ -152,6 +164,9 @@
                                                             {% if course.highest_assessment_scores.get('assessment1') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment1') }}</div>
                                                             {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment1') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment1') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -165,6 +180,9 @@
                                                             {% endif %}
                                                             {% if course.highest_assessment_scores.get('assessment2') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment2') }}</div>
+                                                            {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment2') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment2') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
@@ -180,6 +198,9 @@
                                                             {% if course.highest_assessment_scores.get('assessment3') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment3') }}</div>
                                                             {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment3') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment3') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -193,6 +214,9 @@
                                                             {% endif %}
                                                             {% if course.highest_assessment_scores.get('assessment4') is not none %}
                                                                 <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment4') }}</div>
+                                                            {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment4') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment4') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
@@ -233,6 +257,9 @@
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
                                                             {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('sessional_report') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('sessional_report') }}</div>
+                                                            {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
                                                         {% endif %}
@@ -243,6 +270,9 @@
                                                                 {{ course.assessment_scores.get('sessional_viva') }}
                                                             {% else %}
                                                                 <span class="text-muted">Absent</span>
+                                                            {% endif %}
+                                                            {% if course.is_split_course and course.reveal_callsigns.get('sessional_viva') %}
+                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('sessional_viva') }}</div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-muted">-</span>
