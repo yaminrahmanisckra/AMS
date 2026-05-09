@@ -777,20 +777,17 @@ def _build_combined_assessment_values(session):
         pg_avg_map: {student_id: average}
         pg_total_map: {student_id: total_40_scale}
     """
-    # Step 1: Get all related sessions (if split course)
-    if session.split_group_id:
-        related_sessions = Session.query.filter_by(
-            split_group_id=session.split_group_id,
-            archived=False
-        ).all()
-    else:
-        related_sessions = [session]
-    
+    # Step 1: Get all related sessions (split course parts).
+    # Must match _resolve_attendance_related_sessions so marks stay visible when split_group_id
+    # is missing or out of sync after reassign/unassign (same fallback as attendance).
+    related_sessions = _resolve_attendance_related_sessions(session, include_archived=False)
     if not related_sessions:
         return {}, {}, {}, {}
     
     # Step 2: Get ALL ClassStudent records from ALL related sessions
-    session_ids = [s.id for s in related_sessions]
+    session_ids = [s.id for s in related_sessions if s]
+    if not session_ids:
+        return {}, {}, {}, {}
     all_class_students = ClassStudent.query.filter(
         ClassStudent.session_id.in_(session_ids)
     ).all()
@@ -861,6 +858,104 @@ def _get_editable_assessment_indices(session):
     return {1, 2, 3, 4}
 
 
+ATTENDANCE_LABEL_TO_STATUS = {
+    'P': ClassAttendance.STATUS_PRESENT,
+    'A': ClassAttendance.STATUS_ABSENT,
+    'S': ClassAttendance.STATUS_SKIP,
+    '-': ClassAttendance.STATUS_NONE,
+}
+ATTENDANCE_STATUS_TO_LABEL = {value: key for key, value in ATTENDANCE_LABEL_TO_STATUS.items()}
+MAX_CLASSES_PER_DAY = 2
+ATTENDANCE_CYCLE = {
+    'P': 'A',
+    'A': 'S',
+    'S': '-',
+    '-': 'P',
+}
+
+
+def _normalize_attendance_label(label, allow_blank=False):
+    normalized = (label or '').strip().upper()
+    if normalized in ATTENDANCE_LABEL_TO_STATUS:
+        return normalized
+    return None
+
+
+def _attendance_status_from_record(record):
+    status = (getattr(record, 'status', None) or '').strip().lower()
+    if status in ATTENDANCE_STATUS_TO_LABEL:
+        return status
+    return ClassAttendance.STATUS_PRESENT if bool(record.is_present) else ClassAttendance.STATUS_ABSENT
+
+
+def _attendance_label_from_record(record):
+    return ATTENDANCE_STATUS_TO_LABEL.get(_attendance_status_from_record(record), 'A')
+
+
+def _set_attendance_record_status(record, label):
+    normalized_label = _normalize_attendance_label(label, allow_blank=True)
+    if not normalized_label:
+        raise ValueError('Invalid attendance status label.')
+    status_value = ATTENDANCE_LABEL_TO_STATUS[normalized_label]
+    if hasattr(record, 'set_status'):
+        record.set_status(status_value)
+    else:
+        record.status = status_value
+        record.is_present = status_value == ClassAttendance.STATUS_PRESENT
+
+
+def _status_payload_for_response(student_stats, status_label, record_id=None, student_db_id=None):
+    return {
+        'success': True,
+        'record_id': record_id,
+        'status': status_label,
+        'present_count': student_stats.get('present', 0),
+        'percentage': f"{student_stats.get('percentage', 0):.2f}%",
+        'marks': student_stats.get('marks', 0),
+        'marks_manual': student_stats.get('marks_manual', False),
+        'total_classes': student_stats.get('effective_total_classes', student_stats.get('base_total_classes', 0)),
+        'student_db_id': student_db_id
+    }
+
+
+def _cap_classes_per_day(count_value):
+    if not count_value:
+        return 0
+    return min(int(count_value), MAX_CLASSES_PER_DAY)
+
+
+def _normalize_slot_number(slot_value):
+    try:
+        slot_int = int(slot_value)
+    except (TypeError, ValueError):
+        return None
+    if 1 <= slot_int <= MAX_CLASSES_PER_DAY:
+        return slot_int
+    return None
+
+
+def _records_by_slot(records_for_date):
+    """Map attendance records to slot numbers with legacy fallback."""
+    if not records_for_date:
+        return {}
+
+    slot_map = {}
+    next_slot = 1
+    for record in sorted(records_for_date, key=lambda r: ((getattr(r, 'slot_number', None) or 99), r.id)):
+        explicit_slot = _normalize_slot_number(getattr(record, 'slot_number', None))
+        if explicit_slot and explicit_slot not in slot_map:
+            slot_map[explicit_slot] = record
+            continue
+
+        while next_slot in slot_map and next_slot <= MAX_CLASSES_PER_DAY:
+            next_slot += 1
+        if next_slot <= MAX_CLASSES_PER_DAY:
+            slot_map[next_slot] = record
+            next_slot += 1
+
+    return slot_map
+
+
 def _calculate_attendance_mark_from_percentage(percentage):
     """Convert attendance percentage to marks."""
     if percentage >= 90:
@@ -894,22 +989,40 @@ def _build_attendance_summary(session, include_archived=False):
     students = _class_students_for_sessions(session_ids)
     student_lookup = {stu.id: stu for stu in students}
 
-    per_student_counts = defaultdict(lambda: {'present': 0})
+    per_student_counts = defaultdict(lambda: {'present': 0, 'skip': 0})
     per_session_date_counts = defaultdict(lambda: defaultdict(int))
+    per_student_date_slot_seen = defaultdict(set)
+    per_student_date_fallback_counts = defaultdict(int)
 
     for record in attendance_records:
+        slot_key = (record.session_id, record.student_id, record.date)
+        slot_number = _normalize_slot_number(getattr(record, 'slot_number', None))
+        if slot_number is not None:
+            if slot_number in per_student_date_slot_seen[slot_key]:
+                continue
+            per_student_date_slot_seen[slot_key].add(slot_number)
+        else:
+            per_student_date_fallback_counts[slot_key] += 1
+            fallback_slot = per_student_date_fallback_counts[slot_key]
+            if fallback_slot > MAX_CLASSES_PER_DAY:
+                continue
+            per_student_date_slot_seen[slot_key].add(fallback_slot)
+
         per_session_date_counts[(record.session_id, record.date)][record.student_id] += 1
         student = student_lookup.get(record.student_id)
         if not student:
             continue
-        if record.is_present:
+        record_status = _attendance_status_from_record(record)
+        if record_status == ClassAttendance.STATUS_PRESENT:
             per_student_counts[student.student_id]['present'] += 1
+        elif record_status == ClassAttendance.STATUS_SKIP:
+            per_student_counts[student.student_id]['skip'] += 1
         per_student_counts[student.student_id]['records'] = per_student_counts[student.student_id].get('records', 0) + 1
 
     per_session_totals = defaultdict(int)
     total_classes = 0
     for (session_id, _), counts in per_session_date_counts.items():
-        class_count = max(counts.values()) if counts else 0
+        class_count = _cap_classes_per_day(max(counts.values()) if counts else 0)
         total_classes += class_count
         per_session_totals[session_id] += class_count
 
@@ -922,8 +1035,9 @@ def _build_attendance_summary(session, include_archived=False):
         students_by_id[student.student_id].append(student)
     
     for student_id, student_list in students_by_id.items():
-        stats = per_student_counts.get(student_id, {'present': 0, 'records': 0})
-        percentage = (stats['present'] / total_classes * 100) if total_classes else 0
+        stats = per_student_counts.get(student_id, {'present': 0, 'skip': 0, 'records': 0})
+        effective_total_classes = max(total_classes - stats.get('skip', 0), 0)
+        percentage = (stats['present'] / effective_total_classes * 100) if effective_total_classes else 0
         
         # Check all student records for this student_id to find manual marks
         # (for split courses, manual marks might be on any of the related student records)
@@ -939,6 +1053,9 @@ def _build_attendance_summary(session, include_archived=False):
             marks = _calculate_attendance_mark_from_percentage(percentage)
         per_student_result[student_id] = {
             'present': stats['present'],
+            'skip_count': stats.get('skip', 0),
+            'base_total_classes': total_classes,
+            'effective_total_classes': effective_total_classes,
             'percentage': percentage,
             'marks': marks,
             'marks_manual': manual_marks is not None
@@ -1904,14 +2021,17 @@ def take_attendance(session_id):
             for student in students:
                 is_present = request.form.get(f'student_{student.id}') == 'present'
                 num_classes = 2 if double_class else 1
-                for _ in range(num_classes):
-                    db.session.add(ClassAttendance(
+                for slot_idx in range(1, num_classes + 1):
+                    attendance = ClassAttendance(
                         date=date_val,
                         is_present=is_present,
+                        status=ClassAttendance.STATUS_PRESENT if is_present else ClassAttendance.STATUS_ABSENT,
+                        slot_number=slot_idx,
                         student_id=student.id,
                         session_id=session_id,
                         teacher_id=session.teacher_id
-                    ))
+                    )
+                    db.session.add(attendance)
             
             db.session.commit()
             # Emit WebSocket event for live update
@@ -2080,10 +2200,16 @@ def view_attendance(session_id):
             
             daily_class_counts = {}
             for date, records in attendance_by_date.items():
-                student_counts_on_date = defaultdict(int)
-                for public_id, _record in records:
-                    student_counts_on_date[public_id] += 1
-                daily_class_counts[date] = max(student_counts_on_date.values()) if student_counts_on_date else 0
+                student_records_on_date = defaultdict(list)
+                for public_id, record in records:
+                    student_records_on_date[public_id].append(record)
+                student_counts_on_date = {
+                    public_id: len(_records_by_slot(student_records))
+                    for public_id, student_records in student_records_on_date.items()
+                }
+                daily_class_counts[date] = _cap_classes_per_day(
+                    max(student_counts_on_date.values()) if student_counts_on_date else 0
+                )
             
             headers_with_meta = []
             sorted_dates = sorted(daily_class_counts.keys())
@@ -2105,6 +2231,7 @@ def view_attendance(session_id):
                 attendance_row = []
                 for date in sorted_dates:
                     records_for_date = student_records_by_date.get(date, [])
+                    slot_map = _records_by_slot(records_for_date)
                     num_classes_on_day = daily_class_counts.get(date, 0)
                     for i in range(num_classes_on_day):
                         cell = {
@@ -2112,16 +2239,16 @@ def view_attendance(session_id):
                             'date': date.strftime('%Y-%m-%d'),
                             'slot': i + 1
                         }
-                        if i < len(records_for_date):
-                            record = records_for_date[i]
-                            cell['status'] = 'P' if record.is_present else 'A'
+                        record = slot_map.get(i + 1)
+                        if record:
+                            cell['status'] = _attendance_label_from_record(record)
                             cell['record_id'] = record.id
                         attendance_row.append(cell)
                 
                 student_data = {
                     'info': student,
                     'attendance_row': attendance_row,
-                    'total_classes': agg_total_classes,  # Combined total for marks
+                    'total_classes': agg_stats.get('effective_total_classes', agg_total_classes),
                     'present_count': agg_stats['present'],  # Combined present count
                     'percentage': f"{agg_stats['percentage']:.2f}%",  # Combined percentage
                     'marks': agg_stats['marks'],  # Combined marks
@@ -2206,10 +2333,16 @@ def view_attendance(session_id):
 
     daily_class_counts = {}
     for date, records in attendance_by_date.items():
-        student_counts_on_date = defaultdict(int)
+        student_records_on_date = defaultdict(list)
         for record in records:
-            student_counts_on_date[record.student_id] += 1
-        daily_class_counts[date] = max(student_counts_on_date.values()) if student_counts_on_date else 0
+            student_records_on_date[record.student_id].append(record)
+        student_counts_on_date = {
+            student_id: len(_records_by_slot(student_records))
+            for student_id, student_records in student_records_on_date.items()
+        }
+        daily_class_counts[date] = _cap_classes_per_day(
+            max(student_counts_on_date.values()) if student_counts_on_date else 0
+        )
 
     headers = []
     headers_with_meta = []
@@ -2239,6 +2372,7 @@ def view_attendance(session_id):
 
         for date in sorted_dates:
             records_for_date = student_attendance_by_date[date]
+            slot_map = _records_by_slot(records_for_date)
             num_classes_on_day = daily_class_counts.get(date, 0)
             for i in range(num_classes_on_day):
                 cell = {
@@ -2246,16 +2380,16 @@ def view_attendance(session_id):
                     'date': date.strftime('%Y-%m-%d'),
                     'slot': i + 1
                 }
-                if i < len(records_for_date):
-                    record = records_for_date[i]
-                    cell['status'] = 'P' if record.is_present else 'A'
+                record = slot_map.get(i + 1)
+                if record:
+                    cell['status'] = _attendance_label_from_record(record)
                     cell['record_id'] = record.id
                 attendance_row.append(cell)
 
         student_data = {
             'info': student,
             'attendance_row': attendance_row,
-            'total_classes': agg_total_classes,
+            'total_classes': agg_stats.get('effective_total_classes', agg_total_classes),
             'present_count': agg_stats['present'],
             'percentage': f"{agg_stats['percentage']:.2f}%",
             'marks': agg_stats['marks']
@@ -2295,37 +2429,50 @@ def toggle_attendance_record(record_id):
     if session.teacher_id != teacher.id:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
 
-    record.is_present = not record.is_present
+    data = request.get_json() or {}
+    raw_target = data.get('target_status')
+    current_label = _attendance_label_from_record(record)
+    if raw_target in (None, ''):
+        target_label = ATTENDANCE_CYCLE.get(current_label, 'A')
+    else:
+        target_label = _normalize_attendance_label(raw_target, allow_blank=True)
+        if not target_label:
+            return jsonify({'success': False, 'message': 'Invalid target_status'}), 400
+
+    student_public_id = record.student.student_id
+    student_db_id = record.student_id
+    response_record_id = record.id
+    _set_attendance_record_status(record, target_label)
     db.session.commit()
 
     attendance_summary = _build_attendance_summary(session)
-    student_public_id = record.student.student_id
-    student_stats = attendance_summary.get('per_student', {}).get(student_public_id, {'present': 0, 'percentage': 0, 'marks': 0})
+    student_stats = attendance_summary.get('per_student', {}).get(
+        student_public_id,
+        {'present': 0, 'percentage': 0, 'marks': 0, 'effective_total_classes': 0}
+    )
 
     # Emit WebSocket event for live update
     try:
         from utils.websocket_events import emit_attendance_update
         emit_attendance_update(record.session_id, {
-            'record_id': record_id,
-            'status': 'P' if record.is_present else 'A',
+            'record_id': response_record_id,
+            'status': target_label,
             'student_id': student_public_id,
-            'student_db_id': record.student_id,
+            'student_db_id': student_db_id,
             'present_count': student_stats.get('present', 0),
             'percentage': student_stats.get('percentage', 0),
-            'marks': student_stats.get('marks', 0)
+            'marks': student_stats.get('marks', 0),
+            'total_classes': student_stats.get('effective_total_classes', student_stats.get('base_total_classes', 0))
         })
     except Exception as e:
         current_app.logger.warning(f'Failed to emit attendance update event: {e}')
 
-    return jsonify({
-        'success': True,
-        'status': 'P' if record.is_present else 'A',
-        'present_count': student_stats.get('present', 0),
-        'percentage': f"{student_stats.get('percentage', 0):.2f}%",
-        'marks': student_stats.get('marks', 0),
-        'marks_manual': student_stats.get('marks_manual', False),
-        'student_db_id': record.student_id
-    })
+    return jsonify(_status_payload_for_response(
+        student_stats=student_stats,
+        status_label=target_label,
+        record_id=response_record_id,
+        student_db_id=student_db_id
+    ))
 
 
 @class_management_bp.route('/create_attendance_record/<int:session_id>', methods=['POST'])
@@ -2340,8 +2487,16 @@ def create_attendance_record(session_id):
         data = request.get_json() or {}
         class_student_id = data.get('class_student_id')
         date_str = data.get('date')
-        if not class_student_id or not date_str:
-            return jsonify({'success': False, 'message': 'class_student_id and date required'}), 400
+        slot_number = _normalize_slot_number(data.get('slot'))
+        raw_target = data.get('target_status')
+        if raw_target in (None, ''):
+            target_label = 'P'
+        else:
+            target_label = _normalize_attendance_label(raw_target)
+            if not target_label:
+                return jsonify({'success': False, 'message': 'Invalid target_status'}), 400
+        if not class_student_id or not date_str or slot_number is None:
+            return jsonify({'success': False, 'message': 'class_student_id, date and valid slot required'}), 400
         from datetime import datetime
         try:
             date_val = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -2353,41 +2508,76 @@ def create_attendance_record(session_id):
         ).first()
         if not class_student:
             return jsonify({'success': False, 'message': 'Student not found in this session'}), 404
+
+        existing_records = ClassAttendance.query.filter_by(
+            session_id=session_id,
+            student_id=class_student_id,
+            date=date_val
+        ).order_by(ClassAttendance.id.asc()).all()
+        slot_map = _records_by_slot(existing_records)
+        existing_record_for_slot = slot_map.get(slot_number)
+
+        if existing_record_for_slot:
+            _set_attendance_record_status(existing_record_for_slot, target_label)
+            if _normalize_slot_number(getattr(existing_record_for_slot, 'slot_number', None)) != slot_number:
+                existing_record_for_slot.slot_number = slot_number
+            db.session.commit()
+            attendance_summary = _build_attendance_summary(session)
+            student_public_id = class_student.student_id
+            student_stats = attendance_summary.get('per_student', {}).get(
+                student_public_id,
+                {'present': 0, 'percentage': 0, 'marks': 0, 'effective_total_classes': 0}
+            )
+            return jsonify(_status_payload_for_response(
+                student_stats=student_stats,
+                status_label=target_label,
+                record_id=existing_record_for_slot.id,
+                student_db_id=class_student_id
+            ))
+
+        if len(slot_map) >= MAX_CLASSES_PER_DAY:
+            return jsonify({
+                'success': False,
+                'message': f'Maximum {MAX_CLASSES_PER_DAY} attendance entries are allowed for this date.'
+            }), 400
+
         new_record = ClassAttendance(
             session_id=session_id,
             student_id=class_student_id,
             teacher_id=session.teacher_id,
             date=date_val,
-            is_present=True
+            is_present=True,
+            slot_number=slot_number
         )
+        _set_attendance_record_status(new_record, target_label)
         db.session.add(new_record)
         db.session.commit()
         attendance_summary = _build_attendance_summary(session)
         student_public_id = class_student.student_id
-        student_stats = attendance_summary.get('per_student', {}).get(student_public_id, {'present': 0, 'percentage': 0, 'marks': 0})
+        student_stats = attendance_summary.get('per_student', {}).get(
+            student_public_id,
+            {'present': 0, 'percentage': 0, 'marks': 0, 'effective_total_classes': 0}
+        )
         try:
             from utils.websocket_events import emit_attendance_update
             emit_attendance_update(session_id, {
                 'record_id': new_record.id,
-                'status': 'P',
+                'status': target_label,
                 'student_id': student_public_id,
                 'student_db_id': class_student_id,
                 'present_count': student_stats.get('present', 0),
                 'percentage': student_stats.get('percentage', 0),
-                'marks': student_stats.get('marks', 0)
+                'marks': student_stats.get('marks', 0),
+                'total_classes': student_stats.get('effective_total_classes', student_stats.get('base_total_classes', 0))
             })
         except Exception as e:
             current_app.logger.warning(f'Failed to emit attendance update event: {e}')
-        return jsonify({
-            'success': True,
-            'record_id': new_record.id,
-            'status': 'P',
-            'present_count': student_stats.get('present', 0),
-            'percentage': f"{student_stats.get('percentage', 0):.2f}%",
-            'marks': student_stats.get('marks', 0),
-            'marks_manual': student_stats.get('marks_manual', False),
-            'student_db_id': class_student_id
-        })
+        return jsonify(_status_payload_for_response(
+            student_stats=student_stats,
+            status_label=target_label,
+            record_id=new_record.id,
+            student_db_id=class_student_id
+        ))
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error creating attendance record: {e}", exc_info=True)
@@ -5080,11 +5270,15 @@ def download_attendance_excel(session_id):
         
         daily_class_counts = {}
         for date, records in attendance_by_date.items():
-            student_counts_on_date = defaultdict(int)
+            student_records_on_date = defaultdict(list)
             for record in records:
-                student_counts_on_date[record.student_id] += 1
+                student_records_on_date[record.student_id].append(record)
+            student_counts_on_date = {
+                student_id: len(_records_by_slot(student_records))
+                for student_id, student_records in student_records_on_date.items()
+            }
             if student_counts_on_date:
-                daily_class_counts[date] = max(student_counts_on_date.values())
+                daily_class_counts[date] = _cap_classes_per_day(max(student_counts_on_date.values()))
                 
         headers = []
         sorted_dates = sorted(daily_class_counts.keys())
@@ -5116,11 +5310,13 @@ def download_attendance_excel(session_id):
             col_idx = 0
             for dt in sorted_dates:
                 records_on_date = [r for r in student_attendance_records if r.date == dt]
+                slot_map = _records_by_slot(records_on_date)
                 num_classes_on_date = daily_class_counts.get(dt, 0)
                 
                 for class_num in range(num_classes_on_date):
-                    if class_num < len(records_on_date):
-                        attendance_statuses[col_idx] = 'P' if records_on_date[class_num].is_present else 'A'
+                    record = slot_map.get(class_num + 1)
+                    if record:
+                        attendance_statuses[col_idx] = _attendance_label_from_record(record)
                     col_idx += 1
 
             data_rows.append({
@@ -5128,7 +5324,7 @@ def download_attendance_excel(session_id):
                 'student_id': student.student_id,
                 'name': student.name,
                 'attendance': attendance_statuses,
-                'total_classes': agg_total_classes,
+                'total_classes': agg_stats.get('effective_total_classes', agg_total_classes),
                 'present': present_count,
                 'percentage': percentage,
                 'marks': marks
@@ -5343,35 +5539,53 @@ def download_pdf_report(session_id):
         # --- Data Calculation ---
         student_data_for_pdf = []
         per_student_attendance = attendance_summary.get('per_student', {})
+        
+        def format_one_decimal(value):
+            """Display marks with at most one decimal place (hide trailing .0)."""
+            try:
+                numeric_value = round(float(value or 0), 1)
+                if numeric_value.is_integer():
+                    return str(int(numeric_value))
+                return f"{numeric_value:.1f}"
+            except (TypeError, ValueError):
+                return "0"
+        
         for student in students:
             attendance_stats = per_student_attendance.get(student.student_id, {'marks': 0})
             attendance_marks = attendance_stats.get('marks', 0)
 
             if session.course_type == 'sessional':
                 # For sessional courses, keep report and viva separate
-                sessional_report = int(round(student.sessional_report or 0))
-                sessional_viva = int(round(student.sessional_viva or 0))
+                sessional_report = student.sessional_report or 0
+                sessional_viva = student.sessional_viva or 0
                 student_data_for_pdf.append({
                     'id': student.student_id,
-                    'attendance': attendance_marks,
-                    'sessional_report': sessional_report,
-                    'sessional_viva': sessional_viva
+                    'attendance': format_one_decimal(attendance_marks),
+                    'sessional_report': format_one_decimal(sessional_report),
+                    'sessional_viva': format_one_decimal(sessional_viva)
                 })
             else:
                 # For theory courses, use combined assessment
                 assessment_marks_display = 0
                 if session.course_type == 'theory':
                     if session.category == 'pg':
-                        assessment_marks_display = combined_pg_total.get(student.student_id) or 0  # Already rounded
+                        combined = combined_values.get(student.student_id, {})
+                        valid_marks = [v for v in combined.values() if v is not None]
+                        valid_marks.sort(reverse=True)
+                        if valid_marks:
+                            best_three = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
+                            assessment_marks_display = (sum(best_three) / 30) * 40
+                        else:
+                            assessment_marks_display = 0
                     else:
-                        # UG: Keep fraction in assessment page, but round for result generation
+                        # UG: keep original fraction in combined PDF
                         ug_total = combined_best3.get(student.student_id) or 0
-                        assessment_marks_display = int(round(ug_total)) if ug_total else 0  # Round for result generation
+                        assessment_marks_display = ug_total if ug_total else 0
 
                 student_data_for_pdf.append({
                     'id': student.student_id,
-                    'attendance': attendance_marks,
-                    'assessment': assessment_marks_display
+                    'attendance': format_one_decimal(attendance_marks),
+                    'assessment': format_one_decimal(assessment_marks_display)
                 })
 
         # --- Table Creation ---
@@ -5507,10 +5721,14 @@ def download_attendance_sheet(session_id):
 
         daily_class_counts = {}
         for date, records in attendance_by_date.items():
-            student_counts = defaultdict(int)
-            for public_id, _r in records:
-                student_counts[public_id] += 1
-            daily_class_counts[date] = max(student_counts.values()) if student_counts else 0
+            student_records_on_date = defaultdict(list)
+            for public_id, record in records:
+                student_records_on_date[public_id].append(record)
+            student_counts = {
+                public_id: len(_records_by_slot(student_records))
+                for public_id, student_records in student_records_on_date.items()
+            }
+            daily_class_counts[date] = _cap_classes_per_day(max(student_counts.values()) if student_counts else 0)
 
         sorted_dates = sorted(daily_class_counts.keys())
         headers = []
@@ -5551,9 +5769,10 @@ def download_attendance_sheet(session_id):
                 student_attendance_by_date[r.date].append(r)
             attendance_list = []
             for date, slot in header_keys:
-                records_for_date = student_attendance_by_date[date]
-                if len(records_for_date) >= slot:
-                    attendance_list.append('P' if records_for_date[slot-1].is_present else 'A')
+                slot_map = _records_by_slot(student_attendance_by_date[date])
+                record = slot_map.get(slot)
+                if record:
+                    attendance_list.append(_attendance_label_from_record(record))
                 else:
                     attendance_list.append('-')
             agg_stats = agg_student_map.get(student.student_id, {'present': 0, 'percentage': 0, 'marks': 0})
@@ -5562,7 +5781,7 @@ def download_attendance_sheet(session_id):
                 'student_id': str(student.student_id),
                 'name': student.name,
                 'attendance': attendance_list,
-                'total_classes': str(total_classes),
+                'total_classes': str(agg_stats.get('effective_total_classes', total_classes)),
                 'present_days': str(agg_stats['present']),
                 'percentage': f"{agg_stats['percentage']:.2f}",
                 'marks': str(agg_stats['marks'])
@@ -5801,10 +6020,14 @@ def download_attendance_sheet_weasyprint(session_id):
         
         daily_class_counts = {}
         for date, records in attendance_by_date.items():
-            student_counts = defaultdict(int)
-            for public_id, _r in records:
-                student_counts[public_id] += 1
-            daily_class_counts[date] = max(student_counts.values()) if student_counts else 0
+            student_records_on_date = defaultdict(list)
+            for public_id, record in records:
+                student_records_on_date[public_id].append(record)
+            student_counts = {
+                public_id: len(_records_by_slot(student_records))
+                for public_id, student_records in student_records_on_date.items()
+            }
+            daily_class_counts[date] = _cap_classes_per_day(max(student_counts.values()) if student_counts else 0)
         
         sorted_dates = sorted(daily_class_counts.keys())
         headers = []
@@ -5849,14 +6072,10 @@ def download_attendance_sheet_weasyprint(session_id):
             
             attendance_list = []
             for date, slot in header_keys:
-                records_for_date = student_attendance_by_date.get(date, [])
-                if len(records_for_date) >= slot:
-                    # Records are already sorted by id, so slot-1 index is correct
-                    record = records_for_date[slot-1]
-                    # Explicitly check is_present value - use bool() to ensure proper conversion
-                    is_present_value = bool(record.is_present) if record.is_present is not None else False
-                    status = 'P' if is_present_value else 'A'
-                    attendance_list.append(status)
+                slot_map = _records_by_slot(student_attendance_by_date.get(date, []))
+                record = slot_map.get(slot)
+                if record:
+                    attendance_list.append(_attendance_label_from_record(record))
                 else:
                     attendance_list.append('-')
             agg_stats = agg_student_map.get(student.student_id, {'present': 0, 'percentage': 0, 'marks': 0})
@@ -5865,7 +6084,7 @@ def download_attendance_sheet_weasyprint(session_id):
                 'student_id': str(student.student_id),
                 'name': student.name,
                 'attendance': attendance_list,
-                'total_classes': str(total_classes),
+                'total_classes': str(agg_stats.get('effective_total_classes', total_classes)),
                 'present_days': str(agg_stats['present']),
                 'percentage': f"{agg_stats['percentage']:.2f}",
                 'marks': str(agg_stats['marks'])
@@ -6598,6 +6817,8 @@ def student_view_scores():
                         CourseQuestionThread.session_id.in_(session_ids),
                         CourseQuestionThread.student_id == student_id
                     ).order_by(CourseQuestionThread.created_at.desc()).all()
+                    student_seen_updates = False
+                    seen_at = datetime.utcnow()
                     # Annotate threads with latest message role for notifications
                     for thread in qa_threads:
                         last_message = None
@@ -6607,9 +6828,21 @@ def student_view_scores():
                                 key=lambda m: (m.created_at or datetime.min, m.id or 0)
                             )
                         thread.last_message_role = last_message.sender_role if last_message else None
-                        if thread.last_message_role == 'teacher':
+                        # Student opening the thread marks all teacher messages as seen.
+                        for msg in thread.messages:
+                            if msg.sender_role == 'teacher' and msg.seen_by_student_at is None:
+                                msg.seen_by_student_at = seen_at
+                                student_seen_updates = True
+                        thread.has_unseen_teacher_message = any(
+                            m.sender_role == 'teacher' and m.seen_by_student_at is None
+                            for m in thread.messages
+                        )
+                        if thread.has_unseen_teacher_message:
                             qa_new_reply_count += 1
+                    if student_seen_updates:
+                        db.session.commit()
             except Exception as qa_error:
+                db.session.rollback()
                 current_app.logger.warning(f"Error loading Q&A threads for student {student_id}: {qa_error}")
 
             courses_data.append({
@@ -6798,6 +7031,8 @@ def course_questions(session_id):
         threads = CourseQuestionThread.query.options(
             selectinload(CourseQuestionThread.messages).selectinload(CourseQuestionMessage.attachments)
         ).filter_by(session_id=session_id).order_by(CourseQuestionThread.created_at.desc()).all()
+        teacher_seen_updates = False
+        seen_at = datetime.utcnow()
         for thread in threads:
             last_message = None
             if thread.messages:
@@ -6806,10 +7041,20 @@ def course_questions(session_id):
                     key=lambda m: (m.created_at or datetime.min, m.id or 0)
                 )
             thread.last_message_role = last_message.sender_role if last_message else None
-            thread.is_unread_for_teacher = bool(
-                thread.last_message_role == 'student' and thread.teacher_read_at is None
+            # Teacher opening the thread marks all student messages as seen.
+            for msg in thread.messages:
+                if msg.sender_role == 'student' and msg.seen_by_teacher_at is None:
+                    msg.seen_by_teacher_at = seen_at
+                    thread.teacher_read_at = seen_at
+                    teacher_seen_updates = True
+            thread.is_unread_for_teacher = any(
+                m.sender_role == 'student' and m.seen_by_teacher_at is None
+                for m in thread.messages
             )
+        if teacher_seen_updates:
+            db.session.commit()
     except Exception as e:
+        db.session.rollback()
         current_app.logger.error(f"Error loading course questions: {e}", exc_info=True)
         threads = []
 
@@ -6895,7 +7140,11 @@ def mark_course_question_thread_read(thread_id):
         return redirect(url_for('class_management.index'))
 
     try:
-        thread.teacher_read_at = datetime.utcnow()
+        seen_at = datetime.utcnow()
+        thread.teacher_read_at = seen_at
+        for msg in thread.messages:
+            if msg.sender_role == 'student' and msg.seen_by_teacher_at is None:
+                msg.seen_by_teacher_at = seen_at
         db.session.commit()
         flash('Thread marked as read.', 'success')
     except Exception as e:
@@ -7152,6 +7401,20 @@ def download_assessment_pdf(session_id):
         students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         
+        def format_mark_for_pdf(value):
+            """Format numeric marks without forcing rounded integers."""
+            if value is None or value == '-':
+                return '-'
+            if isinstance(value, str):
+                return value
+            try:
+                numeric_value = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            if numeric_value.is_integer():
+                return str(int(numeric_value))
+            return f"{numeric_value:.2f}".rstrip('0').rstrip('.')
+        
         # Helper function to get assessment value with absent check
         def get_assessment_value(student, assessment_num):
             """Get assessment value, showing 'Absent' if marked absent"""
@@ -7234,21 +7497,14 @@ def download_assessment_pdf(session_id):
             
             for idx, student in enumerate(students, start=1):
                 best3_total = combined_best3.get(student.student_id) if combined_best3 else '-'
-                # Format total: Keep fraction for UG (show decimals if not whole number)
-                if best3_total != '-' and best3_total is not None:
-                    if best3_total == int(best3_total):
-                        formatted_total = str(int(best3_total))
-                    else:
-                        formatted_total = f"{best3_total:.2f}".rstrip('0').rstrip('.')
-                else:
-                    formatted_total = '-'
+                formatted_total = format_mark_for_pdf(best3_total)
                 row = [
                     str(idx),
                     str(student.student_id),
-                    str(get_assessment_value(student, 1)),
-                    str(get_assessment_value(student, 2)),
-                    str(get_assessment_value(student, 3)),
-                    str(get_assessment_value(student, 4)),
+                    format_mark_for_pdf(get_assessment_value(student, 1)),
+                    format_mark_for_pdf(get_assessment_value(student, 2)),
+                    format_mark_for_pdf(get_assessment_value(student, 3)),
+                    format_mark_for_pdf(get_assessment_value(student, 4)),
                     formatted_total
                 ]
                 table_data.append(row)
@@ -7258,19 +7514,22 @@ def download_assessment_pdf(session_id):
             table_data = [['SI', 'Student ID', 'Assessment 1 (10)', 'Assessment 2 (10)', 'Assessment 3 (10)', 'Assessment 4 (10)', 'Total (40)']]
             
             for idx, student in enumerate(students, start=1):
-                pg_total = combined_pg_total.get(student.student_id) if combined_pg_total else '-'
-                # Format total: Round for PG (integer)
-                if pg_total != '-' and pg_total is not None:
-                    formatted_total = str(int(round(pg_total)))
+                combined = combined_values.get(student.student_id, {})
+                valid_marks = [v for v in combined.values() if v is not None]
+                valid_marks.sort(reverse=True)
+                if valid_marks:
+                    best_three = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
+                    pg_total_unrounded = (sum(best_three) / 30) * 40
+                    formatted_total = format_mark_for_pdf(pg_total_unrounded)
                 else:
                     formatted_total = '-'
                 row = [
                     str(idx),
                     str(student.student_id),
-                    str(get_assessment_value(student, 1)),
-                    str(get_assessment_value(student, 2)),
-                    str(get_assessment_value(student, 3)),
-                    str(get_assessment_value(student, 4)),
+                    format_mark_for_pdf(get_assessment_value(student, 1)),
+                    format_mark_for_pdf(get_assessment_value(student, 2)),
+                    format_mark_for_pdf(get_assessment_value(student, 3)),
+                    format_mark_for_pdf(get_assessment_value(student, 4)),
                     formatted_total
                 ]
                 table_data.append(row)

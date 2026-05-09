@@ -61,13 +61,24 @@
                                 <span class="ms-2">{{ msg.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
                             {% endif %}
                         </div>
-                        {% if msg.sender_role == 'teacher' %}
-                            <form method="POST" action="{{ url_for('class_management.delete_course_question_message', message_id=msg.id) }}" onsubmit="return confirm('Delete this message?');">
-                                <button type="submit" class="btn btn-sm btn-outline-danger">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </form>
-                        {% endif %}
+                        <div class="d-flex align-items-center gap-2">
+                            {% if msg.sender_role == 'student' %}
+                                <span class="badge {% if msg.seen_by_teacher_at %}bg-success{% else %}bg-secondary{% endif %}">
+                                    {{ 'Seen by Teacher' if msg.seen_by_teacher_at else 'Unseen by Teacher' }}
+                                </span>
+                            {% else %}
+                                <span class="badge {% if msg.seen_by_student_at %}bg-success{% else %}bg-secondary{% endif %}">
+                                    {{ 'Seen by Student' if msg.seen_by_student_at else 'Unseen by Student' }}
+                                </span>
+                            {% endif %}
+                            {% if msg.sender_role == 'teacher' %}
+                                <form method="POST" action="{{ url_for('class_management.delete_course_question_message', message_id=msg.id) }}" onsubmit="return confirm('Delete this message?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
                     </div>
                     {% if msg.body %}
                         <div class="mt-1 qa-message-body">{{ msg.body | qa_message_body }}</div>

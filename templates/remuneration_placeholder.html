@@ -821,7 +821,7 @@
         <div class="rem-heading">
             <div class="rem-heading-logo">
                 <img id="remuneration-logo" 
-                     src="{{ url_for('static', filename='Images/KU_logo_2.png') }}" 
+                     src="{{ url_for('static', filename='images/KU_logo.svg') }}" 
                      alt="Khulna University Logo" 
                      style="max-height: 55px; width: auto; display: block;">
             </div>
@@ -1533,7 +1533,7 @@
                 } else if (this.src.includes('images/')) {
                     // If both fail, try alternative path
                     const baseUrl = window.location.origin;
-                    this.src = baseUrl + '/static/Images/KU_logo_2.png';
+                    this.src = baseUrl + '/static/images/KU_logo.svg';
                 }
             };
             

@@ -191,6 +191,25 @@ function isSameCourse(existing, course) {
     return existing.course_code === course.course_code;
 }
 
+const SERIAL_YEAR_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+const SERIAL_TERM_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Thesis Term'];
+
+function sortYearsSerial(years) {
+    const idx = (y) => {
+        const i = SERIAL_YEAR_ORDER.indexOf(String(y));
+        return i === -1 ? SERIAL_YEAR_ORDER.length : i;
+    };
+    return [...years].sort((a, b) => idx(a) - idx(b) || String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+}
+
+function sortTermsSerial(terms) {
+    const idx = (t) => {
+        const i = SERIAL_TERM_ORDER.indexOf(String(t));
+        return i === -1 ? SERIAL_TERM_ORDER.length : i;
+    };
+    return [...terms].sort((a, b) => idx(a) - idx(b) || String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+}
+
 // Load Year and Term options based on selected Session
 function loadYearTermOptions(session) {
     const yearSelect = document.getElementById('year');
@@ -213,8 +232,8 @@ function loadYearTermOptions(session) {
         .then(data => {
             if (data.success && data.year_term_options && data.year_term_options.length > 0) {
                 // Get unique years and terms
-                const uniqueYears = [...new Set(data.year_term_options.map(yt => yt.year))].sort();
-                const uniqueTerms = [...new Set(data.year_term_options.map(yt => yt.term))].sort();
+                const uniqueYears = sortYearsSerial([...new Set(data.year_term_options.map(yt => yt.year))]);
+                const uniqueTerms = sortTermsSerial([...new Set(data.year_term_options.map(yt => yt.term))]);
                 
                 // Populate Year dropdown
                 uniqueYears.forEach(year => {

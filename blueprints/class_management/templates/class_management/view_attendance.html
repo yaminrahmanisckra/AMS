@@ -133,6 +133,9 @@
                     .manual-badge:hover {
                         opacity: 0.8;
                     }
+                    .status-skip {
+                        color: #9a6700 !important;
+                    }
                 </style>
                 
                 <div class="d-flex justify-content-end edit-toggle">
@@ -191,6 +194,8 @@
                                                         <span class="status text-success fw-bold">P</span>
                                                     {% elif cell.status == 'A' %}
                                                         <span class="status text-danger fw-bold">A</span>
+                                                    {% elif cell.status == 'S' %}
+                                                        <span class="status fw-bold status-skip">S</span>
                                                     {% else %}
                                                         <span class="status text-muted">-</span>
                                                     {% endif %}
@@ -331,6 +336,9 @@
                     .manual-badge:hover {
                         opacity: 0.8;
                     }
+                    .status-skip {
+                        color: #9a6700 !important;
+                    }
                 </style>
                 
                 <div class="d-flex justify-content-end edit-toggle">
@@ -374,6 +382,8 @@
                                             <span class="status text-success fw-bold">P</span>
                                         {% elif cell.status == 'A' %}
                                             <span class="status text-danger fw-bold">A</span>
+                                        {% elif cell.status == 'S' %}
+                                            <span class="status fw-bold status-skip">S</span>
                                         {% else %}
                                             <span class="status text-muted">-</span>
                                         {% endif %}
@@ -420,6 +430,13 @@ const editToggle = document.getElementById('editModeToggle');
 const toggleBaseUrl = "{{ url_for('class_management.toggle_attendance_record', record_id=0) }}".slice(0, -1);
 const createAttendanceBaseUrl = "{{ url_for('class_management.create_attendance_record', session_id=0) }}".replace(/\/0$/, '');
 const sessionId = {{ session.id }};
+const statusCycle = { P: 'A', A: 'S', S: '-', '-': 'P' };
+const statusClassMap = {
+    P: 'status text-success fw-bold',
+    A: 'status text-danger fw-bold',
+    S: 'status fw-bold status-skip',
+    '-': 'status text-muted'
+};
 
 // Restore edit mode state from localStorage
 if (editToggle) {
@@ -463,6 +480,7 @@ function onAttendanceCellClick(event) {
     const cell = event.currentTarget;
     const recordId = cell.dataset.recordId;
     const date = cell.dataset.date;
+    const slot = parseInt(cell.dataset.slot || '0', 10);
     const row = cell.closest('tr');
     const classStudentId = row ? (row.dataset.studentDbId || cell.dataset.studentId) : null;
 
@@ -475,13 +493,15 @@ function onAttendanceCellClick(event) {
             return;
         }
         const statusSpan = cell.querySelector('.status');
-        if (data.record_id) cell.dataset.recordId = data.record_id;
-        if (data.status === 'P') {
-            statusSpan.textContent = 'P';
-            statusSpan.className = 'status text-success fw-bold';
+        if (data.record_id) cell.dataset.recordId = String(data.record_id);
+        else cell.dataset.recordId = '';
+        const normalizedStatus = (data.status || '-').toString().trim().toUpperCase();
+        statusSpan.textContent = normalizedStatus;
+        statusSpan.className = statusClassMap[normalizedStatus] || statusClassMap['-'];
+        if (data.record_id) {
+            cell.classList.add('has-record');
         } else {
-            statusSpan.textContent = 'A';
-            statusSpan.className = 'status text-danger fw-bold';
+            cell.classList.remove('has-record');
         }
         {% if is_split_course %}
         const editModeState = editToggle ? editToggle.checked : false;
@@ -491,9 +511,11 @@ function onAttendanceCellClick(event) {
         if (row) {
             const presentCell = row.querySelector('.present-count');
             const percentageCell = row.querySelector('.percentage-cell');
+            const totalClassesCell = row.children[row.children.length - 4];
             const marksCell = row.querySelector('.marks-cell');
             if (presentCell) presentCell.textContent = data.present_count;
             if (percentageCell) percentageCell.textContent = data.percentage;
+            if (totalClassesCell && data.total_classes !== undefined) totalClassesCell.textContent = data.total_classes;
             if (marksCell) {
                 const displaySpan = marksCell.querySelector('.marks-display');
                 const inputField = marksCell.querySelector('.marks-input-edit');
@@ -514,6 +536,9 @@ function onAttendanceCellClick(event) {
         {% endif %}
     }
 
+    const currentStatus = (cell.querySelector('.status')?.textContent || '-').trim().toUpperCase();
+    const nextStatus = statusCycle[currentStatus] || 'P';
+
     if (recordId) {
     fetch(`${toggleBaseUrl}${recordId}`, {
         method: 'POST',
@@ -521,14 +546,14 @@ function onAttendanceCellClick(event) {
             'Content-Type': 'application/json'
         },
         credentials: 'same-origin',
-        body: JSON.stringify({})
+        body: JSON.stringify({ target_status: nextStatus })
     })
     .then(response => response.json())
     .then(updateCellAndRow)
     .catch(() => alert('Failed to update attendance.'));
     } else {
-        if (!classStudentId || !date) {
-            alert('Cannot add attendance: missing student or date.');
+        if (!classStudentId || !date || !slot) {
+            alert('Cannot add attendance: missing student, date, or slot.');
             return;
         }
         const table = cell.closest('table');
@@ -538,7 +563,7 @@ function onAttendanceCellClick(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ class_student_id: parseInt(classStudentId, 10), date: date })
+            body: JSON.stringify({ class_student_id: parseInt(classStudentId, 10), date: date, slot: slot, target_status: nextStatus })
         })
         .then(response => response.json())
         .then(updateCellAndRow)
@@ -761,8 +786,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (cell) {
                     const statusSpan = cell.querySelector('.status');
                     if (statusSpan && data.data.status) {
-                        statusSpan.textContent = data.data.status;
-                        statusSpan.className = data.data.status === 'P' ? 'status text-success fw-bold' : 'status text-danger fw-bold';
+                        const wsStatus = String(data.data.status).trim().toUpperCase();
+                        statusSpan.textContent = wsStatus;
+                        statusSpan.className = statusClassMap[wsStatus] || statusClassMap['-'];
+                        if (data.data.record_id) {
+                            cell.dataset.recordId = String(data.data.record_id);
+                            cell.classList.add('has-record');
+                        } else {
+                            cell.dataset.recordId = '';
+                            cell.classList.remove('has-record');
+                        }
                     }
                     
                     // Update student stats if available
@@ -782,6 +815,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                             if (marksCell && data.data.marks !== undefined) {
                                 marksCell.textContent = data.data.marks;
+                            }
+                            if (data.data.total_classes !== undefined) {
+                                const totalClassesCell = studentRow.children[studentRow.children.length - 4];
+                                if (totalClassesCell) totalClassesCell.textContent = data.data.total_classes;
                             }
                         }
                     }

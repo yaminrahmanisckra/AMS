@@ -203,6 +203,25 @@ function escapeForAttr(value) {
         .replace(/>/g, '&gt;');
 }
 
+const SERIAL_YEAR_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+const SERIAL_TERM_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Thesis Term'];
+
+function sortYearsSerial(years) {
+    const idx = (y) => {
+        const i = SERIAL_YEAR_ORDER.indexOf(String(y));
+        return i === -1 ? SERIAL_YEAR_ORDER.length : i;
+    };
+    return [...years].sort((a, b) => idx(a) - idx(b) || String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+}
+
+function sortTermsSerial(terms) {
+    const idx = (t) => {
+        const i = SERIAL_TERM_ORDER.indexOf(String(t));
+        return i === -1 ? SERIAL_TERM_ORDER.length : i;
+    };
+    return [...terms].sort((a, b) => idx(a) - idx(b) || String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }));
+}
+
 function resetCourseAndCurriculum() {
     const courseSelect = document.getElementById('courseSelect');
     courseSelect.innerHTML = '<option value="">Select source year, term &amp; batch first</option>';
@@ -364,8 +383,8 @@ document.getElementById('runningSession').addEventListener('change', function() 
         .then(r => r.json())
         .then(data => {
             if (data.success && data.year_term_options && data.year_term_options.length) {
-                const years = [...new Set(data.year_term_options.map(yt => yt.year))].sort();
-                const terms = [...new Set(data.year_term_options.map(yt => yt.term))].sort();
+                const years = sortYearsSerial([...new Set(data.year_term_options.map(yt => yt.year))]);
+                const terms = sortTermsSerial([...new Set(data.year_term_options.map(yt => yt.term))]);
                 years.forEach(y => {
                     yearEl.appendChild(new Option(y, y));
                     sourceYearEl.appendChild(new Option(y, y));
@@ -444,8 +463,8 @@ function loadRelevantYearTermOptions() {
         .then(r => r.json())
         .then(data => {
             if (data.success && data.year_term_options && data.year_term_options.length) {
-                const years = [...new Set(data.year_term_options.map(yt => yt.year))].sort();
-                const terms = [...new Set(data.year_term_options.map(yt => yt.term))].sort();
+                const years = sortYearsSerial([...new Set(data.year_term_options.map(yt => yt.year))]);
+                const terms = sortTermsSerial([...new Set(data.year_term_options.map(yt => yt.term))]);
                 years.forEach(y => relevantYearEl.appendChild(new Option(y, y)));
                 terms.forEach(t => relevantTermEl.appendChild(new Option(t, t)));
             } else {

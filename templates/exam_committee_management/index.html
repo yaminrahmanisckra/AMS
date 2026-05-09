@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Exam Committee Management{% endblock %}
 {% block content %}
-<div class="container my-5">
+<div class="container my-4 exam-committee-page">
     <div class="mb-4">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
             <div>
@@ -16,38 +16,38 @@
 
     <div class="row g-3 justify-content-center">
         {% if is_chief %}
-        <div class="col-12 {% if is_member %}col-md-5 col-lg-4{% else %}col-md-6 col-lg-5{% endif %}">
-            <div class="card shadow-sm exam-committee-card">
-                <div class="card-header bg-warning text-dark py-1">
-                    <h6 class="mb-0 small"><i class="fas fa-crown me-1"></i>Exam Committee Chief</h6>
+        <div class="col-12">
+            <div class="card shadow-sm exam-committee-card chief-panel">
+                <div class="card-header py-2 px-3">
+                    <h6 class="mb-0 small fw-semibold"><i class="fas fa-crown me-1"></i>Exam Committee Chief</h6>
                 </div>
-                <div class="card-body p-2">
+                <div class="card-body p-3">
                     {% if chief_assignments %}
-                    <div class="row g-1">
+                    <div class="row g-2">
                         {% for assignment in chief_assignments %}
-                        <div class="col-12">
-                            <div class="card border-warning">
+                        <div class="col-12 col-md-6 col-xl-4">
+                            <div class="card assignment-tile">
                                 <div class="card-body p-2">
-                                    <div class="mb-1">
-                                        <small><strong>Session:</strong> {{ assignment.academic_session }}</small>
+                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                        <div class="fw-semibold small text-dark">
+                                            {{ assignment.year }} Year {{ assignment.term }} Semester
+                                        </div>
+                                        <span class="badge text-bg-light border">Chief</span>
                                     </div>
-                                    <div class="mb-1">
-                                        <small><strong>Year:</strong> {{ assignment.year }}</small>
+                                    <div class="meta-line">
+                                        <i class="fas fa-calendar-alt text-muted me-1"></i>{{ assignment.academic_session }}
                                     </div>
-                                    <div class="mb-1">
-                                        <small><strong>Term:</strong> {{ assignment.term }}</small>
-                                    </div>
-                                    
+
                                     {% set key = assignment.academic_session ~ "_" ~ assignment.year ~ "_" ~ assignment.term %}
                                     {% set forms = chief_saved_forms.get(key, []) %}
-                                    
+
                                     {% if forms %}
-                                    <div class="mb-1">
-                                        <small class="text-muted">Saved Forms: {{ forms|length }}</small>
+                                    <div class="meta-line mt-1">
+                                        <i class="fas fa-file-alt text-muted me-1"></i>Saved Forms: {{ forms|length }}
                                     </div>
                                     {% endif %}
-                                    
-                                    <a href="{{ url_for('exam_committee_chief_dashboard', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-warning w-100" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+
+                                    <a href="{{ url_for('exam_committee_chief_dashboard', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-warning w-100 mt-2 action-btn">
                                         <i class="fas fa-cog me-1"></i>Manage Dashboard
                                     </a>
                                 </div>
@@ -66,43 +66,45 @@
         {% endif %}
 
         {% if is_member %}
-        <div class="col-12 {% if is_chief %}col-md-5 col-lg-4{% else %}col-md-6 col-lg-5{% endif %}">
-            <div class="card shadow-sm exam-committee-card">
-                <div class="card-header bg-primary text-white py-1">
-                    <h6 class="mb-0 small"><i class="fas fa-user-tie me-1"></i>Exam Committee Member</h6>
+        <div class="col-12">
+            <div class="card shadow-sm exam-committee-card member-panel">
+                <div class="card-header py-2 px-3">
+                    <h6 class="mb-0 small fw-semibold"><i class="fas fa-user-tie me-1"></i>Exam Committee Member</h6>
                 </div>
-                <div class="card-body p-2">
+                <div class="card-body p-3">
                     {% if member_assignments %}
-                    <div class="row g-1">
+                    <div class="row g-2">
                         {% for assignment in member_assignments %}
-                        <div class="col-12">
-                            <div class="card border-primary">
+                        <div class="col-12 col-md-6 col-xl-4">
+                            <div class="card assignment-tile">
                                 <div class="card-body p-2">
-                                    <div class="mb-1">
-                                        <small><strong>Session:</strong> {{ assignment.academic_session }}</small>
+                                    <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                        <div class="fw-semibold small text-dark">
+                                            {{ assignment.year }} Year {{ assignment.term }} Semester
+                                        </div>
+                                        <span class="badge text-bg-light border">Member</span>
                                     </div>
-                                    <div class="mb-1">
-                                        <small><strong>Year:</strong> {{ assignment.year }}</small>
+                                    <div class="meta-line">
+                                        <i class="fas fa-calendar-alt text-muted me-1"></i>{{ assignment.academic_session }}
                                     </div>
-                                    <div class="mb-1">
-                                        <small><strong>Term:</strong> {{ assignment.term }}</small>
-                                    </div>
-                                    
+
                                     {% set key = assignment.academic_session ~ "_" ~ assignment.year ~ "_" ~ assignment.term %}
                                     {% set forms = member_saved_forms.get(key, []) %}
-                                    
+
                                     {% if forms and forms|length > 0 %}
-                                    <div class="mb-2 border-top pt-2">
-                                        <small class="text-primary d-block mb-2"><strong><i class="fas fa-file-invoice-dollar me-1"></i>Chief's Saved Forms ({{ forms|length }}):</strong></small>
-                                        <div class="list-group" style="max-height: 180px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 0.25rem;">
+                                    <div class="mt-2 pt-2 border-top">
+                                        <small class="text-primary d-block mb-2 fw-semibold">
+                                            <i class="fas fa-file-invoice-dollar me-1"></i>Chief's Saved Forms ({{ forms|length }})
+                                        </small>
+                                        <div class="list-group compact-list">
                                             {% for form in forms %}
-                                            <div class="list-group-item list-group-item-action p-2 d-flex justify-content-between align-items-center" style="font-size: 0.7rem; border-left: none; border-right: none;">
+                                            <div class="list-group-item list-group-item-action p-2 d-flex justify-content-between align-items-center">
                                                 <div class="flex-grow-1">
-                                                    <div class="fw-bold text-dark mb-1" style="font-size: 0.8rem;">
+                                                    <div class="fw-semibold text-dark mb-1 form-title-line">
                                                         <i class="fas fa-file-alt me-1 text-primary"></i>{{ form.title or 'Untitled Form' }}
                                                     </div>
                                                     <div class="d-flex gap-2">
-                                                        <small class="text-muted">
+                                                        <small class="text-muted form-meta-line">
                                                             <i class="fas fa-calendar me-1"></i>
                                                             {% if form.created_at %}
                                                             {{ form.created_at.strftime('%Y-%m-%d') }}
@@ -111,18 +113,18 @@
                                                             {% endif %}
                                                         </small>
                                                         {% if form.status %}
-                                                        <small class="badge bg-{% if form.status == 'draft' %}warning{% else %}secondary{% endif %} text-dark" style="font-size: 0.65rem;">
+                                                        <small class="badge bg-{% if form.status == 'draft' %}warning{% else %}secondary{% endif %} text-dark form-status-badge">
                                                             {{ form.status|title }}
                                                         </small>
                                                         {% endif %}
                                                     </div>
                                                 </div>
                                                 <div class="d-flex gap-1 ms-2">
-                                                    <a href="{{ url_for('exam_committee_chief_custom_remuneration', form_id=form.id) }}" class="btn btn-sm btn-primary" style="font-size: 0.7rem; padding: 0.2rem 0.5rem; white-space: nowrap;" title="Edit Chief's Form">
+                                                    <a href="{{ url_for('exam_committee_chief_custom_remuneration', form_id=form.id) }}" class="btn btn-sm btn-primary action-btn-sm" title="Edit Chief's Form">
                                                     <i class="fas fa-edit me-1"></i>Edit
                                                 </a>
                                                     {% if is_chief or is_member %}
-                                                    <button class="btn btn-sm btn-danger delete-remuneration-btn" style="font-size: 0.7rem; padding: 0.2rem 0.5rem; white-space: nowrap;" title="Delete Form" data-form-id="{{ form.id }}" data-form-title="{{ form.title or 'Untitled Form' }}">
+                                                    <button class="btn btn-sm btn-danger delete-remuneration-btn action-btn-sm" title="Delete Form" data-form-id="{{ form.id }}" data-form-title="{{ form.title or 'Untitled Form' }}">
                                                         <i class="fas fa-trash me-1"></i>Delete
                                                     </button>
                                                     {% endif %}
@@ -133,15 +135,15 @@
                                     </div>
                                     {% else %}
                                     <div class="mb-2">
-                                        <small class="text-muted"><i class="fas fa-info-circle me-1"></i>No saved forms yet</small>
+                                        <small class="text-muted meta-line"><i class="fas fa-info-circle me-1"></i>No saved forms yet</small>
                                     </div>
                                     {% endif %}
-                                    
-                                    <a href="{{ url_for('exam_committee_chief_dashboard', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-outline-primary w-100 mb-1" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+
+                                    <a href="{{ url_for('exam_committee_chief_dashboard', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-outline-primary w-100 mb-1 action-btn">
                                         <i class="fas fa-cogs me-1"></i>Manage Dashboard
                                     </a>
 
-                                    <a href="{{ url_for('exam_committee_member_remuneration', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-primary w-100" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                                    <a href="{{ url_for('exam_committee_member_remuneration', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-primary w-100 action-btn">
                                         <i class="fas fa-file-invoice-dollar me-1"></i>
                                         {% if forms %}Create New{% else %}Create{% endif %} Remuneration
                                     </a>
@@ -163,21 +165,37 @@
 </div>
 
 <style>
+.exam-committee-page {
+    max-width: 1680px;
+}
+
 .exam-committee-card {
-    border-radius: 0.5rem;
-    min-height: 280px;
+    border-radius: 0.65rem;
+    border: 1px solid #e9ecef;
     display: flex;
     flex-direction: column;
 }
 
+.chief-panel .card-header {
+    background: #fff8e1;
+    color: #7a4c00;
+    border-bottom: 1px solid #ffe39c;
+}
+
+.member-panel .card-header {
+    background: #eef4ff;
+    color: #0d47a1;
+    border-bottom: 1px solid #d7e7ff;
+}
+
 .exam-committee-card .card-header {
-    border-radius: 0.5rem 0.5rem 0 0 !important;
-    font-size: 0.875rem;
+    border-radius: 0.65rem 0.65rem 0 0 !important;
+    font-size: 0.82rem;
     flex-shrink: 0;
 }
 
 .exam-committee-card .card-body {
-    font-size: 0.875rem;
+    font-size: 0.82rem;
     flex-grow: 1;
     display: flex;
     flex-direction: column;
@@ -187,29 +205,68 @@
     flex-grow: 1;
 }
 
-.card.border-warning,
-.card.border-primary {
-    border-width: 1px;
-    border-radius: 0.25rem;
-    min-height: 140px;
+.assignment-tile {
+    border: 1px solid #e6eaf0;
+    border-radius: 0.55rem;
+    min-height: 160px;
     display: flex;
     flex-direction: column;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
 }
 
-.card.border-warning .card-body,
-.card.border-primary .card-body {
+.assignment-tile .card-body {
     flex-grow: 1;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
 }
 
+.meta-line {
+    font-size: 0.74rem;
+    color: #4f5d75;
+    line-height: 1.3;
+}
+
+.action-btn {
+    font-size: 0.74rem;
+    padding: 0.3rem 0.55rem;
+}
+
+.action-btn-sm {
+    font-size: 0.67rem;
+    padding: 0.2rem 0.45rem;
+    white-space: nowrap;
+}
+
 .exam-committee-card .btn {
     margin-top: auto;
 }
 
-.list-group {
-    border-radius: 0.25rem;
+@media (max-width: 767.98px) {
+    .assignment-tile {
+        min-height: auto;
+    }
+}
+
+.compact-list {
+    max-height: 170px;
+    overflow-y: auto;
+    border: 1px solid #e7eaf0;
+    border-radius: 0.4rem;
+    font-size: 0.73rem;
+}
+
+.form-title-line {
+    font-size: 0.76rem;
+    line-height: 1.25;
+}
+
+.form-meta-line {
+    font-size: 0.66rem;
+}
+
+.form-status-badge {
+    font-size: 0.63rem;
 }
 
 .list-group-item {

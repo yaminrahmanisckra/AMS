@@ -89,12 +89,34 @@ class ClassStudent(db.Model):
 
 class ClassAttendance(db.Model):
     __tablename__ = 'class_attendance'
+    STATUS_PRESENT = 'present'
+    STATUS_ABSENT = 'absent'
+    STATUS_SKIP = 'skip'
+    STATUS_NONE = 'none'
+    VALID_STATUSES = {STATUS_PRESENT, STATUS_ABSENT, STATUS_SKIP, STATUS_NONE}
+
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.Date, nullable=False)
     is_present = db.Column(db.Boolean, default=False)
+    status = db.Column(db.String(20), nullable=False, default=STATUS_ABSENT, server_default=STATUS_ABSENT)
+    slot_number = db.Column(db.Integer, nullable=True)
     student_id = db.Column(db.Integer, db.ForeignKey('class_student.id'), nullable=False)
     session_id = db.Column(db.Integer, db.ForeignKey('class_session.id'), nullable=False)
-    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False) 
+    teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
+
+    def normalized_status(self):
+        """Return normalized tri-state attendance status."""
+        if self.status in self.VALID_STATUSES:
+            return self.status
+        return self.STATUS_PRESENT if self.is_present else self.STATUS_ABSENT
+
+    def set_status(self, status_value):
+        """Set tri-state status while keeping legacy is_present in sync."""
+        normalized = (status_value or self.STATUS_ABSENT).strip().lower()
+        if normalized not in self.VALID_STATUSES:
+            normalized = self.STATUS_ABSENT
+        self.status = normalized
+        self.is_present = normalized == self.STATUS_PRESENT
 
 class CourseReview(db.Model):
     __tablename__ = 'course_review'
@@ -180,6 +202,8 @@ class CourseQuestionMessage(db.Model):
     sender_user_id = db.Column(db.Integer, nullable=True)   # teacher.id or student.id (optional)
     body = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    seen_by_teacher_at = db.Column(db.DateTime, nullable=True)  # when teacher viewed a student message
+    seen_by_student_at = db.Column(db.DateTime, nullable=True)  # when student viewed a teacher message
 
     attachments = db.relationship(
         'CourseQuestionAttachment',

@@ -1648,6 +1648,89 @@ function loadSubjectsForEvaluator() {
     reloadSubjectsTable();
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatMergeFlag(value) {
+    if (value === true) return 'Merged';
+    if (value === false) return 'Separate';
+    return 'Unknown';
+}
+
+function formatRemark(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return 'Regular';
+    const lower = raw.toLowerCase();
+    if (lower === 'retake' || lower === 're-retake' || lower === 're retake' || lower === 'reretake') return 'Retake';
+    return raw;
+}
+
+function toIntOrNull(value) {
+    const parsed = parseInt(value, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+}
+
+async function handleSubjectStudentDeregister(buttonEl) {
+    const registrationId = toIntOrNull(buttonEl.getAttribute('data-registration-id'));
+    const studentDbId = toIntOrNull(buttonEl.getAttribute('data-student-db-id'));
+    const studentIdLabel = buttonEl.getAttribute('data-student-id') || 'N/A';
+    const subjectCode = buttonEl.getAttribute('data-subject-code') || 'N/A';
+    const session = buttonEl.getAttribute('data-session') || '';
+    const year = buttonEl.getAttribute('data-year') || '';
+    const term = buttonEl.getAttribute('data-term') || '';
+
+    if (!registrationId || !studentDbId || !session || !year || !term) {
+        alert('Cannot deregister: missing registration metadata.');
+        return;
+    }
+
+    const warningMessage =
+        `WARNING: This will deregister student ${studentIdLabel} from ${subjectCode}.\n\n` +
+        'This action follows the normal deregistration flow and may remove related class/invite data.\n' +
+        'Do you want to continue?';
+    if (!confirm(warningMessage)) {
+        return;
+    }
+
+    const originalText = buttonEl.innerHTML;
+    buttonEl.disabled = true;
+    buttonEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Removing...';
+
+    try {
+        const response = await fetch('/exam-committee-chief/deregister-subject-student', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                registration_id: registrationId,
+                student_id: studentDbId,
+                session: session,
+                year: year,
+                term: term
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || 'Failed to deregister student');
+        }
+
+        alert(data.message || 'Student deregistered successfully.');
+        reloadSubjectsTable();
+    } catch (error) {
+        alert(`Deregistration failed: ${error.message}`);
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = originalText;
+    }
+}
+
 function renderSubjectsTable(subjects) {
     
     const tableBody = document.getElementById('subjectsTableBody');
@@ -1768,10 +1851,99 @@ function renderSubjectsTable(subjects) {
                 </button>
                </div>`;
         
+        let subjectStudentsDetailHtml = '';
+        const subjectStudentRegs = Array.isArray(subject.subject_student_registrations)
+            ? subject.subject_student_registrations
+            : [];
+        if (subjectStudentRegs.length > 0) {
+            const detailsRowsHtml = subjectStudentRegs.map((row, idx) => {
+                const studentId = escapeHtml(row.student_id || 'N/A');
+                const studentName = escapeHtml(row.student_name || 'N/A');
+                const regSession = escapeHtml(row.academic_session || 'N/A');
+                const regYear = escapeHtml(row.year || 'N/A');
+                const regTerm = escapeHtml(row.term || 'N/A');
+                const remark = escapeHtml(formatRemark(row.remark));
+                const carryOn = row.carry_on ? 'Yes' : 'No';
+                const mergeState = formatMergeFlag(row.use_relevant_for_committee);
+                const registrationId = row.registration_id ?? '';
+                const studentDbId = row.student_db_id ?? '';
+                const canDeregister = registrationId !== '' && studentDbId !== '' && row.academic_session && row.year && row.term;
+                const deregisterAction = canDeregister
+                    ? `<button type="button"
+                                class="btn btn-sm btn-outline-danger deregister-student-btn"
+                                data-registration-id="${registrationId}"
+                                data-student-db-id="${studentDbId}"
+                                data-student-id="${studentId}"
+                                data-subject-code="${escapeHtml(subject.course_code || 'N/A')}"
+                                data-session="${regSession}"
+                                data-year="${regYear}"
+                                data-term="${regTerm}">
+                            <i class="fas fa-user-minus me-1"></i>Deregister
+                       </button>`
+                    : '<span class="text-muted small">N/A</span>';
+                return `
+                    <tr>
+                        <td>${idx + 1}</td>
+                        <td>${studentId}</td>
+                        <td>${studentName}</td>
+                        <td>${remark}</td>
+                        <td>${regSession}</td>
+                        <td>${regYear}</td>
+                        <td>${regTerm}</td>
+                        <td>${carryOn}</td>
+                        <td>${mergeState}</td>
+                        <td>${deregisterAction}</td>
+                    </tr>
+                `;
+            }).join('');
+            subjectStudentsDetailHtml = `
+                <div class="mt-2">
+                    <details>
+                        <summary class="text-primary small">
+                            Students (${subjectStudentRegs.length})
+                        </summary>
+                        <div class="table-responsive mt-2">
+                            <table class="table table-sm table-bordered mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Student ID</th>
+                                        <th>Name</th>
+                                        <th>Remark</th>
+                                        <th>Session</th>
+                                        <th>Year</th>
+                                        <th>Term</th>
+                                        <th>Carry</th>
+                                        <th>Merge</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${detailsRowsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </details>
+                </div>
+            `;
+        }
+
+        let separateRetakeDetailHtml = '';
+        const separateRetakeRegs = Array.isArray(subject.separate_retake_registrations)
+            ? subject.separate_retake_registrations
+            : [];
+        if (subject.is_separate_retake_subject && separateRetakeRegs.length > 0) {
+            separateRetakeDetailHtml = `
+                <div class="mt-1 text-danger small">
+                    Source registrations detected from separate retake flow (${separateRetakeRegs.length}).
+                </div>
+            `;
+        }
+
         html += `
             <tr>
                 <td><strong>${subject.course_code}</strong></td>
-                <td>${subject.course_name}</td>
+                <td>${subject.course_name}${subjectStudentsDetailHtml}${separateRetakeDetailHtml}</td>
                 <td>${partACell}</td>
                 <td>${partBCell}</td>
             </tr>
@@ -1780,6 +1952,9 @@ function renderSubjectsTable(subjects) {
     
     // Update table
     tableBody.innerHTML = html;
+    tableBody.querySelectorAll('.deregister-student-btn').forEach(button => {
+        button.addEventListener('click', () => handleSubjectStudentDeregister(button));
+    });
     applyEvaluatorDefaults(subjects);
     
     console.log('Table rendered successfully with', subjects.length, 'subjects');

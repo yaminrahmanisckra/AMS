@@ -1436,6 +1436,103 @@ def create_app():
             curricula = []
             curriculum_configs_json = '{}'
         available_sessions = sorted(available_sessions)
+
+        # Question setter roster (Exam Committee assignments, active semesters only)
+        question_setter_roster = []
+        try:
+            from collections import defaultdict
+            from utils.semester_utils import get_active_semesters, _normalize_year_term
+
+            _sem_list = get_active_semesters(batch=None)
+            _roster_semester_keys = {
+                (
+                    str(sem.academic_session or '').strip().casefold(),
+                    _normalize_year_term(sem.year),
+                    _normalize_year_term(sem.term),
+                )
+                for sem in _sem_list
+            }
+
+            def _roster_assignment_key(assign):
+                try:
+                    return (
+                        str(assign.academic_session or '').strip().casefold(),
+                        _normalize_year_term(assign.year),
+                        _normalize_year_term(assign.term),
+                    )
+                except Exception:
+                    return (
+                        str(assign.academic_session or '').strip().casefold(),
+                        str(assign.year or '').strip().casefold(),
+                        str(assign.term or '').strip().casefold(),
+                    )
+
+            if _roster_semester_keys:
+                _all_assign = ExamPaperEvaluatorAssignment.query.all()
+                _filtered_assign = [
+                    a for a in _all_assign
+                    if _roster_assignment_key(a) in _roster_semester_keys
+                ]
+                _course_ids = {a.course_id for a in _filtered_assign if a.course_id}
+                _courses_by_id = {}
+                if _course_ids:
+                    _courses_by_id = {
+                        c.id: c for c in Course.query.filter(Course.id.in_(list(_course_ids))).all()
+                    }
+
+                _by_qs = defaultdict(list)
+                for _a in _filtered_assign:
+                    _qs_id = _a.question_setter_id
+                    if _qs_id is None and getattr(_a, 'is_same_person', False):
+                        _qs_id = _a.assigned_teacher_id
+                    if not _qs_id:
+                        continue
+                    # Only this logged-in teacher's question-setter assignments
+                    if not current_teacher_ids or _qs_id not in current_teacher_ids:
+                        continue
+                    _co = _courses_by_id.get(_a.course_id)
+                    _by_qs[_qs_id].append({
+                        'course_name': (_co.course_name if _co else '') or '',
+                        'course_code': (_co.course_code if _co else '') or '',
+                        'part': (_a.part or '').strip().upper(),
+                        'academic_session': (_a.academic_session or '').strip(),
+                        'year': (_a.year or '').strip(),
+                        'term': (_a.term or '').strip(),
+                    })
+
+                _qs_ids = list(_by_qs.keys())
+                _qs_teachers = {
+                    t.id: t for t in Teacher.query.filter(Teacher.id.in_(_qs_ids)).all()
+                } if _qs_ids else {}
+
+                for _qid in _by_qs:
+                    _by_qs[_qid].sort(key=lambda r: (
+                        (r.get('course_code') or '').lower(),
+                        r.get('part') or '',
+                        r.get('academic_session') or '',
+                        r.get('year') or '',
+                        r.get('term') or '',
+                    ))
+
+                for _qid in sorted(
+                    _by_qs.keys(),
+                    key=lambda tid: (
+                        ((_qs_teachers.get(tid).name or '').lower())
+                        if _qs_teachers.get(tid) else str(tid)
+                    ),
+                ):
+                    _t = _qs_teachers.get(_qid)
+                    question_setter_roster.append({
+                        'teacher_id': _qid,
+                        'teacher_name': _t.name if _t else f'Teacher #{_qid}',
+                        'rows': _by_qs[_qid],
+                    })
+        except Exception as _qs_exc:
+            current_app.logger.warning(
+                f'Question setter roster skipped: {_qs_exc}',
+                exc_info=True,
+            )
+            question_setter_roster = []
         
         return render_template('exam_evaluation.html',
                                entries=entries,
@@ -1448,7 +1545,8 @@ def create_app():
                                scrutiny_entries=scrutiny_entries,
                                scrutiny_invites_map=scrutiny_invites_map,
                                hide_scrutinizer_info=hide_scrutinizer_info,
-                               evaluator_assigned_entry_ids=evaluator_assigned_entry_ids)
+                               evaluator_assigned_entry_ids=evaluator_assigned_entry_ids,
+                               question_setter_roster=question_setter_roster)
 
     @app.route('/exam-evaluation/<int:entry_id>/submit-to-committee', methods=['POST'])
     @login_required
@@ -5154,6 +5252,69 @@ def create_app():
     @login_required
     def exam_committee_management():
         """Intermediate page showing Exam Committee Chief and Member cards"""
+        def _normalize_academic_label(label, is_term=False):
+            value = str(label or '').strip().lower()
+            if not value:
+                return ''
+            if is_term:
+                for suffix in [' term', 'semester', ' sem']:
+                    if value.endswith(suffix):
+                        value = value[:-len(suffix)].strip()
+                term_alias = {
+                    '1': 'first',
+                    '1st': 'first',
+                    'first': 'first',
+                    '2': 'second',
+                    '2nd': 'second',
+                    'second': 'second',
+                    '3': 'third',
+                    '3rd': 'third',
+                    'third': 'third',
+                    'thesis': 'thesis',
+                }
+                return term_alias.get(value, value)
+            for suffix in [' year', 'yr', ' years']:
+                if value.endswith(suffix):
+                    value = value[:-len(suffix)].strip()
+            year_alias = {
+                '1': 'first',
+                '1st': 'first',
+                'first': 'first',
+                '2': 'second',
+                '2nd': 'second',
+                'second': 'second',
+                '3': 'third',
+                '3rd': 'third',
+                'third': 'third',
+                '4': 'fourth',
+                '4th': 'fourth',
+                'fourth': 'fourth',
+                '5': 'fifth',
+                '5th': 'fifth',
+                'fifth': 'fifth',
+                'llm': 'llm',
+            }
+            return year_alias.get(value, value)
+
+        def _assignment_sort_key(assignment):
+            session_text = str(assignment.academic_session or '').strip()
+            year_norm = _normalize_academic_label(assignment.year, is_term=False)
+            term_norm = _normalize_academic_label(assignment.term, is_term=True)
+            year_order = {
+                'first': 1, 'second': 2, 'third': 3, 'fourth': 4, 'fifth': 5, 'llm': 99
+            }.get(year_norm, 98)
+            term_order = {
+                'first': 1, 'second': 2, 'third': 3, 'thesis': 4
+            }.get(term_norm, 99)
+            # Keep latest academic session first, but inside a session always follow:
+            # First Year First Semester -> First Year Second Semester -> ...
+            session_start_year = -1
+            try:
+                session_start_year = int(session_text.split('-')[0].strip())
+            except Exception:
+                pass
+            return (-session_start_year, session_text, year_order, term_order, year_norm, term_norm)
+
         # Check if current user is assigned as Exam Committee Chief or Member
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
@@ -5239,11 +5400,7 @@ def create_app():
                     db.session.rollback()
             
             # Sort again after deduplication
-            chief_assignments.sort(key=lambda x: (
-                x.academic_session or '',
-                x.year or '',
-                x.term or ''
-            ), reverse=True)
+            chief_assignments.sort(key=_assignment_sort_key)
             
             # Get saved remuneration forms for chief
             from blueprints.remuneration_management.models import RemunerationForm
@@ -5320,11 +5477,7 @@ def create_app():
                     db.session.rollback()
             
             # Sort again after deduplication
-            member_assignments.sort(key=lambda x: (
-                x.academic_session or '',
-                x.year or '',
-                x.term or ''
-            ), reverse=True)
+            member_assignments.sort(key=_assignment_sort_key)
             
             # Get saved remuneration forms for this member - show Chief's forms for same assignment
             from blueprints.remuneration_management.models import RemunerationForm
@@ -6517,6 +6670,7 @@ def create_app():
         try:
             from blueprints.course_management.models import CurriculumYearTerm, Course, StudentCourseRegistration
             from blueprints.class_management.models import ExamPaperEvaluatorAssignment
+            from blueprints.student_management.models import Student
             
             # Find curriculum year/term configs matching the criteria
             configs = CurriculumYearTerm.query.filter_by(
@@ -6634,6 +6788,7 @@ def create_app():
                 from types import SimpleNamespace
                 from sqlalchemy import func as sa_func, or_
                 retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
+                separate_retake_student_ids = set()
                 separate_retake_regs = StudentCourseRegistration.query.filter(
                     StudentCourseRegistration.status.in_(['finalized', 'approved']),
                     or_(
@@ -6692,15 +6847,154 @@ def create_app():
                             'source_session': str(reg.academic_session or '').strip(),
                             'source_year': str(reg.year or '').strip(),
                             'source_term': str(reg.term or '').strip(),
+                            'registrations': [],
                         }
+                    if reg.student_id:
+                        separate_retake_student_ids.add(reg.student_id)
+                    separate_retake_entries[entry_key]['registrations'].append({
+                        'registration_id': reg.id,
+                        'student_db_id': reg.student_id,
+                        'academic_session': str(reg.academic_session or '').strip(),
+                        'year': str(reg.year or '').strip(),
+                        'term': str(reg.term or '').strip(),
+                        'remark': str(reg.remark or '').strip(),
+                        'carry_on': bool(reg.carry_on),
+                        'use_relevant_for_committee': (
+                            None if reg.use_relevant_for_committee is None else bool(reg.use_relevant_for_committee)
+                        ),
+                    })
                     if getattr(candidate_course, 'id', None):
                         all_matching_course_ids.append(candidate_course.id)
                         matching_courses_by_id[candidate_course.id] = candidate_course
+
+                students_by_id = {}
+                if separate_retake_student_ids:
+                    students_by_id = {
+                        s.id: s for s in Student.query.filter(Student.id.in_(separate_retake_student_ids)).all()
+                    }
+                for separate_entry in separate_retake_entries.values():
+                    enriched_regs = []
+                    for reg_info in separate_entry.get('registrations', []):
+                        student_ref_id = reg_info.get('student_db_id')
+                        student = students_by_id.get(student_ref_id) if student_ref_id else None
+                        enriched_regs.append({
+                            'registration_id': reg_info.get('registration_id'),
+                            'student_db_id': student_ref_id,
+                            'student_id': (str(student.student_id).strip() if student and student.student_id else ''),
+                            'student_name': (str(student.name).strip() if student and student.name else ''),
+                            'academic_session': reg_info.get('academic_session', ''),
+                            'year': reg_info.get('year', ''),
+                            'term': reg_info.get('term', ''),
+                            'remark': reg_info.get('remark', ''),
+                            'carry_on': bool(reg_info.get('carry_on')),
+                            'use_relevant_for_committee': reg_info.get('use_relevant_for_committee'),
+                        })
+                    separate_entry['registrations'] = enriched_regs
             except Exception as separate_retake_error:
                 current_app.logger.warning(
                     f'Could not include separate retake subjects in evaluator list: {separate_retake_error}',
                     exc_info=True
                 )
+
+            # Build subject-wise student registrations (regular + retake) for committee view.
+            # Context policy:
+            # - Regular: running context (academic_session/year/term + course_code)
+            # - Retake merged: relevant context + relevant_course_code (fallback course_code)
+            # - Retake separate: relevant context + original course_code
+            student_regs_by_code = {}
+            student_ids_for_subjects = set()
+            try:
+                all_subject_regs = StudentCourseRegistration.query.filter(
+                    StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                    StudentCourseRegistration.course_code.isnot(None),
+                    StudentCourseRegistration.course_code != ''
+                ).all()
+
+                selected_session = str(academic_session or '').strip().casefold()
+                selected_year = normalize_label(year or '', is_term=False)
+                selected_term = normalize_label(term or '', is_term=True)
+                retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
+
+                def _to_bool_or_none(value):
+                    if value is None:
+                        return None
+                    return bool(value)
+
+                for reg in all_subject_regs:
+                    remark_value = str(reg.remark or '').strip().lower()
+                    is_retake = remark_value in retake_remarks
+                    merge_value = _to_bool_or_none(reg.use_relevant_for_committee)
+
+                    target_session = str(reg.academic_session or '').strip()
+                    target_year = str(reg.year or '').strip()
+                    target_term = str(reg.term or '').strip()
+                    target_code = (reg.course_code or '').strip()
+
+                    if is_retake:
+                        # Keep NULL as separate for backward compatibility with existing committee logic.
+                        merge_enabled = merge_value is True
+                        if not merge_enabled:
+                            # Separate-retake rows are shown in dedicated subject entries.
+                            continue
+                        target_session = str(reg.relevant_academic_session or '').strip()
+                        target_year = str(reg.relevant_year or '').strip()
+                        target_term = str(reg.relevant_term or '').strip()
+                        if merge_enabled:
+                            target_code = (reg.relevant_course_code or reg.course_code or '').strip()
+
+                    if not target_code:
+                        continue
+
+                    if str(target_session).strip().casefold() != selected_session:
+                        continue
+                    if normalize_label(target_year, is_term=False) != selected_year:
+                        continue
+                    if normalize_label(target_term, is_term=True) != selected_term:
+                        continue
+
+                    if reg.student_id:
+                        student_ids_for_subjects.add(reg.student_id)
+                    student_regs_by_code.setdefault(target_code, []).append({
+                        'registration_id': reg.id,
+                        'student_db_id': reg.student_id,
+                        'academic_session': str(reg.academic_session or '').strip(),
+                        'year': str(reg.year or '').strip(),
+                        'term': str(reg.term or '').strip(),
+                        'remark': str(reg.remark or '').strip(),
+                        'carry_on': bool(reg.carry_on),
+                        'use_relevant_for_committee': merge_value,
+                    })
+
+                students_for_subjects_by_id = {}
+                if student_ids_for_subjects:
+                    students_for_subjects_by_id = {
+                        s.id: s for s in Student.query.filter(Student.id.in_(student_ids_for_subjects)).all()
+                    }
+
+                for course_code, rows in student_regs_by_code.items():
+                    enriched_rows = []
+                    for row in rows:
+                        student_ref_id = row.get('student_db_id')
+                        student = students_for_subjects_by_id.get(student_ref_id) if student_ref_id else None
+                        enriched_rows.append({
+                            'registration_id': row.get('registration_id'),
+                            'student_db_id': student_ref_id,
+                            'student_id': (str(student.student_id).strip() if student and student.student_id else ''),
+                            'student_name': (str(student.name).strip() if student and student.name else ''),
+                            'academic_session': row.get('academic_session', ''),
+                            'year': row.get('year', ''),
+                            'term': row.get('term', ''),
+                            'remark': row.get('remark', ''),
+                            'carry_on': bool(row.get('carry_on')),
+                            'use_relevant_for_committee': row.get('use_relevant_for_committee'),
+                        })
+                    student_regs_by_code[course_code] = enriched_rows
+            except Exception as subject_students_error:
+                current_app.logger.warning(
+                    f'Could not build subject-wise student list for committee view: {subject_students_error}',
+                    exc_info=True
+                )
+                student_regs_by_code = {}
 
             merged_courses = list(merged_courses_by_code.values())
             
@@ -6792,7 +7086,8 @@ def create_app():
                         'academic_session': separate_entry['source_session'],
                         'year': separate_entry['source_year'],
                         'term': separate_entry['source_term'],
-                    }
+                    },
+                    'separate_retake_registrations': separate_entry.get('registrations', []),
                 })
 
             def resolve_assignment(lookup_ids, part):
@@ -6839,6 +7134,12 @@ def create_app():
                     'course_code': course.course_code,
                     'course_name': course_name,
                     'is_separate_retake_subject': entry['is_separate_retake_subject'] or (code_key in separate_retake_course_codes),
+                    'separate_retake_registrations': entry.get('separate_retake_registrations', []),
+                    'subject_student_registrations': (
+                        entry.get('separate_retake_registrations', [])
+                        if entry['is_separate_retake_subject']
+                        else student_regs_by_code.get(code_key, [])
+                    ),
                     'is_assignable': bool(getattr(course, 'id', None)),
                     'part_a': {
                         'assigned': bool(part_a_assignment['assigned_teacher_id']),
@@ -6869,6 +7170,105 @@ def create_app():
         except Exception as exc:
             current_app.logger.error(f'Failed to get subjects: {exc}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to get subjects'}), 500
+
+    @app.route('/exam-committee-chief/deregister-subject-student', methods=['POST'])
+    @login_required
+    def exam_committee_deregister_subject_student():
+        """Deregister a student-course registration from committee subject list."""
+        from blueprints.course_management.models import CourseRegistrationInvite
+
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not teacher:
+            return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+
+        chief_assignment = DutyAssignment.query.filter_by(
+            duty_type='exam_committee_chief',
+            assigned_teacher_id=teacher.id,
+            status='active'
+        ).first()
+        member_assignment = DutyAssignment.query.filter(
+            DutyAssignment.duty_type == 'exam_committee_member',
+            DutyAssignment.assigned_teacher_id == teacher.id,
+            DutyAssignment.status == 'active'
+        ).first()
+        if not chief_assignment and not member_assignment:
+            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
+
+        data = request.get_json() or {}
+        registration_id = data.get('registration_id')
+        student_id = data.get('student_id')
+        session_name = str(data.get('session') or '').strip()
+        year = str(data.get('year') or '').strip()
+        term = str(data.get('term') or '').strip()
+
+        try:
+            registration_id = int(registration_id)
+            student_id = int(student_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'Valid registration_id and student_id are required'}), 400
+
+        try:
+            reg = StudentCourseRegistration.query.filter_by(
+                id=registration_id,
+                student_id=student_id
+            ).first()
+            if not reg:
+                return jsonify({'success': False, 'message': 'Registration not found'}), 404
+
+            if session_name and str(reg.academic_session or '').strip() != session_name:
+                return jsonify({'success': False, 'message': 'Registration session mismatch'}), 400
+            if year and str(reg.year or '').strip() != year:
+                return jsonify({'success': False, 'message': 'Registration year mismatch'}), 400
+            if term and str(reg.term or '').strip() != term:
+                return jsonify({'success': False, 'message': 'Registration term mismatch'}), 400
+
+            if reg.status == 'finalized':
+                try:
+                    from blueprints.course_management.routes import (
+                        _resolve_class_target_context,
+                        _remove_students_from_class_sessions
+                    )
+                    class_target = _resolve_class_target_context(
+                        reg,
+                        fallback_course_code=(reg.course_code or ''),
+                        fallback_session=(reg.academic_session or ''),
+                        fallback_year=(reg.year or ''),
+                        fallback_term=(reg.term or '')
+                    )
+                    _remove_students_from_class_sessions(
+                        class_target['course_code'],
+                        class_target['academic_session'],
+                        class_target['year'],
+                        class_target['term'],
+                        [student_id]
+                    )
+                except Exception as remove_error:
+                    current_app.logger.error(
+                        f'Error removing student from Class Management via committee deregister: {remove_error}',
+                        exc_info=True
+                    )
+
+            invites_to_delete = CourseRegistrationInvite.query.filter_by(
+                registration_id=reg.id
+            ).all()
+            for invite in invites_to_delete:
+                db.session.delete(invite)
+
+            course_code = str(reg.course_code or '').strip()
+            db.session.delete(reg)
+            db.session.commit()
+
+            current_app.logger.info(
+                f'Committee deregistered student_db_id={student_id} registration_id={registration_id} course={course_code}'
+            )
+            return jsonify({
+                'success': True,
+                'message': f'Successfully deregistered student from {course_code or "selected subject"}.'
+            })
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.error(f'Failed committee deregistration: {exc}', exc_info=True)
+            return jsonify({'success': False, 'message': 'Failed to deregister student'}), 500
     
     @app.route('/exam-committee-chief/assign-evaluator', methods=['POST'])
     @login_required
@@ -10307,9 +10707,9 @@ def create_app():
             ]
         }
         
-        # Set logo path directly - always use Images folder
-        logo_filename = 'KU_logo_2.png'
-        logo_folder = 'Images'  # Direct path - file should be at static/Images/KU_logo_2.png
+        # Set logo path for remuneration form header
+        logo_filename = 'KU_logo.svg'
+        logo_folder = 'images'  # Direct path - file should be at static/images/KU_logo.svg
         
         return render_template('remuneration_placeholder.html', 
                              teachers=teachers, 
@@ -10672,8 +11072,8 @@ def create_app():
                 '16': [{'label': 'প্রতি খাতা', 'value': '30'}]
             }
             
-            logo_filename = 'KU_logo_2.png'
-            logo_folder = 'Images'
+            logo_filename = 'KU_logo.svg'
+            logo_folder = 'images'
             
             return render_template('remuneration_placeholder.html', 
                                  teachers=teachers, 
@@ -12249,8 +12649,8 @@ def create_app():
             # Get logo file path and convert to data URI for PDF
             logo_path_absolute = None
             logo_paths_to_try = [
-                os.path.join(current_app.root_path, 'static', 'Images', 'KU_logo_2.png'),  # Capital I
-                os.path.join(current_app.root_path, 'static', 'images', 'KU_logo_2.png'),   # Lowercase i
+                os.path.join(current_app.root_path, 'static', 'images', 'KU_logo.svg'),
+                os.path.join(current_app.root_path, 'static', 'Images', 'KU_logo.svg'),
             ]
             
             for logo_path in logo_paths_to_try:
@@ -12267,7 +12667,8 @@ def create_app():
                     with open(logo_path_absolute, 'rb') as logo_file:
                         logo_data = logo_file.read()
                         logo_base64 = base64.b64encode(logo_data).decode('utf-8')
-                        logo_data_uri = f'data:image/png;base64,{logo_base64}'
+                        logo_mime_type = 'image/svg+xml' if logo_path_absolute.lower().endswith('.svg') else 'image/png'
+                        logo_data_uri = f'data:{logo_mime_type};base64,{logo_base64}'
                         current_app.logger.info('Logo converted to data URI for PDF')
                 except Exception as e:
                     current_app.logger.error(f'Error converting logo to data URI: {e}')
@@ -14152,31 +14553,23 @@ def create_app():
         except Exception:
             pass
         
-        # Build formatted jobs_data matching single PDF structure
+        # Build formatted jobs_data matching single PDF structure.
+        # Always include every main row and sub-row to keep bulk PDF layout complete,
+        # even when a category has no data.
         for job_def in job_structure:
             row_num = job_def['row']
             main_desc = job_def['desc']
             has_subs = job_def.get('has_subs', False)
             
-            # Check if we have data for this row
-            has_data = False
-            if has_subs:
-                # Check if any sub-item has data
-                for sub in job_def.get('subs', []):
-                    if sub['key'] in jobs_map:
-                        has_data = True
-                        break
-            else:
-                # Check if main item has data - try exact match first, then flexible matching
-                if main_desc in jobs_map:
-                    has_data = True
-                else:
-                    # Try flexible matching (strip whitespace)
-                    for key in list(jobs_map.keys()):
+            # For non-sub rows, use exact key first and then a trimmed-key fallback.
+            # This preserves existing flexible matching while still emitting blank rows.
+            job = {}
+            if not has_subs:
+                job = jobs_map.get(main_desc, {})
+                if not job:
+                    for key, mapped_job in jobs_map.items():
                         if key.strip() == main_desc.strip():
-                            # Update jobs_map with correct key
-                            jobs_map[main_desc] = jobs_map.pop(key)
-                            has_data = True
+                            job = mapped_job
                             break
             
             # Log for Row 15 specifically for debugging
@@ -14184,14 +14577,10 @@ def create_app():
                 try:
                     current_app.logger.info(
                         f'Row 15 check for {teacher_name}: main_desc="{main_desc}", '
-                        f'has_data={has_data}, in_jobs_map={main_desc in jobs_map}, '
-                        f'all_keys={list(jobs_map.keys())}'
+                        f'in_jobs_map={main_desc in jobs_map}, all_keys={list(jobs_map.keys())}'
                     )
                 except Exception:
                     pass
-            
-            if not has_data:
-                continue  # Skip rows with no data
             
             # Add main row (for rows 9, 10, 12, 13, main row has empty fields)
             if has_subs:
@@ -14205,8 +14594,6 @@ def create_app():
                     'amount': ''
                 })
             else:
-                # Regular row - use data from jobs_map
-                job = jobs_map.get(main_desc, {})
                 formatted_jobs_data.append({
                     'serial': str(serial),
                     'description': main_desc,
@@ -14219,22 +14606,21 @@ def create_app():
             
             serial += 1
             
-            # Add sub-items if applicable
+            # Add every sub-item row in order. If data is missing, keep fields blank.
             if has_subs:
                 for sub in job_def.get('subs', []):
                     sub_key = sub['key']
                     sub_desc = sub['desc']
-                    if sub_key in jobs_map:
-                        sub_job = jobs_map[sub_key]
-                        formatted_jobs_data.append({
-                            'serial': '',  # Sub-items have empty serial
-                            'description': sub_desc,
-                            'courses': sub_job.get('courses', ''),
-                            'quantity': sub_job.get('quantity', ''),
-                            'paper_type': sub_job.get('paper_type', ''),
-                            'rate': sub_job.get('rate', ''),
-                            'amount': sub_job.get('amount', '')
-                        })
+                    sub_job = jobs_map.get(sub_key, {})
+                    formatted_jobs_data.append({
+                        'serial': '',  # Sub-items have empty serial
+                        'description': sub_desc,
+                        'courses': sub_job.get('courses', ''),
+                        'quantity': sub_job.get('quantity', ''),
+                        'paper_type': sub_job.get('paper_type', ''),
+                        'rate': sub_job.get('rate', ''),
+                        'amount': sub_job.get('amount', '')
+                    })
         
         try:
             current_app.logger.info(
@@ -14404,8 +14790,8 @@ def create_app():
                             # Get logo file path and convert to data URI - same as single PDF
                             logo_path_absolute = None
                             logo_paths_to_try = [
-                                os.path.join(current_app.root_path, 'static', 'Images', 'KU_logo_2.png'),
-                                os.path.join(current_app.root_path, 'static', 'images', 'KU_logo_2.png'),
+                                os.path.join(current_app.root_path, 'static', 'images', 'KU_logo.svg'),
+                                os.path.join(current_app.root_path, 'static', 'Images', 'KU_logo.svg'),
                             ]
                             
                             for logo_path in logo_paths_to_try:
@@ -14421,7 +14807,8 @@ def create_app():
                                     with open(logo_path_absolute, 'rb') as logo_file:
                                         logo_data = logo_file.read()
                                         logo_base64 = base64.b64encode(logo_data).decode('utf-8')
-                                        logo_data_uri = f'data:image/png;base64,{logo_base64}'
+                                        logo_mime_type = 'image/svg+xml' if logo_path_absolute.lower().endswith('.svg') else 'image/png'
+                                        logo_data_uri = f'data:{logo_mime_type};base64,{logo_base64}'
                                 except Exception as e:
                                     current_app.logger.error(f'Error converting logo to data URI: {e}')
                                     logo_data_uri = None

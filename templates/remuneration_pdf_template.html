@@ -178,6 +178,10 @@
             width: 22%;
         }
         
+        .rem-table td:nth-child(2) {
+            font-size: 9.5pt !important;
+        }
+        
         .rem-table th:nth-child(3),
         .rem-table td:nth-child(3) {
             text-align: left;
@@ -423,7 +427,7 @@
                 {% if logo_data_uri %}
                 <img src="{{ logo_data_uri }}" alt="Khulna University Logo" style="max-height: 113.75px; width: auto;">
                 {% else %}
-                <img src="{{ url_for('static', filename='Images/KU_logo_2.png') }}" alt="Khulna University Logo" style="max-height: 113.75px; width: auto;">
+                <img src="{{ url_for('static', filename='images/KU_logo.svg') }}" alt="Khulna University Logo" style="max-height: 113.75px; width: auto;">
                 {% endif %}
             </div>
             <div class="rem-heading-content">
