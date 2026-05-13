@@ -309,7 +309,7 @@
                                         <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" min="0" max="10" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1">
                                         {% endif %}
                                         <div class="form-check">
-                                            <input class="form-check-input pg-absent-checkbox" type="checkbox" id="pg_absent_{{i}}_{{student.id}}" name="pg_absent_{{i}}_{{student.id}}" data-student-id="{{student.id}}" data-assess-idx="{{i}}" {% if is_absent %}checked{% endif %}>
+                                            <input class="form-check-input pg-absent-checkbox" type="checkbox" id="pg_absent_{{i}}_{{student.id}}" name="absent_{{i}}_{{student.id}}" data-student-id="{{student.id}}" data-assess-idx="{{i}}" {% if is_absent %}checked{% endif %}>
                                             <label class="form-check-label" for="pg_absent_{{i}}_{{student.id}}" style="font-size: 0.9em;">Absent</label>
                                         </div>
                                     </div>

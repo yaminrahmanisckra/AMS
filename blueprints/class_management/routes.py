@@ -43,6 +43,7 @@ except ImportError:
 import pandas as pd
 import os
 from datetime import datetime, date
+from decimal import Decimal, ROUND_HALF_UP
 import secrets
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, landscape, A4
@@ -5521,7 +5522,9 @@ def download_pdf_report(session_id):
         session = Session.query.get_or_404(session_id)
         students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
-        attendance_summary = _build_attendance_summary(session)
+        # Keep attendance aggregation identical to on-screen views
+        # so marks stay consistent between display and combined PDF.
+        attendance_summary = _build_attendance_summary(session, include_archived=True)
         combined_assessment_map = _collect_combined_assessment_marks(session)
 
         buffer = io.BytesIO()
@@ -5574,7 +5577,14 @@ def download_pdf_report(session_id):
                         valid_marks.sort(reverse=True)
                         if valid_marks:
                             best_three = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
-                            assessment_marks_display = (sum(best_three) / 30) * 40
+                            scaled_pg_mark = (sum(best_three) / 30) * 40
+                            # PG combined PDF requires integer rounding with .5 always rounding up.
+                            assessment_marks_display = int(
+                                Decimal(str(scaled_pg_mark)).quantize(
+                                    Decimal('1'),
+                                    rounding=ROUND_HALF_UP
+                                )
+                            )
                         else:
                             assessment_marks_display = 0
                     else:

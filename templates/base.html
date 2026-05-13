@@ -76,6 +76,8 @@
                 {% if current_user.is_authenticated %}
                 {% set active_role = current_user.active_role %}
                 {% set head_active = (active_role == 'head') %}
+                {% set user_roles = parse_roles(current_user.role) %}
+                {% set can_view_question_bank = 'student' in user_roles or 'teacher' in user_roles or 'head' in user_roles or 'dean' in user_roles or 'teaching_assistant' in user_roles %}
                 <div class="flex-grow-1">
                     <div class="d-none d-lg-flex align-items-center w-100">
                         <ul class="navbar-nav me-auto">
@@ -103,7 +105,6 @@
                                     {% if show_academic_calendar %}
                                     <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
                                     {% endif %}
-                                    <li><a class="dropdown-item" href="/class-management/question-bank"><i class="fas fa-book-reader me-2"></i>Question Bank</a></li>
                                     {% if show_students_management %}
                                     <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
                                     {% endif %}
@@ -150,6 +151,13 @@
                                     {% endif %}
                                 </a>
                             </li>
+                            {% if can_view_question_bank %}
+                            <li class="nav-item">
+                                <a class="nav-link {{ 'active' if request.endpoint and request.endpoint == 'class_management.question_bank' else '' }}" href="{{ url_for('class_management.question_bank') }}" style="white-space: nowrap;">
+                                    <i class="fas fa-book-reader me-2"></i>Question Bank
+                                </a>
+                            </li>
+                            {% endif %}
                         </ul>
                         <div class="navbar-nav ms-auto align-items-center d-flex flex-row">
                             {% if has_teacher_privileges(current_user) and show_class_management|default(false) %}
@@ -255,7 +263,7 @@
                             </button>
                             <ul class="dropdown-menu w-100">
                                 <li><a class="dropdown-item" href="{{ url_for('index') }}"><i class="fas fa-home me-2"></i>Dashboard</a></li>
-                                {% if 'student' in parse_roles(current_user.role) %}
+                                {% if 'student' in user_roles %}
                                 <li>
                                     <a class="dropdown-item d-flex align-items-center" href="{{ url_for('class_management.student_notifications_page') }}">
                                         <i class="fas fa-bell me-2"></i>Notifications
@@ -265,9 +273,11 @@
                                     </a>
                                 </li>
                                 {% endif %}
-                                {% if 'student' in parse_roles(current_user.role) and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
+                                {% if 'student' in user_roles and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
                                 <li><a class="dropdown-item" href="{{ url_for('student_dashboard') }}"><i class="fas fa-user-graduate me-2"></i>Student Dashboard</a></li>
-                                <li><a class="dropdown-item" href="/class-management/question-bank"><i class="fas fa-book-reader me-2"></i>Question Bank</a></li>
+                                {% endif %}
+                                {% if can_view_question_bank %}
+                                <li><a class="dropdown-item" href="{{ url_for('class_management.question_bank') }}"><i class="fas fa-book-reader me-2"></i>Question Bank</a></li>
                                 {% endif %}
                                 {% if has_teacher_privileges(current_user) %}
                                 {% if show_class_management %}
@@ -286,7 +296,6 @@
                                 {% if show_academic_calendar %}
                                 <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
                                 {% endif %}
-                                <li><a class="dropdown-item" href="/class-management/question-bank"><i class="fas fa-book-reader me-2"></i>Question Bank</a></li>
                                 {% if show_students_management %}
                                 <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
                                 {% endif %}
