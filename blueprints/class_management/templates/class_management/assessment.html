@@ -241,38 +241,42 @@
                                 <td class="text-start">{{ student.student_id }}</td>
                                 <td class="text-start">{{ student.name }}</td>
                                 <td class="text-end">
-                                    {% set student_absent = absent_status_map.get(student.id, {}) %}
-                                    {% set report_absent = student_absent.get('sessional_report', False) %}
+                                    {% set sessional_row = sessional_display_map.get(student.id, {}) %}
+                                    {% set report_absent = sessional_row.get('report_absent', False) %}
+                                    {% set report_value = sessional_row.get('report_value') %}
+                                    {% set report_editable = sessional_row.get('report_editable', True) %}
                                     <div class="d-flex align-items-center gap-2">
                                         {% if report_absent %}
                                         <span class="text-muted fw-bold">Absent</span>
                                         <input type="number" name="sessional_report_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="60" step="0.01" value="" data-student-id="{{ student.id }}" disabled style="display: none;">
                                         {% else %}
-                                        <input type="number" name="sessional_report_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="60" step="0.01" value="{{ student.sessional_report if student.sessional_report is not none else '' }}" data-student-id="{{ student.id }}">
+                                        <input type="number" name="sessional_report_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="60" step="0.01" value="{{ report_value if report_value is not none else '' }}" data-student-id="{{ student.id }}" {% if not report_editable %}readonly disabled style="background-color: #f8f9fa;"{% endif %}>
                                         {% endif %}
                                         <div class="form-check">
-                                            <input class="form-check-input sessional-absent-checkbox" type="checkbox" id="sessional_absent_report_{{student.id}}" name="sessional_absent_report_{{student.id}}" data-student-id="{{student.id}}" data-type="report" {% if report_absent %}checked{% endif %}>
+                                            <input class="form-check-input sessional-absent-checkbox" type="checkbox" id="sessional_absent_report_{{student.id}}" name="sessional_absent_report_{{student.id}}" data-student-id="{{student.id}}" data-type="report" {% if report_absent %}checked{% endif %} {% if not report_editable %}disabled{% endif %}>
                                             <label class="form-check-label" for="sessional_absent_report_{{student.id}}" style="font-size: 0.9em;">Absent</label>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="text-end">
-                                    {% set viva_absent = student_absent.get('sessional_viva', False) %}
+                                    {% set viva_absent = sessional_row.get('viva_absent', False) %}
+                                    {% set viva_value = sessional_row.get('viva_value') %}
+                                    {% set viva_editable = sessional_row.get('viva_editable', True) %}
                                     <div class="d-flex align-items-center gap-2">
                                         {% if viva_absent %}
                                         <span class="text-muted fw-bold">Absent</span>
                                         <input type="number" name="sessional_viva_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="30" step="0.01" value="" data-student-id="{{ student.id }}" disabled style="display: none;">
                                         {% else %}
-                                        <input type="number" name="sessional_viva_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="30" step="0.01" value="{{ student.sessional_viva if student.sessional_viva is not none else '' }}" data-student-id="{{ student.id }}">
+                                        <input type="number" name="sessional_viva_{{ student.id }}" class="form-control sessional-input assessment-input-field" min="0" max="30" step="0.01" value="{{ viva_value if viva_value is not none else '' }}" data-student-id="{{ student.id }}" {% if not viva_editable %}readonly disabled style="background-color: #f8f9fa;"{% endif %}>
                                         {% endif %}
                                         <div class="form-check">
-                                            <input class="form-check-input sessional-absent-checkbox" type="checkbox" id="sessional_absent_viva_{{student.id}}" name="sessional_absent_viva_{{student.id}}" data-student-id="{{student.id}}" data-type="viva" {% if viva_absent %}checked{% endif %}>
+                                            <input class="form-check-input sessional-absent-checkbox" type="checkbox" id="sessional_absent_viva_{{student.id}}" name="sessional_absent_viva_{{student.id}}" data-student-id="{{student.id}}" data-type="viva" {% if viva_absent %}checked{% endif %} {% if not viva_editable %}disabled{% endif %}>
                                             <label class="form-check-label" for="sessional_absent_viva_{{student.id}}" style="font-size: 0.9em;">Absent</label>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="fw-bold text-end">
-                                    <span id="sessional_total_{{ student.id }}">{% if student.sessional_report is not none or student.sessional_viva is not none %}{{ (student.sessional_report or 0) + (student.sessional_viva or 0) }}{% else %}<span class="text-muted">Absent</span>{% endif %}</span>
+                                    <span id="sessional_total_{{ student.id }}">{% if report_value is not none or viva_value is not none %}{{ (report_value or 0) + (viva_value or 0) }}{% else %}<span class="text-muted">Absent</span>{% endif %}</span>
                                 </td>
                             </tr>
                             {% endfor %}

@@ -859,6 +859,80 @@ def _get_editable_assessment_indices(session):
     return {1, 2, 3, 4}
 
 
+def _get_editable_sessional_fields(session):
+    """Return which sessional fields current teacher can edit.
+
+    Sessional split courses should remain collaboratively editable
+    across partner teachers.
+    """
+    return {'sessional_report', 'sessional_viva'}
+
+
+def _build_combined_sessional_values(session):
+    """
+    Combine sessional report/viva values across related split sessions.
+
+    Returns:
+        value_map: {student_id: {'sessional_report': val, 'sessional_viva': val}}
+        absent_map: {student_id: {'sessional_report': bool, 'sessional_viva': bool}}
+    """
+    related_sessions = _resolve_attendance_related_sessions(session, include_archived=False)
+    if not related_sessions:
+        return {}, {}
+
+    session_ids = [s.id for s in related_sessions if s]
+    if not session_ids:
+        return {}, {}
+
+    all_class_students = ClassStudent.query.filter(
+        ClassStudent.session_id.in_(session_ids)
+    ).all()
+
+    student_groups = defaultdict(list)
+    for cs in all_class_students:
+        student_groups[cs.student_id].append(cs)
+
+    value_map = {}
+    absent_map = {}
+
+    for student_id, student_records in student_groups.items():
+        # Prioritize current session first, then partner sessions.
+        ordered_records = sorted(
+            student_records,
+            key=lambda rec: (0 if rec.session_id == session.id else 1, rec.session_id)
+        )
+
+        report_value = None
+        viva_value = None
+        combined_absent = {'sessional_report': False, 'sessional_viva': False}
+
+        for record in ordered_records:
+            if report_value is None and record.sessional_report is not None:
+                report_value = float(record.sessional_report)
+            if viva_value is None and record.sessional_viva is not None:
+                viva_value = float(record.sessional_viva)
+
+            if record.assessment_absent:
+                try:
+                    record_absent = json.loads(record.assessment_absent)
+                    combined_absent['sessional_report'] = combined_absent['sessional_report'] or bool(
+                        record_absent.get('sessional_report', False)
+                    )
+                    combined_absent['sessional_viva'] = combined_absent['sessional_viva'] or bool(
+                        record_absent.get('sessional_viva', False)
+                    )
+                except Exception:
+                    pass
+
+        value_map[student_id] = {
+            'sessional_report': report_value,
+            'sessional_viva': viva_value
+        }
+        absent_map[student_id] = combined_absent
+
+    return value_map, absent_map
+
+
 ATTENDANCE_LABEL_TO_STATUS = {
     'P': ClassAttendance.STATUS_PRESENT,
     'A': ClassAttendance.STATUS_ABSENT,
@@ -6192,6 +6266,7 @@ def assessment(session_id):
         students = _class_students_for_session(session_id)
         is_split_theory = session.course_type == 'theory' and session.course_scope in SPLIT_PARTS
         editable_indices = _get_editable_assessment_indices(session)
+        editable_sessional_fields = _get_editable_sessional_fields(session)
         current_teacher = _ensure_current_teacher()
         
         # Load reveal status
@@ -6254,24 +6329,26 @@ def assessment(session_id):
                         
                         report_absent_key = f'sessional_absent_report_{student.id}'
                         viva_absent_key = f'sessional_absent_viva_{student.id}'
-                        
-                        report_absent = report_absent_key in request.form
-                        viva_absent = viva_absent_key in request.form
-                        
-                        absent_status['sessional_report'] = report_absent
-                        absent_status['sessional_viva'] = viva_absent
-                        
-                        if report_absent:
-                            student.sessional_report = None
-                        else:
-                            report = request.form.get(f'sessional_report_{student.id}')
-                            student.sessional_report = float(report) if report else None
-                        
-                        if viva_absent:
-                            student.sessional_viva = None
-                        else:
-                            viva = request.form.get(f'sessional_viva_{student.id}')
-                            student.sessional_viva = float(viva) if viva else None
+
+                        if 'sessional_report' in editable_sessional_fields:
+                            report_absent = report_absent_key in request.form
+                            absent_status['sessional_report'] = report_absent
+
+                            if report_absent:
+                                student.sessional_report = None
+                            else:
+                                report = request.form.get(f'sessional_report_{student.id}')
+                                student.sessional_report = float(report) if report else None
+
+                        if 'sessional_viva' in editable_sessional_fields:
+                            viva_absent = viva_absent_key in request.form
+                            absent_status['sessional_viva'] = viva_absent
+
+                            if viva_absent:
+                                student.sessional_viva = None
+                            else:
+                                viva = request.form.get(f'sessional_viva_{student.id}')
+                                student.sessional_viva = float(viva) if viva else None
                         
                         # Save absent status
                         student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -6291,6 +6368,7 @@ def assessment(session_id):
         
         # Build combined assessment values from all related sessions (for split courses)
         combined_assessment_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
+        combined_sessional_values, combined_sessional_absent = _build_combined_sessional_values(session)
         
         # Debug logging for split courses
         if session.split_group_id:
@@ -6314,6 +6392,7 @@ def assessment(session_id):
                 all_student_records.append(entry)
         
         # Build absent status map combining from all sessions
+        sessional_display_map = {}
         for student in students:
             absent_status = {}
             # Start with current student's absent status
@@ -6338,6 +6417,25 @@ def assessment(session_id):
                                 pass
             
             absent_status_map[student.id] = absent_status
+
+            if session.course_type == 'sessional' and session.category == 'ug':
+                merged_values = combined_sessional_values.get(student.student_id, {})
+                merged_absent = combined_sessional_absent.get(student.student_id, {})
+
+                report_value = student.sessional_report if student.sessional_report is not None else merged_values.get('sessional_report')
+                viva_value = student.sessional_viva if student.sessional_viva is not None else merged_values.get('sessional_viva')
+
+                report_absent = bool(absent_status.get('sessional_report', False)) or bool(merged_absent.get('sessional_report', False))
+                viva_absent = bool(absent_status.get('sessional_viva', False)) or bool(merged_absent.get('sessional_viva', False))
+
+                sessional_display_map[student.id] = {
+                    'report_value': report_value,
+                    'viva_value': viva_value,
+                    'report_absent': report_absent,
+                    'viva_absent': viva_absent,
+                    'report_editable': 'sessional_report' in editable_sessional_fields,
+                    'viva_editable': 'sessional_viva' in editable_sessional_fields
+                }
         
         return render_template(
             'class_management/assessment.html',
@@ -6349,6 +6447,7 @@ def assessment(session_id):
             combined_best3=combined_best3,
             combined_pg_avg=combined_pg_avg,
             combined_pg_total=combined_pg_total,
+            sessional_display_map=sessional_display_map,
             absent_status_map=absent_status_map,
             current_teacher_id=current_teacher.id,
             reveal_status=current_teacher_reveals,
@@ -6437,6 +6536,7 @@ def auto_save_assessment(session_id):
         session = Session.query.get_or_404(session_id)
         students = _class_students_for_session(session_id)
         editable_indices = _get_editable_assessment_indices(session)
+        editable_sessional_fields = _get_editable_sessional_fields(session)
         
         if request.is_json:
             data = request.get_json()
@@ -6487,24 +6587,26 @@ def auto_save_assessment(session_id):
                     
                     report_absent_key = f'sessional_absent_report_{student.id}'
                     viva_absent_key = f'sessional_absent_viva_{student.id}'
-                    
-                    report_absent = data.get(report_absent_key) == 'on' or data.get(report_absent_key) == True
-                    viva_absent = data.get(viva_absent_key) == 'on' or data.get(viva_absent_key) == True
-                    
-                    absent_status['sessional_report'] = report_absent
-                    absent_status['sessional_viva'] = viva_absent
-                    
-                    if report_absent:
-                        student.sessional_report = None
-                    else:
-                        report = data.get(f'sessional_report_{student.id}', '')
-                        student.sessional_report = float(report) if report else None
-                    
-                    if viva_absent:
-                        student.sessional_viva = None
-                    else:
-                        viva = data.get(f'sessional_viva_{student.id}', '')
-                        student.sessional_viva = float(viva) if viva else None
+
+                    if 'sessional_report' in editable_sessional_fields:
+                        report_absent = data.get(report_absent_key) == 'on' or data.get(report_absent_key) == True
+                        absent_status['sessional_report'] = report_absent
+
+                        if report_absent:
+                            student.sessional_report = None
+                        else:
+                            report = data.get(f'sessional_report_{student.id}', '')
+                            student.sessional_report = float(report) if report else None
+
+                    if 'sessional_viva' in editable_sessional_fields:
+                        viva_absent = data.get(viva_absent_key) == 'on' or data.get(viva_absent_key) == True
+                        absent_status['sessional_viva'] = viva_absent
+
+                        if viva_absent:
+                            student.sessional_viva = None
+                        else:
+                            viva = data.get(f'sessional_viva_{student.id}', '')
+                            student.sessional_viva = float(viva) if viva else None
                     
                     # Save absent status
                     student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -7872,6 +7974,11 @@ def my_invitations():
     split_sessions_by_id = {s.id: s for s in Session.query.filter(Session.id.in_(split_sessions_ids)).all()} if split_sessions_ids else {}
     split_inviter_ids = {inv.inviter_teacher_id for inv in split_invites}
     split_inviter_by_id = {t.id: t for t in Teacher.query.filter(Teacher.id.in_(split_inviter_ids)).all()} if split_inviter_ids else {}
+    has_cancelled_invites = (
+        any(inv.status == 'cancelled' for inv in invites)
+        or any(inv.status == 'cancelled' for inv in exam_invites)
+        or any(inv.status == 'cancelled' for inv in split_invites)
+    )
 
     return render_template(
         'class_management/invitations.html',
@@ -7884,8 +7991,45 @@ def my_invitations():
         split_invites=split_invites,
         split_sessions_by_id=split_sessions_by_id,
         split_inviter_by_id=split_inviter_by_id,
-        course_scope_labels=COURSE_SCOPE_LABELS
+        course_scope_labels=COURSE_SCOPE_LABELS,
+        has_cancelled_invites=has_cancelled_invites,
     )
+
+
+@class_management_bp.route('/invitations/clear-cancelled', methods=['POST'])
+@login_required
+def clear_cancelled_invitations():
+    """Remove cancelled invitations from the current teacher's invitation list."""
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not teacher:
+        flash('No teacher profile found.', 'warning')
+        return redirect(url_for('index'))
+
+    try:
+        peer_deleted = EvaluationInvite.query.filter_by(
+            evaluator_teacher_id=teacher.id,
+            status='cancelled'
+        ).delete(synchronize_session=False)
+        exam_deleted = ExamScrutinizerInvite.query.filter_by(
+            scrutinizer_teacher_id=teacher.id,
+            status='cancelled'
+        ).delete(synchronize_session=False)
+        split_deleted = ClassSplitInvite.query.filter_by(
+            invited_teacher_id=teacher.id,
+            status='cancelled'
+        ).delete(synchronize_session=False)
+        total_deleted = peer_deleted + exam_deleted + split_deleted
+        db.session.commit()
+
+        if total_deleted:
+            flash(f'Cleared {total_deleted} cancelled invitation(s).', 'success')
+        else:
+            flash('No cancelled invitations found to clear.', 'info')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error clearing cancelled invitations: {str(e)}', 'danger')
+
+    return redirect(url_for('class_management.my_invitations'))
 
 @class_management_bp.route('/evaluation/<int:session_id>/course-assessment/open/<int:invite_id>', methods=['GET', 'POST'])
 @login_required
