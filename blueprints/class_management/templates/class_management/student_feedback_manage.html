@@ -139,9 +139,18 @@
                 {% set section_d = data.get('section_d', {}) %}
                 <div class="accordion-item">
                   <h2 class="accordion-header" id="heading{{ loop.index }}">
-                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ loop.index }}" aria-expanded="false" aria-controls="collapse{{ loop.index }}">
+                    <button
+                      class="accordion-button collapsed feedback-response-toggle {% if not item.is_read %}fw-bold{% endif %}"
+                      type="button"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#collapse{{ loop.index }}"
+                      aria-expanded="false"
+                      aria-controls="collapse{{ loop.index }}"
+                      data-response-id="{{ item.id }}"
+                      data-mark-read-url="{{ url_for('class_management.mark_student_feedback_response_read', session_id=session.id, response_id=item.id) }}"
+                    >
                       <div class="w-100 d-flex justify-content-between">
-                        <span class="fw-semibold">{{ item.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                        <span><span class="me-2">{{ loop.index }}.</span>{{ item.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>
                         <span class="text-muted small">Academic Session: {{ academic.get('academic_session') or 'N/A' }} | Course: {{ academic.get('course_title') or 'N/A' }}</span>
                       </div>
                     </button>
@@ -284,6 +293,48 @@ function showCopyError(button) {
     button.classList.add('btn-outline-secondary');
   }, 2000);
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+  const toggleButtons = document.querySelectorAll('.feedback-response-toggle');
+  const collapsePanels = document.querySelectorAll('#feedbackResponses .accordion-collapse');
+
+  function markResponseAsRead(button) {
+    const markReadUrl = button.dataset.markReadUrl;
+    if (!markReadUrl) {
+      button.classList.remove('fw-bold');
+      return;
+    }
+
+    fetch(markReadUrl, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    })
+      .then(function(response) {
+        if (response.ok) {
+          button.classList.remove('fw-bold');
+        }
+      })
+      .catch(function(error) {
+        console.error('Failed to mark feedback response as read:', error);
+      });
+  }
+
+  collapsePanels.forEach(function(panel) {
+    panel.addEventListener('show.bs.collapse', function(event) {
+      const toggleButton = document.querySelector('[data-bs-target="#' + event.target.id + '"]');
+      if (!toggleButton) {
+        return;
+      }
+      if (!toggleButton.classList.contains('fw-bold')) {
+        return;
+      }
+      markResponseAsRead(toggleButton);
+    });
+  });
+});
 </script>
 {% endblock %}
 

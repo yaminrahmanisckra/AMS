@@ -358,6 +358,17 @@ def _normalize_session_course_type(raw_course_type):
         return 'theory'
     return value[:20]
 
+
+def _round_half_up_int(value):
+    """Round to nearest integer; fractional part exactly .5 rounds up (grades convention)."""
+    if value is None:
+        return None
+    try:
+        return int(Decimal(str(float(value))).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+    except (TypeError, ValueError, ArithmeticError):
+        return None
+
+
 def _generate_feedback_code():
     """Generate a short, URL-friendly code for feedback access."""
     while True:
@@ -7632,7 +7643,9 @@ def download_assessment_pdf(session_id):
                 if valid_marks:
                     best_three = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
                     pg_total_unrounded = (sum(best_three) / 30) * 40
-                    formatted_total = format_mark_for_pdf(pg_total_unrounded)
+                    # PG Theory: total on 40 scale is always a whole-number display (half-up).
+                    rounded_total = _round_half_up_int(pg_total_unrounded)
+                    formatted_total = str(rounded_total) if rounded_total is not None else '-'
                 else:
                     formatted_total = '-'
                 row = [
@@ -8243,6 +8256,8 @@ def student_feedback_manage(session_id):
                 answers = {}
             feedback_responses.append(
                 {
+                    'id': item.id,
+                    'is_read': bool(item.is_read),
                     'submitted_at': item.submitted_at,
                     'data': answers,
                 }
@@ -8265,6 +8280,37 @@ def student_feedback_manage(session_id):
         method_options=FEEDBACK_METHOD_OPTIONS,
         effort_options=FEEDBACK_EFFORT_OPTIONS,
     )
+
+
+@class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/<int:response_id>/mark-read', methods=['POST'])
+@login_required
+def mark_student_feedback_response_read(session_id, response_id):
+    """Mark one student feedback response as read by the course teacher."""
+    session_obj = Session.query.get_or_404(session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not teacher or teacher.id != session_obj.teacher_id:
+        return jsonify({'ok': False, 'message': 'Unauthorized'}), 403
+
+    feedback_link = StudentFeedbackLink.query.filter_by(session_id=session_id).first()
+    if not feedback_link:
+        return jsonify({'ok': False, 'message': 'Feedback link not found'}), 404
+
+    response = StudentFeedbackResponse.query.filter_by(
+        id=response_id,
+        feedback_link_id=feedback_link.id
+    ).first()
+    if not response:
+        return jsonify({'ok': False, 'message': 'Response not found'}), 404
+
+    if not response.is_read:
+        try:
+            response.is_read = True
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return jsonify({'ok': False, 'message': 'Could not update read status'}), 500
+
+    return jsonify({'ok': True})
 
 
 @class_management_bp.route('/evaluation/<int:session_id>/course-review', methods=['GET', 'POST'])

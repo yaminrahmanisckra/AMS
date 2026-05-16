@@ -351,6 +351,7 @@ class StudentFeedbackResponse(db.Model):
     feedback_link_id = db.Column(db.Integer, db.ForeignKey('student_feedback_link.id'), nullable=False)
     payload = db.Column(db.Text, nullable=False)
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, nullable=False, default=False, server_default=db.text('0'))
     feedback_link = db.relationship('StudentFeedbackLink', backref=db.backref('responses', lazy='dynamic', cascade='all, delete-orphan'))
 
 

@@ -305,6 +305,7 @@ CREATE TABLE IF NOT EXISTS `student_feedback_response` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
     `feedback_link_id` INT NOT NULL,
     `payload` TEXT NOT NULL,
+    `is_read` BOOLEAN NOT NULL DEFAULT FALSE,
     `submitted_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (`feedback_link_id`) REFERENCES `student_feedback_link`(`id`) ON DELETE CASCADE,
     INDEX `idx_feedback_link_id` (`feedback_link_id`)
