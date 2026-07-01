@@ -7,8 +7,8 @@ class PsacCommittee(db.Model):
     """PSAC Committee: Head is the chair; members and ad-hoc members are teachers."""
     __tablename__ = 'psac_committee'
     id = db.Column(db.Integer, primary_key=True)
-    # Head of discipline (teacher id) - committee chair
     head_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -42,6 +42,7 @@ class SurveyLink(db.Model):
     access_code = db.Column(db.String(64), unique=True, nullable=False)
     title = db.Column(db.String(200), nullable=True)
     committee_id = db.Column(db.Integer, db.ForeignKey('psac_committee.id'), nullable=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     committee = db.relationship('PsacCommittee', backref=db.backref('survey_links', lazy='dynamic'))

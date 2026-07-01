@@ -12,6 +12,7 @@ class AcademicCalendarEvent(db.Model):
     end_date = db.Column(db.Date, nullable=True)  # End date (optional, for date ranges)
     event_type = db.Column(db.String(50), nullable=False)  # 'holiday', 'event', 'exam', etc.
     is_recurring = db.Column(db.Boolean, default=False, nullable=False)  # For weekly holidays like Friday/Saturday
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

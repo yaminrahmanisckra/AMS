@@ -10,9 +10,11 @@ class RSession(db.Model):
     batch = db.Column(db.String(50), nullable=True)  # Batch for curriculum selection
     curriculum_id = db.Column(db.Integer, nullable=True)  # Reference to Curriculum
     is_archived = db.Column(db.Boolean, default=False, nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     students = db.relationship('RStudent', backref='session', lazy=True, cascade="all, delete-orphan")
     subjects = db.relationship('RSubject', backref='session', lazy=True, cascade="all, delete-orphan")
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('result_sessions', lazy='dynamic'))
 
     def __repr__(self):
         return f'<RSession {self.name}>'

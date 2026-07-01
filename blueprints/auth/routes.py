@@ -85,8 +85,15 @@ def login():
         current_app.logger.info(f"Successfully logged in user: {user.username} (ID: {user.id}) with role: {selected_role}")
         flash('Login successful!', 'success')
         
+        from utils.window_utils import resolve_window_after_login
+        next_endpoint = resolve_window_after_login(user, selected_role)
+        if next_endpoint:
+            target = url_for(next_endpoint)
+        else:
+            target = url_for('index')
+        
         # Create response and ensure session cookie is properly set
-        response = redirect(url_for('index'))
+        response = redirect(target)
         # Force session to be saved
         session.permanent = False
         
@@ -119,6 +126,74 @@ def login():
         default_student_password=student_default_password,
         username=None
     )
+
+
+@auth_bp.route('/select-window', methods=['GET'])
+@login_required
+def select_window():
+    from utils.window_utils import get_active_windows, role_needs_window_selection, user_bypasses_window_selection
+
+    active_role = session.get('active_role')
+    if user_bypasses_window_selection(current_user, active_role):
+        return redirect(url_for('index'))
+    if not role_needs_window_selection(active_role):
+        return redirect(url_for('index'))
+
+    windows = get_active_windows()
+    if not windows:
+        return redirect(url_for('auth.no_active_window'))
+    if len(windows) == 1:
+        from utils.window_utils import set_session_window_id
+        set_session_window_id(windows[0].id)
+        return redirect(url_for('index'))
+
+    return render_template('auth/select_window.html', windows=windows)
+
+
+@auth_bp.route('/set-window', methods=['POST'])
+@login_required
+def set_window():
+    from utils.window_utils import (
+        get_active_windows,
+        set_session_window_id,
+        role_needs_window_selection,
+        user_bypasses_window_selection,
+    )
+
+    active_role = session.get('active_role')
+    if user_bypasses_window_selection(current_user, active_role):
+        return redirect(url_for('index'))
+    if not role_needs_window_selection(active_role):
+        return redirect(url_for('index'))
+
+    try:
+        window_id = int(request.form.get('window_id', ''))
+    except (TypeError, ValueError):
+        flash('Please select a window.', 'error')
+        return redirect(url_for('auth.select_window'))
+
+    active_ids = {w.id for w in get_active_windows()}
+    if window_id not in active_ids:
+        flash('Selected window is not active.', 'error')
+        return redirect(url_for('auth.select_window'))
+
+    set_session_window_id(window_id)
+    flash('Window selected.', 'success')
+    return redirect(url_for('index'))
+
+
+@auth_bp.route('/no-active-window', methods=['GET'])
+@login_required
+def no_active_window():
+    from utils.window_utils import get_active_windows, user_bypasses_window_selection
+
+    active_role = session.get('active_role')
+    if user_bypasses_window_selection(current_user, active_role):
+        return redirect(url_for('index'))
+    if get_active_windows():
+        return redirect(url_for('auth.select_window'))
+
+    return render_template('auth/no_active_window.html')
 
 @auth_bp.route('/logout')
 @login_required

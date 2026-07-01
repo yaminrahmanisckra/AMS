@@ -69,6 +69,12 @@ try:
     from utils.semester_utils import filter_by_active_semester
 except ImportError:
     filter_by_active_semester = None
+try:
+    from utils.window_utils import filter_by_active_window, get_effective_window_id, query_for_window, get_for_window, get_or_404_for_window
+except ImportError:
+    filter_by_active_window = None
+    get_effective_window_id = None
+    query_for_window = None
 
 
 def _class_students_for_session(session_id, order=True):
@@ -578,7 +584,7 @@ def _get_related_sessions(session, include_archived=False):
     if not session or not session.split_group_id:
         return [session] if session else []
 
-    query = Session.query.filter_by(split_group_id=session.split_group_id)
+    query = query_for_window(Session).filter_by(split_group_id=session.split_group_id)
     if not include_archived:
         query = query.filter_by(archived=False)
     related = query.order_by(Session.id.asc()).all()
@@ -592,7 +598,7 @@ def _resolve_attendance_related_sessions(session, include_archived=False):
         return related_sessions
 
     # Fallback for reassign/unassign history where split_group linkage may drift.
-    query = Session.query.filter(
+    query = query_for_window(Session).filter(
         Session.course_code == session.course_code,
         Session.year == session.year,
         Session.term == session.term,
@@ -640,7 +646,7 @@ def _carry_on_assessment_marks(class_student, session):
         
         # Find previous session with same course_code and student_id
         # Look for sessions with different academic_session/year/term
-        previous_sessions = Session.query.filter(
+        previous_sessions = query_for_window(Session).filter(
             Session.course_code == session.course_code,
             Session.id != session.id,
             Session.archived == False
@@ -1258,7 +1264,7 @@ def index():
     teacher = _ensure_current_teacher()
     
     # Start with base query
-    query = Session.query.filter_by(
+    query = query_for_window(Session).filter_by(
         teacher_id=teacher.id,
         archived=False
     )
@@ -1331,14 +1337,24 @@ def index():
     if CourseSessionAssignment and Course:
         try:
             # Find all assignments for this teacher that don't have sessions yet
-            missing_assignments = CourseSessionAssignment.query.filter_by(
+            missing_assignments_query = CourseSessionAssignment.query.filter_by(
                 teacher_id=teacher.id
             ).filter(
                 or_(
                     CourseSessionAssignment.session_created == False,
                     CourseSessionAssignment.session_id.is_(None)
                 )
-            ).all()
+            )
+            if get_effective_window_id and not is_admin(current_user):
+                eff_window = get_effective_window_id(admin_override=False)
+                if eff_window is not None:
+                    missing_assignments_query = missing_assignments_query.filter(
+                        or_(
+                            CourseSessionAssignment.window_id == eff_window,
+                            CourseSessionAssignment.window_id.is_(None),
+                        )
+                    )
+            missing_assignments = missing_assignments_query.all()
             
             current_app.logger.info(f'[DEBUG] Teacher {teacher.id} ({teacher.name}): Found {len(missing_assignments)} assignments without sessions')
             
@@ -1366,7 +1382,7 @@ def index():
                         course_scope = SCOPE_FULL
                     
                     # Check if a session with similar parameters already exists
-                    existing_session = Session.query.filter_by(
+                    existing_session = query_for_window(Session).filter_by(
                         course_code=course.course_code,
                         teacher_id=teacher.id,
                         year=assignment.year,
@@ -1384,13 +1400,14 @@ def index():
                         session_obj = Session(
                             year=assignment.year,
                             term=assignment.term,
-                            academic_session=assignment.academic_session,  # Use assignment's academic_session (should be set by now)
+                            academic_session=assignment.academic_session,
                             course_code=course.course_code,
                             course_name=course.course_name,
                             teacher_id=teacher.id,
                             course_type=_normalize_session_course_type(course.course_type),
                             category=course.category if course.category else 'ug',
-                            course_scope=course_scope
+                            course_scope=course_scope,
+                            window_id=assignment.window_id,
                         )
                         db.session.add(session_obj)
                         db.session.flush()  # Get session ID
@@ -1417,7 +1434,7 @@ def index():
     
     # Now apply active semester filtering AFTER updating academic_session and creating sessions
     # Re-query to get updated sessions including newly created ones
-    query = Session.query.filter_by(
+    query = query_for_window(Session).filter_by(
         teacher_id=teacher.id,
         archived=False
     )
@@ -1437,10 +1454,13 @@ def index():
             
             # Log active semester configuration
             try:
-                from utils.semester_utils import get_active_semesters
-                active_semesters = get_active_semesters(batch=None)  # Get ALL active semesters
-                active_sem_info = [f"{s.academic_session}-{s.year}-{s.term}-{s.batch or 'ALL'}" for s in active_semesters]
-                current_app.logger.info(f'[DEBUG] Active semesters for filtering (all batches): {active_sem_info}')
+                from utils.semester_utils import get_active_semesters_for_user
+                active_semesters = get_active_semesters_for_user(admin_override=False)
+                active_sem_info = [
+                    f"win{s.window_id}-{s.academic_session}-{s.year}-{s.term}-{s.batch or 'ALL'}"
+                    for s in active_semesters
+                ]
+                current_app.logger.info(f'[DEBUG] Active semesters for filtering (window-scoped): {active_sem_info}')
             except Exception as sem_error:
                 current_app.logger.warning(f'[DEBUG] Error getting active semesters: {sem_error}')
             
@@ -1450,6 +1470,13 @@ def index():
         except Exception as filter_error:
             current_app.logger.error(f'[DEBUG] Error applying active semester filter: {filter_error}', exc_info=True)
             # Don't fail the request, but log the error
+
+    if filter_by_active_window and not is_admin(current_user):
+        try:
+            query = filter_by_active_window(query, Session, admin_override=False)
+            current_app.logger.info(f'[DEBUG] Applied active window filtering for teacher {teacher.id}')
+        except Exception as window_filter_error:
+            current_app.logger.error(f'[DEBUG] Error applying active window filter: {window_filter_error}', exc_info=True)
     
     sessions = query.order_by(Session.created_at.desc()).all()
 
@@ -1709,10 +1736,16 @@ def create_session():
             return redirect(url_for('class_management.index'))
 
         # Prevent more than two teachers (Part A & Part B) from taking the same course simultaneously
-        active_sessions = Session.query.filter(
+        window_id = get_effective_window_id(admin_override=is_admin(current_user)) if get_effective_window_id else None
+        active_sessions_query = query_for_window(Session).filter(
             Session.course_code == course_code,
             Session.archived.is_(False)
-        ).all()
+        )
+        if window_id is not None:
+            active_sessions_query = active_sessions_query.filter(
+                or_(Session.window_id == window_id, Session.window_id.is_(None))
+            )
+        active_sessions = active_sessions_query.all()
         full_exists = any(s.course_scope == SCOPE_FULL for s in active_sessions)
         part_a_exists = any(s.course_scope == SCOPE_PART_A for s in active_sessions)
         part_b_exists = any(s.course_scope == SCOPE_PART_B for s in active_sessions)
@@ -1747,7 +1780,8 @@ def create_session():
                 teacher_id=teacher.id,
                 course_type=course_type,
                 category=category,
-                course_scope=SCOPE_FULL
+                course_scope=SCOPE_FULL,
+                window_id=window_id,
             )
             db.session.add(session_obj)
             db.session.flush()  # Get session ID before commit
@@ -1863,7 +1897,8 @@ def create_session():
             course_type=course_type,
             category=category,
             course_scope=course_scope,
-            split_group_id=split_group_id
+            split_group_id=split_group_id,
+            window_id=window_id,
         )
         db.session.add(current_session)
         db.session.flush()
@@ -1987,7 +2022,7 @@ def accept_split_invite(invite_id):
         flash('This invitation has already been processed.', 'info')
         return redirect(url_for('class_management.index'))
 
-    inviter_session = Session.query.get(invite.inviter_session_id)
+    inviter_session = get_for_window(Session, invite.inviter_session_id)
     if not inviter_session:
         invite.status = 'declined'
         invite.responded_at = datetime.utcnow()
@@ -2071,7 +2106,7 @@ def upload_students(session_id):
         if 'student_id' not in df.columns or 'name' not in df.columns:
             raise Exception('Excel file must have columns: Student ID, Name')
         
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         for _, row in df.iterrows():
             student = ClassStudent(
                 student_id=str(row['student_id']),
@@ -2092,7 +2127,7 @@ def upload_students(session_id):
 @login_required
 def take_attendance(session_id):
     """Take or update attendance for a session."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     students = _class_students_for_session(session_id)
     
     if request.method == 'POST':
@@ -2182,7 +2217,7 @@ def take_attendance(session_id):
 @login_required
 def view_attendance(session_id):
     """View attendance for a session and display a detailed report."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     
     # Check user permissions: admin/head can view any session, regular teachers only their own
     user_roles = set(parse_roles(getattr(current_user, 'role', '')))
@@ -2510,7 +2545,7 @@ def view_attendance(session_id):
 @login_required
 def toggle_attendance_record(record_id):
     record = ClassAttendance.query.get_or_404(record_id)
-    session = Session.query.get_or_404(record.session_id)
+    session = get_or_404_for_window(Session, record.session_id)
     teacher = _ensure_current_teacher()
     if session.teacher_id != teacher.id:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
@@ -2565,7 +2600,7 @@ def toggle_attendance_record(record_id):
 @login_required
 def create_attendance_record(session_id):
     """Create a new attendance record for a cell that currently shows '-' (no record)."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = _ensure_current_teacher()
     if session.teacher_id != teacher.id:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
@@ -2673,7 +2708,7 @@ def create_attendance_record(session_id):
 @login_required
 def save_attendance_marks_manual(session_id):
     """Save manual attendance marks override for students"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = _ensure_current_teacher()
     if session.teacher_id != teacher.id:
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
@@ -2740,7 +2775,7 @@ def save_attendance_marks_manual(session_id):
 @login_required
 def students_list(session_id):
     """View students list for a session"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     students = _class_students_for_session(session_id)
     
     # Get all batches for filter dropdown
@@ -2937,7 +2972,7 @@ def get_academic_sessions():
         })
     
     # Fetch academic session from CurriculumYearTerm
-    config = CurriculumYearTerm.query.filter_by(
+    config = query_for_window(CurriculumYearTerm).filter_by(
         curriculum_id=curriculum_id,
         year=year,
         term=term
@@ -2949,7 +2984,9 @@ def get_academic_sessions():
     
     # Also fetch distinct academic sessions from all CurriculumYearTerm for this curriculum/year/term
     # in case there are multiple entries (shouldn't happen due to unique constraint, but for safety)
-    all_sessions = db.session.query(CurriculumYearTerm.academic_session).filter_by(
+    all_sessions = query_for_window(CurriculumYearTerm).with_entities(
+        CurriculumYearTerm.academic_session
+    ).filter_by(
         curriculum_id=curriculum_id,
         year=year,
         term=term
@@ -2966,7 +3003,7 @@ def get_academic_sessions():
 @login_required
 def add_student(session_id):
     """Add students to a session from Students Management"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = _ensure_current_teacher()
     
     # Handle AJAX request (multiple students)
@@ -3130,7 +3167,7 @@ def delete_session(session_id):
             user_roles = set(parse_roles(current_user.active_role))
         can_delete_all = is_admin(current_user) or 'head' in user_roles or 'dean' in user_roles
         
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         
         # If not admin/head, check if this session belongs to the current teacher
         if not can_delete_all:
@@ -3205,7 +3242,7 @@ def delete_session(session_id):
 @login_required
 def course_file(session_id):
     """Course file management page"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     
     # Get or create course outline
     course_outline = None
@@ -3256,7 +3293,7 @@ def course_file(session_id):
 def save_course_outline(session_id):
     """Save course outline data"""
     try:
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         
         if not teacher or teacher.id != session.teacher_id:
@@ -3464,7 +3501,7 @@ def upload_course_file(session_id):
         from werkzeug.utils import secure_filename
         from blueprints.class_management.models import CourseFileUpload
         
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         
         if not teacher:
@@ -3536,7 +3573,7 @@ def upload_course_file(session_id):
         db.session.commit()
         current_app.logger.info(f"Course file uploaded successfully: {file_name} for session {session_id}")
         try:
-            session_obj = Session.query.get(session_id)
+            session_obj = get_for_window(Session, session_id)
             course_label = (session_obj.course_name or session_obj.course_code or 'Course') if session_obj else 'Course'
             title = f'New file shared: {file_name} ({course_label})'
             link_url = url_for('class_management.student_course_files')
@@ -3562,7 +3599,7 @@ def download_course_file(file_id):
         from blueprints.class_management.models import CourseFileUpload
         
         uploaded_file = CourseFileUpload.query.get_or_404(file_id)
-        session = Session.query.get_or_404(uploaded_file.session_id)
+        session = get_or_404_for_window(Session, uploaded_file.session_id)
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         
         # Check authorization
@@ -3596,7 +3633,7 @@ def delete_course_file(file_id):
         from blueprints.class_management.models import CourseFileUpload
         
         uploaded_file = CourseFileUpload.query.get_or_404(file_id)
-        session = Session.query.get_or_404(uploaded_file.session_id)
+        session = get_or_404_for_window(Session, uploaded_file.session_id)
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         
         # Check authorization
@@ -3632,7 +3669,7 @@ def generate_weekly_plan_ai(session_id):
     """Generate weekly plan using AI based on Course Content (section 14), Credit Value, and Academic Calendar"""
     from datetime import timedelta
     
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     
     # Check if teacher is authorized (either main teacher or part of split group)
@@ -3641,7 +3678,7 @@ def generate_weekly_plan_ai(session_id):
         if teacher.id == session.teacher_id:
             is_authorized = True
         elif session.split_group_id:
-            related_sessions = Session.query.filter_by(split_group_id=session.split_group_id).all()
+            related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
             for related_session in related_sessions:
                 if related_session.teacher_id == teacher.id:
                     is_authorized = True
@@ -3800,7 +3837,7 @@ def generate_weekly_plan_ai(session_id):
         year_start = date(current_year, 1, 1)
         year_end = date(current_year + 1, 12, 31)
         
-        calendar_events = AcademicCalendarEvent.query.filter(
+        calendar_events = query_for_window(AcademicCalendarEvent).filter(
             AcademicCalendarEvent.event_date >= year_start,
             AcademicCalendarEvent.event_date <= year_end
         ).order_by(AcademicCalendarEvent.event_date.asc()).all()
@@ -4459,7 +4496,7 @@ def _generate_rule_based_plan(session, credit, course_contents, week_groups, hol
 @login_required
 def edit_course_outline(session_id):
     """Edit course outline page"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     
     # Check if teacher is authorized (either main teacher or part of split group)
@@ -4469,7 +4506,7 @@ def edit_course_outline(session_id):
             is_authorized = True
         elif session.split_group_id:
             # Check if teacher is part of the split group
-            related_sessions = Session.query.filter_by(split_group_id=session.split_group_id).all()
+            related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
             for related_session in related_sessions:
                 if related_session.teacher_id == teacher.id:
                     is_authorized = True
@@ -4482,7 +4519,7 @@ def edit_course_outline(session_id):
     # Get all teachers for this course (if split group exists)
     course_teachers = [session.teacher]
     if session.split_group_id:
-        related_sessions = Session.query.filter_by(split_group_id=session.split_group_id).all()
+        related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
         for related_session in related_sessions:
             if related_session.teacher and related_session.teacher not in course_teachers:
                 course_teachers.append(related_session.teacher)
@@ -4577,7 +4614,7 @@ def edit_course_outline(session_id):
                     # Priority 3: Academic session match via CurriculumYearTerm
                     if CurriculumYearTerm and session.academic_session and course.curriculum_id:
                         try:
-                            config = CurriculumYearTerm.query.filter_by(
+                            config = query_for_window(CurriculumYearTerm).filter_by(
                                 curriculum_id=course.curriculum_id,
                                 academic_session=session.academic_session
                             ).first()
@@ -4838,7 +4875,7 @@ def edit_course_outline(session_id):
 
 def _generate_course_outline_docx(session_id):
     """Generate course outline as DOCX document"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     
     if not teacher or teacher.id != session.teacher_id:
@@ -4985,7 +5022,7 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         flash('WeasyPrint is not installed. Please install it to generate PDFs.', 'error')
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     
     # Skip authorization check if requested (for student downloads)
     if not skip_auth_check:
@@ -4996,7 +5033,7 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         if teacher and teacher.id == session.teacher_id:
             is_authorized = True
         elif session.split_group_id:
-            related_sessions = Session.query.filter_by(split_group_id=session.split_group_id).all()
+            related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
             for related_session in related_sessions:
                 if related_session.teacher and related_session.teacher.id == teacher.id:
                     is_authorized = True
@@ -5085,7 +5122,7 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
     course_teachers = [session.teacher]
     course_teachers_pdf = [session.teacher]
     if session.split_group_id:
-        related_sessions = Session.query.filter_by(split_group_id=session.split_group_id).all()
+        related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
         for related_session in related_sessions:
             if related_session.teacher and related_session.teacher not in course_teachers:
                 course_teachers.append(related_session.teacher)
@@ -5150,7 +5187,7 @@ def download_course_outline_pdf(session_id):
 @login_required
 def archive_session(session_id):
     """Archive a session"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     session.archived = True
     db.session.commit()
     flash('Session archived successfully!', 'success')
@@ -5160,7 +5197,7 @@ def archive_session(session_id):
 @login_required
 def unarchive_session(session_id):
     """Unarchive a session"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     session.archived = False
     db.session.commit()
     flash('Session unarchived successfully!', 'success')
@@ -5170,7 +5207,7 @@ def unarchive_session(session_id):
 @login_required
 def edit_session(session_id):
     """Edit a session"""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     
     if request.method == 'POST':
         try:
@@ -5209,7 +5246,7 @@ def archive():
         db.session.add(teacher)
         db.session.commit()
     
-    archived_sessions = Session.query.filter_by(teacher_id=teacher.id, archived=True).order_by(Session.created_at.desc()).all()
+    archived_sessions = query_for_window(Session).filter_by(teacher_id=teacher.id, archived=True).order_by(Session.created_at.desc()).all()
     
     # Build assignment map for template to access batch and academic_session from CourseSessionAssignment
     assignment_map = {}
@@ -5285,7 +5322,7 @@ def delete_attendance_by_date(session_id, date_str):
     try:
         attendance_date = datetime.strptime(date_str, '%Y-%m-%d').date()
         
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         
         if session.teacher.id != current_user.id:
             flash('You are not authorized to delete attendance for this session.', 'danger')
@@ -5336,7 +5373,7 @@ def download_attendance_excel(session_id):
             flash(f'Missing required module for Excel: {e}', 'error')
             return redirect(url_for('class_management.index'))
             
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         students = _class_students_for_session(session_id)
         attendance_summary = _build_attendance_summary(session)
         combined_assessment_map = _collect_combined_assessment_marks(session)
@@ -5604,7 +5641,7 @@ def download_pdf_report(session_id):
             current_app.logger.error(f"Missing required module: {e}")
             flash(f'Missing required module: {e}', 'error')
             return redirect(url_for('class_management.index'))
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         # Keep attendance aggregation identical to on-screen views
@@ -5786,7 +5823,7 @@ def download_attendance_sheet(session_id):
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         attendance_summary = _build_attendance_summary(session, include_archived=True)
 
         related_sessions = _resolve_attendance_related_sessions(session, include_archived=True)
@@ -6085,7 +6122,7 @@ def download_attendance_sheet_weasyprint(session_id):
     try:
         from error_handler import log_error
         
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         attendance_summary = _build_attendance_summary(session, include_archived=True)
         
         # Get related sessions for split courses
@@ -6273,7 +6310,7 @@ def download_attendance_sheet_weasyprint(session_id):
 def assessment(session_id):
     """Assessment management for a session"""
     try:
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         students = _class_students_for_session(session_id)
         is_split_theory = session.course_type == 'theory' and session.course_scope in SPLIT_PARTS
         editable_indices = _get_editable_assessment_indices(session)
@@ -6475,7 +6512,7 @@ def toggle_assessment_reveal(session_id):
     """Toggle reveal status for assessment scores"""
     try:
         import json
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         current_teacher = _ensure_current_teacher()
         
         # Ensure current teacher owns this session or is part of split course
@@ -6544,7 +6581,7 @@ def auto_save_assessment(session_id):
     """Auto-save assessment marks via AJAX"""
     try:
         import json
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         students = _class_students_for_session(session_id)
         editable_indices = _get_editable_assessment_indices(session)
         editable_sessional_fields = _get_editable_sessional_fields(session)
@@ -6662,7 +6699,7 @@ def student_view_scores():
         
         # Collect all sessions first
         for student_record in student_records:
-            session_obj = Session.query.get(student_record.session_id)
+            session_obj = get_for_window(Session, student_record.session_id)
             if not session_obj or session_obj.archived:
                 continue
             
@@ -7012,7 +7049,7 @@ def student_create_course_question(session_id):
         flash('Student ID not found.', 'error')
         return redirect(url_for('class_management.student_view_scores'))
 
-    session_obj = Session.query.get_or_404(session_id)
+    session_obj = get_or_404_for_window(Session, session_id)
     related_sessions = _get_related_sessions(session_obj)
     related_session_ids = [s.id for s in related_sessions if s]
 
@@ -7030,7 +7067,7 @@ def student_create_course_question(session_id):
         flash('You are not enrolled in this course.', 'error')
         return redirect(url_for('class_management.student_view_scores'))
 
-    selected_session = Session.query.get_or_404(selected_session_id)
+    selected_session = get_or_404_for_window(Session, selected_session_id)
 
     subject = request.form.get('subject', '').strip()
     message_body = request.form.get('message', '').strip()
@@ -7142,7 +7179,7 @@ def student_reply_course_question(thread_id):
 @login_required
 def course_questions(session_id):
     """Teacher view of course Q&A threads for a session."""
-    session_obj = Session.query.get_or_404(session_id)
+    session_obj = get_or_404_for_window(Session, session_id)
     teacher = _ensure_current_teacher()
 
     if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
@@ -7193,7 +7230,7 @@ def course_questions(session_id):
 def teacher_reply_course_question(thread_id):
     """Teacher reply to a Q&A thread."""
     thread = CourseQuestionThread.query.get_or_404(thread_id)
-    session_obj = Session.query.get_or_404(thread.session_id)
+    session_obj = get_or_404_for_window(Session, thread.session_id)
     teacher = _ensure_current_teacher()
 
     if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
@@ -7255,7 +7292,7 @@ def teacher_reply_course_question(thread_id):
 def mark_course_question_thread_read(thread_id):
     """Mark a single course question thread as read for the teacher."""
     thread = CourseQuestionThread.query.get_or_404(thread_id)
-    session_obj = Session.query.get_or_404(thread.session_id)
+    session_obj = get_or_404_for_window(Session, thread.session_id)
     teacher = _ensure_current_teacher()
 
     if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
@@ -7286,7 +7323,7 @@ def download_course_question_attachment(attachment_id):
         attachment = CourseQuestionAttachment.query.get_or_404(attachment_id)
         message = CourseQuestionMessage.query.get_or_404(attachment.message_id)
         thread = CourseQuestionThread.query.get_or_404(message.thread_id)
-        session_obj = Session.query.get_or_404(thread.session_id)
+        session_obj = get_or_404_for_window(Session, thread.session_id)
 
         student_id = current_user.username if hasattr(current_user, 'username') else None
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
@@ -7317,7 +7354,7 @@ def download_course_question_attachment(attachment_id):
 def delete_course_question_thread(thread_id):
     """Delete a Q&A thread (question)."""
     thread = CourseQuestionThread.query.get_or_404(thread_id)
-    session_obj = Session.query.get_or_404(thread.session_id)
+    session_obj = get_or_404_for_window(Session, thread.session_id)
     student_id = current_user.username if hasattr(current_user, 'username') else None
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
 
@@ -7350,7 +7387,7 @@ def delete_course_question_message(message_id):
     """Delete a single message in a Q&A thread."""
     message = CourseQuestionMessage.query.get_or_404(message_id)
     thread = CourseQuestionThread.query.get_or_404(message.thread_id)
-    session_obj = Session.query.get_or_404(thread.session_id)
+    session_obj = get_or_404_for_window(Session, thread.session_id)
     student_id = current_user.username if hasattr(current_user, 'username') else None
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
 
@@ -7380,7 +7417,7 @@ def download_assessment_excel(session_id):
     """Download assessment data as Excel file"""
     try:
         import json
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         
@@ -7520,7 +7557,7 @@ def download_assessment_pdf(session_id):
     """Download assessment marks as PDF"""
     try:
         import json
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         students = _class_students_for_session(session_id)
         combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         
@@ -7758,7 +7795,7 @@ def qa_message_body_filter(value):
 @login_required
 def evaluation(session_id):
     """Placeholder Evaluation page for a session. Forms will be added later."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     students = _class_students_for_session(session_id)
     return render_template('class_management/evaluation.html', session=session, students=students)
 
@@ -7766,7 +7803,7 @@ def evaluation(session_id):
 @login_required
 def course_assessment(session_id):
     """Invite other teachers to evaluate this course; show existing invitations."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     inviter_teacher = Teacher.query.filter_by(id=session.teacher_id).first()
 
     if request.method == 'POST':
@@ -7813,7 +7850,7 @@ def course_assessment(session_id):
     # Existing invites for this session
     invites = EvaluationInvite.query.filter_by(session_id=session_id).all()
     session_ids = [inv.session_id for inv in invites]
-    sessions_by_id = {s.id: s for s in Session.query.filter(Session.id.in_(session_ids)).all()} if session_ids else {}
+    sessions_by_id = {s.id: s for s in query_for_window(Session).filter(Session.id.in_(session_ids)).all()} if session_ids else {}
     teacher_ids = {inv.evaluator_teacher_id for inv in invites}
     teachers_by_id = {t.id: t for t in Teacher.query.filter(Teacher.id.in_(teacher_ids)).all()} if teacher_ids else {}
 
@@ -7868,14 +7905,14 @@ def inject_invites_count():
             teacher = Teacher.query.filter_by(name=current_user.full_name).first()
             if teacher:
                 count = EvaluationInvite.query.filter_by(evaluator_teacher_id=teacher.id, status='invited').count()
-                exam_count = ExamScrutinizerInvite.query.filter_by(scrutinizer_teacher_id=teacher.id, status='invited').count()
+                exam_count = query_for_window(ExamScrutinizerInvite).filter_by(scrutinizer_teacher_id=teacher.id, status='invited').count()
                 split_count = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').count()
                 out['pending_invites_count'] = count + exam_count + split_count
                 pending_q = _pending_teacher_question_threads_query(teacher.id)
                 out['question_notification_count'] = pending_q.count()
                 unread = pending_q.limit(20).all()
                 session_ids = list({t.session_id for t in unread})
-                sessions_by_id = {s.id: s for s in Session.query.filter(Session.id.in_(session_ids)).all()} if session_ids else {}
+                sessions_by_id = {s.id: s for s in query_for_window(Session).filter(Session.id.in_(session_ids)).all()} if session_ids else {}
                 out['question_notifications'] = [
                     {
                         'thread_id': t.id,
@@ -7972,19 +8009,19 @@ def my_invitations():
         return redirect(url_for('index'))
     invites = EvaluationInvite.query.filter_by(evaluator_teacher_id=teacher.id).order_by(EvaluationInvite.created_at.desc()).all()
     session_ids = [inv.session_id for inv in invites]
-    sessions_by_id = {s.id: s for s in Session.query.filter(Session.id.in_(session_ids)).all()} if session_ids else {}
+    sessions_by_id = {s.id: s for s in query_for_window(Session).filter(Session.id.in_(session_ids)).all()} if session_ids else {}
     inviter_ids = [inv.inviter_teacher_id for inv in invites]
     inviter_by_id = {t.id: t for t in Teacher.query.filter(Teacher.id.in_(inviter_ids)).all()} if inviter_ids else {}
 
-    exam_invites = ExamScrutinizerInvite.query.filter_by(scrutinizer_teacher_id=teacher.id).order_by(ExamScrutinizerInvite.created_at.desc()).all()
+    exam_invites = query_for_window(ExamScrutinizerInvite).filter_by(scrutinizer_teacher_id=teacher.id).order_by(ExamScrutinizerInvite.created_at.desc()).all()
     exam_entry_ids = [inv.exam_entry_id for inv in exam_invites]
-    exam_entries_by_id = {e.id: e for e in ExamPaperEvaluation.query.filter(ExamPaperEvaluation.id.in_(exam_entry_ids)).all()} if exam_entry_ids else {}
+    exam_entries_by_id = {e.id: e for e in query_for_window(ExamPaperEvaluation).filter(ExamPaperEvaluation.id.in_(exam_entry_ids)).all()} if exam_entry_ids else {}
     exam_inviter_ids = [inv.inviter_teacher_id for inv in exam_invites]
     exam_inviter_by_id = {t.id: t for t in Teacher.query.filter(Teacher.id.in_(exam_inviter_ids)).all()} if exam_inviter_ids else {}
 
     split_invites = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id).order_by(ClassSplitInvite.created_at.desc()).all()
     split_sessions_ids = {inv.inviter_session_id for inv in split_invites}
-    split_sessions_by_id = {s.id: s for s in Session.query.filter(Session.id.in_(split_sessions_ids)).all()} if split_sessions_ids else {}
+    split_sessions_by_id = {s.id: s for s in query_for_window(Session).filter(Session.id.in_(split_sessions_ids)).all()} if split_sessions_ids else {}
     split_inviter_ids = {inv.inviter_teacher_id for inv in split_invites}
     split_inviter_by_id = {t.id: t for t in Teacher.query.filter(Teacher.id.in_(split_inviter_ids)).all()} if split_inviter_ids else {}
     has_cancelled_invites = (
@@ -8023,7 +8060,7 @@ def clear_cancelled_invitations():
             evaluator_teacher_id=teacher.id,
             status='cancelled'
         ).delete(synchronize_session=False)
-        exam_deleted = ExamScrutinizerInvite.query.filter_by(
+        exam_deleted = query_for_window(ExamScrutinizerInvite).filter_by(
             scrutinizer_teacher_id=teacher.id,
             status='cancelled'
         ).delete(synchronize_session=False)
@@ -8059,7 +8096,7 @@ def course_assessment_form(session_id, invite_id):
         flash('You are not authorized for this form.', 'danger')
         return redirect(url_for('index'))
 
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     current_teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not current_teacher or current_teacher.id not in {invite.inviter_teacher_id, invite.evaluator_teacher_id}:
         flash('You are not authorized to view this submission.', 'danger')
@@ -8175,7 +8212,7 @@ def course_assessment_form(session_id, invite_id):
 @login_required
 def student_feedback_manage(session_id):
     """Manage anonymous student feedback link and view submissions."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher or teacher.id != session.teacher_id:
         flash('শুধুমাত্র কোর্সটির শিক্ষকই ফিডব্যাক সেটআপ করতে পারবেন।', 'danger')
@@ -8286,7 +8323,7 @@ def student_feedback_manage(session_id):
 @login_required
 def mark_student_feedback_response_read(session_id, response_id):
     """Mark one student feedback response as read by the course teacher."""
-    session_obj = Session.query.get_or_404(session_id)
+    session_obj = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher or teacher.id != session_obj.teacher_id:
         return jsonify({'ok': False, 'message': 'Unauthorized'}), 403
@@ -8317,7 +8354,7 @@ def mark_student_feedback_response_read(session_id, response_id):
 @login_required
 def course_review_form(session_id):
     """Course teacher documents reflections and improvement plans."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
 
     if not teacher:
@@ -8465,7 +8502,7 @@ def course_review_form(session_id):
 @login_required
 def course_review_pdf(session_id):
     """Download the Faculty Course Review Report as a PDF."""
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
 
     if not teacher or teacher.id != session.teacher_id:
@@ -8711,7 +8748,7 @@ def course_assessment_view(session_id, invite_id):
     if invite.session_id != session_id:
         flash('Invalid invitation.', 'danger')
         return redirect(url_for('index'))
-    session = Session.query.get_or_404(session_id)
+    session = get_or_404_for_window(Session, session_id)
     current_teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not current_teacher or current_teacher.id not in {invite.inviter_teacher_id, invite.evaluator_teacher_id}:
         flash('You are not authorized to view this submission.', 'danger')
@@ -8774,7 +8811,7 @@ def course_assessment_pdf(session_id, invite_id):
         if invite.session_id != session_id:
             flash('Invalid invitation.', 'danger')
             return redirect(url_for('index'))
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         current_teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not current_teacher or current_teacher.id not in {invite.inviter_teacher_id, invite.evaluator_teacher_id}:
             flash('You are not authorized to download this report.', 'danger')
@@ -9082,7 +9119,7 @@ FEEDBACK_EFFORT_OPTIONS = [
 @class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/pdf')
 @login_required
 def student_feedback_responses_pdf(session_id):
-    session_obj = Session.query.get_or_404(session_id)
+    session_obj = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher or teacher.id != session_obj.teacher_id:
         flash('You are not authorized to access this download.', 'danger')
@@ -9319,7 +9356,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
         current_app.logger.error(f"Current availability status: {_WEASYPRINT_AVAILABLE}")
         return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
     
-    session_obj = Session.query.get_or_404(session_id)
+    session_obj = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher or teacher.id != session_obj.teacher_id:
         flash('You are not authorized to access this download.', 'danger')
@@ -9423,7 +9460,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
 @class_management_bp.route('/evaluation/<int:session_id>/student-feedback/responses/docx')
 @login_required
 def student_feedback_responses_docx(session_id):
-    session_obj = Session.query.get_or_404(session_id)
+    session_obj = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher or teacher.id != session_obj.teacher_id:
         flash('You are not authorized to access this download.', 'danger')
@@ -9600,7 +9637,7 @@ def student_course_files():
         # Get all sessions where student is enrolled
         enrolled_sessions = []
         for student_record in student_records:
-            session_obj = Session.query.get(student_record.session_id)
+            session_obj = get_for_window(Session, student_record.session_id)
             if session_obj and not session_obj.archived:
                 enrolled_sessions.append(session_obj)
         

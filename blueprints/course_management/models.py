@@ -1,5 +1,6 @@
 from extensions import db
 from datetime import datetime
+from sqlalchemy import or_
 import json
 """
 NOTE:
@@ -26,10 +27,31 @@ class Curriculum(db.Model):
             return [b.strip() for b in self.applicable_batches.split(',') if b.strip()]
         return []
 
-    def get_year_term_config(self, year, term):
-        """Get configuration for a specific year/term combination"""
+    def _year_term_configs_for_window(self, window_id=None):
+        """Year/term rows scoped to an operational window."""
+        query = self.year_term_configs
+        if window_id is None:
+            try:
+                from utils.window_utils import get_effective_window_id, DEFAULT_WINDOW_ID
+                window_id = get_effective_window_id(admin_override=False)
+                if window_id is None:
+                    window_id = DEFAULT_WINDOW_ID
+            except ImportError:
+                window_id = 1
+        if window_id is not None:
+            query = query.filter(
+                or_(
+                    CurriculumYearTerm.window_id == window_id,
+                    CurriculumYearTerm.window_id.is_(None),
+                )
+            )
+        return query
+
+    def get_year_term_config(self, year, term, window_id=None):
+        """Get configuration for a specific year/term combination in the active window."""
+        scoped = self._year_term_configs_for_window(window_id)
         # Fast path: exact stored values
-        exact = self.year_term_configs.filter_by(year=year, term=term).order_by(
+        exact = scoped.filter_by(year=year, term=term).order_by(
             CurriculumYearTerm.updated_at.desc(),
             CurriculumYearTerm.id.desc()
         ).first()
@@ -60,7 +82,7 @@ class Curriculum(db.Model):
         target_year = _norm(year, is_term=False)
         target_term = _norm(term, is_term=True)
         matched_configs = []
-        for cfg in self.year_term_configs.all():
+        for cfg in scoped.all():
             if _norm(cfg.year, is_term=False) == target_year and _norm(cfg.term, is_term=True) == target_term:
                 matched_configs.append(cfg)
         if not matched_configs:
@@ -83,13 +105,18 @@ class CurriculumYearTerm(db.Model):
     term = db.Column(db.String(50), nullable=False)  # Term (e.g., "First", "Second")
     batch = db.Column(db.String(20), nullable=True)  # Batch (dropdown selection)
     academic_session = db.Column(db.String(50), nullable=True)  # Academic Session (text input)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     curriculum = db.relationship('Curriculum', back_populates='year_term_configs')
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('curriculum_year_terms', lazy='dynamic'))
     
     __table_args__ = (
-        db.UniqueConstraint('curriculum_id', 'year', 'term', 'academic_session', name='uq_curriculum_year_term_session'),
+        db.UniqueConstraint(
+            'window_id', 'curriculum_id', 'year', 'term', 'academic_session',
+            name='uq_curriculum_year_term_window_session',
+        ),
     )
 
     def __repr__(self):
@@ -218,6 +245,7 @@ class CourseSessionAssignment(db.Model):
     year = db.Column(db.String(50), nullable=False)  # Year from Course
     term = db.Column(db.String(50), nullable=False)  # Term from Course
     academic_session = db.Column(db.String(50), nullable=True)  # Academic Session from CurriculumYearTerm
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     session_created = db.Column(db.Boolean, default=False, nullable=False)  # Whether Session has been created
     session_id = db.Column(db.Integer, nullable=True)  # ID of created Session in Class Management
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -226,10 +254,13 @@ class CourseSessionAssignment(db.Model):
     course = db.relationship('Course', backref=db.backref('session_assignments', lazy='dynamic'))
     curriculum = db.relationship('Curriculum', backref=db.backref('session_assignments', lazy='dynamic'))
     teacher = db.relationship('Teacher', lazy='joined')
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('session_assignments', lazy='dynamic'))
     
     __table_args__ = (
-        # Prevent duplicate assignments for same course, teacher, section, year, term
-        db.UniqueConstraint('course_id', 'teacher_id', 'section', 'year', 'term', 'batch', name='uq_course_session_assignment'),
+        db.UniqueConstraint(
+            'window_id', 'course_id', 'teacher_id', 'section', 'year', 'term', 'batch',
+            name='uq_course_session_assignment_window'
+        ),
     )
     
     def __repr__(self):
@@ -243,6 +274,7 @@ class StudentCourseRegistration(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
     course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     academic_session = db.Column(db.String(50), nullable=False)
     year = db.Column(db.String(20), nullable=False)
     term = db.Column(db.String(20), nullable=False)
@@ -284,8 +316,8 @@ class StudentCourseRegistration(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint(
-            'student_id', 'academic_session', 'year', 'term', 'course_code',
-            name='uq_student_course_term'
+            'window_id', 'student_id', 'academic_session', 'year', 'term', 'course_code',
+            name='uq_student_course_term_window',
         ),
     )
 
@@ -296,6 +328,7 @@ class CourseRegistrationInvite(db.Model):
     registration_id = db.Column(db.Integer, db.ForeignKey('student_course_registration.id'), nullable=False)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=False)
     coordinator_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     status = db.Column(db.String(20), nullable=False, default='pending')  # pending | accepted | finalized | declined
     remarks = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -304,6 +337,7 @@ class CourseRegistrationInvite(db.Model):
     registration = db.relationship('StudentCourseRegistration', backref=db.backref('invites', lazy='dynamic', cascade='all, delete-orphan'))
     student = db.relationship('Student', backref=db.backref('registration_invites', lazy='dynamic', cascade='all, delete-orphan'))
     coordinator = db.relationship('Teacher', foreign_keys=[coordinator_teacher_id], backref=db.backref('course_registration_invites', lazy='dynamic'))
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('course_registration_invites', lazy='dynamic'))
 
 
 class DutyAssignment(db.Model):
@@ -322,10 +356,12 @@ class DutyAssignment(db.Model):
     assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Head who assigned
     remarks = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), nullable=False, default='active')  # active | inactive
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     course = db.relationship('Course', backref=db.backref('duty_assignments', lazy='dynamic'))
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('duty_assignments', lazy='dynamic'))
     assigned_teacher = db.relationship('Teacher', foreign_keys=[assigned_teacher_id], backref=db.backref('duty_assignments', lazy='dynamic'))
     assigned_student = db.relationship('Student', foreign_keys=[student_id], backref=db.backref('assistant_duties', lazy='dynamic'))
     # Note: assigned_by relationship removed to avoid SQLAlchemy User class resolution issues
@@ -345,6 +381,7 @@ class SessionArchive(db.Model):
     year = db.Column(db.String(50), nullable=True)
     term = db.Column(db.String(50), nullable=True)
     batch = db.Column(db.String(50), nullable=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     
     # Archive data (JSON format)
     archive_data = db.Column(db.Text, nullable=False)  # JSON string containing all archived data
@@ -358,6 +395,8 @@ class SessionArchive(db.Model):
     
     # Description/notes
     description = db.Column(db.String(500), nullable=True)
+
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('session_archives', lazy='dynamic'))
     
     def __repr__(self):
         return f'<SessionArchive {self.academic_session} - {self.year} - {self.term}>'
@@ -379,11 +418,70 @@ class SessionArchive(db.Model):
         }
 
 
+class OperationalWindow(db.Model):
+    """Operational window: isolated partition for assignments, classes, registrations."""
+    __tablename__ = 'operational_window'
+
+    STATUS_DRAFT = 'draft'
+    STATUS_RUNNING = 'running'
+    STATUS_CLOSING = 'closing'
+    STATUS_CLOSED = 'closed'
+    STATUS_CHOICES = (STATUS_DRAFT, STATUS_RUNNING, STATUS_CLOSING, STATUS_CLOSED)
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(500), nullable=True)
+    academic_session = db.Column(db.String(50), nullable=True)
+    year = db.Column(db.String(50), nullable=True)
+    term = db.Column(db.String(50), nullable=True)
+    batch = db.Column(db.String(50), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default=STATUS_RUNNING)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    activated_by = db.Column(db.String(100), nullable=True)
+    activated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    deactivated_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.Index('idx_operational_window_active', 'is_active', 'status'),
+    )
+
+    def __repr__(self):
+        return f'<OperationalWindow {self.id}: {self.name}>'
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'description': self.description,
+            'academic_session': self.academic_session,
+            'year': self.year,
+            'term': self.term,
+            'batch': self.batch,
+            'status': self.status,
+            'is_active': self.is_active,
+            'activated_by': self.activated_by,
+            'activated_at': self.activated_at.isoformat() if self.activated_at else None,
+            'deactivated_at': self.deactivated_at.isoformat() if self.deactivated_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    @property
+    def display_label(self):
+        parts = [self.name]
+        if self.academic_session:
+            parts.append(self.academic_session)
+        if self.year and self.term:
+            parts.append(f'{self.year} / {self.term}')
+        return ' — '.join(parts)
+
+
 class ActiveSemesterConfig(db.Model):
     """Model to manage active semester configuration"""
     __tablename__ = 'active_semester_config'
     
     id = db.Column(db.Integer, primary_key=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     academic_session = db.Column(db.String(50), nullable=False)
     year = db.Column(db.String(50), nullable=False)
     term = db.Column(db.String(50), nullable=False)
@@ -392,9 +490,12 @@ class ActiveSemesterConfig(db.Model):
     activated_by = db.Column(db.String(100), nullable=True)  # User who activated
     activated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     deactivated_at = db.Column(db.DateTime, nullable=True)
+
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('active_semesters', lazy='dynamic'))
     
     __table_args__ = (
         db.Index('idx_active_semester', 'academic_session', 'year', 'term', 'batch', 'is_active'),
+        db.Index('idx_active_semester_window', 'window_id', 'is_active'),
     )
     
     def __repr__(self):
@@ -403,8 +504,13 @@ class ActiveSemesterConfig(db.Model):
     
     def to_dict(self):
         """Convert to dictionary"""
+        window_name = None
+        if self.operational_window:
+            window_name = self.operational_window.name
         return {
             'id': self.id,
+            'window_id': self.window_id,
+            'window_name': window_name,
             'academic_session': self.academic_session,
             'year': self.year,
             'term': self.term,

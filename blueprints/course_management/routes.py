@@ -11,10 +11,38 @@ try:
     from utils.semester_utils import filter_by_active_semester
 except ImportError:
     filter_by_active_semester = None
+try:
+    from utils.window_utils import (
+        filter_by_active_window,
+        get_effective_window_id,
+        query_for_window,
+        stamp_window_id,
+        get_for_window,
+    )
+except ImportError:
+    filter_by_active_window = None
+    get_effective_window_id = None
+    query_for_window = None
+    stamp_window_id = None
+    get_for_window = None
 from user_models import User
 from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from io import BytesIO
+
+
+def _cyt_query():
+    """Curriculum year/term configs scoped to the active operational window."""
+    if query_for_window:
+        return query_for_window(CurriculumYearTerm)
+    return CurriculumYearTerm.query
+
+
+def _csa_query():
+    """Course session assignments scoped to the active operational window."""
+    if query_for_window:
+        return query_for_window(CourseSessionAssignment)
+    return CourseSessionAssignment.query
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -303,7 +331,7 @@ def _add_students_to_class_sessions(course_code, academic_session, year, term, s
                 )
 
                 try:
-                    assignments = CourseSessionAssignment.query.join(
+                    assignments = _csa_query().join(
                         Course, Course.id == CourseSessionAssignment.course_id
                     ).filter(
                         Course.course_code == target_course_code,
@@ -560,7 +588,7 @@ def view_curriculum(curriculum_id):
     teacher_map = {}
     try:
         from .models import CourseSessionAssignment
-        assignments = CourseSessionAssignment.query.filter_by(
+        assignments = _csa_query().filter_by(
             curriculum_id=curriculum_id
         ).all()
         for assignment in assignments:
@@ -585,7 +613,7 @@ def view_curriculum(curriculum_id):
     # Key format keeps lookups simple from Jinja: "<year>|||<term>".
     year_term_configs_map = {}
     try:
-        all_configs = CurriculumYearTerm.query.filter_by(curriculum_id=curriculum_id).all()
+        all_configs = _cyt_query().filter_by(curriculum_id=curriculum_id).all()
         for cfg in all_configs:
             config_key = f'{(cfg.year or "").strip()}|||{(cfg.term or "").strip()}'
             parsed_batches = []
@@ -600,6 +628,12 @@ def view_curriculum(curriculum_id):
     except Exception:
         year_term_configs_map = {}
 
+    active_window_id = None
+    if get_effective_window_id:
+        active_window_id = get_effective_window_id(admin_override=is_admin(current_user))
+        if active_window_id is None:
+            active_window_id = 1
+
     return render_template('course_management/index.html', 
                          curriculum=curriculum, 
                          courses=courses, 
@@ -613,7 +647,8 @@ def view_curriculum(curriculum_id):
                          teachers=teachers,
                          course_assignments=course_assignments,
                          teacher_map=teacher_map,
-                         year_term_configs_map=year_term_configs_map)
+                         year_term_configs_map=year_term_configs_map,
+                         active_window_id=active_window_id)
 
 @course_management_bp.route('/curriculum/add', methods=['POST'])
 @login_required
@@ -702,7 +737,7 @@ def edit_curriculum(curriculum_id):
 def clear_curriculum_assignments(curriculum_id):
     """Clear all teacher assignments for this curriculum (archive linked sessions, then remove assignments)."""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
-    assignments = CourseSessionAssignment.query.filter_by(curriculum_id=curriculum_id).all()
+    assignments = _csa_query().filter_by(curriculum_id=curriculum_id).all()
     count = 0
     try:
         for assignment in assignments:
@@ -1153,7 +1188,7 @@ def get_courses_for_registration():
     try:
         not_running_curriculum_ids = {
             row.curriculum_id
-            for row in CurriculumYearTerm.query.filter(
+            for row in _cyt_query().filter(
                 CurriculumYearTerm.year == year,
                 CurriculumYearTerm.term == term,
                 or_(
@@ -1175,7 +1210,7 @@ def get_courses_for_registration():
     if session_name and batch_value:
         allowed_curriculum_ids = set()
         try:
-            matching_configs = CurriculumYearTerm.query.filter(
+            matching_configs = _cyt_query().filter(
                 CurriculumYearTerm.academic_session == session_name,
                 CurriculumYearTerm.year == year,
                 CurriculumYearTerm.term == term,
@@ -1271,7 +1306,7 @@ def get_relevant_courses_for_retake():
 
         # Scope relevant candidates to curricula configured for the selected
         # academic session + year + term.
-        configured_year_terms = CurriculumYearTerm.query.filter(
+        configured_year_terms = _cyt_query().filter(
             CurriculumYearTerm.academic_session == session_name
         ).all()
         allowed_curriculum_ids = {
@@ -1347,7 +1382,7 @@ def get_year_term_by_session():
         
         # Also check CurriculumYearTerm for additional combinations
         # IMPORTANT: Only include Year/Term combinations where batch is assigned (NOT NULL/empty/'None')
-        curriculum_year_terms = CurriculumYearTerm.query.filter_by(
+        curriculum_year_terms = _cyt_query().filter_by(
             academic_session=session_name
         ).filter(
             CurriculumYearTerm.batch.isnot(None),
@@ -1403,6 +1438,9 @@ def get_saved_registrations():
         if hasattr(student_record, 'batch') and student_record.batch:
             batch = student_record.batch
         reg_query = filter_by_active_semester(reg_query, StudentCourseRegistration, batch=batch, admin_override=False)
+
+    if filter_by_active_window and not is_admin(current_user):
+        reg_query = filter_by_active_window(reg_query, StudentCourseRegistration, admin_override=False)
     
     registrations = reg_query.order_by(StudentCourseRegistration.course_code.asc()).all()
 
@@ -1486,7 +1524,7 @@ def student_remove_course():
                 current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
         
         # Delete related invites
-        invites_to_delete = CourseRegistrationInvite.query.filter_by(
+        invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
             registration_id=reg.id
         ).all()
         for invite in invites_to_delete:
@@ -1569,7 +1607,7 @@ def student_remove_all_courses():
             course_codes.append(reg.course_code)
             
             # Delete related invites
-            invites_to_delete = CourseRegistrationInvite.query.filter_by(
+            invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
                 registration_id=reg.id
             ).all()
             for invite in invites_to_delete:
@@ -1607,6 +1645,8 @@ def save_course_registration():
 
     if not session_name or not year or not term:
         return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
+
+    reg_window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else None
 
     if not courses:
         return jsonify({'success': False, 'message': 'No courses selected'}), 400
@@ -1705,6 +1745,7 @@ def save_course_registration():
             reg = StudentCourseRegistration(
                 student_id=student_record.id,
                 course_id=course.get('id'),
+                window_id=reg_window_id,
                 academic_session=session_name,
                 year=year,
                 term=term,
@@ -2110,22 +2151,28 @@ def send_to_coordinator():
         coordinator_teacher = None
 
         # Look for batch-specific coordinator assignment
-        coordinator_assignment = DutyAssignment.query.filter(
-            DutyAssignment.duty_type == 'course_coordinator',
-            DutyAssignment.status == 'active',
-            DutyAssignment.batch == student_record.batch,
-            DutyAssignment.assigned_teacher_id.isnot(None)
+        coordinator_assignment = filter_by_active_window(
+            DutyAssignment.query.filter(
+                DutyAssignment.duty_type == 'course_coordinator',
+                DutyAssignment.status == 'active',
+                DutyAssignment.batch == student_record.batch,
+                DutyAssignment.assigned_teacher_id.isnot(None)
+            ),
+            DutyAssignment,
         ).order_by(DutyAssignment.created_at.desc()).first()
 
         if coordinator_assignment and coordinator_assignment.assigned_teacher:
             coordinator_teacher = coordinator_assignment.assigned_teacher
         else:
             # Fallback to legacy assignments without batch
-            legacy_assignment = DutyAssignment.query.filter(
-                DutyAssignment.duty_type == 'course_coordinator',
-                DutyAssignment.status == 'active',
-                or_(DutyAssignment.batch.is_(None), DutyAssignment.batch == ''),
-                DutyAssignment.assigned_teacher_id.isnot(None)
+            legacy_assignment = filter_by_active_window(
+                DutyAssignment.query.filter(
+                    DutyAssignment.duty_type == 'course_coordinator',
+                    DutyAssignment.status == 'active',
+                    or_(DutyAssignment.batch.is_(None), DutyAssignment.batch == ''),
+                    DutyAssignment.assigned_teacher_id.isnot(None)
+                ),
+                DutyAssignment,
             ).order_by(DutyAssignment.created_at.desc()).first()
 
             if legacy_assignment and legacy_assignment.assigned_teacher:
@@ -2165,7 +2212,7 @@ def send_to_coordinator():
         for reg in registrations:
             reg.status = 'pending'
             # Create or update invite
-            existing_invites = CourseRegistrationInvite.query.filter_by(
+            existing_invites = query_for_window(CourseRegistrationInvite).filter_by(
                 registration_id=reg.id
             ).all()
             
@@ -2182,6 +2229,8 @@ def send_to_coordinator():
                     coordinator_teacher_id=coordinator_teacher.id,
                     status='pending'
                 )
+                if stamp_window_id:
+                    stamp_window_id(invite, window_id=reg.window_id)
                 db.session.add(invite)
 
         db.session.commit()
@@ -2222,7 +2271,7 @@ def coordinator_registrations():
 
     # Get pending invites for this coordinator (always show, even without filters)
     # Exclude invites for archived registrations
-    pending_invites_query = CourseRegistrationInvite.query.filter_by(
+    pending_invites_query = query_for_window(CourseRegistrationInvite).filter_by(
         status='pending',
         coordinator_teacher_id=teacher.id
     ).join(StudentCourseRegistration).filter(
@@ -2258,6 +2307,9 @@ def coordinator_registrations():
         if filter_by_active_semester and not is_admin(current_user):
             batch_for_filter = batch_filter if batch_filter else None
             reg_query = filter_by_active_semester(reg_query, StudentCourseRegistration, batch=batch_for_filter, admin_override=False)
+
+        if filter_by_active_window and not is_admin(current_user):
+            reg_query = filter_by_active_window(reg_query, StudentCourseRegistration, admin_override=False)
         
         # Apply filters to registrations
         if session_filter:
@@ -2315,7 +2367,7 @@ def coordinator_registrations():
             entry['registration_ids'].add(reg.id)
         
         # Get invite IDs for this registration if any exist
-        invites_for_reg = CourseRegistrationInvite.query.filter_by(
+        invites_for_reg = query_for_window(CourseRegistrationInvite).filter_by(
             registration_id=reg.id,
             status='finalized'
         ).all()
@@ -2484,7 +2536,7 @@ def remove_all_courses_from_registration():
             course_codes.append(reg.course_code)
             
             # Delete related invites
-            invites_to_delete = CourseRegistrationInvite.query.filter_by(
+            invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
                 registration_id=reg.id
             ).all()
             for invite in invites_to_delete:
@@ -2561,7 +2613,7 @@ def remove_course_from_registration():
                 current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
         
         # Delete related invites
-        invites_to_delete = CourseRegistrationInvite.query.filter_by(
+        invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
             registration_id=reg.id
         ).all()
         for invite in invites_to_delete:
@@ -2602,6 +2654,8 @@ def update_student_registration():
 
     if not student_id or not session_name or not year or not term:
         return jsonify({'success': False, 'message': 'Student ID, Session, Year, and Term are required'}), 400
+
+    reg_window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else None
 
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher:
@@ -2716,6 +2770,7 @@ def update_student_registration():
                 reg = StudentCourseRegistration(
                     student_id=student_id,
                     course_id=course.get('course_id'),
+                    window_id=reg_window_id,
                     academic_session=session_name,
                     year=year,
                     term=term,
@@ -2764,7 +2819,7 @@ def update_student_registration():
                         current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
                 
                 # Delete related invites before deleting registration
-                invites_to_delete = CourseRegistrationInvite.query.filter_by(
+                invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
                     registration_id=reg.id
                 ).all()
                 for invite in invites_to_delete:
@@ -2790,12 +2845,12 @@ def update_student_registration():
                 # For Head, update all invites for these registrations
                 if is_head:
                     # Head can update all invites
-                    invites = CourseRegistrationInvite.query.filter(
+                    invites = query_for_window(CourseRegistrationInvite).filter(
                         CourseRegistrationInvite.registration_id.in_(reg_ids)
                     ).all()
                 else:
                     # Coordinator updates/create invites for themselves (especially when finalizing pending)
-                    invites = CourseRegistrationInvite.query.filter(
+                    invites = query_for_window(CourseRegistrationInvite).filter(
                         CourseRegistrationInvite.registration_id.in_(reg_ids),
                         CourseRegistrationInvite.coordinator_teacher_id == teacher.id
                     ).all()
@@ -2821,12 +2876,14 @@ def update_student_registration():
                                     status='finalized',
                                     responded_at=datetime.utcnow()
                                 )
+                                if stamp_window_id:
+                                    stamp_window_id(new_invite, window_id=reg.window_id if reg else None)
                                 db.session.add(new_invite)
             else:
                 # If all registrations are deleted, find and delete related invites
                 if is_head:
                     # Head can delete all invites for this student/session/year/term
-                    invites = CourseRegistrationInvite.query.join(StudentCourseRegistration).filter(
+                    invites = query_for_window(CourseRegistrationInvite).join(StudentCourseRegistration).filter(
                         StudentCourseRegistration.student_id == student_id,
                         StudentCourseRegistration.academic_session == session_name,
                         StudentCourseRegistration.year == year,
@@ -2834,7 +2891,7 @@ def update_student_registration():
                     ).all()
                 else:
                     # Coordinator deletes only their own invites
-                    invites = CourseRegistrationInvite.query.filter_by(
+                    invites = query_for_window(CourseRegistrationInvite).filter_by(
                         student_id=student_id,
                         coordinator_teacher_id=teacher.id
                     ).all()
@@ -2962,7 +3019,7 @@ def finalize_registration():
 
         # Update invite status
         invite_ids = [reg.id for reg in registrations]
-        invites = CourseRegistrationInvite.query.filter(
+        invites = query_for_window(CourseRegistrationInvite).filter(
             CourseRegistrationInvite.registration_id.in_(invite_ids),
             CourseRegistrationInvite.coordinator_teacher_id == teacher.id
         ).all()
@@ -2994,7 +3051,9 @@ def coordinator_register_student():
     
     # Get distinct academic sessions from curriculum year/term configuration
     # This shows all sessions that are assigned in the curriculum
-    sessions = db.session.query(CurriculumYearTerm.academic_session).distinct().filter(
+    sessions = _cyt_query().with_entities(
+        CurriculumYearTerm.academic_session
+    ).distinct().filter(
         CurriculumYearTerm.academic_session.isnot(None)
     ).order_by(CurriculumYearTerm.academic_session.desc()).all()
     academic_sessions = [s[0] for s in sessions if s[0]]
@@ -3041,6 +3100,8 @@ def coordinator_save_student_registration():
     
     if not course_id or not session_name or not year or not term:
         return jsonify({'success': False, 'message': 'Course, Session, Year, and Term are required'}), 400
+
+    reg_window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else None
     
     # Convert old format to new format if needed
     if student_ids and not students_data:
@@ -3081,7 +3142,7 @@ def coordinator_save_student_registration():
                             current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
                     
                     # Delete related invites
-                    invites_to_delete = CourseRegistrationInvite.query.filter_by(
+                    invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
                         registration_id=reg_to_delete.id
                     ).all()
                     for invite in invites_to_delete:
@@ -3133,7 +3194,7 @@ def coordinator_save_student_registration():
         # CRITICAL: We need to track which students were in the PREVIOUS save operation for THIS teacher
         # We do this by checking for invites that belong to THIS teacher BEFORE we make any changes
         # Store the OLD state before any updates - check BOTH finalized and pending invites
-        existing_invites_before_update = CourseRegistrationInvite.query.filter_by(
+        existing_invites_before_update = query_for_window(CourseRegistrationInvite).filter_by(
             coordinator_teacher_id=teacher.id
         ).join(StudentCourseRegistration).filter(
             StudentCourseRegistration.course_code == course_code,
@@ -3302,6 +3363,7 @@ def coordinator_save_student_registration():
                 reg = StudentCourseRegistration(
                     student_id=student_id,
                     course_id=course_id,
+                    window_id=reg_window_id,
                     academic_session=session_name,
                     year=year,
                     term=term,
@@ -3328,7 +3390,7 @@ def coordinator_save_student_registration():
             # Create or update invite for this coordinator
             db.session.flush()  # Flush to get reg.id
             
-            existing_invite = CourseRegistrationInvite.query.filter_by(
+            existing_invite = query_for_window(CourseRegistrationInvite).filter_by(
                 registration_id=reg.id,
                 coordinator_teacher_id=teacher.id
             ).first()
@@ -3345,6 +3407,8 @@ def coordinator_save_student_registration():
                     coordinator_teacher_id=teacher.id,
                     status=invite_status
                 )
+                if stamp_window_id:
+                    stamp_window_id(invite, window_id=reg.window_id)
                 if is_head:
                     invite.responded_at = datetime.utcnow()
                 db.session.add(invite)
@@ -3501,7 +3565,7 @@ def get_batches_for_registration():
     
     try:
         # Get distinct batches from CurriculumYearTerm for the given session, year, and term (primary batches)
-        primary_batch_query = db.session.query(CurriculumYearTerm.batch).distinct().filter(
+        primary_batch_query = _cyt_query().with_entities(CurriculumYearTerm.batch).distinct().filter(
             CurriculumYearTerm.academic_session == session_name,
             CurriculumYearTerm.year == year,
             CurriculumYearTerm.term == term,
@@ -3793,21 +3857,24 @@ def save_year_term_config(curriculum_id):
                 'batch': batch
             })
 
-        # Replace all configs for this year/term with submitted rows.
-        CurriculumYearTerm.query.filter_by(
+        # Replace configs for this year/term in the active operational window only.
+        _cyt_query().filter_by(
             curriculum_id=curriculum_id,
             year=year,
             term=term
         ).delete(synchronize_session=False)
 
         for cfg in normalized_session_configs:
-            db.session.add(CurriculumYearTerm(
+            row = CurriculumYearTerm(
                 curriculum_id=curriculum_id,
                 year=year,
                 term=term,
                 academic_session=cfg['academic_session'],
                 batch=cfg['batch']
-            ))
+            )
+            if stamp_window_id:
+                stamp_window_id(row)
+            db.session.add(row)
         
         db.session.commit()
         return jsonify({
@@ -3900,17 +3967,22 @@ def assign_teacher_session():
         
         # Log final batch value before creating session
         current_app.logger.info(f'Final batch value before session creation: "{batch}"')
+
+        window_id = None
+        if get_effective_window_id:
+            window_id = get_effective_window_id(admin_override=is_admin(current_user))
         
-        # Check if assignment already exists
-        existing_assignment = CourseSessionAssignment.query.filter_by(
+        # Check if assignment already exists (scoped to operational window)
+        existing_assignment_query = _csa_query().filter_by(
             course_id=course_id,
             teacher_id=teacher_id,
             section=section,
             year=year,
-            term=term
+            term=term,
         ).filter(
             (CourseSessionAssignment.batch == batch) if batch else (CourseSessionAssignment.batch.is_(None))
-        ).first()
+        )
+        existing_assignment = existing_assignment_query.first()
         
         if existing_assignment:
             return jsonify({
@@ -3943,6 +4015,8 @@ def assign_teacher_session():
             ]
             if academic_session:
                 split_group_parts.append(academic_session.lower().strip())
+            if window_id is not None:
+                split_group_parts.append(f'win{window_id}')
             
             # Create a unique string and hash it to ensure it fits in VARCHAR(36)
             # MD5 hash produces 32 characters, which fits perfectly in VARCHAR(36)
@@ -3975,6 +4049,13 @@ def assign_teacher_session():
             if existing_academic_session != normalized_academic_session:
                 continue
 
+            if window_id is not None:
+                sess_win = existing_session.window_id
+                if sess_win is not None and sess_win != window_id:
+                    continue
+                if sess_win is None and window_id != 1:
+                    continue
+
             # Check course scope conflicts on active sessions.
             if not existing_session.archived:
                 if existing_session.course_scope == SCOPE_FULL and course_scope != SCOPE_FULL:
@@ -3995,7 +4076,7 @@ def assign_teacher_session():
             if split_group_id and existing_session.split_group_id and existing_session.split_group_id != split_group_id:
                 continue
 
-            linked_assignment = CourseSessionAssignment.query.filter_by(session_id=existing_session.id).first()
+            linked_assignment = _csa_query().filter_by(session_id=existing_session.id).first()
             if linked_assignment and not existing_session.archived:
                 # Active linked session already exists for this scope.
                 return jsonify({
@@ -4019,7 +4100,8 @@ def assign_teacher_session():
             session_obj.category = course.category
             session_obj.course_scope = course_scope
             session_obj.split_group_id = split_group_id
-            # Keep existing students attached to the newly assigned teacher.
+            if window_id is not None:
+                session_obj.window_id = window_id
             ClassStudent.query.filter_by(session_id=session_obj.id).update(
                 {'teacher_id': teacher_id},
                 synchronize_session=False
@@ -4038,7 +4120,8 @@ def assign_teacher_session():
                 course_type=_normalize_session_course_type(course.course_type),
                 category=course.category,
                 course_scope=course_scope,
-                split_group_id=split_group_id  # Set split_group_id for split courses
+                split_group_id=split_group_id,
+                window_id=window_id,
             )
             db.session.add(session_obj)
             db.session.flush()  # Get session ID before commit
@@ -4123,6 +4206,7 @@ def assign_teacher_session():
             year=year,
             term=term,
             academic_session=academic_session,
+            window_id=window_id,
             session_created=True,
             session_id=session_obj.id
         )
@@ -4169,7 +4253,10 @@ def unassign_teacher_session():
             current_app.logger.warning(f'Invalid assignment_id format: {assignment_id}')
             return jsonify({'success': False, 'message': 'Invalid assignment ID format.'}), 400
 
-        assignment = CourseSessionAssignment.query.get(assignment_id)
+        if get_for_window:
+            assignment = get_for_window(CourseSessionAssignment, assignment_id)
+        else:
+            assignment = CourseSessionAssignment.query.get(assignment_id)
         if not assignment:
             current_app.logger.warning(f'Assignment not found: {assignment_id}')
             return jsonify({'success': False, 'message': 'Assignment not found.'}), 404
@@ -4327,7 +4414,10 @@ def replace_teacher_session():
             return jsonify({'success': False, 'message': 'Invalid ID format.'}), 400
         
         # Get assignment
-        assignment = CourseSessionAssignment.query.get(assignment_id)
+        if get_for_window:
+            assignment = get_for_window(CourseSessionAssignment, assignment_id)
+        else:
+            assignment = CourseSessionAssignment.query.get(assignment_id)
         if not assignment:
             return jsonify({'success': False, 'message': 'Assignment not found.'}), 404
         
@@ -4386,7 +4476,7 @@ def replace_teacher_session():
 def get_course_assignments(course_id):
     """Return existing assignments for a course."""
     try:
-        assignments = CourseSessionAssignment.query.filter_by(course_id=course_id).order_by(
+        assignments = _csa_query().filter_by(course_id=course_id).order_by(
             CourseSessionAssignment.created_at.desc()
         ).all()
 

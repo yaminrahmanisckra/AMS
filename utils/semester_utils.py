@@ -7,25 +7,60 @@ from sqlalchemy import or_, and_
 from blueprints.course_management.models import ActiveSemesterConfig
 
 
-def get_active_semesters(batch=None):
+def _resolve_window_id_for_filter(window_id=None):
+    """Resolve window_id for semester filtering from explicit arg or user session."""
+    if window_id is not None:
+        try:
+            return int(window_id)
+        except (TypeError, ValueError):
+            return None
+    try:
+        from utils.window_utils import get_effective_window_id, DEFAULT_WINDOW_ID
+        resolved = get_effective_window_id(admin_override=False)
+        return resolved if resolved is not None else DEFAULT_WINDOW_ID
+    except ImportError:
+        return 1
+
+
+def get_active_semesters_for_user(admin_override=False, batch=None):
+    """Active semesters for the current user's window, or all windows for admin."""
+    if admin_override:
+        return get_active_semesters(batch=batch, window_id=None)
+    return get_active_semesters(batch=batch, window_id=_resolve_window_id_for_filter(None))
+
+
+def get_active_semester_info_for_user(admin_override=False, batch=None):
+    """Dict list of active semesters for the current user's window."""
+    return [sem.to_dict() for sem in get_active_semesters_for_user(admin_override=admin_override, batch=batch)]
+
+
+def get_active_semesters(batch=None, window_id=None):
     """
-    Get all active semester configurations.
-    
+    Get active semester configurations, optionally scoped to a window.
+
     Args:
-        batch: Optional batch to filter by. If None, returns all active semesters.
-    
+        batch: Optional batch to filter by. If None, returns all active semesters for the window.
+        window_id: Optional operational window id. When None, returns all active semesters (admin list).
+
     Returns:
         List of ActiveSemesterConfig objects
     """
     query = ActiveSemesterConfig.query.filter_by(is_active=True)
-    
+
+    if window_id is not None:
+        try:
+            window_id = int(window_id)
+        except (TypeError, ValueError):
+            window_id = None
+        if window_id is not None:
+            query = query.filter(ActiveSemesterConfig.window_id == window_id)
+
     if batch is not None:
-        # Return active semester for specific batch or NULL batch (applies to all)
         query = query.filter(
-            (ActiveSemesterConfig.batch == batch) | 
+            (ActiveSemesterConfig.batch == batch) |
             (ActiveSemesterConfig.batch.is_(None))
         )
-    
+
     return query.order_by(
         ActiveSemesterConfig.academic_session.desc(),
         ActiveSemesterConfig.year.asc(),
@@ -33,37 +68,36 @@ def get_active_semesters(batch=None):
     ).all()
 
 
-def is_semester_active(academic_session, year, term, batch=None):
+def is_semester_active(academic_session, year, term, batch=None, window_id=None):
     """
-    Check if a specific semester is active.
-    
+    Check if a specific semester is active within a window.
+
     Args:
         academic_session: Academic session string
         year: Year string
         term: Term string
         batch: Optional batch string
-    
+        window_id: Optional operational window id (defaults to current session window)
+
     Returns:
         Boolean indicating if the semester is active
     """
+    resolved_window_id = _resolve_window_id_for_filter(window_id)
+
     query = ActiveSemesterConfig.query.filter_by(
         academic_session=academic_session,
         year=year,
         term=term,
-        is_active=True
+        is_active=True,
+        window_id=resolved_window_id,
     )
-    
+
     if batch is not None:
-        # Check for specific batch or NULL batch (applies to all)
         query = query.filter(
-            (ActiveSemesterConfig.batch == batch) | 
+            (ActiveSemesterConfig.batch == batch) |
             (ActiveSemesterConfig.batch.is_(None))
         )
-    else:
-        # If batch is None, check if there's an active semester for this session/year/term
-        # regardless of batch
-        pass
-    
+
     return query.first() is not None
 
 
@@ -72,45 +106,35 @@ def _normalize_year_term(value):
     if not value:
         return ''
     value_str = str(value).strip().lower()
-    # Handle labels like "First Year", "Second Term"
     if value_str.endswith(' year'):
         value_str = value_str[:-5].strip()
     if value_str.endswith(' term'):
         value_str = value_str[:-5].strip()
-    
-    # Year mappings
+
     year_map = {
         '1': 'first', '1st': 'first', 'first': 'first',
         '2': 'second', '2nd': 'second', 'second': 'second',
         '3': 'third', '3rd': 'third', 'third': 'third',
         '4': 'fourth', '4th': 'fourth', 'fourth': 'fourth',
         '5': 'fifth', '5th': 'fifth', 'fifth': 'fifth',
-        # Treat LLM and Fifth as equivalent PG year labels
         'llm': 'fifth'
     }
-    
-    # Term mappings
+
     term_map = {
         '1': 'first', '1st': 'first', 'first': 'first',
         '2': 'second', '2nd': 'second', 'second': 'second'
     }
-    
-    # Try year mapping first
+
     normalized = year_map.get(value_str, value_str)
     if normalized != value_str:
         return normalized
-    
-    # Try term mapping
-    normalized = term_map.get(value_str, value_str)
-    return normalized
+
+    return term_map.get(value_str, value_str)
 
 
 def _normalize_batch_tokens(value):
     """
     Build resilient batch tokens for matching across inconsistent formats.
-    Examples:
-    - '2023, 2021' -> ['2023', '2021']
-    - 'LLM 2026'   -> ['llm2026', 'llm', '2026']
     """
     if value is None:
         return []
@@ -119,7 +143,6 @@ def _normalize_batch_tokens(value):
         return []
     tokens = set()
 
-    # Preserve comma-separated groups as compact tokens.
     for comma_chunk in raw.split(','):
         chunk = comma_chunk.strip()
         if not chunk:
@@ -128,13 +151,11 @@ def _normalize_batch_tokens(value):
         if compact:
             tokens.add(compact)
 
-        # Add finer tokens split by non-alphanumeric boundaries.
         for part in re.split(r'[^a-z0-9]+', chunk):
             part = part.strip()
             if part:
                 tokens.add(part)
 
-    # Whole-value compact token catches "2023,2021" style exact compact matches.
     whole_compact = ''.join(ch for ch in raw if ch.isalnum())
     if whole_compact:
         tokens.add(whole_compact)
@@ -142,65 +163,45 @@ def _normalize_batch_tokens(value):
     return sorted(tokens)
 
 
-def filter_by_active_semester(query, model, batch=None, admin_override=False):
+def filter_by_active_semester(query, model, batch=None, admin_override=False, window_id=None):
     """
-    Filter a query to only include records from active semesters.
-    This is a generic function that works with models that have academic_session, year, term fields.
-    
-    Args:
-        query: SQLAlchemy query object
-        model: SQLAlchemy model class
-        batch: Optional batch to filter by (used for getting active semesters, not for filtering model)
-        admin_override: If True, returns query without filtering (for admin users)
-    
-    Returns:
-        Filtered query object
+    Filter a query to only include records from active semesters for the current window.
     """
     if admin_override:
         return query
-    
-    active_semesters = get_active_semesters(batch=batch)
-    
+
+    resolved_window_id = _resolve_window_id_for_filter(window_id)
+    active_semesters = get_active_semesters(batch=batch, window_id=resolved_window_id)
+
     if not active_semesters:
-        # If no active semester configured, return empty query
-        # This prevents showing all data when no semester is marked active
         return query.filter(False)
-    
-    # Log active semesters for debugging
+
     try:
         from flask import current_app
-        active_sem_info = [f"{s.academic_session}-{s.year}-{s.term}-{s.batch or 'ALL'}" for s in active_semesters]
-        current_app.logger.info(f'Active semesters for filtering: {active_sem_info}')
-    except:
+        active_sem_info = [
+            f"win{s.window_id}-{s.academic_session}-{s.year}-{s.term}-{s.batch or 'ALL'}"
+            for s in active_semesters
+        ]
+        current_app.logger.info(f'Active semesters for filtering (window {resolved_window_id}): {active_sem_info}')
+    except Exception:
         pass
-    
-    # Build SQL filter conditions with strict matching
-    # Academic session: exact match required (no NULL allowance)
-    # Year/Term: normalized matching for format variations
+
     conditions = []
     for sem in active_semesters:
         from sqlalchemy import func
         active_year_norm = _normalize_year_term(sem.year)
         active_term_norm = _normalize_year_term(sem.term)
-        
-        # Academic session condition: STRICT matching
-        # If active semester has academic_session, require exact match (no NULL allowance)
-        # If active semester has no academic_session, allow NULL but require year/term match
+
         if sem.academic_session:
-            # Require normalized academic_session match (trim + lower), no NULL allowance.
-            # This prevents false negatives caused by casing/whitespace differences.
             model_session_norm = func.lower(func.trim(func.cast(getattr(model, 'academic_session'), db.String)))
             active_session_norm = str(sem.academic_session).strip().lower()
             academic_session_condition = model_session_norm == active_session_norm
         else:
-            # If active semester has no academic_session, allow NULL
             academic_session_condition = getattr(model, 'academic_session').is_(None)
-        
-        # Year and term: normalize and match format variations
+
         model_year_lower = func.lower(func.trim(func.cast(getattr(model, 'year'), db.String)))
         model_term_lower = func.lower(func.trim(func.cast(getattr(model, 'term'), db.String)))
-        
-        # Build year condition: match normalized value and all common variations
+
         year_variations = [active_year_norm]
         if active_year_norm == 'first':
             year_variations.extend(['1', '1st', 'first'])
@@ -214,31 +215,22 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
             year_variations.extend(['5', '5th', 'fifth', 'llm'])
         elif active_year_norm == 'llm':
             year_variations.extend(['5', '5th', 'fifth', 'llm'])
-        
-        # Build term condition: match normalized value and all common variations
+
         term_variations = [active_term_norm]
         if active_term_norm == 'first':
             term_variations.extend(['1', '1st', 'first'])
         elif active_term_norm == 'second':
             term_variations.extend(['2', '2nd', 'second'])
-        
-        # Use OR to match any of the variations
+
         year_condition = model_year_lower.in_(year_variations)
         term_condition = model_term_lower.in_(term_variations)
-        
-        # Combine all conditions with AND - ALL must match
+
         condition = and_(
             academic_session_condition,
             year_condition,
             term_condition
         )
-        
-        # If semester config has a specific batch, filter by batch too.
-        # Support comma-separated multi-batch values on either side by token overlap.
-        # Example matches:
-        # - active: "2023,2021" with model: "2023"
-        # - active: "2023" with model: "2023,2021"
-        # - active: "2023,2021" with model: "2023,2021"
+
         if sem.batch and hasattr(model, 'batch'):
             sem_batch_tokens = _normalize_batch_tokens(sem.batch)
             if sem_batch_tokens:
@@ -269,106 +261,92 @@ def filter_by_active_semester(query, model, batch=None, admin_override=False):
                     *token_overlap_conditions
                 )
                 condition = and_(condition, batch_condition)
-        
+
         conditions.append(condition)
-    
+
     if conditions:
-        # Combine conditions with OR (if multiple active semesters, match any of them)
-        # But each condition requires ALL fields to match (academic_session AND year AND term)
         filtered_query = query.filter(or_(*conditions))
-        
-        # Log filtering for debugging
+
         try:
             from flask import current_app
-            current_app.logger.info(f'Applied active semester filter with {len(conditions)} condition(s)')
-        except:
+            current_app.logger.info(
+                f'Applied active semester filter with {len(conditions)} condition(s) for window {resolved_window_id}'
+            )
+        except Exception:
             pass
-        
+
         return filtered_query
-    
+
     return query.filter(False)
 
 
-def get_active_semester_info(batch=None):
-    """
-    Get human-readable information about active semesters.
-    
-    Args:
-        batch: Optional batch to filter by
-    
-    Returns:
-        List of dictionaries with semester information
-    """
-    active_semesters = get_active_semesters(batch=batch)
+def get_active_semester_info(batch=None, window_id=None):
+    """Get human-readable information about active semesters."""
+    active_semesters = get_active_semesters(batch=batch, window_id=window_id)
     return [sem.to_dict() for sem in active_semesters]
 
 
-def set_active_semester(academic_session, year, term, batch=None, activated_by=None, deactivate_others=False):
+def set_active_semester(academic_session, year, term, batch=None, activated_by=None,
+                        deactivate_others=False, window_id=None):
     """
-    Set a semester as active. Optionally deactivate other semesters.
-    
-    Args:
-        academic_session: Academic session string
-        year: Year string
-        term: Term string
-        batch: Optional batch string
-        activated_by: User who activated the semester
-        deactivate_others: If True, deactivate all other semesters for the same batch
-    
-    Returns:
-        ActiveSemesterConfig object or None
+    Set a semester as active for a specific operational window.
     """
     from datetime import datetime
-    
-    # Keep multiple year/term entries active simultaneously by default.
-    # This guard avoids accidental deactivation from older callers passing True.
+
+    if window_id is None:
+        raise ValueError('window_id is required for active semester configuration')
+
+    try:
+        window_id = int(window_id)
+    except (TypeError, ValueError):
+        raise ValueError('Invalid window_id')
+
     deactivate_others = False
 
-    # Check if already exists and is active
     existing_query = ActiveSemesterConfig.query.filter_by(
         academic_session=academic_session,
         year=year,
         term=term,
-        is_active=True
+        is_active=True,
+        window_id=window_id,
     )
-    
+
     if batch is not None:
         existing_query = existing_query.filter_by(batch=batch)
     else:
         existing_query = existing_query.filter(ActiveSemesterConfig.batch.is_(None))
-    
+
     existing = existing_query.first()
-    
+
     if existing:
-        # Already active, just update activated_by and timestamp
         if activated_by:
             existing.activated_by = activated_by
         existing.activated_at = datetime.utcnow()
         db.session.commit()
         return existing
-    
-    # Deactivate other semesters if requested
+
     if deactivate_others:
-        other_semesters_query = ActiveSemesterConfig.query.filter_by(is_active=True)
-        
+        other_semesters_query = ActiveSemesterConfig.query.filter_by(
+            is_active=True,
+            window_id=window_id,
+        )
+
         if batch is not None:
-            # Deactivate other semesters for same batch or NULL batch
             other_semesters_query = other_semesters_query.filter(
-                (ActiveSemesterConfig.batch == batch) | 
+                (ActiveSemesterConfig.batch == batch) |
                 (ActiveSemesterConfig.batch.is_(None))
             )
         else:
-            # If batch is None, deactivate all other semesters with NULL batch
             other_semesters_query = other_semesters_query.filter(
                 ActiveSemesterConfig.batch.is_(None)
             )
-        
+
         for sem in other_semesters_query.all():
             sem.is_active = False
             sem.deactivated_at = datetime.utcnow()
-    
-    # Create new active semester config
+
     new_config = ActiveSemesterConfig(
+        window_id=window_id,
         academic_session=academic_session,
         year=year,
         term=term,
@@ -376,47 +354,44 @@ def set_active_semester(academic_session, year, term, batch=None, activated_by=N
         is_active=True,
         activated_by=activated_by
     )
-    
+
     db.session.add(new_config)
     db.session.commit()
-    
+
     return new_config
 
 
-def deactivate_semester(academic_session, year, term, batch=None):
-    """
-    Deactivate a specific semester.
-    
-    Args:
-        academic_session: Academic session string
-        year: Year string
-        term: Term string
-        batch: Optional batch string
-    
-    Returns:
-        True if deactivated, False if not found
-    """
+def deactivate_semester(academic_session, year, term, batch=None, window_id=None):
+    """Deactivate a specific semester within a window."""
     from datetime import datetime
-    
+
+    if window_id is None:
+        raise ValueError('window_id is required to deactivate a semester')
+
+    try:
+        window_id = int(window_id)
+    except (TypeError, ValueError):
+        raise ValueError('Invalid window_id')
+
     query = ActiveSemesterConfig.query.filter_by(
         academic_session=academic_session,
         year=year,
         term=term,
-        is_active=True
+        is_active=True,
+        window_id=window_id,
     )
-    
+
     if batch is not None:
         query = query.filter_by(batch=batch)
     else:
         query = query.filter(ActiveSemesterConfig.batch.is_(None))
-    
+
     semester = query.first()
-    
+
     if semester:
         semester.is_active = False
         semester.deactivated_at = datetime.utcnow()
         db.session.commit()
         return True
-    
-    return False
 
+    return False

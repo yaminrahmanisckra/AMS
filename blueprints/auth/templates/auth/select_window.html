@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Select Window{% endblock %}
+
+{% block content %}
+<div class="container my-5" style="max-width: 640px;">
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h4 class="mb-0"><i class="fas fa-window-restore me-2"></i>আপনার কাজের Window বেছে নিন</h4>
+        </div>
+        <div class="card-body">
+            <p class="text-muted">
+                একাধিক operational window সক্রিয় আছে। যে window-এ কাজ করবেন সেটি নির্বাচন করুন।
+                প্রতিটি window-এর assignment ও registration আলাদা থাকে।
+            </p>
+
+            <form method="POST" action="{{ url_for('auth.set_window') }}">
+                <div class="list-group mb-4">
+                    {% for w in windows %}
+                    <label class="list-group-item list-group-item-action d-flex gap-3 align-items-start">
+                        <input class="form-check-input flex-shrink-0 mt-1" type="radio" name="window_id" value="{{ w.id }}" required
+                               {% if loop.first %}checked{% endif %}>
+                        <div>
+                            <strong>{{ w.name }}</strong>
+                            {% if w.academic_session %}
+                            <div class="small text-muted">Academic Session: {{ w.academic_session }}</div>
+                            {% endif %}
+                            {% if w.year and w.term %}
+                            <div class="small text-muted">{{ w.year }} — {{ w.term }}</div>
+                            {% endif %}
+                            {% if w.description %}
+                            <div class="small">{{ w.description }}</div>
+                            {% endif %}
+                            <span class="badge bg-{{ 'success' if w.status == 'running' else 'warning' if w.status == 'closing' else 'secondary' }} mt-1">
+                                {{ w.status }}
+                            </span>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="fas fa-arrow-right me-2"></i>Continue
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

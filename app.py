@@ -35,8 +35,9 @@ from blueprints.class_management.models import (
     StudentNotification,
 )
 from blueprints.student_management.models import Student
-from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig, CourseSessionAssignment
+from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig, CourseSessionAssignment, OperationalWindow
 from blueprints.remuneration_management.models import RemunerationForm
+from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window
 
 try:
     from openpyxl import Workbook
@@ -328,6 +329,58 @@ def create_app():
             session.pop('active_role', None)
         current_user.active_role = active_role
 
+    @app.before_request
+    def attach_active_window():
+        from utils.window_utils import (
+            WINDOW_EXEMPT_ENDPOINTS,
+            ensure_valid_session_window,
+            get_session_window_id,
+            get_window_by_id,
+        )
+
+        if not current_user.is_authenticated:
+            session.pop('active_window_id', None)
+            return
+
+        active_role = session.get('active_role')
+        current_user.active_window_id = get_session_window_id()
+        current_user.active_window = get_window_by_id(current_user.active_window_id)
+
+        endpoint = request.endpoint or ''
+        if endpoint in WINDOW_EXEMPT_ENDPOINTS:
+            return
+
+        redirect_endpoint = ensure_valid_session_window(current_user, active_role)
+        if redirect_endpoint and endpoint != redirect_endpoint:
+            return redirect(url_for(redirect_endpoint))
+
+    @app.context_processor
+    def inject_operational_window_context():
+        from utils.window_utils import (
+            get_active_windows,
+            get_session_window_id,
+            get_window_by_id,
+            role_needs_window_selection,
+        )
+
+        ctx = {
+            'active_operational_windows': [],
+            'current_operational_window': None,
+            'show_window_switcher': False,
+        }
+        if not current_user.is_authenticated:
+            return ctx
+
+        active_role = session.get('active_role')
+        windows = get_active_windows()
+        ctx['active_operational_windows'] = windows
+        window_id = get_session_window_id()
+        ctx['current_operational_window'] = get_window_by_id(window_id)
+        ctx['show_window_switcher'] = (
+            role_needs_window_selection(active_role) and len(windows) > 1
+        )
+        return ctx
+
     @app.teardown_appcontext
     def shutdown_session(exception=None):
         """Close database session after each request to prevent memory leaks"""
@@ -492,7 +545,7 @@ def create_app():
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return False
-        return DutyAssignment.query.filter_by(
+        return query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
@@ -505,7 +558,7 @@ def create_app():
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return False
-        return DutyAssignment.query.filter_by(
+        return query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_member',
             assigned_teacher_id=teacher.id,
             status='active'
@@ -515,12 +568,12 @@ def create_app():
         """Return active chief/member assignments for a teacher, optionally scoped by session/year/term."""
         if not teacher:
             return [], []
-        chief_query = DutyAssignment.query.filter_by(
+        chief_query = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
         )
-        member_query = DutyAssignment.query.filter_by(
+        member_query = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_member',
             assigned_teacher_id=teacher.id,
             status='active'
@@ -543,7 +596,7 @@ def create_app():
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         if not teacher:
             return False
-        return DutyAssignment.query.filter_by(
+        return query_for_window(DutyAssignment).filter_by(
             duty_type='tabulator',
             assigned_teacher_id=teacher.id,
             status='active'
@@ -564,7 +617,7 @@ def create_app():
         show_course_registration_review = False
         teacher = _current_teacher()
         if teacher:
-            show_course_registration_review = DutyAssignment.query.filter_by(
+            show_course_registration_review = query_for_window(DutyAssignment).filter_by(
                 duty_type='course_coordinator',
                 assigned_teacher_id=teacher.id,
                 status='active'
@@ -641,7 +694,7 @@ def create_app():
         show_course_registration_review = False
         teacher = _current_teacher()
         if teacher:
-            show_course_registration_review = DutyAssignment.query.filter_by(
+            show_course_registration_review = query_for_window(DutyAssignment).filter_by(
                 duty_type='course_coordinator',
                 assigned_teacher_id=teacher.id,
                 status='active'
@@ -897,7 +950,7 @@ def create_app():
         """Assign a teacher as scrutinizer to matching exam entries."""
         if not assignment or assignment.duty_type != 'scrutinizer' or not assignment.assigned_teacher_id:
             return
-        entries = ExamPaperEvaluation.query.filter(ExamPaperEvaluation.archived.is_(False)).all()
+        entries = query_for_window(ExamPaperEvaluation).filter(ExamPaperEvaluation.archived.is_(False)).all()
         changed = False
         for entry in entries:
             if _assignment_matches_entry(assignment, entry):
@@ -910,7 +963,7 @@ def create_app():
         """Remove a teacher from matching exam entries when assignment is removed."""
         if not assignment or assignment.duty_type != 'scrutinizer' or not assignment.assigned_teacher_id:
             return
-        entries = ExamPaperEvaluation.query.filter(
+        entries = query_for_window(ExamPaperEvaluation).filter(
             ExamPaperEvaluation.assigned_scrutinizer_id == assignment.assigned_teacher_id
         ).all()
         changed = False
@@ -925,7 +978,7 @@ def create_app():
         """Auto assign scrutinizer when an exam entry is created."""
         if not entry or not entry.course_code:
             return
-        assignments = DutyAssignment.query.filter_by(duty_type='scrutinizer', status='active').all()
+        assignments = query_for_window(DutyAssignment).filter_by(duty_type='scrutinizer', status='active').all()
         for assignment in assignments:
             if assignment.assigned_teacher_id and _assignment_matches_entry(assignment, entry):
                 entry.assigned_scrutinizer_id = assignment.assigned_teacher_id
@@ -937,7 +990,7 @@ def create_app():
         if not course_code:
             return None
         normalized_new = _normalize_section(new_section)
-        query = ExamPaperEvaluation.query.filter(
+        query = query_for_window(ExamPaperEvaluation).filter(
             ExamPaperEvaluation.course_code == course_code,
             ExamPaperEvaluation.archived.is_(False)
         )
@@ -1005,7 +1058,7 @@ def create_app():
                     current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
                     # Continue with chief check if error
                 
-                chief_exists = DutyAssignment.query.filter_by(
+                chief_exists = query_for_window(DutyAssignment).filter_by(
                     duty_type='exam_committee_chief',
                     academic_session=academic_session,
                     year=year,
@@ -1034,6 +1087,7 @@ def create_app():
                     program_level=program_level,
                     owner_teacher_id=owner_teacher.id if owner_teacher else None
                 )
+                stamp_window_id(record)
                 db.session.add(record)
                 db.session.commit()
                 _auto_assign_scrutinizer_for_entry(record)
@@ -1051,8 +1105,8 @@ def create_app():
         active_semester_keys = None
         if not is_admin(current_user):
             try:
-                from utils.semester_utils import get_active_semesters, _normalize_year_term
-                active_semesters = get_active_semesters(batch=None)
+                from utils.semester_utils import get_active_semesters_for_user, _normalize_year_term
+                active_semesters = get_active_semesters_for_user(admin_override=False)
                 active_semester_keys = {
                     (
                         str(sem.academic_session or '').strip().casefold(),
@@ -1067,7 +1121,7 @@ def create_app():
         if current_teacher:
             # Simple rule: evaluator page follows committee assignments directly.
             try:
-                teacher_assignments = ExamPaperEvaluatorAssignment.query.filter(
+                teacher_assignments = query_for_window(ExamPaperEvaluatorAssignment).filter(
                     ExamPaperEvaluatorAssignment.assigned_teacher_id.in_(list(current_teacher_ids))
                 ).all()
 
@@ -1117,7 +1171,7 @@ def create_app():
                         committee_assignment_entry_ids.add(linked_entry.id)
                         continue
 
-                    existing_entry = ExamPaperEvaluation.query.filter(
+                    existing_entry = query_for_window(ExamPaperEvaluation).filter(
                         ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)),
                         ExamPaperEvaluation.course_code == (course.course_code or '').strip(),
                         ExamPaperEvaluation.academic_session == (assignment.academic_session or '').strip(),
@@ -1134,7 +1188,7 @@ def create_app():
                         continue
 
                     resolved_batch = ''
-                    duty_ctx = DutyAssignment.query.filter(
+                    duty_ctx = query_for_window(DutyAssignment).filter(
                         DutyAssignment.status == 'active',
                         DutyAssignment.academic_session == (assignment.academic_session or '').strip(),
                         DutyAssignment.year == (assignment.year or '').strip(),
@@ -1146,7 +1200,7 @@ def create_app():
                     if duty_ctx and duty_ctx.batch:
                         resolved_batch = duty_ctx.batch.strip()
                     if not resolved_batch:
-                        cfg = CurriculumYearTerm.query.filter_by(
+                        cfg = query_for_window(CurriculumYearTerm).filter_by(
                             academic_session=(assignment.academic_session or '').strip(),
                             year=(assignment.year or '').strip(),
                             term=(assignment.term or '').strip()
@@ -1170,6 +1224,8 @@ def create_app():
                         owner_teacher_id=current_teacher.id,
                         submitted_to_committee=False
                     )
+                    stamp_window_id(created_entry)
+                    stamp_window_id(assignment)
                     db.session.add(created_entry)
                     db.session.flush()
                     assignment.exam_paper_evaluation_id = created_entry.id
@@ -1186,7 +1242,7 @@ def create_app():
                 )
 
         if current_teacher and teacher_assignments:
-            assigned_query = ExamPaperEvaluation.query.filter(
+            assigned_query = query_for_window(ExamPaperEvaluation).filter(
                 ExamPaperEvaluation.id.in_(list(committee_assignment_entry_ids)),
             )
             # Even in committee-driven mode, keep only active semester rows.
@@ -1209,7 +1265,7 @@ def create_app():
                 ExamPaperEvaluation.archived.is_(True)
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
         else:
-            base_query = ExamPaperEvaluation.query
+            base_query = query_for_window(ExamPaperEvaluation)
             if current_teacher:
                 base_query = base_query.filter(ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)))
             else:
@@ -1231,7 +1287,7 @@ def create_app():
         scrutiny_invites_map = {}
         if current_teacher:
             owned_ids = {entry.id for entry in entries}
-            base_scrutiny_query = ExamPaperEvaluation.query.filter(
+            base_scrutiny_query = query_for_window(ExamPaperEvaluation).filter(
                 ExamPaperEvaluation.archived.is_(False),
                 ExamPaperEvaluation.assigned_scrutinizer_id == current_teacher.id,
                 ExamPaperEvaluation.submitted_to_committee.is_(True)
@@ -1256,7 +1312,7 @@ def create_app():
             # Get invite information for each scrutiny entry to check completion status
             if scrutiny_entries:
                 entry_ids = [entry.id for entry in scrutiny_entries]
-                invites = ExamScrutinizerInvite.query.filter(
+                invites = query_for_window(ExamScrutinizerInvite).filter(
                     ExamScrutinizerInvite.exam_entry_id.in_(entry_ids),
                     ExamScrutinizerInvite.scrutinizer_teacher_id == current_teacher.id,
                     ExamScrutinizerInvite.status == 'accepted'
@@ -1272,7 +1328,7 @@ def create_app():
         all_visible_entry_ids = [entry.id for entry in all_visible_entries if getattr(entry, 'id', None)]
         assignment_by_entry_id = {}
         if all_visible_entry_ids:
-            all_assignments = ExamPaperEvaluatorAssignment.query.filter(
+            all_assignments = query_for_window(ExamPaperEvaluatorAssignment).filter(
                 ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.isnot(None),
                 ExamPaperEvaluatorAssignment.exam_paper_evaluation_id.in_(all_visible_entry_ids)
             ).all()
@@ -1381,10 +1437,10 @@ def create_app():
         curriculum_configs_json = '{}'
         try:
             from blueprints.course_management.models import Curriculum, CurriculumYearTerm
-            from utils.semester_utils import get_active_semesters
+            from utils.semester_utils import get_active_semesters_for_user
             
-            # Get active semesters first
-            active_semesters = get_active_semesters(batch=None)
+            # Get active semesters for the current user's window
+            active_semesters = get_active_semesters_for_user(admin_override=is_admin(current_user))
             
             if not active_semesters:
                 # No active semester - return empty curricula
@@ -1397,7 +1453,7 @@ def create_app():
                 
                 # Filter curricula to only include those with active semester configs
                 for curriculum in all_curricula:
-                    configs_query = curriculum.year_term_configs.order_by(
+                    configs_query = curriculum._year_term_configs_for_window().order_by(
                         CurriculumYearTerm.year.asc(),
                         CurriculumYearTerm.term.asc()
                     )
@@ -1441,9 +1497,9 @@ def create_app():
         question_setter_roster = []
         try:
             from collections import defaultdict
-            from utils.semester_utils import get_active_semesters, _normalize_year_term
+            from utils.semester_utils import get_active_semesters_for_user, _normalize_year_term
 
-            _sem_list = get_active_semesters(batch=None)
+            _sem_list = get_active_semesters_for_user(admin_override=is_admin(current_user))
             _roster_semester_keys = {
                 (
                     str(sem.academic_session or '').strip().casefold(),
@@ -1468,7 +1524,7 @@ def create_app():
                     )
 
             if _roster_semester_keys:
-                _all_assign = ExamPaperEvaluatorAssignment.query.all()
+                _all_assign = query_for_window(ExamPaperEvaluatorAssignment).all()
                 _filtered_assign = [
                     a for a in _all_assign
                     if _roster_assignment_key(a) in _roster_semester_keys
@@ -1554,7 +1610,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+        entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         current_teacher = _current_teacher()
         current_teacher_ids = _teacher_identity_ids(current_teacher)
         if not current_teacher or entry.owner_teacher_id not in current_teacher_ids:
@@ -1575,7 +1631,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+        entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         current_teacher = _current_teacher()
         current_teacher_ids = _teacher_identity_ids(current_teacher)
         if not current_teacher or entry.owner_teacher_id not in current_teacher_ids:
@@ -1596,7 +1652,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+        entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         if request.method == 'POST':
             course_code = request.form.get('course_code')
             section = request.form.get('section')
@@ -1625,7 +1681,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+        entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         invites = entry.scrutinizer_invites.all() if hasattr(entry, 'scrutinizer_invites') else []
         for invite in invites:
             db.session.delete(invite)
@@ -1640,7 +1696,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+        entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         undo = request.form.get('undo')
         try:
             entry.archived = False if undo else True
@@ -2020,7 +2076,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+        entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         # Refresh to ensure we have the latest data from database
         db.session.refresh(entry)
         role = request.args.get('role')
@@ -2200,7 +2256,7 @@ def create_app():
         if not has_teacher_privileges(current_user):
             return jsonify({'success': False, 'message': 'Not authorized'}), 403
         try:
-            entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+            entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
             
             # Handle both JSON and form data
             if request.is_json:
@@ -2244,7 +2300,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        entry = ExamPaperEvaluation.query.get_or_404(entry_id)
+        entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         current_teacher = _current_teacher()
 
         if not current_teacher:
@@ -2268,7 +2324,7 @@ def create_app():
                     if scrutinizer_id == current_teacher.id:
                         flash('You cannot invite yourself as scrutinizer.', 'warning')
                     else:
-                        existing = ExamScrutinizerInvite.query.filter_by(
+                        existing = query_for_window(ExamScrutinizerInvite).filter_by(
                             exam_entry_id=entry.id,
                             scrutinizer_teacher_id=scrutinizer_id
                         ).order_by(ExamScrutinizerInvite.created_at.desc()).first()
@@ -2281,12 +2337,13 @@ def create_app():
                                 scrutinizer_teacher_id=scrutinizer_id,
                                 remarks=remarks or ''
                             )
+                            stamp_window_id(invite, window_id=entry.window_id)
                             db.session.add(invite)
                             db.session.commit()
                             flash('Scrutinizer invitation sent successfully.', 'success')
                 elif action == 'cancel':
                     invite_id = int(request.form.get('invite_id', 0))
-                    invite = ExamScrutinizerInvite.query.get_or_404(invite_id)
+                    invite = get_or_404_for_window(ExamScrutinizerInvite, invite_id)
                     if invite.exam_entry_id != entry.id:
                         flash('Invalid invitation.', 'danger')
                     else:
@@ -2305,7 +2362,7 @@ def create_app():
                 flash(f'Failed to process request: {exc}', 'danger')
             return redirect(url_for('exam_assign_scrutinizer', entry_id=entry_id))
 
-        invites = ExamScrutinizerInvite.query.filter_by(exam_entry_id=entry.id).order_by(ExamScrutinizerInvite.created_at.desc()).all()
+        invites = query_for_window(ExamScrutinizerInvite).filter_by(exam_entry_id=entry.id).order_by(ExamScrutinizerInvite.created_at.desc()).all()
         teacher_ids = {inv.scrutinizer_teacher_id for inv in invites if inv.scrutinizer_teacher_id}
         if entry.owner_teacher_id:
             teacher_ids.add(entry.owner_teacher_id)
@@ -2353,7 +2410,7 @@ def create_app():
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        invite = ExamScrutinizerInvite.query.get_or_404(invite_id)
+        invite = get_or_404_for_window(ExamScrutinizerInvite, invite_id)
         teacher = _current_teacher()
         if not teacher or teacher.id != invite.scrutinizer_teacher_id:
             flash('You are not authorized to respond to this invitation.', 'danger')
@@ -2464,7 +2521,7 @@ def create_app():
                 invite.status = 'accepted'
                 invite.responded_at = datetime.utcnow()
                 invite.exam_entry.assigned_scrutinizer_id = teacher.id
-                other_pending = ExamScrutinizerInvite.query.filter(
+                other_pending = query_for_window(ExamScrutinizerInvite).filter(
                     ExamScrutinizerInvite.exam_entry_id == invite.exam_entry_id,
                     ExamScrutinizerInvite.id != invite.id,
                     ExamScrutinizerInvite.status == 'accepted'
@@ -2604,7 +2661,7 @@ def create_app():
         active_semesters = get_active_semester_info()
         
         # Get available sessions from CurriculumYearTerm
-        available_sessions_data = db.session.query(
+        available_sessions_data = query_for_window(CurriculumYearTerm).with_entities(
             CurriculumYearTerm.academic_session,
             CurriculumYearTerm.year,
             CurriculumYearTerm.term,
@@ -2695,11 +2752,15 @@ def create_app():
             ActiveSemesterConfig.activated_at.desc()
         ).limit(50).all()
         
+        # Get all operational windows for the set-semester form
+        operational_windows = OperationalWindow.query.order_by(OperationalWindow.id.asc()).all()
+
         return render_template('admin/active_semester.html',
                              active_semesters=active_semesters,
                              available_sessions=available_sessions,
                              unique_academic_sessions=unique_academic_sessions,
-                             history=all_configs)
+                             history=all_configs,
+                             operational_windows=operational_windows)
 
     @app.route('/admin/active-semester/set', methods=['POST'])
     @login_required
@@ -2713,9 +2774,21 @@ def create_app():
         year = data.get('year', '').strip()
         term = data.get('term', '').strip()
         batch = data.get('batch', '').strip() or None
-        
+        window_id = data.get('window_id')
+
         if not academic_session or not year or not term:
             return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+
+        if window_id is None or str(window_id).strip() == '':
+            return jsonify({'success': False, 'message': 'Window is required'}), 400
+
+        try:
+            window_id = int(window_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'Invalid window_id'}), 400
+
+        if not OperationalWindow.query.get(window_id):
+            return jsonify({'success': False, 'message': 'Selected window not found'}), 404
         
         try:
             from utils.semester_utils import set_active_semester
@@ -2727,12 +2800,19 @@ def create_app():
                 term=term,
                 batch=batch,
                 activated_by=activated_by,
-                deactivate_others=False
+                deactivate_others=False,
+                window_id=window_id,
             )
             
+            window = OperationalWindow.query.get(window_id)
+            window_label = window.name if window else str(window_id)
             return jsonify({
                 'success': True,
-                'message': f'Active semester set to {academic_session} - {year} - {term}' + (f' (Batch: {batch})' if batch else ''),
+                'message': (
+                    f'Active semester set to {academic_session} - {year} - {term}'
+                    + (f' (Batch: {batch})' if batch else '')
+                    + f' for {window_label}'
+                ),
                 'semester': new_config.to_dict()
             })
         except Exception as e:
@@ -2750,7 +2830,13 @@ def create_app():
             from utils.semester_utils import get_active_semester_info
             
             batch = request.args.get('batch', '').strip() or None
-            active_semesters = get_active_semester_info(batch=batch)
+            window_id = request.args.get('window_id', '').strip() or None
+            if window_id is not None:
+                try:
+                    window_id = int(window_id)
+                except (TypeError, ValueError):
+                    return jsonify({'success': False, 'message': 'Invalid window_id'}), 400
+            active_semesters = get_active_semester_info(batch=batch, window_id=window_id)
             
             return jsonify({
                 'success': True,
@@ -2772,9 +2858,18 @@ def create_app():
         year = data.get('year', '').strip()
         term = data.get('term', '').strip()
         batch = data.get('batch', '').strip() or None
-        
+        window_id = data.get('window_id')
+
         if not academic_session or not year or not term:
             return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
+
+        if window_id is None or str(window_id).strip() == '':
+            return jsonify({'success': False, 'message': 'Window is required'}), 400
+
+        try:
+            window_id = int(window_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'Invalid window_id'}), 400
         
         try:
             from utils.semester_utils import deactivate_semester
@@ -2783,7 +2878,8 @@ def create_app():
                 academic_session=academic_session,
                 year=year,
                 term=term,
-                batch=batch
+                batch=batch,
+                window_id=window_id,
             )
             
             if success:
@@ -2799,6 +2895,113 @@ def create_app():
                 }), 404
         except Exception as e:
             current_app.logger.error(f'Error deactivating semester: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+    @app.route('/admin/active-window')
+    @login_required
+    def admin_active_window():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from utils.window_utils import get_active_window_info
+
+        active_windows = get_active_window_info()
+        all_windows = [w.to_dict() for w in OperationalWindow.query.order_by(
+            OperationalWindow.id.asc()
+        ).all()]
+
+        return render_template(
+            'admin/active_window.html',
+            active_windows=active_windows,
+            all_windows=all_windows,
+        )
+
+    @app.route('/admin/active-window/create', methods=['POST'])
+    @login_required
+    def admin_create_active_window():
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        data = request.get_json() or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'success': False, 'message': 'Window name is required'}), 400
+
+        try:
+            from utils.window_utils import create_operational_window
+
+            activated_by = current_user.full_name or current_user.username
+            is_active = bool(data.get('is_active', True))
+            window = create_operational_window(
+                name=name,
+                description=data.get('description'),
+                academic_session=data.get('academic_session'),
+                year=data.get('year'),
+                term=data.get('term'),
+                batch=data.get('batch'),
+                status=(data.get('status') or OperationalWindow.STATUS_RUNNING).strip(),
+                activated_by=activated_by if is_active else None,
+                is_active=is_active,
+            )
+            return jsonify({
+                'success': True,
+                'message': f'Window "{window.name}" created successfully.',
+                'window': window.to_dict(),
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error creating operational window: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+    @app.route('/admin/active-window/activate', methods=['POST'])
+    @login_required
+    def admin_activate_active_window():
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        data = request.get_json() or {}
+        try:
+            window_id = int(data.get('window_id'))
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'window_id is required'}), 400
+
+        try:
+            from utils.window_utils import set_window_active
+
+            activated_by = current_user.full_name or current_user.username
+            window = set_window_active(window_id, activated_by=activated_by)
+            return jsonify({
+                'success': True,
+                'message': f'Window "{window.name}" activated.',
+                'window': window.to_dict(),
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error activating window: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+    @app.route('/admin/active-window/deactivate', methods=['POST'])
+    @login_required
+    def admin_deactivate_active_window():
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        data = request.get_json() or {}
+        try:
+            window_id = int(data.get('window_id'))
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'window_id is required'}), 400
+
+        try:
+            from utils.window_utils import deactivate_window
+
+            window = deactivate_window(window_id)
+            return jsonify({
+                'success': True,
+                'message': f'Window "{window.name}" deactivated.',
+                'window': window.to_dict(),
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error deactivating window: {e}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
     @app.route('/admin/active-semester/preview-deletion', methods=['POST'])
@@ -2943,7 +3146,7 @@ def create_app():
                 counts['batch_custom_events'] = 0
             
             # Exam Paper Evaluation
-            exam_query = ExamPaperEvaluation.query.filter_by(
+            exam_query = query_for_window(ExamPaperEvaluation).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -2953,7 +3156,7 @@ def create_app():
             counts['exam_paper_evaluations'] = exam_query.count()
             
             # Result Management: RSession uses 'name' field for academic_session
-            result_session_query = RSession.query.filter_by(
+            result_session_query = query_for_window(RSession).filter_by(
                 name=academic_session,
                 year=year,
                 term=term
@@ -2991,10 +3194,13 @@ def create_app():
                 counts['r_subjects'] = 0
             
             # Course Management
-            registration_query = StudentCourseRegistration.query.filter_by(
-                academic_session=academic_session,
-                year=year,
-                term=term
+            registration_query = filter_by_active_window(
+                StudentCourseRegistration.query.filter_by(
+                    academic_session=academic_session,
+                    year=year,
+                    term=term
+                ),
+                StudentCourseRegistration,
             )
             if batch:
                 # Batch filtering for registrations would need to check student batch
@@ -3002,7 +3208,7 @@ def create_app():
                 pass
             counts['student_course_registrations'] = registration_query.count()
             
-            counts['course_registration_invites'] = CourseRegistrationInvite.query.filter(
+            counts['course_registration_invites'] = query_for_window(CourseRegistrationInvite).filter(
                 CourseRegistrationInvite.registration_id.in_(
                     db.session.query(StudentCourseRegistration.id).filter_by(
                         academic_session=academic_session,
@@ -3021,7 +3227,7 @@ def create_app():
                 assignment_query = assignment_query.filter_by(batch=batch)
             counts['course_session_assignments'] = assignment_query.count()
             
-            duty_query = DutyAssignment.query.filter_by(
+            duty_query = query_for_window(DutyAssignment).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -3201,7 +3407,7 @@ def create_app():
                     deletion_counts['sessions'] = deleted
                 
                 # ===== EXAM PAPER EVALUATION =====
-                exam_query = ExamPaperEvaluation.query.filter_by(
+                exam_query = query_for_window(ExamPaperEvaluation).filter_by(
                     academic_session=academic_session,
                     year=year,
                     term=term
@@ -3213,7 +3419,7 @@ def create_app():
                 
                 # ===== RESULT MANAGEMENT DATA =====
                 # RSession uses 'name' field for academic_session
-                result_session_query = RSession.query.filter_by(
+                result_session_query = query_for_window(RSession).filter_by(
                     name=academic_session,
                     year=year,
                     term=term
@@ -3256,7 +3462,7 @@ def create_app():
                     deletion_counts['r_students'] = deleted
                     
                     # Delete RSession
-                    deleted = RSession.query.filter(
+                    deleted = query_for_window(RSession).filter(
                         RSession.id.in_(result_session_ids)
                     ).delete(synchronize_session=False)
                     deletion_counts['result_sessions'] = deleted
@@ -3264,10 +3470,13 @@ def create_app():
                 # ===== COURSE MANAGEMENT DATA =====
                 
                 # Delete student course registrations
-                registration_query = StudentCourseRegistration.query.filter_by(
-                    academic_session=academic_session,
-                    year=year,
-                    term=term
+                registration_query = filter_by_active_window(
+                    StudentCourseRegistration.query.filter_by(
+                        academic_session=academic_session,
+                        year=year,
+                        term=term
+                    ),
+                    StudentCourseRegistration,
                 )
                 # Note: Batch filtering for registrations is complex (would need student batch check)
                 # For now, delete all for the session/year/term
@@ -3275,7 +3484,7 @@ def create_app():
                 
                 if registration_ids:
                     # Delete course registration invites
-                    deleted = CourseRegistrationInvite.query.filter(
+                    deleted = query_for_window(CourseRegistrationInvite).filter(
                         CourseRegistrationInvite.registration_id.in_(registration_ids)
                     ).delete(synchronize_session=False)
                     deletion_counts['course_registration_invites'] = deleted
@@ -3295,7 +3504,7 @@ def create_app():
                 deletion_counts['course_session_assignments'] = deleted
                 
                 # Delete duty assignments
-                duty_query = DutyAssignment.query.filter_by(
+                duty_query = query_for_window(DutyAssignment).filter_by(
                     academic_session=academic_session,
                     year=year,
                     term=term
@@ -3398,7 +3607,7 @@ def create_app():
             return redirect(url_for('index'))
         
         # Get all archived committee assignments grouped by session/year/term
-        archived_assignments = DutyAssignment.query.filter(
+        archived_assignments = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
             DutyAssignment.status == 'archived'
         ).order_by(
@@ -3493,7 +3702,7 @@ def create_app():
         
         try:
             # Find all archived committee assignments for this session/year/term
-            archived_assignments = DutyAssignment.query.filter(
+            archived_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -3503,7 +3712,7 @@ def create_app():
             
             if not archived_assignments:
                 # Check if there are any active assignments for this session/year/term
-                active_assignments = DutyAssignment.query.filter(
+                active_assignments = query_for_window(DutyAssignment).filter(
                     DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
                     DutyAssignment.academic_session == academic_session,
                     DutyAssignment.year == year,
@@ -3524,7 +3733,7 @@ def create_app():
             
             # Check if there are any active assignments for this session/year/term
             # If yes, archive them first before restoring
-            active_assignments = DutyAssignment.query.filter(
+            active_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -3546,7 +3755,7 @@ def create_app():
                 restored_count += 1
             
             # Restore tabulators for this session/year/term
-            archived_tabulators = DutyAssignment.query.filter(
+            archived_tabulators = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'tabulator',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -3559,7 +3768,7 @@ def create_app():
                 restored_count += 1
             
             # Restore scrutinizers for this session/year/term
-            archived_scrutinizers = DutyAssignment.query.filter(
+            archived_scrutinizers = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'scrutinizer',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -3575,7 +3784,7 @@ def create_app():
             from blueprints.remuneration_management.models import RemunerationForm
             import json
             
-            archived_remuneration_forms = RemunerationForm.query.filter_by(
+            archived_remuneration_forms = query_for_window(RemunerationForm).filter_by(
                 status='archived'
             ).all()
             
@@ -3628,13 +3837,13 @@ def create_app():
             return redirect(url_for('index'))
         
         # Get all archived sessions
-        archived_sessions = SessionArchive.query.order_by(
+        archived_sessions = query_for_window(SessionArchive).order_by(
             SessionArchive.archived_at.desc()
         ).all()
         
         # Get available sessions to archive (from CurriculumYearTerm)
         from blueprints.course_management.models import CurriculumYearTerm
-        available_sessions = db.session.query(
+        available_sessions = query_for_window(CurriculumYearTerm).with_entities(
             CurriculumYearTerm.academic_session,
             CurriculumYearTerm.year,
             CurriculumYearTerm.term,
@@ -3686,7 +3895,7 @@ def create_app():
         
         try:
             # Check if already archived
-            existing = SessionArchive.query.filter_by(
+            existing = query_for_window(SessionArchive).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term,
@@ -3704,6 +3913,7 @@ def create_app():
                 'academic_session': academic_session,
                 'year': year,
                 'term': term,
+                'window_id': get_effective_window_id(),
                 'archived_at': datetime.utcnow().isoformat(),
                 'class_management': {},
                 'result_management': {},
@@ -3720,10 +3930,13 @@ def create_app():
                 from blueprints.course_management.models import CourseSessionAssignment
                 
                 # First, find sessions via CourseSessionAssignment (most reliable method)
-                assignments = CourseSessionAssignment.query.filter_by(
-                    academic_session=academic_session,
-                    year=year,
-                    term=term
+                assignments = filter_by_active_window(
+                    CourseSessionAssignment.query.filter_by(
+                        academic_session=academic_session,
+                        year=year,
+                        term=term
+                    ),
+                    CourseSessionAssignment,
                 ).all()
                 
                 session_ids_from_assignments = [a.session_id for a in assignments if a.session_id]
@@ -3847,7 +4060,7 @@ def create_app():
             try:
                 from blueprints.result_management.models import RSession, RStudent, RSubject, RMark
                 
-                result_sessions = RSession.query.filter_by(
+                result_sessions = query_for_window(RSession).filter_by(
                     name=academic_session,
                     year=year,
                     term=term
@@ -3897,11 +4110,14 @@ def create_app():
             
             # Archive Course Registrations
             try:
-                registrations = StudentCourseRegistration.query.filter_by(
-                    academic_session=academic_session,
-                    year=year,
-                    term=term
-                ).filter(StudentCourseRegistration.status != 'archived').all()
+                registrations = filter_by_active_window(
+                    StudentCourseRegistration.query.filter_by(
+                        academic_session=academic_session,
+                        year=year,
+                        term=term
+                    ).filter(StudentCourseRegistration.status != 'archived'),
+                    StudentCourseRegistration,
+                ).all()
                 
                 archive_data['course_registrations'] = []
                 for reg in registrations:
@@ -3933,7 +4149,7 @@ def create_app():
             
             # Archive Duty Assignments
             try:
-                duty_assignments = DutyAssignment.query.filter_by(
+                duty_assignments = query_for_window(DutyAssignment).filter_by(
                     academic_session=academic_session,
                     year=year,
                     term=term
@@ -3968,10 +4184,13 @@ def create_app():
             # Archive Course Session Assignments (store data but keep assignments - they're needed for reference)
             try:
                 from blueprints.course_management.models import CourseSessionAssignment
-                course_assignments = CourseSessionAssignment.query.filter_by(
-                    academic_session=academic_session,
-                    year=year,
-                    term=term
+                course_assignments = filter_by_active_window(
+                    CourseSessionAssignment.query.filter_by(
+                        academic_session=academic_session,
+                        year=year,
+                        term=term
+                    ),
+                    CourseSessionAssignment,
                 ).all()
                 
                 archive_data['course_session_assignments'] = [{
@@ -3992,7 +4211,7 @@ def create_app():
             # Archive Exam Paper Evaluations
             try:
                 from blueprints.class_management.models import ExamPaperEvaluation
-                exam_entries = ExamPaperEvaluation.query.filter_by(
+                exam_entries = query_for_window(ExamPaperEvaluation).filter_by(
                     academic_session=academic_session,
                     year=year,
                     term=term
@@ -4027,7 +4246,7 @@ def create_app():
             # Archive Academic Calendar Events
             try:
                 from blueprints.academic_calendar.models import AcademicCalendarEvent
-                calendar_events = AcademicCalendarEvent.query.filter_by(
+                calendar_events = query_for_window(AcademicCalendarEvent).filter_by(
                     academic_session=academic_session
                 ).all()
                 
@@ -4048,7 +4267,7 @@ def create_app():
             # Archive Routine/Schedules
             try:
                 from blueprints.routine_management.models import Routine
-                routines = Routine.query.filter_by(
+                routines = query_for_window(Routine).filter_by(
                     year=year,
                     term=term
                 ).all()
@@ -4077,7 +4296,7 @@ def create_app():
                 from blueprints.remuneration_management.models import RemunerationForm
                 # Find remuneration forms matching the session/year/term
                 # Forms have academic_year (which is the session), year, and term fields
-                remuneration_forms = RemunerationForm.query.filter(
+                remuneration_forms = query_for_window(RemunerationForm).filter(
                     RemunerationForm.academic_year == academic_session,
                     RemunerationForm.year == year,
                     RemunerationForm.term == term,
@@ -4146,6 +4365,7 @@ def create_app():
                 description=description,
                 is_active=True
             )
+            stamp_window_id(archive)
             
             db.session.add(archive)
             
@@ -4186,7 +4406,7 @@ def create_app():
             return jsonify({'success': False, 'message': 'Unauthorized'}), 403
         
         try:
-            archive = SessionArchive.query.get(archive_id)
+            archive = get_for_window(SessionArchive, archive_id)
             if not archive:
                 return jsonify({'success': False, 'message': 'Archive not found'}), 404
             
@@ -4219,7 +4439,7 @@ def create_app():
             return jsonify({'success': False, 'message': 'Unauthorized'}), 403
         
         try:
-            archive = SessionArchive.query.get(archive_id)
+            archive = get_for_window(SessionArchive, archive_id)
             if not archive:
                 return jsonify({'success': False, 'message': 'Archive not found'}), 404
             
@@ -4320,7 +4540,7 @@ def create_app():
             return jsonify({'success': False, 'message': 'Archive ID is required'}), 400
         
         try:
-            archive = SessionArchive.query.get(archive_id)
+            archive = get_for_window(SessionArchive, archive_id)
             if not archive:
                 return jsonify({'success': False, 'message': 'Archive not found'}), 404
             
@@ -4371,6 +4591,7 @@ def create_app():
                     description=f'Auto-archived before restoring archive #{archive_id}',
                     is_active=True
                 )
+                stamp_window_id(backup_archive)
                 db.session.add(backup_archive)
                 db.session.flush()
                 current_app.logger.info(f'Created backup archive {backup_archive.id} for current active data')
@@ -4505,7 +4726,7 @@ def create_app():
                 if archive_data.get('result_management') and archive_data['result_management'].get('sessions'):
                     for rs_data in archive_data['result_management']['sessions']:
                         try:
-                            existing_rsession = RSession.query.get(rs_data.get('id'))
+                            existing_rsession = get_for_window(RSession, rs_data.get('id'))
                             if existing_rsession:
                                 existing_rsession.is_archived = False
                                 # Restore marks if needed
@@ -4542,7 +4763,7 @@ def create_app():
                 from blueprints.class_management.models import ExamPaperEvaluation
                 if archive_data.get('exam_evaluations'):
                     for ee_data in archive_data['exam_evaluations']:
-                        ee = ExamPaperEvaluation.query.get(ee_data.get('id'))
+                        ee = get_for_window(ExamPaperEvaluation, ee_data.get('id'))
                         if ee:
                             ee.archived = False
             except Exception as e:
@@ -4552,7 +4773,7 @@ def create_app():
             try:
                 if archive_data.get('duty_assignments'):
                     for da_data in archive_data['duty_assignments']:
-                        da = DutyAssignment.query.get(da_data.get('id'))
+                        da = get_for_window(DutyAssignment, da_data.get('id'))
                         if da:
                             da.status = 'active'  # Unarchive
             except Exception as e:
@@ -4563,7 +4784,7 @@ def create_app():
                 from blueprints.remuneration_management.models import RemunerationForm
                 if archive_data.get('remuneration_forms'):
                     for form_data in archive_data['remuneration_forms']:
-                        form = RemunerationForm.query.get(form_data.get('id'))
+                        form = get_for_window(RemunerationForm, form_data.get('id'))
                         if form:
                             form.status = 'draft'  # Unarchive
                             form.archived_at = None
@@ -4609,7 +4830,7 @@ def create_app():
         
         # Show only relevant duty assignments (exclude tabulator/scrutinizer)
         visible_duty_types = ['course_coordinator', 'exam_committee_chief', 'routine_maker', 'teaching_assistant']
-        assignments = DutyAssignment.query.filter(
+        assignments = query_for_window(DutyAssignment).filter(
             DutyAssignment.status == 'active',
             DutyAssignment.duty_type.in_(visible_duty_types)
         ).order_by(DutyAssignment.created_at.desc()).all()
@@ -4635,7 +4856,9 @@ def create_app():
         # Get distinct academic sessions from curriculum year/term configuration
         academic_sessions = []
         try:
-            session_rows = db.session.query(CurriculumYearTerm.academic_session).filter(
+            session_rows = query_for_window(CurriculumYearTerm).with_entities(
+                CurriculumYearTerm.academic_session
+            ).filter(
                 CurriculumYearTerm.academic_session.isnot(None)
             ).distinct().order_by(CurriculumYearTerm.academic_session.desc()).all()
             academic_sessions = [row[0] for row in session_rows if row[0]]
@@ -4715,7 +4938,7 @@ def create_app():
         
         try:
             # Get distinct year and term combinations from CurriculumYearTerm for this session
-            year_term_rows = db.session.query(
+            year_term_rows = query_for_window(CurriculumYearTerm).with_entities(
                 CurriculumYearTerm.year,
                 CurriculumYearTerm.term
             ).filter(
@@ -4966,7 +5189,7 @@ def create_app():
                     'assigned_teacher_id': teacher_id
                 })
             
-            existing = DutyAssignment.query.filter_by(**filter_kwargs).first()
+            existing = query_for_window(DutyAssignment).filter_by(**filter_kwargs).first()
             if existing:
                 return jsonify({'success': False, 'message': 'This duty assignment already exists'}), 400
             
@@ -4985,6 +5208,7 @@ def create_app():
                 remarks=remarks or None,
                 status='active'
             )
+            stamp_window_id(assignment)
             db.session.add(assignment)
             db.session.commit()
             
@@ -5016,7 +5240,7 @@ def create_app():
         
         try:
             # Get the chief assignment
-            chief_assignment = DutyAssignment.query.filter_by(
+            chief_assignment = query_for_window(DutyAssignment).filter_by(
                 id=assignment_id,
                 duty_type='exam_committee_chief',
                 status='active'
@@ -5038,7 +5262,7 @@ def create_app():
             archived_count += 1
             
             # Archive all committee members for this session/year/term
-            committee_assignments = DutyAssignment.query.filter(
+            committee_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -5051,7 +5275,7 @@ def create_app():
                 archived_count += 1
             
             # Archive tabulators for this session/year/term assigned by this chief
-            tabulator_assignments = DutyAssignment.query.filter(
+            tabulator_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'tabulator',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -5065,7 +5289,7 @@ def create_app():
                 archived_count += 1
             
             # Archive scrutinizers for this session/year/term assigned by this chief
-            scrutinizer_assignments = DutyAssignment.query.filter(
+            scrutinizer_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'scrutinizer',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -5089,7 +5313,7 @@ def create_app():
                 # Find user by teacher name
                 chief_user = User.query.filter_by(full_name=chief_teacher.name).first()
                 if chief_user:
-                    remuneration_forms = RemunerationForm.query.filter_by(
+                    remuneration_forms = query_for_window(RemunerationForm).filter_by(
                         user_id=chief_user.id,
                         status='draft'
                     ).all()
@@ -5145,7 +5369,7 @@ def create_app():
             return jsonify({'success': False, 'message': 'Unauthorized'}), 403
         
         try:
-            assignment = DutyAssignment.query.get_or_404(assignment_id)
+            assignment = get_or_404_for_window(DutyAssignment, assignment_id)
             
             # If Exam Committee Chief/Member, only allow removing assignments they created
             if (is_chief or is_member) and not is_head:
@@ -5164,7 +5388,7 @@ def create_app():
                 
                 # Archive/Delete all committee members for this session/year/term
                 # Delete ALL members regardless of status to ensure complete cleanup
-                committee_members = DutyAssignment.query.filter(
+                committee_members = query_for_window(DutyAssignment).filter(
                     DutyAssignment.duty_type == 'exam_committee_member',
                     DutyAssignment.academic_session == academic_session,
                     DutyAssignment.year == year,
@@ -5176,7 +5400,7 @@ def create_app():
                     db.session.add(member)
                 
                 # Archive/Delete all tabulators for this session/year/term assigned by this chief
-                tabulators = DutyAssignment.query.filter(
+                tabulators = query_for_window(DutyAssignment).filter(
                     DutyAssignment.duty_type == 'tabulator',
                     DutyAssignment.academic_session == academic_session,
                     DutyAssignment.year == year,
@@ -5188,7 +5412,7 @@ def create_app():
                     tabulator.status = 'inactive'
                 
                 # Archive/Delete all scrutinizers for this session/year/term assigned by this chief
-                scrutinizers = DutyAssignment.query.filter(
+                scrutinizers = query_for_window(DutyAssignment).filter(
                     DutyAssignment.duty_type == 'scrutinizer',
                     DutyAssignment.academic_session == academic_session,
                     DutyAssignment.year == year,
@@ -5209,7 +5433,7 @@ def create_app():
                 if chief_teacher:
                     chief_user = User.query.filter_by(full_name=chief_teacher.name).first()
                     if chief_user:
-                        remuneration_forms = RemunerationForm.query.filter_by(
+                        remuneration_forms = query_for_window(RemunerationForm).filter_by(
                             user_id=chief_user.id,
                             status='draft'
                         ).all()
@@ -5322,14 +5546,14 @@ def create_app():
             return redirect(url_for('index'))
         
         # Check if user has any active chief assignments
-        active_chief_assignments = DutyAssignment.query.filter(
+        active_chief_assignments = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_chief',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
         ).count()
         is_chief = active_chief_assignments > 0
         
-        is_member = DutyAssignment.query.filter(
+        is_member = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
@@ -5344,7 +5568,7 @@ def create_app():
         chief_saved_forms = {}
         if is_chief:
             # Get all active assignments, then deduplicate by session/year/term (keep latest)
-            all_chief_assignments = DutyAssignment.query.filter(
+            all_chief_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_chief',
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.status == 'active'  # Only active assignments
@@ -5405,7 +5629,7 @@ def create_app():
             # Get saved remuneration forms for chief
             from blueprints.remuneration_management.models import RemunerationForm
             for assignment in chief_assignments:
-                forms = RemunerationForm.query.filter_by(
+                forms = query_for_window(RemunerationForm).filter_by(
                     user_id=current_user.id,
                     academic_year=assignment.academic_session,
                     year=assignment.year,
@@ -5421,7 +5645,7 @@ def create_app():
         if is_member:
             # Get all active member assignments, then deduplicate by session/year/term
             # Only fetch active assignments - inactive/archived ones should not appear
-            all_member_assignments = DutyAssignment.query.filter(
+            all_member_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.status.in_(['active'])  # Explicitly only active
@@ -5488,7 +5712,7 @@ def create_app():
                 assignment_term = str(assignment.term or '').strip()
                 
                 # Find the Chief for this assignment
-                chief_assignment = DutyAssignment.query.filter_by(
+                chief_assignment = query_for_window(DutyAssignment).filter_by(
                     duty_type='exam_committee_chief',
                     academic_session=assignment.academic_session,
                     year=assignment.year,
@@ -5502,7 +5726,7 @@ def create_app():
                     chief_user = User.query.filter_by(full_name=chief_assignment.assigned_teacher.name).first()
                     if chief_user:
                         # Get all forms for chief user
-                        all_chief_forms = RemunerationForm.query.filter_by(
+                        all_chief_forms = query_for_window(RemunerationForm).filter_by(
                             user_id=chief_user.id
                         ).order_by(RemunerationForm.created_at.desc()).all()
                         
@@ -5570,7 +5794,7 @@ def create_app():
             return redirect(url_for('index'))
         
         # Get all active member assignments
-        member_assignments = DutyAssignment.query.filter(
+        member_assignments = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
@@ -5588,7 +5812,7 @@ def create_app():
         from blueprints.remuneration_management.models import RemunerationForm
         saved_forms = {}
         for assignment in member_assignments:
-            forms = RemunerationForm.query.filter_by(
+            forms = query_for_window(RemunerationForm).filter_by(
                 user_id=current_user.id,
                 academic_year=assignment.academic_session,
                 year=assignment.year,
@@ -5621,7 +5845,7 @@ def create_app():
         chief_assignment = None
         if url_session and url_year and url_term:
             # Find assignment matching URL parameters
-            chief_assignment = DutyAssignment.query.filter_by(
+            chief_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 assigned_teacher_id=teacher.id,
                 academic_session=url_session,
@@ -5632,14 +5856,14 @@ def create_app():
         
         # If no match found, use first assignment (for backward compatibility)
         if not chief_assignment:
-            chief_assignment = DutyAssignment.query.filter_by(
+            chief_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 assigned_teacher_id=teacher.id,
                 status='active'
             ).first()
         
         # Check if user is an internal member (not external)
-        member_assignments = DutyAssignment.query.filter(
+        member_assignments = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
@@ -5696,7 +5920,7 @@ def create_app():
         # If the user is not chief for this context, allow internal-member context.
         member_context_assignment = None
         if url_session and url_year and url_term:
-            member_context_assignment = DutyAssignment.query.filter_by(
+            member_context_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_member',
                 assigned_teacher_id=teacher.id,
                 academic_session=url_session,
@@ -5722,7 +5946,7 @@ def create_app():
 
         # For member-only users, still load chief details for the same committee context.
         if not chief_assignment_details and current_session and current_year and current_term:
-            chief_assignment_details = DutyAssignment.query.filter_by(
+            chief_assignment_details = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 academic_session=current_session,
                 year=current_year,
@@ -5733,7 +5957,7 @@ def create_app():
                 current_batch = chief_assignment_details.batch
         
         # Get assigned tabulators - filter by current committee's session/year/term
-        tabulators_query = DutyAssignment.query.filter_by(
+        tabulators_query = query_for_window(DutyAssignment).filter_by(
             duty_type='tabulator',
             status='active',
             assigned_by_id=current_user.id
@@ -5748,7 +5972,7 @@ def create_app():
         tabulators = tabulators_query.order_by(DutyAssignment.created_at.desc()).all()
         
         # Get assigned scrutinizers - filter by current committee's session/year/term
-        scrutinizers_query = DutyAssignment.query.filter_by(
+        scrutinizers_query = query_for_window(DutyAssignment).filter_by(
             duty_type='scrutinizer',
             status='active',
             assigned_by_id=current_user.id
@@ -5771,7 +5995,7 @@ def create_app():
                     # Semester is inactive, skip fetching entries
                     available_entries = []
                 else:
-                    submitted_entries = ExamPaperEvaluation.query.filter(
+                    submitted_entries = query_for_window(ExamPaperEvaluation).filter(
                         ExamPaperEvaluation.archived.is_(False),
                         ExamPaperEvaluation.submitted_to_committee.is_(True),
                         ExamPaperEvaluation.academic_session == current_session,
@@ -5793,7 +6017,7 @@ def create_app():
             except Exception as e:
                 current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
                 # Continue with fetching entries if error
-                submitted_entries = ExamPaperEvaluation.query.filter(
+                submitted_entries = query_for_window(ExamPaperEvaluation).filter(
                     ExamPaperEvaluation.archived.is_(False),
                     ExamPaperEvaluation.submitted_to_committee.is_(True),
                     ExamPaperEvaluation.academic_session == current_session,
@@ -5822,7 +6046,7 @@ def create_app():
         if current_session and current_year and current_term:
             # Get all active committee members for this session/year/term
             # Don't filter by assigned_by_id because restored committees may have different assigned_by_id
-            committee_assignments = DutyAssignment.query.filter(
+            committee_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == current_session,
                 DutyAssignment.year == current_year,
@@ -5924,7 +6148,7 @@ def create_app():
         
         # Get saved custom remuneration forms (only draft, not archived) - filter by current committee's session/year/term
         from blueprints.remuneration_management.models import RemunerationForm
-        remuneration_forms_query = RemunerationForm.query.filter_by(
+        remuneration_forms_query = query_for_window(RemunerationForm).filter_by(
             user_id=current_user.id,
             status='draft'
         )
@@ -6039,7 +6263,7 @@ def create_app():
                         entry_id = int(entry_id)
                     except (TypeError, ValueError):
                         continue
-                    exam_entry = ExamPaperEvaluation.query.get(entry_id)
+                    exam_entry = get_for_window(ExamPaperEvaluation, entry_id)
                     if not exam_entry:
                         return jsonify({'success': False, 'message': 'Invalid submitted course selected.'}), 400
                     if not exam_entry.submitted_to_committee:
@@ -6062,6 +6286,7 @@ def create_app():
                         remarks=remarks or None,
                         status='active'
                     )
+                    stamp_window_id(assignment, window_id=exam_entry.window_id)
                     db.session.add(assignment)
                     created_assignments.append((assignment, exam_entry))
 
@@ -6076,6 +6301,7 @@ def create_app():
                         scrutinizer_teacher_id=assignment.assigned_teacher_id,
                         status='invited'
                     )
+                    stamp_window_id(invite, window_id=exam_entry.window_id)
                     db.session.add(invite)
                     invite_count += 1
                 db.session.commit()
@@ -6106,7 +6332,7 @@ def create_app():
                     'course_code': course_code,
                 })
             
-            existing = DutyAssignment.query.filter_by(**filter_kwargs).first()
+            existing = query_for_window(DutyAssignment).filter_by(**filter_kwargs).first()
             if existing:
                 return jsonify({'success': False, 'message': 'This duty assignment already exists'}), 400
             
@@ -6124,6 +6350,7 @@ def create_app():
                 remarks=remarks or None,
                 status='active'
             )
+            stamp_window_id(assignment)
             db.session.add(assignment)
             db.session.commit()
 
@@ -6197,7 +6424,7 @@ def create_app():
                 })
 
             # First, deactivate existing committee members for this session/year/term
-            existing_members = DutyAssignment.query.filter_by(
+            existing_members = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_member',
                 academic_session=academic_session,
                 year=year,
@@ -6214,7 +6441,7 @@ def create_app():
                 chief_teacher = Teacher.query.get(chief.get('id'))
                 if chief_teacher:
                     # Update chief assignment with designation
-                    chief_assignment_update = DutyAssignment.query.filter_by(
+                    chief_assignment_update = query_for_window(DutyAssignment).filter_by(
                         duty_type='exam_committee_chief',
                         assigned_teacher_id=chief.get('id'),
                         academic_session=academic_session,
@@ -6230,7 +6457,7 @@ def create_app():
             
             # Save chief designation in chief assignment remarks
             if chief and chief.get('id'):
-                chief_assignment_update = DutyAssignment.query.filter_by(
+                chief_assignment_update = query_for_window(DutyAssignment).filter_by(
                     duty_type='exam_committee_chief',
                     assigned_teacher_id=chief.get('id'),
                     academic_session=academic_session,
@@ -6264,7 +6491,7 @@ def create_app():
                 member_remarks = json.dumps(member_info) if (member.get('designation') or member.get('institute')) else (remarks or '')
                 
                 # Create or reactivate assignment
-                assignment = DutyAssignment.query.filter_by(
+                assignment = query_for_window(DutyAssignment).filter_by(
                     duty_type='exam_committee_member',
                     assigned_teacher_id=member_id,
                     academic_session=academic_session,
@@ -6287,6 +6514,7 @@ def create_app():
                         remarks=member_remarks,
                         status='active'
                     )
+                    stamp_window_id(assignment)
                     db.session.add(assignment)
             
             # Create assignments for external members (without teacher_id, store info in remarks as JSON)
@@ -6319,6 +6547,7 @@ def create_app():
                     remarks=external_remarks,  # Store external info as JSON
                     status='active'
                 )
+                stamp_window_id(assignment)
                 db.session.add(assignment)
             
             db.session.commit()
@@ -6360,7 +6589,7 @@ def create_app():
         
         try:
             # Find all committee members for this session/year/term (both active and inactive)
-            committee_assignments = DutyAssignment.query.filter(
+            committee_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6376,7 +6605,7 @@ def create_app():
                     archived_count += 1
             
             # Also archive the chief assignment for this session/year/term if it exists
-            chief_assignment_to_archive = DutyAssignment.query.filter(
+            chief_assignment_to_archive = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_chief',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6389,7 +6618,7 @@ def create_app():
                 archived_count += 1
             
             # Archive tabulators for this session/year/term assigned by current chief
-            tabulator_assignments = DutyAssignment.query.filter(
+            tabulator_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'tabulator',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6403,7 +6632,7 @@ def create_app():
                 archived_count += 1
             
             # Archive scrutinizers for this session/year/term assigned by current chief
-            scrutinizer_assignments = DutyAssignment.query.filter(
+            scrutinizer_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'scrutinizer',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6421,7 +6650,7 @@ def create_app():
             from datetime import datetime
             import json
             
-            remuneration_forms = RemunerationForm.query.filter_by(
+            remuneration_forms = query_for_window(RemunerationForm).filter_by(
                 user_id=current_user.id,
                 status='draft'
             ).all()
@@ -6489,7 +6718,7 @@ def create_app():
         try:
             # First, check if there are any active assignments for this session/year/term
             # If yes, we cannot restore - must archive or deactivate active committee first
-            active_assignments = DutyAssignment.query.filter(
+            active_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6504,7 +6733,7 @@ def create_app():
                 }), 400
             
             # Ensure requester is related to this committee in archived state too.
-            archived_role_assignment = DutyAssignment.query.filter(
+            archived_role_assignment = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type.in_(['exam_committee_chief', 'exam_committee_member']),
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.academic_session == academic_session,
@@ -6514,7 +6743,7 @@ def create_app():
             ).first()
 
             # Find archived chief assignment for this session/year/term
-            archived_chief_assignment = DutyAssignment.query.filter(
+            archived_chief_assignment = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_chief',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6529,7 +6758,7 @@ def create_app():
                 }), 404
             
             # Find all archived member assignments for this session/year/term
-            archived_member_assignments = DutyAssignment.query.filter(
+            archived_member_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6547,7 +6776,7 @@ def create_app():
                 restored_count += 1
             
             # Restore tabulators for this session/year/term assigned by current chief
-            archived_tabulators = DutyAssignment.query.filter(
+            archived_tabulators = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'tabulator',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6561,7 +6790,7 @@ def create_app():
                 restored_count += 1
             
             # Restore scrutinizers for this session/year/term assigned by current chief
-            archived_scrutinizers = DutyAssignment.query.filter(
+            archived_scrutinizers = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'scrutinizer',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -6578,7 +6807,7 @@ def create_app():
             from blueprints.remuneration_management.models import RemunerationForm
             import json
             
-            archived_remuneration_forms = RemunerationForm.query.filter_by(
+            archived_remuneration_forms = query_for_window(RemunerationForm).filter_by(
                 user_id=current_user.id,
                 status='archived'
             ).all()
@@ -6631,13 +6860,13 @@ def create_app():
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
-        chief_assignment = DutyAssignment.query.filter_by(
+        chief_assignment = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
         ).first()
         
-        member_assignment = DutyAssignment.query.filter(
+        member_assignment = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
@@ -6673,7 +6902,7 @@ def create_app():
             from blueprints.student_management.models import Student
             
             # Find curriculum year/term configs matching the criteria
-            configs = CurriculumYearTerm.query.filter_by(
+            configs = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -6999,7 +7228,7 @@ def create_app():
             merged_courses = list(merged_courses_by_code.values())
             
             # Get existing evaluator assignments
-            existing_assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+            existing_assignments = query_for_window(ExamPaperEvaluatorAssignment).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -7181,12 +7410,12 @@ def create_app():
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
-        chief_assignment = DutyAssignment.query.filter_by(
+        chief_assignment = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
         ).first()
-        member_assignment = DutyAssignment.query.filter(
+        member_assignment = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
@@ -7248,7 +7477,7 @@ def create_app():
                         exc_info=True
                     )
 
-            invites_to_delete = CourseRegistrationInvite.query.filter_by(
+            invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
                 registration_id=reg.id
             ).all()
             for invite in invites_to_delete:
@@ -7279,13 +7508,13 @@ def create_app():
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
-        chief_assignment = DutyAssignment.query.filter_by(
+        chief_assignment = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
         ).first()
         
-        member_assignment = DutyAssignment.query.filter(
+        member_assignment = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
@@ -7332,7 +7561,7 @@ def create_app():
 
             # Backward-compatible fallback for older clients that don't send batch.
             if not batch and academic_session and year and term:
-                context_assignment = DutyAssignment.query.filter(
+                context_assignment = query_for_window(DutyAssignment).filter(
                     DutyAssignment.assigned_teacher_id == teacher.id,
                     DutyAssignment.status == 'active',
                     DutyAssignment.academic_session == academic_session,
@@ -7345,7 +7574,7 @@ def create_app():
 
             # Final fallback: use first configured curriculum batch for this session/year/term.
             if not batch and academic_session and year and term:
-                cfg = CurriculumYearTerm.query.filter_by(
+                cfg = query_for_window(CurriculumYearTerm).filter_by(
                     academic_session=academic_session,
                     year=year,
                     term=term
@@ -7369,7 +7598,7 @@ def create_app():
             
             # Check if already assigned for this exact course row in the context.
             # This allows separate-retake rows (different course_id, same code) to be assigned independently.
-            existing = ExamPaperEvaluatorAssignment.query.filter(
+            existing = query_for_window(ExamPaperEvaluatorAssignment).filter(
                 ExamPaperEvaluatorAssignment.course_id == course_id,
                 ExamPaperEvaluatorAssignment.part == part,
                 ExamPaperEvaluatorAssignment.academic_session == academic_session,
@@ -7393,6 +7622,7 @@ def create_app():
                 owner_teacher_id=assigned_teacher_id,
                 submitted_to_committee=False
             )
+            stamp_window_id(exam_evaluation)
             db.session.add(exam_evaluation)
             db.session.flush()  # Get the ID
             
@@ -7409,6 +7639,7 @@ def create_app():
                 exam_paper_evaluation_id=exam_evaluation.id,
                 assigned_by_id=current_user.id
             )
+            stamp_window_id(assignment, window_id=exam_evaluation.window_id)
             db.session.add(assignment)
             db.session.commit()
             
@@ -7442,7 +7673,7 @@ def create_app():
             from blueprints.course_management.models import Course
             
             # Get all assignments for this session/year/term
-            assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+            assignments = query_for_window(ExamPaperEvaluatorAssignment).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -7479,7 +7710,7 @@ def create_app():
                     
                     # Find ALL submitted exam evaluations for this teacher/course/part
                     # Only count entries that are submitted to committee
-                    submitted_entries = ExamPaperEvaluation.query.filter(
+                    submitted_entries = query_for_window(ExamPaperEvaluation).filter(
                         ExamPaperEvaluation.owner_teacher_id == assignment.assigned_teacher_id,
                         ExamPaperEvaluation.course_code == course_code,
                         ExamPaperEvaluation.section == section_text,
@@ -7581,7 +7812,7 @@ def create_app():
             from blueprints.course_management.models import Course, StudentCourseRegistration
             from sqlalchemy import or_
 
-            assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+            assignments = query_for_window(ExamPaperEvaluatorAssignment).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -7897,7 +8128,7 @@ def create_app():
             from blueprints.class_management.models import ExamPaperEvaluation
             
             # Get all submitted exam entries for this session/year/term that have assigned scrutinizers
-            submitted_entries = ExamPaperEvaluation.query.filter(
+            submitted_entries = query_for_window(ExamPaperEvaluation).filter(
                 ExamPaperEvaluation.academic_session == academic_session,
                 ExamPaperEvaluation.year == year,
                 ExamPaperEvaluation.term == term,
@@ -7971,13 +8202,13 @@ def create_app():
         if not teacher:
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
-        chief_assignment = DutyAssignment.query.filter_by(
+        chief_assignment = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
         ).first()
         
-        member_assignment = DutyAssignment.query.filter(
+        member_assignment = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.assigned_teacher_id == teacher.id,
             DutyAssignment.status == 'active'
@@ -7999,9 +8230,9 @@ def create_app():
             
             # Find assignment by ID or by course_id/part/session/year/term
             if assignment_id:
-                assignment = ExamPaperEvaluatorAssignment.query.get(assignment_id)
+                assignment = get_for_window(ExamPaperEvaluatorAssignment, assignment_id)
             elif course_id and part and academic_session and year and term:
-                assignment = ExamPaperEvaluatorAssignment.query.filter_by(
+                assignment = query_for_window(ExamPaperEvaluatorAssignment).filter_by(
                     course_id=course_id,
                     part=part,
                     academic_session=academic_session,
@@ -8016,11 +8247,11 @@ def create_app():
             
             # Delete the ExamPaperEvaluation entry and related records
             if assignment.exam_paper_evaluation_id:
-                exam_eval = ExamPaperEvaluation.query.get(assignment.exam_paper_evaluation_id)
+                exam_eval = get_for_window(ExamPaperEvaluation, assignment.exam_paper_evaluation_id)
                 if exam_eval:
                     # Delete related ExamScrutinizerInvite records first
                     from blueprints.class_management.models import ExamScrutinizerInvite
-                    ExamScrutinizerInvite.query.filter_by(exam_entry_id=exam_eval.id).delete()
+                    query_for_window(ExamScrutinizerInvite).filter_by(exam_entry_id=exam_eval.id).delete()
                     # Now delete the exam evaluation entry
                     db.session.delete(exam_eval)
             
@@ -8064,7 +8295,7 @@ def create_app():
         
         try:
             # Find all committee members for this session/year/term
-            committee_assignments = DutyAssignment.query.filter(
+            committee_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == academic_session,
                 DutyAssignment.year == year,
@@ -8100,14 +8331,14 @@ def create_app():
             return redirect(url_for('index'))
         
         # Get all active exam committee chief assignments for this teacher
-        chief_assignments = DutyAssignment.query.filter_by(
+        chief_assignments = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
         ).all()
         
         # Get all active exam committee member assignments for this teacher
-        member_assignments = DutyAssignment.query.filter_by(
+        member_assignments = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_member',
             assigned_teacher_id=teacher.id,
             status='active'
@@ -8115,7 +8346,7 @@ def create_app():
         
         # If form_id is provided, check if user can access it (either as chief or member of same committee)
         if form_id:
-            form_entry = RemunerationForm.query.filter_by(id=form_id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id).first()
             if form_entry:
                 # Check if user owns the form or is a member of the same committee
                 can_access = False
@@ -8169,7 +8400,7 @@ def create_app():
         form_entry = None
         if form_id:
             # Allow loading Chief's form if user is a member of the same committee
-            form_entry = RemunerationForm.query.filter_by(id=form_id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id).first()
             if form_entry:
                 # Use form's session/year/term to find matching assignment
                 url_session = form_entry.academic_year or url_session
@@ -8227,12 +8458,12 @@ def create_app():
                 )
             
             if filter_conditions:
-                curriculum_query = CurriculumYearTerm.query.filter(or_(*filter_conditions))
+                curriculum_query = query_for_window(CurriculumYearTerm).filter(or_(*filter_conditions))
             else:
-                curriculum_query = CurriculumYearTerm.query.filter(False)  # No results
+                curriculum_query = query_for_window(CurriculumYearTerm).filter(False)  # No results
         else:
             # If no specific assignments, use all (fallback)
-            curriculum_query = CurriculumYearTerm.query
+            curriculum_query = query_for_window(CurriculumYearTerm)
         
         # Get unique academic sessions from filtered curriculum
         curriculum_sessions = curriculum_query.with_entities(
@@ -8313,7 +8544,7 @@ def create_app():
         # Get current batch from curriculum if available
         current_batch = None
         if current_session and current_year and current_term:
-            config = CurriculumYearTerm.query.filter_by(
+            config = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=current_session,
                 year=current_year,
                 term=current_term
@@ -8359,7 +8590,7 @@ def create_app():
         
         # Get committee members for current session/year/term
         if current_session and current_year and current_term:
-            committee_assignments = DutyAssignment.query.filter(
+            committee_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == current_session,
                 DutyAssignment.year == current_year,
@@ -8500,7 +8731,7 @@ def create_app():
             form_entry = None
             if form_id:
                 # Edit existing form (allow same-committee member editing too)
-                form_entry = RemunerationForm.query.filter_by(id=form_id).first()
+                form_entry = query_for_window(RemunerationForm).filter_by(id=form_id).first()
                 if not form_entry:
                     return jsonify({'success': False, 'message': 'Form not found'}), 404
                 can_edit = form_entry.user_id == current_user.id
@@ -8521,6 +8752,7 @@ def create_app():
                     user_id=current_user.id,
                     status='draft'
                 )
+                stamp_window_id(form_entry)
                 db.session.add(form_entry)
             
             # Update form fields
@@ -8604,14 +8836,14 @@ def create_app():
                 return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
             
             # Get all active exam committee chief assignments for this teacher
-            chief_assignments = DutyAssignment.query.filter_by(
+            chief_assignments = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 assigned_teacher_id=teacher.id,
                 status='active'
             ).all()
             
             # Get all active exam committee member assignments for this teacher
-            member_assignments = DutyAssignment.query.filter_by(
+            member_assignments = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_member',
                 assigned_teacher_id=teacher.id,
                 status='active'
@@ -8683,7 +8915,7 @@ def create_app():
             # Create or update form entry
             if form_id:
                 # Allow members to update Chief's forms
-                form_entry = RemunerationForm.query.filter_by(id=form_id).first()
+                form_entry = query_for_window(RemunerationForm).filter_by(id=form_id).first()
                 if not form_entry:
                     current_app.logger.warning(f'Form not found for update. form_id: {form_id}')
                     return jsonify({'success': False, 'message': 'Form not found'}), 404
@@ -8713,6 +8945,7 @@ def create_app():
             else:
                 # Create new form - chiefs and internal members are both allowed.
                 form_entry = RemunerationForm(user_id=current_user.id, status='draft')
+                stamp_window_id(form_entry)
                 db.session.add(form_entry)
             
             # Update fields - ensure all fields have safe defaults
@@ -8852,13 +9085,13 @@ def create_app():
             return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
         
         # Check if user is Chief or Member
-        chief_assignment = DutyAssignment.query.filter_by(
+        chief_assignment = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             assigned_teacher_id=teacher.id,
             status='active'
         ).first()
         
-        member_assignments = DutyAssignment.query.filter_by(
+        member_assignments = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_member',
             assigned_teacher_id=teacher.id,
             status='active'
@@ -8868,7 +9101,7 @@ def create_app():
             return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
         
         try:
-            form_entry = RemunerationForm.query.filter_by(id=form_id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id).first()
             if not form_entry:
                 return jsonify({'success': False, 'message': 'Form not found'}), 404
             
@@ -8928,14 +9161,14 @@ def create_app():
                 return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
             
             # Check if user is Chief
-            chief_assignment = DutyAssignment.query.filter_by(
+            chief_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 assigned_teacher_id=teacher.id,
                 status='active'
             ).first()
             
             # Check if user is Member of the same committee
-            member_assignment = DutyAssignment.query.filter_by(
+            member_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_member',
                 assigned_teacher_id=teacher.id,
                 academic_session=session,
@@ -8956,7 +9189,7 @@ def create_app():
             
             # First, try to get the current user's form if they are the Chief
             if chief_assignment:
-                form_entry = RemunerationForm.query.filter_by(
+                form_entry = query_for_window(RemunerationForm).filter_by(
                     user_id=current_user.id,
                     academic_year=session,
                     year=year,
@@ -8965,7 +9198,7 @@ def create_app():
             
             # If not found, try to find the Chief's form for this session/year/term (works for all teachers)
             if not form_entry:
-                chief_for_committee = DutyAssignment.query.filter_by(
+                chief_for_committee = query_for_window(DutyAssignment).filter_by(
                     duty_type='exam_committee_chief',
                     academic_session=session,
                     year=year,
@@ -8976,7 +9209,7 @@ def create_app():
                 if chief_for_committee and chief_for_committee.assigned_teacher:
                     chief_user = User.query.filter_by(full_name=chief_for_committee.assigned_teacher.name).first()
                     if chief_user:
-                        form_entry = RemunerationForm.query.filter_by(
+                        form_entry = query_for_window(RemunerationForm).filter_by(
                             user_id=chief_user.id,
                             academic_year=session,
                             year=year,
@@ -9037,7 +9270,7 @@ def create_app():
             if not chief_assignments and not member_assignments:
                 return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief/Member for this session/year/term'}), 403
 
-            chief_assignment = DutyAssignment.query.filter_by(
+            chief_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 academic_session=session,
                 year=year,
@@ -9079,7 +9312,7 @@ def create_app():
                 })
             
             # Get committee members
-            committee_assignments = DutyAssignment.query.filter(
+            committee_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == session,
                 DutyAssignment.year == year,
@@ -9156,7 +9389,7 @@ def create_app():
             from blueprints.remuneration_management.models import RemunerationForm
             
             # Get the form
-            form_entry = RemunerationForm.query.filter_by(id=form_id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id).first()
             if not form_entry:
                 return jsonify({'success': False, 'message': 'Form not found'}), 404
 
@@ -9767,7 +10000,7 @@ def create_app():
                 current_app.logger.info(f'No CourseSessionAssignment found, trying CurriculumYearTerm for session={academic_session}, year={year}, term={term}')
                 
                 # Find curriculum configs matching the criteria
-                configs = CurriculumYearTerm.query.filter_by(
+                configs = query_for_window(CurriculumYearTerm).filter_by(
                     academic_session=academic_session
                 ).all()
                 
@@ -10073,14 +10306,14 @@ def create_app():
         saved_data = None
         if form_id_param and form_id_param.isdigit():
             from blueprints.remuneration_management.models import RemunerationForm
-            saved_form = RemunerationForm.query.filter_by(
+            saved_form = query_for_window(RemunerationForm).filter_by(
                 id=int(form_id_param),
                 user_id=current_user.id
             ).first()
             
             if saved_form:
                 # Verify this form belongs to a valid member assignment
-                member_check = DutyAssignment.query.filter(
+                member_check = query_for_window(DutyAssignment).filter(
                     DutyAssignment.duty_type == 'exam_committee_member',
                     DutyAssignment.assigned_teacher_id == teacher.id,
                     DutyAssignment.academic_session == saved_form.academic_year,
@@ -10100,7 +10333,7 @@ def create_app():
         
         # Find member assignment based on parameters or get first one
         if session_param and year_param and term_param:
-            member_assignment = DutyAssignment.query.filter(
+            member_assignment = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.academic_session == session_param,
@@ -10109,7 +10342,7 @@ def create_app():
                 DutyAssignment.status == 'active'
             ).first()
         else:
-            member_assignment = DutyAssignment.query.filter(
+            member_assignment = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.status == 'active'
@@ -10139,7 +10372,7 @@ def create_app():
         
         # Add Chief (Chairman)
         if member_assignment.academic_session and member_assignment.year and member_assignment.term:
-            chief_assignment = DutyAssignment.query.filter_by(
+            chief_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 academic_session=member_assignment.academic_session,
                 year=member_assignment.year,
@@ -10167,7 +10400,7 @@ def create_app():
                 })
             
             # Get committee members
-            committee_assignments = DutyAssignment.query.filter(
+            committee_assignments = query_for_window(DutyAssignment).filter(
                 DutyAssignment.duty_type == 'exam_committee_member',
                 DutyAssignment.academic_session == member_assignment.academic_session,
                 DutyAssignment.year == member_assignment.year,
@@ -10229,7 +10462,7 @@ def create_app():
         # Get curriculum configs for the member's session/year/term
         curriculum_configs = []
         if current_session and current_year and current_term:
-            configs = CurriculumYearTerm.query.filter_by(
+            configs = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=current_session,
                 year=current_year,
                 term=current_term
@@ -10258,21 +10491,21 @@ def create_app():
         unique_terms = []
         unique_batches = []
         if current_session:
-            all_years = CurriculumYearTerm.query.filter_by(
+            all_years = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=current_session
             ).with_entities(CurriculumYearTerm.year).distinct().filter(
                 CurriculumYearTerm.year.isnot(None)
             ).order_by(CurriculumYearTerm.year.asc()).all()
             unique_years = sorted(set([y[0] for y in all_years if y[0]]))
             
-            all_terms = CurriculumYearTerm.query.filter_by(
+            all_terms = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=current_session
             ).with_entities(CurriculumYearTerm.term).distinct().filter(
                 CurriculumYearTerm.term.isnot(None)
             ).order_by(CurriculumYearTerm.term.asc()).all()
             unique_terms = sorted(set([t[0] for t in all_terms if t[0]]))
             
-            all_batches = CurriculumYearTerm.query.filter_by(
+            all_batches = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=current_session,
                 year=current_year,
                 term=current_term
@@ -10283,7 +10516,7 @@ def create_app():
         
         current_batch = None
         if current_session and current_year and current_term:
-            config = CurriculumYearTerm.query.filter_by(
+            config = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=current_session,
                 year=current_year,
                 term=current_term
@@ -10358,7 +10591,7 @@ def create_app():
         if not chief_assignments and not member_assignments:
             return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief/Member for this session/year/term'}), 403
 
-        chief_assignment = DutyAssignment.query.filter_by(
+        chief_assignment = query_for_window(DutyAssignment).filter_by(
             duty_type='exam_committee_chief',
             academic_session=academic_session,
             year=year,
@@ -10419,7 +10652,7 @@ def create_app():
             })
         
         # Get committee members
-        committee_assignments = DutyAssignment.query.filter(
+        committee_assignments = query_for_window(DutyAssignment).filter(
             DutyAssignment.duty_type == 'exam_committee_member',
             DutyAssignment.academic_session == academic_session,
             DutyAssignment.year == year,
@@ -10521,7 +10754,7 @@ def create_app():
             
             # Fetch all curriculum year/term configurations and aggregate data
             try:
-                all_configs = CurriculumYearTerm.query.all()
+                all_configs = query_for_window(CurriculumYearTerm).all()
             except Exception as e:
                 current_app.logger.error(f'Error fetching curriculum configs: {e}', exc_info=True)
                 all_configs = []
@@ -10742,7 +10975,7 @@ def create_app():
             form_entry = None
             if form_id:
                 # Edit existing form
-                form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+                form_entry = query_for_window(RemunerationForm).filter_by(id=form_id, user_id=current_user.id).first()
                 if not form_entry:
                     return jsonify({'success': False, 'message': 'Form not found'}), 404
             else:
@@ -10751,6 +10984,7 @@ def create_app():
                     user_id=current_user.id,
                     status='draft'
                 )
+                stamp_window_id(form_entry)
                 db.session.add(form_entry)
             
             # Auto-generate title if not provided
@@ -10833,7 +11067,7 @@ def create_app():
             
             if form_id:
                 # Load specific form
-                form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+                form_entry = query_for_window(RemunerationForm).filter_by(id=form_id, user_id=current_user.id).first()
                 if not form_entry:
                     return jsonify({'success': False, 'message': 'Form not found'}), 404
                 
@@ -10849,7 +11083,7 @@ def create_app():
                 return jsonify({'success': True, 'data': saved_data})
             elif academic_year and year and term:
                 # Load form by session/year/term for current user
-                form_entry = RemunerationForm.query.filter_by(
+                form_entry = query_for_window(RemunerationForm).filter_by(
                     user_id=current_user.id,
                     academic_year=academic_year,
                     year=year,
@@ -10916,7 +11150,7 @@ def create_app():
         try:
             status_filter = request.args.get('status', 'all')  # 'all', 'draft', 'archived'
             
-            query = RemunerationForm.query.filter_by(user_id=current_user.id)
+            query = query_for_window(RemunerationForm).filter_by(user_id=current_user.id)
             
             if status_filter == 'draft':
                 query = query.filter_by(status='draft')
@@ -10982,7 +11216,7 @@ def create_app():
             return restriction
         
         try:
-            form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id, user_id=current_user.id).first()
             if not form_entry:
                 flash('Form not found', 'error')
                 return redirect(url_for('remuneration_list'))
@@ -11011,7 +11245,7 @@ def create_app():
             teachers = get_teachers_excluding_head()
             
             # Fetch all curriculum year/term configurations and aggregate data
-            all_configs = CurriculumYearTerm.query.all()
+            all_configs = query_for_window(CurriculumYearTerm).all()
             
             # Collect all unique academic sessions
             academic_sessions = sorted(list(set(
@@ -11099,7 +11333,7 @@ def create_app():
             return restriction
         
         try:
-            form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id, user_id=current_user.id).first()
             if not form_entry:
                 return jsonify({'success': False, 'message': 'Form not found'}), 404
             
@@ -11122,7 +11356,7 @@ def create_app():
             return restriction
         
         try:
-            form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id, user_id=current_user.id).first()
             if not form_entry:
                 return jsonify({'success': False, 'message': 'Form not found'}), 404
             
@@ -11145,7 +11379,7 @@ def create_app():
             return restriction
         
         try:
-            form_entry = RemunerationForm.query.filter_by(id=form_id, user_id=current_user.id).first()
+            form_entry = query_for_window(RemunerationForm).filter_by(id=form_id, user_id=current_user.id).first()
             if not form_entry:
                 return jsonify({'success': False, 'message': 'Form not found'}), 404
             
@@ -11178,7 +11412,7 @@ def create_app():
 
             # Find curriculum year/term configs matching the criteria
             try:
-                configs = CurriculumYearTerm.query.filter_by(
+                configs = query_for_window(CurriculumYearTerm).filter_by(
                     academic_session=academic_session,
                     year=year,
                     term=term
@@ -11314,7 +11548,7 @@ def create_app():
             from blueprints.course_management.models import CourseSessionAssignment, Course, CurriculumYearTerm
             
             # Find curriculum year/term configs matching the criteria
-            configs = CurriculumYearTerm.query.filter_by(
+            configs = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -11442,7 +11676,7 @@ def create_app():
             from blueprints.course_management.models import CourseSessionAssignment, Course, CurriculumYearTerm
             
             # Find curriculum year/term configs matching the criteria
-            configs = CurriculumYearTerm.query.filter_by(
+            configs = query_for_window(CurriculumYearTerm).filter_by(
                 academic_session=academic_session,
                 year=year,
                 term=term
@@ -11606,7 +11840,7 @@ def create_app():
             
             # Get tabulators assigned by this Exam Committee Chief for the given session/year/term
             # Simplified query - use filter_by for exact matches
-            tabulator_assignments = DutyAssignment.query.filter_by(
+            tabulator_assignments = query_for_window(DutyAssignment).filter_by(
                 duty_type='tabulator',
                 assigned_by_id=current_user.id,
                 status='active',
@@ -13172,7 +13406,7 @@ def create_app():
             from blueprints.course_management.models import DutyAssignment
             import json
 
-            chief_assignment = DutyAssignment.query.filter_by(
+            chief_assignment = query_for_window(DutyAssignment).filter_by(
                 duty_type='exam_committee_chief',
                 academic_session=session,
                 year=year,
@@ -13183,7 +13417,7 @@ def create_app():
             if chief_assignment and chief_assignment.assigned_teacher:
                 chief_user = User.query.filter_by(full_name=chief_assignment.assigned_teacher.name).first()
                 if chief_user:
-                    form_entry = RemunerationForm.query.filter_by(
+                    form_entry = query_for_window(RemunerationForm).filter_by(
                         user_id=chief_user.id,
                         academic_year=session,
                         year=year,
@@ -13494,7 +13728,7 @@ def create_app():
 
             else:
                 # Fallback: use evaluator assignments if statement data is not available
-                assignments = ExamPaperEvaluatorAssignment.query.filter_by(
+                assignments = query_for_window(ExamPaperEvaluatorAssignment).filter_by(
                     academic_session=session,
                     year=year,
                     term=term
@@ -13521,7 +13755,7 @@ def create_app():
                         script_courses.append(course_text)
 
                         # Script count
-                        submitted_entries = ExamPaperEvaluation.query.filter(
+                        submitted_entries = query_for_window(ExamPaperEvaluation).filter(
                             ExamPaperEvaluation.owner_teacher_id == assignment.assigned_teacher_id,
                             ExamPaperEvaluation.course_code == course_code,
                             ExamPaperEvaluation.section == f"Part {part}",

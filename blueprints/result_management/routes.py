@@ -17,6 +17,7 @@ from blueprints.class_management.models import Teacher, Session as ClassSession,
 from blueprints.course_management.models import StudentCourseRegistration, Course, ActiveSemesterConfig, CurriculumYearTerm
 from blueprints.student_management.models import Student as StudentProfile
 from blueprints.course_management.models import DutyAssignment
+from utils.window_utils import query_for_window, filter_by_active_window, stamp_window_id, ensure_record_in_window, get_for_window, get_or_404_for_window
 import json
 from openpyxl import load_workbook
 import io
@@ -49,7 +50,7 @@ def _is_tabulator_user():
     teacher = _current_teacher()
     if not teacher:
         return False
-    return DutyAssignment.query.filter_by(
+    return query_for_window(DutyAssignment).filter_by(
         assigned_teacher_id=teacher.id,
         duty_type='tabulator',
         status='active'
@@ -60,7 +61,7 @@ def _get_tabulator_assignments():
     teacher = _current_teacher()
     if not teacher:
         return []
-    return DutyAssignment.query.filter_by(
+    return query_for_window(DutyAssignment).filter_by(
         assigned_teacher_id=teacher.id,
         duty_type='tabulator',
         status='active'
@@ -124,6 +125,25 @@ def _normalize_term_label(value):
     if 'second' in v or v in {'2', '2nd'}:
         return 'second'
     return v
+
+
+def _get_rsession_or_404(session_id):
+    """Load a result session scoped to the active operational window."""
+    return get_or_404_for_window(RSession, session_id)
+
+
+def _get_rstudent_or_404(student_id):
+    """Load a result student only if its parent session is in the active window."""
+    student = RStudent.query.get_or_404(student_id)
+    _get_rsession_or_404(student.session_id)
+    return student
+
+
+def _get_rsubject_or_404(subject_id):
+    """Load a result subject only if its parent session is in the active window."""
+    subject = RSubject.query.get_or_404(subject_id)
+    _get_rsession_or_404(subject.session_id)
+    return subject
 
 
 def _build_original_course_registration_filters(student_profile_ids, subject_code, session_name=None, year=None, term=None, statuses=None):
@@ -290,13 +310,14 @@ def _footer(canvas, doc):
 @login_required
 def index():
     # Start with base query
-    query = RSession.query.filter_by(is_archived=False)
+    query = query_for_window(RSession).filter_by(is_archived=False)
     
-    # Apply active semester filtering for non-admin users.
+    # Apply active semester filtering for non-admin users (window-scoped).
     # NOTE: RSession uses `name` for academic session (no `academic_session` column),
     # so we cannot use generic filter_by_active_semester() directly.
-    if not (is_admin(current_user) or _is_head_user()) and get_active_semesters:
-        active_semesters = get_active_semesters(batch=None)
+    if not is_admin(current_user) and get_active_semesters:
+        from utils.semester_utils import get_active_semesters_for_user
+        active_semesters = get_active_semesters_for_user(admin_override=False)
         if active_semesters:
             from sqlalchemy import or_, and_
             conditions = []
@@ -330,7 +351,7 @@ def index():
 @result_management_bp.route('/archived')
 @login_required
 def archived_sessions():
-    all_sessions = RSession.query.filter_by(is_archived=True).order_by(RSession.created_at.desc()).all()
+    all_sessions = query_for_window(RSession).filter_by(is_archived=True).order_by(RSession.created_at.desc()).all()
     
     # Filter sessions based on user access
     if is_admin(current_user) or _is_head_user():
@@ -353,7 +374,7 @@ def archive_session(session_id):
     if not _can_manage_sessions():
         flash('Only the Head can archive sessions.', 'danger')
         return redirect(url_for('result_management.index'))
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     session.is_archived = True
     db.session.commit()
     flash(f'Session "{session.name}" has been archived.', 'success')
@@ -365,7 +386,7 @@ def unarchive_session(session_id):
     if not _can_manage_sessions():
         flash('Only the Head can unarchive sessions.', 'danger')
         return redirect(url_for('result_management.archived_sessions'))
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     session.is_archived = False
     db.session.commit()
     flash(f'Session "{session.name}" has been unarchived.', 'success')
@@ -442,6 +463,7 @@ def add_session():
 
         if name and term and (name, year or '', term) in valid_triplets:
             new_session = RSession(name=name, term=term, year=year)
+            stamp_window_id(new_session)
             db.session.add(new_session)
             db.session.commit()
             flash('Session added successfully from active semester configuration.', 'success')
@@ -454,7 +476,7 @@ def add_session():
 @result_management_bp.route('/add_student/<int:session_id>', methods=['GET', 'POST'])
 @login_required
 def add_student(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
@@ -571,7 +593,7 @@ def add_student(session_id):
                 flash('Student ID and Name are required for single add.', 'warning')
         return redirect(url_for('result_management.add_student', session_id=session_id))
     
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     
     # Auto-load students from Class Management and Course Registration based on session/year/term
     try:
@@ -709,7 +731,7 @@ def add_student(session_id):
 @result_management_bp.route('/edit_student/<int:student_id>', methods=['GET', 'POST'])
 @login_required
 def edit_student(student_id):
-    student = RStudent.query.get_or_404(student_id)
+    student = _get_rstudent_or_404(student_id)
     if request.method == 'POST':
         student.student_id = request.form['student_id']
         student.name = request.form['name']
@@ -726,7 +748,7 @@ def edit_student(student_id):
 def delete_student(student_id):
     """Delete a student from result session"""
     try:
-        student = RStudent.query.get_or_404(student_id)
+        student = _get_rstudent_or_404(student_id)
         session_id = student.session_id
         student_name = student.name
         
@@ -769,7 +791,7 @@ def get_students_for_result():
         # If session_id is provided, filter students by that session's academic_session, year, and term
         student_ids_from_class_sessions = None
         if session_id:
-            session = RSession.query.get(session_id)
+            session = get_for_window(RSession, session_id)
             
             if session:
                 # Find all ClassSessions matching the result session's academic_session, year, and term
@@ -835,7 +857,7 @@ def get_students_for_result():
 @result_management_bp.route('/add_subject/<int:session_id>', methods=['GET', 'POST'])
 @login_required
 def add_subject(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
@@ -958,7 +980,7 @@ def add_subject(session_id):
         else:
             # Find CurriculumYearTerm matching the session's academic_session, year, and term
             # ALL three must match: academic_session, year, and term
-            query_cyt = CurriculumYearTerm.query.filter(
+            query_cyt = query_for_window(CurriculumYearTerm).filter(
                 CurriculumYearTerm.academic_session == session.name,
                 CurriculumYearTerm.term == session.term
             )
@@ -1217,7 +1239,7 @@ def get_curricula_for_batch():
 @result_management_bp.route('/refresh_marks/<int:session_id>', methods=['POST'])
 @login_required
 def refresh_marks(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         return jsonify({'success': False, 'message': 'You do not have access to this session.'}), 403
     """Refresh marks from Class Management and Exam Paper Evaluation"""
@@ -1226,7 +1248,7 @@ def refresh_marks(session_id):
         if not subject_id:
             return jsonify({'success': False, 'message': 'Subject ID is required'}), 400
         
-        selected_subject = RSubject.query.get_or_404(subject_id)
+        selected_subject = _get_rsubject_or_404(subject_id)
         
         # Get students from Course Management (same logic as add_marks)
         # This ensures we refresh marks for all registered students, not just those in RCourseRegistration
@@ -1417,13 +1439,13 @@ def refresh_marks(session_id):
                                     from blueprints.class_management.models import ExamPaperEvaluation
                                     import json
                                     
-                                    exam_entry = ExamPaperEvaluation.query.filter_by(
+                                    exam_entry = query_for_window(ExamPaperEvaluation).filter_by(
                                         course_code=selected_subject.code,
                                         archived=False
                                     ).first()
                                     
                                     if not exam_entry:
-                                        exam_entry = ExamPaperEvaluation.query.filter(
+                                        exam_entry = query_for_window(ExamPaperEvaluation).filter(
                                             ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
                                             ExamPaperEvaluation.archived == False
                                         ).first()
@@ -1595,7 +1617,7 @@ def refresh_marks(session_id):
 def delete_subject(subject_id):
     """Delete a subject from result session"""
     try:
-        subject = RSubject.query.get_or_404(subject_id)
+        subject = _get_rsubject_or_404(subject_id)
         session_id = subject.session_id
         subject_name = subject.name
         
@@ -1648,7 +1670,7 @@ def clear_exam_marks_from_result_management(exam_entry_id):
     
     try:
         # Get the exam entry
-        exam_entry = ExamPaperEvaluation.query.get(exam_entry_id)
+        exam_entry = get_for_window(ExamPaperEvaluation, exam_entry_id)
         
         # #region agent log
         try:
@@ -1699,7 +1721,7 @@ def clear_exam_marks_from_result_management(exam_entry_id):
         # #endregion
         
         # Find the corresponding RSession
-        r_session = RSession.query.filter_by(
+        r_session = query_for_window(RSession).filter_by(
             name=exam_entry.academic_session,
             year=exam_entry.year,
             term=exam_entry.term
@@ -1801,7 +1823,7 @@ def sync_exam_marks_to_result_management(exam_entry_id):
     
     try:
         # Get the exam entry
-        exam_entry = ExamPaperEvaluation.query.get(exam_entry_id)
+        exam_entry = get_for_window(ExamPaperEvaluation, exam_entry_id)
         
         # #region agent log
         try:
@@ -1826,8 +1848,7 @@ def sync_exam_marks_to_result_management(exam_entry_id):
             return result
         
         # Step 1: Find or create RSession
-        # Build query with proper handling of None year values
-        query = RSession.query.filter_by(
+        query = query_for_window(RSession).filter_by(
             name=exam_entry.academic_session,
             term=exam_entry.term
         )
@@ -1854,6 +1875,7 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                 curriculum_id=None,  # Can be set later by Head of Discipline
                 is_archived=False
             )
+            stamp_window_id(r_session, window_id=exam_entry.window_id)
             db.session.add(r_session)
             db.session.flush()  # Get the ID
             result['session_created'] = True
@@ -2351,7 +2373,7 @@ def sync_exam_marks_to_result_management(exam_entry_id):
 @result_management_bp.route('/add_marks/<int:session_id>', methods=['GET', 'POST'])
 @login_required
 def add_marks(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
@@ -2595,14 +2617,14 @@ def add_marks(session_id):
                                 
                                 # Find Exam Paper Evaluation entry for this course
                                 # Try exact match first, then partial match
-                                exam_entry = ExamPaperEvaluation.query.filter_by(
+                                exam_entry = query_for_window(ExamPaperEvaluation).filter_by(
                                     course_code=selected_subject.code,
                                     archived=False
                                 ).first()
                                 
                                 # If not found, try searching by course name
                                 if not exam_entry:
-                                    exam_entry = ExamPaperEvaluation.query.filter(
+                                    exam_entry = query_for_window(ExamPaperEvaluation).filter(
                                         ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
                                         ExamPaperEvaluation.archived == False
                                     ).first()
@@ -2777,13 +2799,13 @@ def add_marks(session_id):
                                 from blueprints.class_management.models import ExamPaperEvaluation
                                 import json
                                 
-                                exam_entry = ExamPaperEvaluation.query.filter_by(
+                                exam_entry = query_for_window(ExamPaperEvaluation).filter_by(
                                     course_code=selected_subject.code,
                                     archived=False
                                 ).first()
                                 
                                 if not exam_entry:
-                                    exam_entry = ExamPaperEvaluation.query.filter(
+                                    exam_entry = query_for_window(ExamPaperEvaluation).filter(
                                         ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
                                         ExamPaperEvaluation.archived == False
                                     ).first()
@@ -3021,7 +3043,7 @@ def add_marks(session_id):
             flash('Please select a subject.', 'danger')
             return redirect(url_for('result_management.add_marks', session_id=session_id))
 
-        subject = RSubject.query.get_or_404(subject_id)
+        subject = _get_rsubject_or_404(subject_id)
 
         for student in students:
             existing_mark = RMark.query.filter_by(student_id=student.id, subject_id=subject.id).first()
@@ -3154,7 +3176,7 @@ def add_marks(session_id):
 @login_required
 def auto_save_marks(session_id):
     """Auto-save marks via AJAX"""
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         return jsonify({'success': False, 'message': 'You do not have access to this session.'}), 403
     
@@ -3164,7 +3186,7 @@ def auto_save_marks(session_id):
         if not subject_id:
             return jsonify({'success': False, 'message': 'Subject ID is required'}), 400
         
-        subject = RSubject.query.get_or_404(subject_id)
+        subject = _get_rsubject_or_404(subject_id)
         
         # Get students for this subject (same logic as add_marks)
         from blueprints.course_management.models import StudentCourseRegistration
@@ -3321,7 +3343,7 @@ def auto_save_marks(session_id):
 @result_management_bp.route('/view_results/<int:session_id>')
 @login_required
 def view_results(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
@@ -3330,7 +3352,7 @@ def view_results(session_id):
 @result_management_bp.route('/course_wise_result/<int:session_id>')
 @login_required
 def course_wise_result(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
@@ -3454,7 +3476,7 @@ def course_wise_result(session_id):
 @result_management_bp.route('/student_wise_result/<int:session_id>')
 @login_required
 def student_wise_result(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
@@ -3637,7 +3659,7 @@ def student_wise_result(session_id):
 @result_management_bp.route('/course_registration/<int:session_id>', methods=['GET', 'POST'])
 @login_required
 def course_registration(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
@@ -3759,7 +3781,7 @@ def delete_session(session_id):
         return redirect(url_for('result_management.index'))
     
     try:
-        session = RSession.query.get_or_404(session_id)
+        session = _get_rsession_or_404(session_id)
         session_name = session.name
         
         # Cascade delete will handle students, subjects, marks, and registrations
@@ -4085,8 +4107,8 @@ def test_download(session_id, subject_id):
         current_app.logger.info(f"Testing download endpoint for session {session_id}, subject {subject_id}")
         
         # Check if subject and session exist
-        subject = RSubject.query.get_or_404(subject_id)
-        session = RSession.query.get_or_404(session_id)
+        subject = _get_rsubject_or_404(subject_id)
+        session = _get_rsession_or_404(session_id)
         
         # Create a simple test PDF
         from reportlab.lib.pagesizes import letter
@@ -4136,8 +4158,8 @@ def download_course_result(session_id, subject_id):
             flash(f'Missing required module for PDF: {e}', 'error')
             return redirect(url_for('result_management.course_wise_result', session_id=session_id))
         
-        subject = RSubject.query.get_or_404(subject_id)
-        session = RSession.query.get_or_404(session_id)
+        subject = _get_rsubject_or_404(subject_id)
+        session = _get_rsession_or_404(session_id)
 
         # Build query based on subject type
         base_columns = [
@@ -4225,8 +4247,8 @@ def download_student_result(session_id, student_id):
             flash(f'Missing required module for PDF: {e}', 'error')
             return redirect(url_for('result_management.student_wise_result', session_id=session_id))
         
-        student = RStudent.query.get_or_404(student_id)
-        session = RSession.query.get_or_404(session_id)
+        student = _get_rstudent_or_404(student_id)
+        session = _get_rsession_or_404(session_id)
 
         # Check if registrations exist for this student
         registrations_count = RCourseRegistration.query.filter_by(student_id=student_id).count()
@@ -4332,8 +4354,8 @@ def download_student_result(session_id, student_id):
 @result_management_bp.route('/download/student_result_docx/<int:session_id>/<int:student_id>')
 @login_required
 def download_student_result_docx(session_id, student_id):
-    student = RStudent.query.get_or_404(student_id)
-    session = RSession.query.get_or_404(session_id)
+    student = _get_rstudent_or_404(student_id)
+    session = _get_rsession_or_404(session_id)
 
     # Only include subjects where the student is registered
     results_query = db.session.query(
@@ -4485,7 +4507,7 @@ def download_student_result_docx(session_id, student_id):
 @result_management_bp.route('/download/all_student_results/<int:session_id>')
 @login_required
 def download_all_student_results(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     students = RStudent.query.filter_by(session_id=session_id).all()
     
     if not students:
@@ -4560,7 +4582,7 @@ def download_all_student_results(session_id):
 @result_management_bp.route('/download/all_course_results/<int:session_id>')
 @login_required
 def download_all_course_results(session_id):
-    session = RSession.query.get_or_404(session_id)
+    session = _get_rsession_or_404(session_id)
     subjects = RSubject.query.filter_by(session_id=session_id).all()
 
     if not subjects:

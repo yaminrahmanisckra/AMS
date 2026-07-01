@@ -283,6 +283,29 @@
     line-height: 1.2;
 }
 
+.curriculum-window-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #fff;
+    vertical-align: middle;
+    margin-left: 0.35rem;
+}
+
+.curriculum-window-pill.table-pill {
+    background: rgba(13, 110, 253, 0.12);
+    border-color: rgba(13, 110, 253, 0.35);
+    color: #0d6efd;
+    margin-left: 0.25rem;
+}
+
 .year-term-batch-chip.none {
     background: rgba(255, 193, 7, 0.2);
     border-color: rgba(255, 193, 7, 0.65);
@@ -488,6 +511,11 @@
                                             <div class="year-term-config-panel" data-year="{{ year }}" data-term="{{ term }}">
                                                 <label class="form-label text-white-50 small mb-2 d-block">
                                                     Academic Session + Batch Configuration
+                                                    {% if active_window_id %}
+                                                    <span class="curriculum-window-pill" title="Per operational window (W{{ active_window_id }})">
+                                                        <i class="fas fa-layer-group"></i> W{{ active_window_id }}
+                                                    </span>
+                                                    {% endif %}
                                                 </label>
                                                 <div class="year-term-session-list" data-year="{{ year }}" data-term="{{ term }}">
                                                     {% if year_term_session_configs %}
@@ -589,7 +617,7 @@
                                                             <th style="min-width: 60px;">Category</th>
                                                         <th style="min-width: 100px;">Core/Optional</th>
                                                         <th style="min-width: 80px;">Offered</th>
-                                                        <th style="min-width: 200px;">Assigned</th>
+                                                        <th style="min-width: 200px;">Assigned{% if active_window_id %}<span class="curriculum-window-pill table-pill" title="Teacher assignments per operational window">W{{ active_window_id }}</span>{% endif %}</th>
                                                             <th style="min-width: 200px; width: 200px;">Actions</th>
                                                         </tr>
                                                     </thead>
@@ -703,7 +731,7 @@
                                                 <th style="min-width: 60px;">Category</th>
                                                 <th style="min-width: 100px;">Core/Optional</th>
                                                 <th style="min-width: 80px;">Offered</th>
-                                                <th style="min-width: 200px;">Assigned</th>
+                                                <th style="min-width: 200px;">Assigned{% if active_window_id %}<span class="curriculum-window-pill table-pill" title="Teacher assignments per operational window">W{{ active_window_id }}</span>{% endif %}</th>
                                                 <th style="min-width: 120px; width: 120px;">Actions</th>
                                             </tr>
                                         </thead>

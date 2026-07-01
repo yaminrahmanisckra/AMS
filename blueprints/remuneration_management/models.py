@@ -7,6 +7,7 @@ class RemunerationForm(db.Model):
     __tablename__ = 'remuneration_form'
     
     id = db.Column(db.Integer, primary_key=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     
     # User and status
     user_id = db.Column(db.Integer, nullable=False, index=True)

@@ -28,11 +28,16 @@
             <h5 class="mb-0"><i class="fas fa-calendar-check me-2"></i>Current Active Semesters</h5>
         </div>
         <div class="card-body">
+            <div class="alert alert-info mb-3">
+                <i class="fas fa-info-circle me-2"></i>
+                প্রতিটি active semester একটি নির্দিষ্ট <strong>Window</strong>-এর সাথে যুক্ত। User যে Window-এ login করবে, শুধু সেই Window-এর active semester অনুযায়ী data filter হবে।
+            </div>
             {% if active_semesters %}
                 <div class="table-responsive">
                     <table class="table table-striped">
                         <thead>
                             <tr>
+                                <th>Window</th>
                                 <th>Academic Session</th>
                                 <th>Year</th>
                                 <th>Term</th>
@@ -45,6 +50,15 @@
                         <tbody>
                             {% for sem in active_semesters %}
                             <tr id="semester-row-{{ sem.id }}">
+                                <td>
+                                    {% if sem.window_name %}
+                                        <span class="badge bg-primary">{{ sem.window_name }}</span>
+                                    {% elif sem.window_id %}
+                                        <span class="badge bg-secondary">Window {{ sem.window_id }}</span>
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
                                 <td><strong>{{ sem.academic_session }}</strong></td>
                                 <td>{{ sem.year }}</td>
                                 <td>{{ sem.term }}</td>
@@ -60,6 +74,7 @@
                                 <td>
                                     <button class="btn btn-sm btn-danger deactivate-btn" 
                                             data-id="{{ sem.id }}"
+                                            data-window-id="{{ sem.window_id or '' }}"
                                             data-session="{{ sem.academic_session }}"
                                             data-year="{{ sem.year }}"
                                             data-term="{{ sem.term }}"
@@ -90,6 +105,18 @@
         <div class="card-body">
             <form id="setActiveSemesterForm">
                 <div class="row g-3">
+                    <div class="col-md-3">
+                        <label for="window_id" class="form-label">Window <span class="text-danger">*</span></label>
+                        <select class="form-select" id="window_id" name="window_id" required>
+                            <option value="">Select Window</option>
+                            {% for w in operational_windows %}
+                                <option value="{{ w.id }}">
+                                    {{ w.name }}{% if not w.is_active %} (inactive){% endif %}
+                                    {% if w.academic_session %} — {{ w.academic_session }}{% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div class="col-md-3">
                         <label for="academic_session" class="form-label">Academic Session <span class="text-danger">*</span></label>
                         <select class="form-select" id="academic_session" name="academic_session" required>
@@ -381,14 +408,15 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         
         const formData = {
+            window_id: document.getElementById('window_id').value,
             academic_session: sessionSelect.value,
             year: yearSelect.value,
             term: termSelect.value,
             batch: batchSelect.value || null
         };
         
-        if (!formData.academic_session || !formData.year || !formData.term) {
-            alert('Please fill in all required fields.');
+        if (!formData.window_id || !formData.academic_session || !formData.year || !formData.term) {
+            alert('Please fill in all required fields (Window, Session, Year, Term).');
             return;
         }
         
@@ -428,13 +456,14 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.deactivate-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             const semesterId = this.dataset.id;
+            const windowId = this.dataset.windowId;
             const session = this.dataset.session;
             const year = this.dataset.year;
             const term = this.dataset.term;
             const batch = this.dataset.batch;
             
             const batchText = batch ? ` (Batch: ${batch})` : '';
-            const confirmMessage = `Are you sure you want to deactivate this semester?\n\nSession: ${session}\nYear: ${year}\nTerm: ${term}${batchText}\n\nThis will make this semester inactive. Users will not see data from this semester anymore.`;
+            const confirmMessage = `Are you sure you want to deactivate this semester?\n\nWindow ID: ${windowId}\nSession: ${session}\nYear: ${year}\nTerm: ${term}${batchText}\n\nThis will make this semester inactive for that window only.`;
             
             if (!confirm(confirmMessage)) {
                 return;
@@ -446,6 +475,7 @@ document.addEventListener('DOMContentLoaded', function() {
             this.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deactivating...';
             
             const deactivateData = {
+                window_id: windowId ? parseInt(windowId, 10) : null,
                 academic_session: session,
                 year: year,
                 term: term,

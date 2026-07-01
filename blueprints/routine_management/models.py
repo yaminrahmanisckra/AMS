@@ -17,11 +17,18 @@ class AssignedCourse(db.Model):
     teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=False)
     part = db.Column(db.String(10), nullable=False, default='Full') # Full, Part A, Part B
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     
     teacher = db.relationship('Teacher', backref='assigned_courses')
     course = db.relationship('Course', back_populates='assigned_teachers')
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('assigned_courses', lazy='dynamic'))
 
-    __table_args__ = (db.UniqueConstraint('teacher_id', 'course_id', 'part', name='_teacher_course_part_uc'),)
+    __table_args__ = (
+        db.UniqueConstraint(
+            'window_id', 'teacher_id', 'course_id', 'part',
+            name='_teacher_course_part_window_uc',
+        ),
+    )
 
     def __repr__(self):
         return f'<AssignedCourse {self.teacher.short_name} -> {self.course.course_code} ({self.part})>'
@@ -29,12 +36,19 @@ class AssignedCourse(db.Model):
 class SavedRoutine(db.Model):
     __tablename__ = 'saved_routine'
     id = db.Column(db.Integer, primary_key=True)
-    year = db.Column(db.String(20), nullable=False, unique=True)
+    year = db.Column(db.String(20), nullable=False)
     name = db.Column(db.String(100))
     is_revealed = db.Column(db.Boolean, default=False, nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('saved_routines', lazy='dynamic'))
+
+    __table_args__ = (
+        db.UniqueConstraint('window_id', 'year', name='uq_saved_routine_window_year'),
+    )
     
     # NOTE: Relationship removed to avoid ORM errors when saved_routine_id column doesn't exist in DB
     # Use raw SQL for routine operations instead
@@ -57,6 +71,7 @@ class Routine(db.Model):
     year = db.Column(db.String(20))  # Store year for color coding
     term = db.Column(db.String(20))   # Store term for color coding
     saved_routine_id = db.Column(db.Integer, db.ForeignKey('saved_routine.id'), nullable=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     # New fields for enhanced routine management
     batch = db.Column(db.String(20))  # Batch for color coding
     color_code = db.Column(db.String(7))  # Hex color for batch
@@ -77,6 +92,7 @@ class RoutineTimeSlot(db.Model):
     time_slot = db.Column(db.String(50), nullable=False)
     display_order = db.Column(db.Integer, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     saved_routine = db.relationship('SavedRoutine', backref=db.backref('time_slots', lazy='dynamic'))

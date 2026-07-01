@@ -27,6 +27,7 @@ class Session(db.Model):
     year = db.Column(db.String(4), nullable=False)
     term = db.Column(db.String(20), nullable=False)
     academic_session = db.Column(db.String(20), nullable=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     course_code = db.Column(db.String(20), nullable=True)
     course_name = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -281,8 +282,10 @@ class ExamPaperEvaluation(db.Model):
     submitted_at = db.Column(db.DateTime, nullable=True)
     owner_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=True)
     assigned_scrutinizer_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     owner_teacher = db.relationship('Teacher', foreign_keys=[owner_teacher_id], backref=db.backref('owned_exam_entries', lazy='dynamic'))
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('exam_paper_evaluations', lazy='dynamic'))
     assigned_scrutinizer = db.relationship('Teacher', foreign_keys=[assigned_scrutinizer_id], backref=db.backref('assigned_scrutinizer_entries', lazy='dynamic'))
 
 
@@ -295,9 +298,11 @@ class ExamScrutinizerInvite(db.Model):
     status = db.Column(db.String(20), nullable=False, default='invited')  # invited | accepted | declined | cancelled
     remarks = db.Column(db.Text, nullable=True)
     is_complete = db.Column(db.Boolean, default=False, nullable=False)  # Complete/Incomplete status
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     responded_at = db.Column(db.DateTime, nullable=True)
     exam_entry = db.relationship('ExamPaperEvaluation', backref=db.backref('scrutinizer_invites', lazy='dynamic'))
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('exam_scrutinizer_invites', lazy='dynamic'))
     inviter = db.relationship('Teacher', foreign_keys=[inviter_teacher_id], backref=db.backref('sent_exam_scrutinizer_invites', lazy='dynamic'))
     scrutinizer = db.relationship('Teacher', foreign_keys=[scrutinizer_teacher_id], backref=db.backref('received_exam_scrutinizer_invites', lazy='dynamic'))
 
@@ -316,16 +321,21 @@ class ExamPaperEvaluatorAssignment(db.Model):
     term = db.Column(db.String(20), nullable=False)
     exam_paper_evaluation_id = db.Column(db.Integer, db.ForeignKey('exam_paper_evaluation.id'), nullable=True)  # Created ExamPaperEvaluation entry
     assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Exam Committee Chief who assigned
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships - Course model is in blueprints.course_management.models, use string reference
+    operational_window = db.relationship('OperationalWindow', backref=db.backref('evaluator_assignments', lazy='dynamic'))
     assigned_teacher = db.relationship('Teacher', foreign_keys=[assigned_teacher_id], backref=db.backref('evaluator_assignments', lazy='dynamic'))
     question_setter = db.relationship('Teacher', foreign_keys=[question_setter_id], backref=db.backref('question_setter_assignments', lazy='dynamic'))
     exam_paper_evaluation = db.relationship('ExamPaperEvaluation', foreign_keys=[exam_paper_evaluation_id], backref=db.backref('evaluator_assignment', uselist=False))
     
     __table_args__ = (
-        db.UniqueConstraint('course_id', 'part', 'academic_session', 'year', 'term', name='uq_evaluator_assignment'),
+        db.UniqueConstraint(
+            'window_id', 'course_id', 'part', 'academic_session', 'year', 'term',
+            name='uq_evaluator_assignment_window',
+        ),
     )
     
     def __repr__(self):

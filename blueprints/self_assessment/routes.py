@@ -5,12 +5,29 @@ import secrets
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
 from flask_login import login_required, current_user
 from role_utils import parse_roles, get_teachers_excluding_head
+from utils.window_utils import query_for_window, stamp_window_id, get_effective_window_id, get_for_window, get_or_404_for_window
 
 from . import self_assessment_bp
 from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse
 from blueprints.class_management.models import Teacher
 
 SURVEY_TYPES = ('alumni', 'employer', 'faculty', 'non_academic', 'student')
+
+
+def _committee_ids_subquery():
+    return query_for_window(PsacCommittee).with_entities(PsacCommittee.id)
+
+
+def _members_in_window():
+    return PsacCommitteeMember.query.filter(PsacCommitteeMember.committee_id.in_(_committee_ids_subquery()))
+
+
+def _survey_link_by_code(survey_type, code):
+    """Public access: access_code is globally unique (no window filter)."""
+    return SurveyLink.query.filter_by(
+        survey_type=survey_type,
+        access_code=(code or '').strip(),
+    ).first()
 
 
 def _get_kalpurush_font_path():
@@ -59,7 +76,7 @@ def is_psac_head():
     teacher = _current_teacher()
     if not teacher:
         return False
-    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    committee = query_for_window(PsacCommittee).filter_by(head_teacher_id=teacher.id).first()
     return committee is not None
 
 
@@ -96,17 +113,17 @@ def is_psac_member_or_head():
     teacher = _current_teacher()
     if teacher:
         if 'head' in roles or 'dean' in roles:
-            if PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first():
+            if query_for_window(PsacCommittee).filter_by(head_teacher_id=teacher.id).first():
                 return True
-        if PsacCommitteeMember.query.filter_by(teacher_id=teacher.id).first():
+        if _members_in_window().filter_by(teacher_id=teacher.id).first():
             return True
 
     # 2) Fallback: নাম দিয়ে ম্যাচ – কোনো PSAC মেম্বার/হেডের Teacher.name কি এই ইউজারের full_name এর সাথে মিলে?
-    for committee in PsacCommittee.query.all():
+    for committee in query_for_window(PsacCommittee).all():
         head = Teacher.query.get(committee.head_teacher_id)
         if head and _name_matches_user(head.name, user_name):
             return True
-    for m in PsacCommitteeMember.query.all():
+    for m in _members_in_window().all():
         t = Teacher.query.get(m.teacher_id)
         if t and _name_matches_user(t.name, user_name):
             return True
@@ -122,9 +139,10 @@ def index():
     teacher = _current_teacher()
     if teacher and ('head' in roles or 'dean' in roles):
         from extensions import db
-        committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+        committee = query_for_window(PsacCommittee).filter_by(head_teacher_id=teacher.id).first()
         if not committee:
             committee = PsacCommittee(head_teacher_id=teacher.id)
+            stamp_window_id(committee)
             db.session.add(committee)
             db.session.commit()
     if not is_psac_member_or_head():
@@ -133,7 +151,7 @@ def index():
     # Links per survey type (for copy URL / view responses)
     links_by_type = {}
     for st in SURVEY_TYPES:
-        links_by_type[st] = SurveyLink.query.filter_by(survey_type=st).order_by(SurveyLink.created_at.desc()).limit(20).all()
+        links_by_type[st] = query_for_window(SurveyLink).filter_by(survey_type=st).order_by(SurveyLink.created_at.desc()).limit(20).all()
     survey_types = [
         {'id': 'alumni', 'title': 'Alumni Survey', 'icon': 'fas fa-user-graduate', 'desc': 'Survey for alumni.'},
         {'id': 'employer', 'title': 'Employer Survey', 'icon': 'fas fa-briefcase', 'desc': 'Survey for employers.'},
@@ -162,17 +180,18 @@ def generate_link():
     committee_id = None
     teacher = _current_teacher()
     if teacher:
-        c = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+        c = query_for_window(PsacCommittee).filter_by(head_teacher_id=teacher.id).first()
         if c:
             committee_id = c.id
         else:
-            m = PsacCommitteeMember.query.filter_by(teacher_id=teacher.id).first()
+            m = _members_in_window().filter_by(teacher_id=teacher.id).first()
             if m:
                 committee_id = m.committee_id
     access_code = secrets.token_urlsafe(24)
     while SurveyLink.query.filter_by(access_code=access_code).first():
         access_code = secrets.token_urlsafe(24)
     link = SurveyLink(survey_type=survey_type, access_code=access_code, committee_id=committee_id)
+    stamp_window_id(link)
     db.session.add(link)
     db.session.commit()
     base = request.url_root.rstrip('/')
@@ -187,7 +206,7 @@ def delete_survey_link(link_id):
     if not is_psac_member_or_head():
         flash('You are not authorized to delete links.', 'danger')
         return redirect(url_for('self_assessment.index'))
-    link = SurveyLink.query.get_or_404(link_id)
+    link = get_or_404_for_window(SurveyLink, link_id)
     alumni_count = AlumniSurveyResponse.query.filter_by(survey_link_id=link.id).count()
     generic_count = SurveyResponse.query.filter_by(survey_link_id=link.id).count()
     if alumni_count > 0 or generic_count > 0:
@@ -212,9 +231,10 @@ def psac_committee():
     if not teacher:
         flash('Teacher profile not found.', 'danger')
         return redirect(url_for('index'))
-    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    committee = query_for_window(PsacCommittee).filter_by(head_teacher_id=teacher.id).first()
     if not committee:
         committee = PsacCommittee(head_teacher_id=teacher.id)
+        stamp_window_id(committee)
         from extensions import db
         db.session.add(committee)
         db.session.commit()
@@ -240,9 +260,10 @@ def psac_add_member():
     teacher = _current_teacher()
     if not teacher:
         return jsonify({'success': False, 'message': 'Teacher not found'}), 404
-    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    committee = query_for_window(PsacCommittee).filter_by(head_teacher_id=teacher.id).first()
     if not committee:
         committee = PsacCommittee(head_teacher_id=teacher.id)
+        stamp_window_id(committee)
         from extensions import db
         db.session.add(committee)
         db.session.commit()
@@ -266,7 +287,7 @@ def psac_add_member():
         teacher_id = int(teacher_id)
     except (TypeError, ValueError):
         return jsonify({'success': False, 'message': 'Invalid teacher_id'}), 400
-    if PsacCommitteeMember.query.filter_by(committee_id=committee.id, teacher_id=teacher_id).first():
+    if _members_in_window().filter_by(committee_id=committee.id, teacher_id=teacher_id).first():
         return jsonify({'success': False, 'message': 'Already a member'}), 400
     from extensions import db
     m = PsacCommitteeMember(committee_id=committee.id, teacher_id=teacher_id, is_adhoc=is_adhoc)
@@ -285,10 +306,10 @@ def psac_remove_member(member_id):
     teacher = _current_teacher()
     if not teacher:
         return jsonify({'success': False, 'message': 'Teacher not found'}), 404
-    committee = PsacCommittee.query.filter_by(head_teacher_id=teacher.id).first()
+    committee = query_for_window(PsacCommittee).filter_by(head_teacher_id=teacher.id).first()
     if not committee:
         return jsonify({'success': False, 'message': 'Committee not found'}), 404
-    m = PsacCommitteeMember.query.filter_by(id=member_id, committee_id=committee.id).first()
+    m = _members_in_window().filter_by(id=member_id, committee_id=committee.id).first()
     if not m:
         return jsonify({'success': False, 'message': 'Member not found'}), 404
     from extensions import db
@@ -302,7 +323,7 @@ def public_survey_form(survey_type, code):
     """Public survey form by link (no login). Multiple submissions per link allowed."""
     if survey_type not in SURVEY_TYPES:
         return render_template('self_assessment/survey_invalid.html'), 404
-    link = SurveyLink.query.filter_by(survey_type=survey_type, access_code=code.strip()).first()
+    link = _survey_link_by_code(survey_type, code)
     if not link:
         return render_template('self_assessment/survey_invalid.html'), 404
     client_ip = _client_ip()
@@ -421,7 +442,7 @@ def public_survey_form_pdf(survey_type, code):
     if survey_type not in SURVEY_TYPES:
         from flask import abort
         abort(404)
-    link = SurveyLink.query.filter_by(survey_type=survey_type, access_code=code.strip()).first()
+    link = _survey_link_by_code(survey_type, code)
     if not link:
         from flask import abort
         abort(404)
@@ -494,7 +515,7 @@ def public_survey_form_pdf(survey_type, code):
 @self_assessment_bp.route('/s/<survey_type>/<code>/success')
 def public_survey_success(survey_type, code):
     """Public success page after survey submit."""
-    link = SurveyLink.query.filter_by(survey_type=survey_type, access_code=code.strip()).first()
+    link = _survey_link_by_code(survey_type, code)
     return render_template('self_assessment/survey_success.html', link=link, survey_type=survey_type)
 
 
@@ -513,7 +534,7 @@ def survey_response_view(survey_type, response_id):
     if not _can_access_responses():
         flash('You are not authorized to view responses.', 'danger')
         return redirect(url_for('self_assessment.index'))
-    links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+    links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
     link_ids = [l.id for l in links]
     titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
               'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
@@ -598,7 +619,7 @@ def delete_survey_response(survey_type, response_id):
         flash('You are not authorized to delete responses.', 'danger')
         return redirect(url_for('self_assessment.index'))
     from extensions import db
-    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).all()
     link_ids = [l.id for l in links]
     if survey_type == 'alumni':
         resp = AlumniSurveyResponse.query.get_or_404(response_id)
@@ -624,7 +645,7 @@ def _get_response_for_toggle(survey_type, response_id):
     if not _can_access_responses():
         flash('You are not authorized.', 'danger')
         return None, redirect(url_for('self_assessment.index'))
-    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).all()
     link_ids = [l.id for l in links]
     if survey_type == 'alumni':
         resp = AlumniSurveyResponse.query.get_or_404(response_id)
@@ -678,7 +699,7 @@ def delete_all_survey_responses(survey_type):
         flash('You are not authorized to delete responses.', 'danger')
         return redirect(url_for('self_assessment.index'))
     from extensions import db
-    links = SurveyLink.query.filter_by(survey_type=survey_type).all()
+    links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).all()
     link_ids = [l.id for l in links]
     if not link_ids:
         flash('No responses to delete.', 'info')
@@ -706,7 +727,7 @@ def survey_responses_list(survey_type):
     if not _can_access_responses():
         flash('You are not authorized to view responses.', 'danger')
         return redirect(url_for('self_assessment.index'))
-    links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+    links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
     link_ids = [l.id for l in links]
     if survey_type == 'alumni':
         if not link_ids:
@@ -746,7 +767,7 @@ def survey_responses_pdf(survey_type):
     if not _can_access_responses():
         from flask import abort
         abort(403)
-    links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+    links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
     link_ids = [l.id for l in links]
     titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
               'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
@@ -889,7 +910,7 @@ def alumni_response_pdf(response_id):
         abort(403)
     resp = AlumniSurveyResponse.query.get_or_404(response_id)
     if resp.survey_link_id:
-        link = SurveyLink.query.get(resp.survey_link_id)
+        link = get_for_window(SurveyLink, resp.survey_link_id)
         if not link or link.survey_type != 'alumni':
             from flask import abort
             abort(404)
@@ -899,7 +920,7 @@ def alumni_response_pdf(response_id):
     if requested_serial:
         serial_no = requested_serial
     else:
-        links = SurveyLink.query.filter_by(survey_type='alumni').order_by(SurveyLink.created_at.desc()).all()
+        links = query_for_window(SurveyLink).filter_by(survey_type='alumni').order_by(SurveyLink.created_at.desc()).all()
         link_ids = [l.id for l in links]
         if link_ids:
             q = AlumniSurveyResponse.query.filter(
@@ -937,7 +958,7 @@ def generic_response_pdf(survey_type, response_id):
     if requested_serial:
         serial_no = requested_serial
     else:
-        links = SurveyLink.query.filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+        links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
         link_ids = [l.id for l in links]
         if link_ids:
             q = SurveyResponse.query.filter_by(survey_type=survey_type).filter(

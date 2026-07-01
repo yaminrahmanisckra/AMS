@@ -7,9 +7,22 @@ from extensions import db
 from .models import AcademicCalendarEvent, BatchCustomEvent
 from user_models import User
 from role_utils import parse_roles, has_teacher_privileges
+from utils.window_utils import (
+    query_for_window, stamp_window_id, filter_by_window_sessions,
+    get_or_404_for_window,
+)
 from blueprints.class_management.models import Session, Teacher, ClassStudent
 from blueprints.student_management.models import Student
 from . import academic_calendar_bp
+
+
+def _batch_events_query():
+    """Batch custom events scoped via parent class session window."""
+    return filter_by_window_sessions(BatchCustomEvent.query, BatchCustomEvent.session_id)
+
+
+def _get_batch_event_or_404(event_id):
+    return _batch_events_query().filter_by(id=event_id).first_or_404()
 
 def can_edit_calendar():
     """Check if current user can edit calendar (Head or Teaching Assistant)"""
@@ -179,7 +192,7 @@ def index():
         # Ensure table exists - try to create if it doesn't
         try:
             # Quick check if table exists by trying a simple query
-            AcademicCalendarEvent.query.limit(1).all()
+            query_for_window(AcademicCalendarEvent).limit(1).all()
         except Exception as check_error:
             error_str = str(check_error).lower()
             if 'no such table' in error_str or 'does not exist' in error_str or 'relation' in error_str:
@@ -215,7 +228,7 @@ def index():
         end_date = date(year, 12, 31)
         
         try:
-            events = AcademicCalendarEvent.query.filter(
+            events = query_for_window(AcademicCalendarEvent).filter(
                 or_(
                     and_(
                         AcademicCalendarEvent.event_date >= start_date,
@@ -237,7 +250,7 @@ def index():
             if 'no such column' in error_str or 'end_date' in error_str:
                 try:
                     current_app.logger.warning("end_date column missing, querying without it")
-                    events = AcademicCalendarEvent.query.filter(
+                    events = query_for_window(AcademicCalendarEvent).filter(
                         AcademicCalendarEvent.event_date >= start_date,
                         AcademicCalendarEvent.event_date <= end_date
                     ).order_by(AcademicCalendarEvent.event_date.asc()).all()
@@ -323,7 +336,7 @@ def index():
                 if student and student.batch:
                     student_batch = student.batch
                     # Get all batch events for this student's batch
-                    batch_events = BatchCustomEvent.query.filter_by(batch=student_batch).filter(
+                    batch_events = _batch_events_query().filter_by(batch=student_batch).filter(
                         or_(
                             and_(
                                 BatchCustomEvent.event_date >= start_date,
@@ -334,7 +347,7 @@ def index():
             
             elif has_teacher_privileges(current_user):
                 # Teachers see all batch events they created
-                batch_events = BatchCustomEvent.query.filter_by(created_by_id=current_user.id).filter(
+                batch_events = _batch_events_query().filter_by(created_by_id=current_user.id).filter(
                     or_(
                         and_(
                             BatchCustomEvent.event_date >= start_date,
@@ -388,12 +401,12 @@ def index():
             if 'student' in roles:
                 student = Student.query.filter_by(student_id=current_user.username).first()
                 if student and student.batch:
-                    batch_events_for_upcoming = BatchCustomEvent.query.filter_by(batch=student.batch).filter(
+                    batch_events_for_upcoming = _batch_events_query().filter_by(batch=student.batch).filter(
                         BatchCustomEvent.event_date >= today
                     ).order_by(BatchCustomEvent.event_date.asc()).all()
             elif has_teacher_privileges(current_user):
                 # Teachers see their created batch events
-                batch_events_for_upcoming = BatchCustomEvent.query.filter_by(created_by_id=current_user.id).filter(
+                batch_events_for_upcoming = _batch_events_query().filter_by(created_by_id=current_user.id).filter(
                     BatchCustomEvent.event_date >= today
                 ).order_by(BatchCustomEvent.event_date.asc()).all()
             
@@ -542,6 +555,7 @@ def add_event():
                         event_type=event_type,
                         created_by_id=current_user.id
                     )
+                    stamp_window_id(event)
                     db.session.add(event)
                 else:
                     # Create events for each combination
@@ -595,6 +609,7 @@ def add_event():
                                     event_type=event_type,
                                     created_by_id=current_user.id
                                 )
+                                stamp_window_id(event)
                                 db.session.add(event)
                                 events_created += 1
                     
@@ -612,6 +627,7 @@ def add_event():
                     event_type=event_type,
                     created_by_id=current_user.id
                 )
+                stamp_window_id(event)
                 db.session.add(event)
             
             try:
@@ -680,7 +696,7 @@ def api_sessions_years_terms():
         
         # Get years and terms for selected sessions
         try:
-            sessions_query = Session.query.filter(
+            sessions_query = query_for_window(Session).filter(
                 Session.academic_session.in_(selected_sessions)
             )
             
@@ -725,7 +741,7 @@ def edit_event(event_id):
         flash('You do not have permission to edit the calendar.', 'danger')
         return redirect(url_for('academic_calendar.index'))
     
-    event = AcademicCalendarEvent.query.get_or_404(event_id)
+    event = get_or_404_for_window(AcademicCalendarEvent, event_id)
     
     if request.method == 'POST':
         try:
@@ -780,7 +796,7 @@ def delete_event(event_id):
         return jsonify({'success': False, 'message': 'You do not have permission to delete events.'}), 403
     
     try:
-        event = AcademicCalendarEvent.query.get_or_404(event_id)
+        event = get_or_404_for_window(AcademicCalendarEvent, event_id)
         db.session.delete(event)
         db.session.commit()
         
@@ -804,7 +820,7 @@ def api_events():
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
         
-        events = AcademicCalendarEvent.query.filter(
+        events = query_for_window(AcademicCalendarEvent).filter(
             AcademicCalendarEvent.event_date >= start_date,
             AcademicCalendarEvent.event_date <= end_date
         ).order_by(AcademicCalendarEvent.event_date.asc()).all()
@@ -853,7 +869,7 @@ def api_events():
 def export_event_ics(event_id):
     """Export a single event as ICS file"""
     try:
-        event = AcademicCalendarEvent.query.get_or_404(event_id)
+        event = get_or_404_for_window(AcademicCalendarEvent, event_id)
         
         # Generate ICS content
         ics_content = generate_ics_for_event(event)
@@ -873,7 +889,7 @@ def export_all_ics():
     """Export all events as ICS file (calendar feed)"""
     try:
         # Get all events
-        events = AcademicCalendarEvent.query.order_by(AcademicCalendarEvent.event_date.asc()).all()
+        events = query_for_window(AcademicCalendarEvent).order_by(AcademicCalendarEvent.event_date.asc()).all()
         
         # Generate ICS content for all events
         ics_content = generate_ics_calendar(events, include_weekly_holidays=False)
@@ -1115,11 +1131,11 @@ def batch_events_index():
             return redirect(url_for('academic_calendar.index'))
         
         # Get all sessions for this teacher
-        sessions = Session.query.filter_by(teacher_id=teacher.id, archived=False).all()
+        sessions = query_for_window(Session).filter_by(teacher_id=teacher.id, archived=False).all()
         session_ids = [s.id for s in sessions]
         
         # Get all batch events for these sessions
-        events = BatchCustomEvent.query.filter(
+        events = _batch_events_query().filter(
             BatchCustomEvent.session_id.in_(session_ids)
         ).order_by(BatchCustomEvent.event_date.desc(), BatchCustomEvent.event_time.asc()).all()
         
@@ -1143,7 +1159,7 @@ def batch_events_index():
             return redirect(url_for('academic_calendar.index'))
         
         # Get all events for this batch
-        events = BatchCustomEvent.query.filter_by(batch=student.batch).order_by(
+        events = _batch_events_query().filter_by(batch=student.batch).order_by(
             BatchCustomEvent.event_date.asc(),
             BatchCustomEvent.event_time.asc()
         ).all()
@@ -1178,7 +1194,7 @@ def add_batch_event():
         return redirect(url_for('academic_calendar.batch_events_index'))
     
     # Get teacher's active sessions
-    sessions = Session.query.filter_by(teacher_id=teacher.id, archived=False).order_by(
+    sessions = query_for_window(Session).filter_by(teacher_id=teacher.id, archived=False).order_by(
         Session.created_at.desc()
     ).all()
     
@@ -1211,7 +1227,7 @@ def add_batch_event():
                 return redirect(url_for('academic_calendar.add_batch_event'))
             
             # Verify session belongs to teacher
-            session = Session.query.filter_by(id=session_id, teacher_id=teacher.id).first()
+            session = query_for_window(Session).filter_by(id=session_id, teacher_id=teacher.id).first()
             if not session:
                 flash('Invalid session selected.', 'error')
                 return redirect(url_for('academic_calendar.add_batch_event'))
@@ -1248,6 +1264,7 @@ def add_batch_event():
             current_app.logger.info(f"Creating batch events for session {session_id}: {title} for batches {batches}")
             
             # Create event for each batch in the session
+            get_or_404_for_window(Session, session_id)
             events_created = []
             for batch in batches:
                 event = BatchCustomEvent(
@@ -1309,7 +1326,7 @@ def edit_batch_event(event_id):
         flash('Only teachers can edit assessment schedules.', 'danger')
         return redirect(url_for('academic_calendar.batch_events_index'))
     
-    event = BatchCustomEvent.query.get_or_404(event_id)
+    event = _get_batch_event_or_404(event_id)
     
     # Verify teacher owns this event's session
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
@@ -1376,7 +1393,7 @@ def edit_batch_event(event_id):
 def assessment_schedule(session_id):
     """Display assessment schedule for a specific course/session"""
     try:
-        session = Session.query.get_or_404(session_id)
+        session = get_or_404_for_window(Session, session_id)
         
         # Check if user has access to this session
         if has_teacher_privileges(current_user):
@@ -1405,7 +1422,7 @@ def assessment_schedule(session_id):
             return redirect(url_for('academic_calendar.index'))
         
         # Get batch events for this session (these are the assessment schedules)
-        batch_events = BatchCustomEvent.query.filter_by(session_id=session_id).order_by(
+        batch_events = _batch_events_query().filter_by(session_id=session_id).order_by(
             BatchCustomEvent.event_date.asc(),
             BatchCustomEvent.event_time.asc()
         ).all()
@@ -1446,7 +1463,7 @@ def delete_batch_event(event_id):
         return jsonify({'success': False, 'message': 'Only teachers can delete assessment schedules.'}), 403
     
     try:
-        event = BatchCustomEvent.query.get_or_404(event_id)
+        event = _get_batch_event_or_404(event_id)
         
         # Verify teacher owns this event's session
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()

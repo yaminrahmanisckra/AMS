@@ -59,6 +59,35 @@
             background: var(--theme-gradient) !important;
             opacity: 0.9;
         }
+        .window-nav-item .nav-link.window-pill-link {
+            padding: 0.25rem 0.4rem;
+            min-height: auto;
+            line-height: 1;
+        }
+        .window-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.28rem 0.55rem;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.28);
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+            line-height: 1.1;
+            color: #fff;
+        }
+        .window-pill i {
+            font-size: 0.68rem;
+            opacity: 0.9;
+        }
+        .window-nav-item .dropdown-toggle::after {
+            margin-left: 0.15rem;
+            vertical-align: 0.1em;
+            font-size: 0.55rem;
+        }
     </style>
     {% block force_scrolling_css %}{% endblock %}
 </head>
@@ -160,6 +189,46 @@
                             {% endif %}
                         </ul>
                         <div class="navbar-nav ms-auto align-items-center d-flex flex-row">
+                            {% if current_operational_window %}
+                            <li class="nav-item window-nav-item {% if show_window_switcher %}dropdown{% endif %} me-2">
+                                {% if show_window_switcher and active_operational_windows %}
+                                <a class="nav-link dropdown-toggle text-white window-pill-link d-flex align-items-center"
+                                   href="#"
+                                   role="button"
+                                   data-bs-toggle="dropdown"
+                                   aria-expanded="false"
+                                   title="{{ current_operational_window.name }}{% if current_operational_window.academic_session %} — {{ current_operational_window.academic_session }}{% endif %}">
+                                    <span class="window-pill">
+                                        <i class="fas fa-layer-group" aria-hidden="true"></i>
+                                        <span>W{{ current_operational_window.id }}</span>
+                                    </span>
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end shadow py-1">
+                                    <li class="dropdown-header small text-muted py-1">Switch window</li>
+                                    {% for w in active_operational_windows %}
+                                    <li>
+                                        <form method="POST" action="{{ url_for('auth.set_window') }}">
+                                            <input type="hidden" name="window_id" value="{{ w.id }}">
+                                            <button type="submit" class="dropdown-item small {% if current_operational_window.id == w.id %}active{% endif %}">
+                                                <span class="fw-semibold">W{{ w.id }}</span>
+                                                <span class="text-muted"> — {{ w.name }}</span>
+                                                {% if w.academic_session %}<span class="text-muted"> ({{ w.academic_session }})</span>{% endif %}
+                                            </button>
+                                        </form>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                                {% else %}
+                                <span class="nav-link window-pill-link d-flex align-items-center py-0"
+                                      title="{{ current_operational_window.name }}{% if current_operational_window.academic_session %} — {{ current_operational_window.academic_session }}{% endif %}">
+                                    <span class="window-pill">
+                                        <i class="fas fa-layer-group" aria-hidden="true"></i>
+                                        <span>W{{ current_operational_window.id }}</span>
+                                    </span>
+                                </span>
+                                {% endif %}
+                            </li>
+                            {% endif %}
                             {% if has_teacher_privileges(current_user) and show_class_management|default(false) %}
                             <li class="nav-item dropdown me-2 me-lg-3">
                                 <a class="nav-link position-relative d-flex align-items-center text-white" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="Question notifications" style="min-height: 44px;">

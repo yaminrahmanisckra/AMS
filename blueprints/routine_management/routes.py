@@ -1,5 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file, current_app
 from flask_login import login_required, current_user
+from utils.window_utils import query_for_window, stamp_window_id, get_effective_window_id, get_or_404_for_window
+from role_utils import is_admin
 from extensions import db
 from sqlalchemy import func, text
 from .models import Teacher, Room, AssignedCourse, Routine, SavedRoutine
@@ -23,6 +25,27 @@ routine_management_bp = Blueprint('routine_management', __name__,
                                   template_folder='templates',
                                   static_folder='static')
 
+
+def _admin_skips_window_filter():
+    return current_user.is_authenticated and is_admin(current_user)
+
+
+def _window_sql_clause(column='window_id'):
+    """Append to raw SQL WHERE clauses for saved_routine / routine tables."""
+    if _admin_skips_window_filter():
+        return '', {}
+    window_id = get_effective_window_id()
+    return f' AND ({column} = :_window_id OR {column} IS NULL)', {'_window_id': window_id}
+
+
+def _get_saved_routine_or_404(saved_routine_id):
+    return get_or_404_for_window(SavedRoutine, saved_routine_id)
+
+
+def _current_window_id():
+    return get_effective_window_id()
+
+
 # Main dashboard for routine management
 @routine_management_bp.route('/')
 @login_required
@@ -35,11 +58,13 @@ def index():
     # Use raw SQL to avoid ORM relationship issues
     from sqlalchemy import text
     try:
-        result = db.session.execute(text("""
+        wclause, wparams = _window_sql_clause()
+        result = db.session.execute(text(f"""
             SELECT id, year, name, is_revealed, created_at, updated_at 
             FROM saved_routine 
+            WHERE 1=1{wclause}
             ORDER BY year DESC
-        """))
+        """), wparams)
         rows = result.fetchall()
         
         # Convert to objects for template compatibility
@@ -96,13 +121,13 @@ def public_routines():
         return redirect(url_for('routine_management.index'))
     
     try:
-        # Get only revealed routines using raw SQL
-        result = db.session.execute(text("""
+        wclause, wparams = _window_sql_clause()
+        result = db.session.execute(text(f"""
             SELECT id, year, name, is_revealed, created_at, updated_at 
             FROM saved_routine 
-            WHERE is_revealed = 1
+            WHERE is_revealed = 1{wclause}
             ORDER BY year DESC
-        """))
+        """), wparams)
         rows = result.fetchall()
         
         # Convert to objects for template compatibility
@@ -223,10 +248,8 @@ def delete_teacher(id):
         except ImportError:
             BatchCustomEvent = None
         
-        # Delete assigned courses
+        # Delete assigned courses and routine entries for this teacher (all windows)
         AssignedCourse.query.filter_by(teacher_id=id).delete(synchronize_session=False)
-        
-        # Delete routine entries
         Routine.query.filter_by(teacher_id=id).delete(synchronize_session=False)
         
         # Delete class sessions and their related data
@@ -323,7 +346,7 @@ def assign_course():
     form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_excluding_head()]
 
     # Centralized logic to get available courses
-    all_assignments = AssignedCourse.query.all()
+    all_assignments = query_for_window(AssignedCourse).all()
     assigned_parts_by_course = defaultdict(set)
     for a in all_assignments:
         assigned_parts_by_course[a.course_id].add(a.part)
@@ -364,6 +387,7 @@ def assign_course():
             course_id=course_id,
             part=part
         )
+        stamp_window_id(assignment)
         db.session.add(assignment)
         db.session.commit()
         flash('Course assigned successfully!', 'success')
@@ -371,7 +395,7 @@ def assign_course():
 
     # Logic to display existing assignments
     assignments_by_teacher = defaultdict(lambda: {'assignments': [], 'total_credit': 0.0})
-    all_assignments_sorted = AssignedCourse.query.join(Teacher).order_by(Teacher.name, AssignedCourse.id.desc()).all()
+    all_assignments_sorted = query_for_window(AssignedCourse).join(Teacher).order_by(Teacher.name, AssignedCourse.id.desc()).all()
 
     for assignment in all_assignments_sorted:
         teacher_id = assignment.teacher.id
@@ -394,13 +418,13 @@ def assign_course():
 
 @routine_management_bp.route('/assignment/edit/<int:id>', methods=['GET', 'POST'])
 def edit_assignment(id):
-    assignment = AssignedCourse.query.get_or_404(id)
+    assignment = get_or_404_for_window(AssignedCourse, id)
     form = AssignCourseForm(obj=assignment)
     from role_utils import get_teachers_excluding_head
     form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_excluding_head()]
     form.course.choices = [(assignment.course.id, f"{assignment.course.course_code} - {assignment.course.course_name}")]
 
-    other_assignments = AssignedCourse.query.filter(
+    other_assignments = query_for_window(AssignedCourse).filter(
         AssignedCourse.course_id == assignment.course_id,
         AssignedCourse.id != assignment.id
     ).all()
@@ -441,7 +465,7 @@ def edit_assignment(id):
 def delete_assignment(id):
     """Delete a course assignment"""
     try:
-        assignment = AssignedCourse.query.get_or_404(id)
+        assignment = get_or_404_for_window(AssignedCourse, id)
         course_code = assignment.course.course_code if assignment.course else 'Unknown'
         teacher_name = assignment.teacher.name if assignment.teacher else 'Unknown'
         db.session.delete(assignment)
@@ -462,7 +486,7 @@ def can_edit_routine():
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if teacher:
         from blueprints.course_management.models import DutyAssignment
-        routine_maker = DutyAssignment.query.filter_by(
+        routine_maker = query_for_window(DutyAssignment).filter_by(
             assigned_teacher_id=teacher.id,
             duty_type='routine_maker',
             status='active'
@@ -509,7 +533,7 @@ def check_edit_permission():
             result['teacher_name'] = teacher.name
             
             # Check routine_maker assignment
-            routine_maker = DutyAssignment.query.filter(
+            routine_maker = query_for_window(DutyAssignment).filter(
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.duty_type == 'routine_maker',
                 DutyAssignment.status == 'active'
@@ -524,7 +548,7 @@ def check_edit_permission():
                 }
             
             # Check discipline head assignment
-            discipline_head = DutyAssignment.query.filter(
+            discipline_head = query_for_window(DutyAssignment).filter(
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.status == 'active',
                 DutyAssignment.assigned_by_id.isnot(None)
@@ -563,7 +587,7 @@ def view_routine():
     # Load saved routine if ID provided
     current_saved_routine = None
     if saved_routine_id:
-        current_saved_routine = SavedRoutine.query.get(saved_routine_id)
+        current_saved_routine = _get_saved_routine_or_404(saved_routine_id)
         if not current_saved_routine:
             flash('Routine not found', 'error')
             if can_edit:
@@ -654,7 +678,7 @@ def generate_routine():
     # Load saved routine if ID provided
     current_saved_routine = None
     if saved_routine_id:
-        current_saved_routine = SavedRoutine.query.get(saved_routine_id)
+        current_saved_routine = _get_saved_routine_or_404(saved_routine_id)
         if not current_saved_routine:
             flash('Routine not found', 'error')
             return redirect(url_for('routine_management.index'))
@@ -889,7 +913,9 @@ def get_batches():
         
         # Method 2: Get from CurriculumYearTerm.batch field
         try:
-            results = db.session.query(distinct(CurriculumYearTerm.batch)).filter(
+            results = query_for_window(CurriculumYearTerm).with_entities(
+                distinct(CurriculumYearTerm.batch)
+            ).filter(
                 CurriculumYearTerm.batch.isnot(None),
                 CurriculumYearTerm.batch != ''
             ).all()
@@ -1133,14 +1159,10 @@ def save_routine():
         current_app.logger.info(f'Saving routine: saved_routine_id={saved_routine_id}, entries={len(routine_entries)}')
         
         # 3. Validate saved_routine_id if provided
+        routine_window_id = _current_window_id()
         if saved_routine_id:
-            saved_routine = SavedRoutine.query.get(saved_routine_id)
-            if not saved_routine:
-                return jsonify({
-                    'success': False,
-                    'message': f'Saved routine with ID {saved_routine_id} does not exist.',
-                    'error_type': 'not_found'
-                }), 404
+            saved_routine = _get_saved_routine_or_404(saved_routine_id)
+            routine_window_id = saved_routine.window_id or routine_window_id
         
         # 4. Check database schema dynamically
         from sqlalchemy import inspect, text
@@ -1287,6 +1309,8 @@ def save_routine():
         # Add saved_routine_id only if it exists in database
         if has_saved_routine_id:
             base_columns.append('saved_routine_id')
+        if 'window_id' in available_columns:
+            base_columns.append('window_id')
         
         # Build INSERT SQL
         column_names = ', '.join(base_columns)
@@ -1330,6 +1354,8 @@ def save_routine():
                 # Add saved_routine_id if column exists
                 if has_saved_routine_id:
                     params['saved_routine_id'] = saved_routine_id
+                if 'window_id' in base_columns:
+                    params['window_id'] = routine_window_id
                 
                 # Execute raw SQL INSERT
                 db.session.execute(text(insert_sql), params)
@@ -1407,7 +1433,7 @@ def clear_routine():
         return jsonify({'message': 'You do not have permission to clear routine.'}), 403
     
     try:
-        Routine.query.delete()
+        query_for_window(Routine).delete()
         db.session.commit()
         return jsonify({'message': 'Routine cleared successfully!'}), 200
     except Exception as e:
@@ -1421,11 +1447,13 @@ def get_saved_routines():
     """Get all saved routines using raw SQL"""
     from sqlalchemy import text
     try:
-        result = db.session.execute(text("""
+        wclause, wparams = _window_sql_clause()
+        result = db.session.execute(text(f"""
             SELECT id, year, name, is_revealed, created_at, updated_at 
             FROM saved_routine 
+            WHERE 1=1{wclause}
             ORDER BY year DESC
-        """))
+        """), wparams)
         rows = result.fetchall()
         
         routines_data = []
@@ -1475,10 +1503,11 @@ def create_saved_routine():
                 'message': 'Year is required'
             }), 400
         
-        # Check if year already exists using raw SQL
+        # Check if year already exists in this window
+        wclause, wparams = _window_sql_clause()
         result = db.session.execute(
-            text("SELECT id FROM saved_routine WHERE year = :year"),
-            {'year': year}
+            text(f"SELECT id FROM saved_routine WHERE year = :year{wclause}"),
+            {'year': year, **wparams}
         )
         existing = result.fetchone()
         
@@ -1490,24 +1519,41 @@ def create_saved_routine():
         
         # Create new saved routine using raw SQL
         user_id = current_user.id if current_user.is_authenticated else None
+        window_id = _current_window_id()
         
-        result = db.session.execute(
-            text("""
-                INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at)
-                VALUES (:year, :name, 0, :created_by_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-            """),
-            {
-                'year': year,
-                'name': name if name else None,
-                'created_by_id': user_id
-            }
-        )
+        from sqlalchemy import inspect
+        sr_cols = {c['name'] for c in inspect(db.engine).get_columns('saved_routine')}
+        if 'window_id' in sr_cols:
+            db.session.execute(
+                text("""
+                    INSERT INTO saved_routine (year, name, is_revealed, created_by_id, window_id, created_at, updated_at)
+                    VALUES (:year, :name, 0, :created_by_id, :window_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """),
+                {
+                    'year': year,
+                    'name': name if name else None,
+                    'created_by_id': user_id,
+                    'window_id': window_id,
+                }
+            )
+        else:
+            db.session.execute(
+                text("""
+                    INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at)
+                    VALUES (:year, :name, 0, :created_by_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """),
+                {
+                    'year': year,
+                    'name': name if name else None,
+                    'created_by_id': user_id
+                }
+            )
         db.session.commit()
         
         # Get the inserted ID
         result = db.session.execute(
-            text("SELECT id FROM saved_routine WHERE year = :year"),
-            {'year': year}
+            text(f"SELECT id FROM saved_routine WHERE year = :year{wclause}"),
+            {'year': year, **wparams}
         )
         row = result.fetchone()
         new_id = row[0] if row else None
@@ -1537,18 +1583,8 @@ def get_saved_routine(saved_routine_id):
     from sqlalchemy import text, inspect
     
     try:
-        # Get saved routine using raw SQL
-        result = db.session.execute(
-            text("SELECT id, year, name, is_revealed FROM saved_routine WHERE id = :id"),
-            {'id': saved_routine_id}
-        )
-        sr_row = result.fetchone()
-        
-        if not sr_row:
-            return jsonify({
-                'success': False,
-                'message': f'Saved routine with ID {saved_routine_id} not found.'
-            }), 404
+        sr = _get_saved_routine_or_404(saved_routine_id)
+        sr_row = (sr.id, sr.year, sr.name, sr.is_revealed)
         
         # Optional: load break settings from saved_routine if columns exist
         inspector = inspect(db.engine)
@@ -1682,21 +1718,20 @@ def duplicate_saved_routine(saved_routine_id):
     try:
         if not can_edit_routine():
             return jsonify({'success': False, 'message': 'You do not have permission to duplicate routines.'}), 403
-        # Get source
-        src = db.session.execute(
-            text("SELECT id, year, name, is_revealed FROM saved_routine WHERE id = :id"),
-            {'id': saved_routine_id}
-        ).fetchone()
+        src_sr = _get_saved_routine_or_404(saved_routine_id)
+        src = (src_sr.id, src_sr.year, src_sr.name, src_sr.is_revealed)
         if not src:
             return jsonify({'success': False, 'message': 'Saved routine not found.'}), 404
         src_year, src_name = src[1], (src[2] or src[1])
+        wclause, wparams = _window_sql_clause()
+        window_id = _current_window_id()
         # Unique new year: "2026 (Copy)", "2026 (Copy 2)", ...
         new_year = src_year + " (Copy)"
         n = 1
         while True:
             existing = db.session.execute(
-                text("SELECT id FROM saved_routine WHERE year = :y"),
-                {'y': new_year}
+                text(f"SELECT id FROM saved_routine WHERE year = :y{wclause}"),
+                {'y': new_year, **wparams}
             ).fetchone()
             if not existing:
                 break
@@ -1707,22 +1742,45 @@ def duplicate_saved_routine(saved_routine_id):
         # Insert new saved_routine
         inspector = inspect(db.engine)
         sr_cols = [c['name'] for c in inspector.get_columns('saved_routine')]
+        has_window_col = 'window_id' in sr_cols
         if 'lunch_after_slot' in sr_cols and 'break_type' in sr_cols and 'break_time_label' in sr_cols:
             br = db.session.execute(
                 text("SELECT lunch_after_slot, break_type, break_time_label FROM saved_routine WHERE id = :id"),
                 {'id': saved_routine_id}
             ).fetchone()
+            if has_window_col:
+                db.session.execute(
+                    text("""
+                        INSERT INTO saved_routine (year, name, is_revealed, created_by_id, window_id, created_at, updated_at, lunch_after_slot, break_type, break_time_label)
+                        VALUES (:year, :name, 0, :uid, :window_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :la, :bt, :btrl)
+                    """),
+                    {
+                        'year': new_year, 'name': new_name, 'uid': user_id, 'window_id': window_id,
+                        'la': br[0] if br and br[0] is not None else 3,
+                        'bt': (br[1] or 'lunch') if br else 'lunch',
+                        'btrl': (br[2] or '01:00 PM - 02:00 PM') if br else '01:00 PM - 02:00 PM'
+                    }
+                )
+            else:
+                db.session.execute(
+                    text("""
+                        INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at, lunch_after_slot, break_type, break_time_label)
+                        VALUES (:year, :name, 0, :uid, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :la, :bt, :btrl)
+                    """),
+                    {
+                        'year': new_year, 'name': new_name, 'uid': user_id,
+                        'la': br[0] if br and br[0] is not None else 3,
+                        'bt': (br[1] or 'lunch') if br else 'lunch',
+                        'btrl': (br[2] or '01:00 PM - 02:00 PM') if br else '01:00 PM - 02:00 PM'
+                    }
+                )
+        elif has_window_col:
             db.session.execute(
                 text("""
-                    INSERT INTO saved_routine (year, name, is_revealed, created_by_id, created_at, updated_at, lunch_after_slot, break_type, break_time_label)
-                    VALUES (:year, :name, 0, :uid, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, :la, :bt, :btrl)
+                    INSERT INTO saved_routine (year, name, is_revealed, created_by_id, window_id, created_at, updated_at)
+                    VALUES (:year, :name, 0, :uid, :window_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                 """),
-                {
-                    'year': new_year, 'name': new_name, 'uid': user_id,
-                    'la': br[0] if br and br[0] is not None else 3,
-                    'bt': (br[1] or 'lunch') if br else 'lunch',
-                    'btrl': (br[2] or '01:00 PM - 02:00 PM') if br else '01:00 PM - 02:00 PM'
-                }
+                {'year': new_year, 'name': new_name, 'uid': user_id, 'window_id': window_id}
             )
         else:
             db.session.execute(
@@ -1734,8 +1792,8 @@ def duplicate_saved_routine(saved_routine_id):
             )
         db.session.flush()
         new_id_row = db.session.execute(
-            text("SELECT id FROM saved_routine WHERE year = :y"),
-            {'y': new_year}
+            text(f"SELECT id FROM saved_routine WHERE year = :y{wclause}"),
+            {'y': new_year, **wparams}
         ).fetchone()
         new_id = new_id_row[0] if new_id_row else None
         if not new_id:
@@ -1765,13 +1823,23 @@ def duplicate_saved_routine(saved_routine_id):
                 {'id': saved_routine_id}
             ).fetchall()
             for r in rts:
-                db.session.execute(
-                    text("""
-                        INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, created_at)
-                        VALUES (:sid, :ts, :ord, 1, CURRENT_TIMESTAMP)
-                    """),
-                    {'sid': new_id, 'ts': r[0], 'ord': r[1]}
-                )
+                rts_cols = {c['name'] for c in inspector.get_columns('routine_time_slot')}
+                if 'window_id' in rts_cols:
+                    db.session.execute(
+                        text("""
+                            INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, window_id, created_at)
+                            VALUES (:sid, :ts, :ord, 1, :window_id, CURRENT_TIMESTAMP)
+                        """),
+                        {'sid': new_id, 'ts': r[0], 'ord': r[1], 'window_id': window_id}
+                    )
+                else:
+                    db.session.execute(
+                        text("""
+                            INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, created_at)
+                            VALUES (:sid, :ts, :ord, 1, CURRENT_TIMESTAMP)
+                        """),
+                        {'sid': new_id, 'ts': r[0], 'ord': r[1]}
+                    )
         except Exception as e:
             current_app.logger.warning(f'Could not copy routine_time_slot: {e}')
         db.session.commit()
@@ -1804,20 +1872,16 @@ def delete_saved_routine(saved_routine_id):
                 'message': 'You do not have permission to delete saved routines.'
             }), 403
         
-        # Step 1: Check if saved routine exists using RAW SQL
-        result = db.session.execute(
-            text("SELECT id, year, name FROM saved_routine WHERE id = :id"),
-            {'id': saved_routine_id}
-        )
-        row = result.fetchone()
-        
-        if not row:
+        # Step 1: Check if saved routine exists (window-scoped)
+        try:
+            sr = _get_saved_routine_or_404(saved_routine_id)
+            saved_year = sr.year or 'Unknown'
+        except Exception:
             return jsonify({
                 'success': False,
                 'message': f'Saved routine with ID {saved_routine_id} does not exist.'
             }), 404
         
-        saved_year = row[1] if row else 'Unknown'
         current_app.logger.info(f'Deleting saved routine: id={saved_routine_id}, year={saved_year}')
         
         # Step 2: Check if routine table has saved_routine_id column
@@ -1889,20 +1953,8 @@ def toggle_reveal_saved_routine(saved_routine_id):
                 'message': 'Reveal feature is not available. Please run database migrations.'
             }), 400
         
-        # Get current is_revealed value using raw SQL
-        result = db.session.execute(
-            text("SELECT id, is_revealed FROM saved_routine WHERE id = :id"),
-            {'id': saved_routine_id}
-        )
-        row = result.fetchone()
-        
-        if not row:
-            return jsonify({
-                'success': False,
-                'message': f'Saved routine with ID {saved_routine_id} not found.'
-            }), 404
-        
-        current_is_revealed = row[1] if row[1] is not None else False
+        sr = _get_saved_routine_or_404(saved_routine_id)
+        current_is_revealed = sr.is_revealed if sr.is_revealed is not None else False
         new_is_revealed = not current_is_revealed
         
         # Update using raw SQL
@@ -1945,9 +1997,8 @@ def save_time_slots():
             return jsonify({'success': False, 'message': 'No saved routine ID provided'}), 400
         
         # Check if routine exists
-        saved_routine = SavedRoutine.query.get(saved_routine_id)
-        if not saved_routine:
-            return jsonify({'success': False, 'message': 'Saved routine not found'}), 404
+        saved_routine = _get_saved_routine_or_404(saved_routine_id)
+        slot_window_id = saved_routine.window_id or _current_window_id()
         
         # Delete existing time slots for this routine
         try:
@@ -1961,17 +2012,32 @@ def save_time_slots():
         # Insert new time slots
         for idx, slot in enumerate(time_slots):
             try:
-                db.session.execute(
-                    text("""
-                        INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, created_at)
-                        VALUES (:saved_routine_id, :time_slot, :display_order, 1, CURRENT_TIMESTAMP)
-                    """),
-                    {
-                        'saved_routine_id': saved_routine_id,
-                        'time_slot': slot,
-                        'display_order': idx
-                    }
-                )
+                rts_cols = {c['name'] for c in inspect(db.engine).get_columns('routine_time_slot')}
+                if 'window_id' in rts_cols:
+                    db.session.execute(
+                        text("""
+                            INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, window_id, created_at)
+                            VALUES (:saved_routine_id, :time_slot, :display_order, 1, :window_id, CURRENT_TIMESTAMP)
+                        """),
+                        {
+                            'saved_routine_id': saved_routine_id,
+                            'time_slot': slot,
+                            'display_order': idx,
+                            'window_id': slot_window_id,
+                        }
+                    )
+                else:
+                    db.session.execute(
+                        text("""
+                            INSERT INTO routine_time_slot (saved_routine_id, time_slot, display_order, is_active, created_at)
+                            VALUES (:saved_routine_id, :time_slot, :display_order, 1, CURRENT_TIMESTAMP)
+                        """),
+                        {
+                            'saved_routine_id': saved_routine_id,
+                            'time_slot': slot,
+                            'display_order': idx
+                        }
+                    )
             except Exception as insert_error:
                 current_app.logger.warning(f'Could not insert time slot {slot}: {insert_error}')
         
@@ -2006,7 +2072,7 @@ def save_time_slots():
 
 @routine_management_bp.route('/api/routine/load')
 def load_routine():
-    routine_entries = Routine.query.all()
+    routine_entries = query_for_window(Routine).all()
     all_rooms = {r.room_number: r.id for r in Room.query.all()}
 
     routine_data = []
@@ -2543,7 +2609,7 @@ def download_teacher_wise_pdf():
     from role_utils import get_teachers_excluding_head
     teachers = get_teachers_excluding_head()
     for teacher in teachers:
-        assignments = AssignedCourse.query.filter_by(teacher_id=teacher.id).all()
+        assignments = query_for_window(AssignedCourse).filter_by(teacher_id=teacher.id).all()
         if not assignments:
             continue
         elements.append(Paragraph(f"<b>{teacher.name} ({teacher.call_sign or teacher.short_name})</b>", styles['Heading2']))
@@ -2606,7 +2672,7 @@ def download_course_wise_pdf():
     data = [["Course Name", "Teacher Names", "Call Signs"]]
     courses = Course.query.order_by(Course.course_code).all()
     for course in courses:
-        assignments = AssignedCourse.query.filter_by(course_id=course.id).all()
+        assignments = query_for_window(AssignedCourse).filter_by(course_id=course.id).all()
         if not assignments:
             continue
         teacher_names = ', '.join([a.teacher.name for a in assignments])
