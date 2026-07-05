@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block mobile_title %}Students{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <div class="card shadow">
@@ -17,9 +19,15 @@
                     <i class="fas fa-book me-2"></i>{{ session.course_name or 'Course' }}
                 </h6>
                 <div class="d-flex gap-2">
+                    {% if session.is_external_course %}
+                    <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#externalManualStudentModal{{ session.id }}">
+                        <i class="fas fa-user-plus me-1"></i>Add Students
+                    </button>
+                    {% else %}
                     <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#addStudentModal{{ session.id }}">
                         <i class="fas fa-user-plus me-1"></i>Add Student
                     </button>
+                    {% endif %}
                     <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary btn-sm">
                         <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
                     </a>
@@ -33,7 +41,7 @@
             </div>
             {% endif %}
             
-            <div class="table-responsive">
+            <div class="table-responsive table-mobile-stack">
                 <table class="table table-hover">
                     <thead class="table-light">
                         <tr>
@@ -45,11 +53,11 @@
                     <tbody>
                         {% for student in students %}
                         <tr>
-                            <td>{{ loop.index }}</td>
-                            <td>
+                            <td data-label="#">{{ loop.index }}</td>
+                            <td data-label="Student ID">
                                 <strong>{{ student.student_id }}</strong>
                             </td>
-                            <td>{{ student.name }}</td>
+                            <td data-label="Name">{{ student.name }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -68,6 +76,50 @@
 </div>
 
 <!-- Add Student Modal -->
+{% if session.is_external_course %}
+<div class="modal fade" id="externalManualStudentModal{{ session.id }}" tabindex="-1" aria-labelledby="externalManualStudentModalLabel{{ session.id }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="externalManualStudentModalLabel{{ session.id }}">
+                    <i class="fas fa-user-plus me-2"></i>Add Students
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <h6 class="text-muted mb-2">Manual Entry</h6>
+                <form method="POST" action="{{ url_for('class_management.add_student', session_id=session.id) }}" class="mb-3">
+                    <div class="row g-2">
+                        <div class="col-md-5">
+                            <input type="text" class="form-control form-control-sm" name="student_id" placeholder="Student ID" required>
+                        </div>
+                        <div class="col-md-5">
+                            <input type="text" class="form-control form-control-sm" name="name" placeholder="Name" required>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-success btn-sm w-100">Add</button>
+                        </div>
+                    </div>
+                </form>
+                <hr>
+                <h6 class="text-muted mb-2">Upload Excel</h6>
+                <form method="POST" action="{{ url_for('class_management.upload_students', session_id=session.id) }}" enctype="multipart/form-data">
+                    <div class="mb-2">
+                        <input type="file" class="form-control form-control-sm" name="file" accept=".xls,.xlsx" required>
+                    </div>
+                    <small class="text-muted d-block mb-2">Columns: <strong>Student ID</strong>, <strong>Name</strong></small>
+                    <button type="submit" class="btn btn-outline-success btn-sm">
+                        <i class="fas fa-file-excel me-1"></i>Upload Excel
+                    </button>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
 <div class="modal fade" id="addStudentModal{{ session.id }}" tabindex="-1" aria-labelledby="addStudentModalLabel{{ session.id }}" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -115,9 +167,11 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 
 <script>
+{% if not session.is_external_course %}
 document.addEventListener('DOMContentLoaded', function() {
     const sessionId = {{ session.id }};
     const modalId = 'addStudentModal' + sessionId;
@@ -317,6 +371,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+{% endif %}
 </script>
 {% endblock %}
 

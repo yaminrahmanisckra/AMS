@@ -37,6 +37,8 @@ class Session(db.Model):
     attendances = db.relationship('ClassAttendance', backref='session', lazy=True, cascade="all, delete-orphan")
     # Note: course_outline relationship is defined in CourseOutline model to avoid circular dependency
     archived = db.Column(db.Boolean, default=False)
+    is_external_course = db.Column(db.Boolean, default=False, nullable=False)
+    external_assessment_mode = db.Column(db.String(20), nullable=False, default='best_three')
     course_type = db.Column(db.String(20), nullable=False, default='theory')
     category = db.Column(db.String(20), nullable=False, default='ug')
     course_scope = db.Column(db.String(10), nullable=False, default='full')  # full | part_a | part_b
@@ -138,7 +140,9 @@ class CourseFileUpload(db.Model):
     file_path = db.Column(db.String(500), nullable=False)  # Path to uploaded file
     file_size = db.Column(db.Integer, nullable=True)  # File size in bytes
     file_type = db.Column(db.String(50), nullable=True)  # MIME type or extension
+    file_category = db.Column(db.String(50), nullable=True)  # syllabus, reading, slides, other
     description = db.Column(db.Text, nullable=True)  # Optional description
+    extracted_text = db.Column(db.Text, nullable=True)  # Cached text for AI RAG
     student_access_enabled = db.Column(db.Boolean, default=True, nullable=False)  # Allow students to download
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -280,6 +284,7 @@ class ExamPaperEvaluation(db.Model):
     marks_data = db.Column(db.Text, nullable=True)
     submitted_to_committee = db.Column(db.Boolean, nullable=False, default=False)
     submitted_at = db.Column(db.DateTime, nullable=True)
+    is_external_subject = db.Column(db.Boolean, default=False, nullable=False)
     owner_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=True)
     assigned_scrutinizer_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=True)
     window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)

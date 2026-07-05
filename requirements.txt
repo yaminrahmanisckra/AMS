@@ -28,6 +28,7 @@ Pillow==10.1.0
 psycopg2-binary==2.9.7
 PyMySQL==1.1.0
 cryptography==41.0.7
+certifi>=2023.7.22
 python-docx 
 openpyxl==3.1.2
 typing-extensions==4.9.0

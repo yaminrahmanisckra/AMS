@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block mobile_title %}Evaluation{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <div class="card shadow">
@@ -13,7 +15,7 @@
             </a>
         </div>
         <div class="card-body">
-            <div class="row g-3">
+            <div class="row g-3 m-action-tile-grid">
                 <div class="col-sm-6 col-md-4">
                     <a href="{{ url_for('class_management.course_assessment', session_id=session.id) }}" class="text-decoration-none action-tile bg-secondary text-white">
                         <div class="tile-icon bg-white text-secondary"><i class="fas fa-clipboard-list"></i></div>

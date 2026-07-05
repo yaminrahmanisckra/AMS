@@ -1,0 +1,440 @@
+{% extends "base.html" %}
+
+{% block title %}AI Settings{% endblock %}
+{% block mobile_title %}AI Settings{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">AI সেটআপ</h1>
+            <p class="text-muted mb-0">কোনো টেকনিক্যাল জ্ঞান ছাড়াই API key যোগ করুন — Course Outline AI চালু হবে।</p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Admin Dashboard
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="row g-4">
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-primary border-opacity-25">
+                <div class="card-header bg-primary bg-opacity-10">
+                    <h5 class="mb-0"><i class="fas fa-magic me-2"></i>সহজ সেটআপ (৩ ধাপ)</h5>
+                </div>
+                <div class="card-body">
+                    <ol class="small text-muted mb-4 ps-3">
+                        <li class="mb-1">AI সেবা বেছে নিন (Gemini, OpenAI, Claude, বা DeepSeek)</li>
+                        <li class="mb-1">API key কপি করে পেস্ট করুন</li>
+                        <li>সংযোগ পরীক্ষা → সংরক্ষণ করুন</li>
+                    </ol>
+
+                    <form method="POST" action="{{ url_for('admin_ai_settings') }}" id="aiSetupForm">
+                        <input type="hidden" name="setting_id" value="{{ setup_form.setting_id }}">
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">১. AI সেবা</label>
+                            <select name="provider" id="aiProviderSelect" class="form-select form-select-lg" required>
+                                {% for value, label, recommended in provider_choices %}
+                                <option value="{{ value }}" {% if setup_form.provider == value %}selected{% endif %}>
+                                    {{ label }}{% if recommended %} ★ সুপারিশকৃত{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="alert alert-light border mb-3" id="providerHelpBox">
+                            <div class="fw-semibold mb-2" id="providerHelpTitle">API key কোথায় পাবেন?</div>
+                            <ol class="small mb-2 ps-3" id="providerHelpSteps"></ol>
+                            <a href="#" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary" id="providerKeyLink">
+                                <i class="fas fa-external-link-alt me-1"></i>API Key পেজে যান
+                            </a>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">২. API Key</label>
+                            <input type="password" name="api_key" id="aiApiKeyInput" class="form-control form-control-lg font-monospace"
+                                   placeholder="{% if edit_setting and edit_setting.api_key_masked %}খালি রাখলে আগের key থাকবে ({{ edit_setting.api_key_masked }}){% else %}এখানে API key পেস্ট করুন{% endif %}"
+                                   autocomplete="off">
+                            <div class="form-text">নিরাপদে এনক্রিপ্ট করে সংরক্ষণ হয়। কেউ দেখতে পারবে না।</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">৩. মডেল (স্বয়ংক্রিয় সুপারিশ)</label>
+                            <select name="model_name" id="aiModelSelect" class="form-select">
+                            </select>
+                            <div class="form-text">চিন্তা করবেন না — ড্রপডাউন থেকে ডিফল্ট বেছে নিলেই হবে।</div>
+                        </div>
+
+                        <input type="hidden" name="is_active" value="on">
+                        <input type="hidden" name="is_default" value="on">
+
+                        <div id="aiTestLoading" class="alert alert-info d-none mb-3" role="status">
+                            <i class="fas fa-spinner fa-spin me-2"></i>সংযোগ পরীক্ষা হচ্ছে... কয়েক সেকেন্ড অপেক্ষা করুন।
+                        </div>
+
+                        <div class="d-grid gap-2 mb-3">
+                            <button type="submit" name="action" value="test" class="btn btn-outline-success btn-lg" id="aiTestBtn">
+                                <i class="fas fa-plug me-2"></i>সংযোগ পরীক্ষা করুন
+                            </button>
+                            <button type="submit" name="action" value="save" class="btn btn-primary btn-lg">
+                                <i class="fas fa-save me-2"></i>{{ 'আপডেট ও সংরক্ষণ' if edit_setting else 'সংরক্ষণ করুন' }}
+                            </button>
+                            <p class="small text-muted text-center mb-0">পরীক্ষা সফল হলে অবশ্যই <strong>সংরক্ষণ করুন</strong> — না করলে Course Outline AI চালু হবে না।</p>
+                        </div>
+
+                        <div class="accordion accordion-flush" id="advancedAiAccordion">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed py-2 small" type="button" data-bs-toggle="collapse" data-bs-target="#advancedAiCollapse">
+                                        উন্নত সেটিংস (ঐচ্ছিক — সাধারণত লাগে না)
+                                    </button>
+                                </h2>
+                                <div id="advancedAiCollapse" class="accordion-collapse collapse" data-bs-parent="#advancedAiAccordion">
+                                    <div class="accordion-body pt-2">
+                                        <div class="mb-2">
+                                            <label class="form-label small">Display name</label>
+                                            <input type="text" name="display_name" class="form-control form-control-sm" value="{{ setup_form.display_name }}">
+                                        </div>
+                                        <div class="mb-2">
+                                            <label class="form-label small">API Base URL</label>
+                                            <input type="text" name="api_base_url" class="form-control form-control-sm" value="{{ setup_form.api_base_url if setup_form.api_base_url and setup_form.api_base_url != 'None' else '' }}" placeholder="খালি রাখুন">
+                                        </div>
+                                        <div class="row g-2">
+                                            <div class="col-6">
+                                                <label class="form-label small">Temperature</label>
+                                                <input type="number" step="0.1" min="0" max="1" name="temperature" class="form-control form-control-sm" value="{{ setup_form.temperature }}">
+                                            </div>
+                                            <div class="col-6">
+                                                <label class="form-label small">Max tokens</label>
+                                                <input type="number" min="1000" max="32000" name="max_tokens" class="form-control form-control-sm" value="{{ setup_form.max_tokens }}">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card shadow-sm">
+                <div class="card-header">
+                    <h5 class="mb-0">Configured Providers</h5>
+                </div>
+                <div class="card-body">
+                    {% if settings %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Provider</th>
+                                    <th>Model</th>
+                                    <th>Key</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for s in settings %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ s.display_name or s.provider }}</strong>
+                                        {% if s.is_default %}<span class="badge bg-primary ms-1">Default</span>{% endif %}
+                                    </td>
+                                    <td><code>{{ s.model_name or '—' }}</code></td>
+                                    <td>{{ s.api_key_masked or '—' }}</td>
+                                    <td>
+                                        {% if s.is_active %}
+                                        <span class="badge bg-success">Active</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">Inactive</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="d-flex gap-2">
+                                        <a href="{{ url_for('admin_ai_settings', edit=s.id) }}" class="btn btn-sm btn-outline-primary">Edit</a>
+                                        <form method="POST" action="{{ url_for('admin_ai_settings_delete', setting_id=s.id) }}" onsubmit="return confirm('Delete this provider?');">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">No providers configured yet. Add one using the form.</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-info-circle me-2"></i>
+                Teachers use <strong>Generate with AI</strong> on the Course Outline edit page.
+                Context includes Curriculator PLOs, uploaded course files (RAG), curriculum, and calendar.
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Outline নির্দেশনা (Theory / Sessional)</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">এখানে লেখা নির্দেশনা প্রতিটি AI জেনারেশনে যোগ হবে। শিক্ষক আলাদা করে নিজের নির্দেশনাও লিখতে পারবেন।</p>
+                    <form method="POST" action="{{ url_for('admin_ai_settings') }}">
+                        <input type="hidden" name="action" value="outline_defaults">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">সব কোর্সের জন্য সাধারণ নির্দেশনা</label>
+                            <textarea name="outline_default_global" class="form-control" rows="3"
+                                      placeholder="উদাহরণ: KU Law Discipline ফরম্যাট মেনে লিখুন; PLO mapping অবশ্যই থাকবে।">{{ outline_defaults.global }}</textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Theory কোর্স — ডিফল্ট নির্দেশনা</label>
+                            <textarea name="outline_default_theory" class="form-control" rows="4"
+                                      placeholder="লেকচার-ভিত্তিক CIE/SMEE, সাপ্তাহিক lesson plan...">{{ outline_defaults.theory }}</textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Sessional কোর্স — ডিফল্ট নির্দেশনা</label>
+                            <textarea name="outline_default_sessional" class="form-control" rows="4"
+                                      placeholder="Practical exercise, sessional report/viva...">{{ outline_defaults.sessional }}</textarea>
+                        </div>
+                        <button type="submit" class="btn btn-outline-primary">
+                            <i class="fas fa-save me-1"></i>নির্দেশনা সংরক্ষণ করুন
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {% if can_batch_generate %}
+            <div class="card shadow-sm mt-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Batch Generate (Semester)</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">Start async outline jobs for all class sessions in a semester. Jobs run part-by-part; use progress below.</p>
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Active semester</label>
+                            <select id="batchSemesterSelect" class="form-select">
+                                <option value="">— Select —</option>
+                                {% for sem in active_semesters %}
+                                <option value="{{ sem.academic_session }}|{{ sem.year }}|{{ sem.term }}|{{ sem.batch or '' }}">
+                                    {{ sem.academic_session }} · {{ sem.year }} · {{ sem.term }}{% if sem.batch %} · {{ sem.batch }}{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <button type="button" class="btn btn-warning text-dark w-100" id="startBatchGenerateBtn">
+                                <i class="fas fa-layer-group me-1"></i>Start Batch Generation
+                            </button>
+                        </div>
+                    </div>
+                    <div id="batchGenerateStatus" class="small text-muted"></div>
+                    <div class="progress mt-2 d-none" id="batchProgressWrap">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="batchProgressBar" style="width:0%">0%</div>
+                    </div>
+                    <div id="batchItemsList" class="small mt-3"></div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+                    <h5 class="mb-0">Generation Log</h5>
+                    {% if log_stats %}
+                    <small class="text-muted">
+                        {{ log_stats[0] or 0 }} calls ·
+                        {{ log_stats[1] or 0 }} tokens ·
+                        ~${{ '%.4f'|format(log_stats[2] or 0) }} est.
+                    </small>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    {% if generation_logs %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>When</th>
+                                    <th>Session</th>
+                                    <th>Part</th>
+                                    <th>Model</th>
+                                    <th>Tokens</th>
+                                    <th>Cost</th>
+                                    <th>Time</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for log in generation_logs %}
+                                <tr>
+                                    <td class="small">{{ log.created_at.strftime('%Y-%m-%d %H:%M') if log.created_at else '—' }}</td>
+                                    <td>#{{ log.session_id }}</td>
+                                    <td><span class="badge bg-secondary">{{ log.part }}</span></td>
+                                    <td class="small"><code>{{ log.model_name or log.provider or '—' }}</code></td>
+                                    <td class="small">{{ log.total_tokens or '—' }}</td>
+                                    <td class="small">{% if log.estimated_cost_usd is not none %}${{ '%.4f'|format(log.estimated_cost_usd) }}{% else %}—{% endif %}</td>
+                                    <td class="small">{% if log.duration_ms %}{{ log.duration_ms }}ms{% else %}—{% endif %}</td>
+                                    <td>
+                                        {% if log.status == 'success' %}
+                                        <span class="badge bg-success">OK</span>
+                                        {% else %}
+                                        <span class="badge bg-danger">Error</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">No outline generations logged yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const PROVIDER_PRESETS = {{ provider_presets | tojson }};
+    const SETUP_FORM = {{ setup_form | tojson }};
+    const providerSelect = document.getElementById('aiProviderSelect');
+    const modelSelect = document.getElementById('aiModelSelect');
+    const helpSteps = document.getElementById('providerHelpSteps');
+    const keyLink = document.getElementById('providerKeyLink');
+
+    function updateProviderUI(fromUserChange) {
+        if (!providerSelect || !modelSelect) return;
+        const preset = PROVIDER_PRESETS[providerSelect.value] || {};
+        if (helpSteps && preset.key_steps_bn) {
+            helpSteps.innerHTML = preset.key_steps_bn.map(function(s) {
+                return '<li>' + s + '</li>';
+            }).join('');
+        }
+        if (keyLink && preset.key_url) {
+            keyLink.href = preset.key_url;
+        }
+        const models = preset.models || [];
+        const validIds = models.map(function(pair) { return pair[0]; });
+        let selectedModel = preset.default_model;
+        if (!fromUserChange && providerSelect.value === SETUP_FORM.provider && SETUP_FORM.model_name && validIds.indexOf(SETUP_FORM.model_name) >= 0) {
+            selectedModel = SETUP_FORM.model_name;
+        } else if (fromUserChange) {
+            selectedModel = preset.default_model;
+        } else if (validIds.indexOf(modelSelect.value) >= 0) {
+            selectedModel = modelSelect.value;
+        }
+        modelSelect.innerHTML = models.map(function(pair) {
+            const id = pair[0];
+            const label = pair[1];
+            const selected = id === selectedModel ? ' selected' : '';
+            return '<option value="' + id + '"' + selected + '>' + label + '</option>';
+        }).join('');
+        if (!modelSelect.value && preset.default_model) {
+            modelSelect.value = preset.default_model;
+        }
+    }
+
+    if (providerSelect) {
+        providerSelect.addEventListener('change', function() { updateProviderUI(true); });
+        updateProviderUI(false);
+    }
+
+    const setupForm = document.getElementById('aiSetupForm');
+    const loadingOverlay = document.getElementById('aiTestLoading');
+    if (setupForm) {
+        setupForm.addEventListener('submit', function(e) {
+            const submitter = e.submitter;
+            if (submitter && submitter.name === 'action' && submitter.value === 'test') {
+                if (loadingOverlay) loadingOverlay.classList.remove('d-none');
+            }
+        });
+    }
+})();
+</script>
+{% if can_batch_generate %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const startBtn = document.getElementById('startBatchGenerateBtn');
+    const semesterSelect = document.getElementById('batchSemesterSelect');
+    const statusEl = document.getElementById('batchGenerateStatus');
+    const progressWrap = document.getElementById('batchProgressWrap');
+    const progressBar = document.getElementById('batchProgressBar');
+    const itemsList = document.getElementById('batchItemsList');
+    const batchGenerateUrl = '{{ url_for("class_management.batch_generate_outlines") }}';
+    const batchStatusTemplate = '{{ url_for("class_management.batch_outline_job_status", batch_job_id=0) }}';
+    const batchTickTemplate = '{{ url_for("class_management.batch_outline_job_tick_next", batch_job_id=0) }}';
+
+    if (!startBtn) return;
+
+    async function pollBatch(batchJobId) {
+        const statusUrl = batchStatusTemplate.replace('/0', '/' + batchJobId);
+        const tickUrl = batchTickTemplate.replace('/0/', '/' + batchJobId + '/');
+        let guard = 0;
+        while (guard < 500) {
+            guard += 1;
+            await fetch(tickUrl, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const data = await fetch(statusUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.json());
+            const prog = data.progress || {};
+            if (progressWrap && progressBar) {
+                progressWrap.classList.remove('d-none');
+                const pct = prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
+                progressBar.style.width = pct + '%';
+                progressBar.textContent = (prog.label || pct + '%');
+            }
+            if (statusEl) statusEl.textContent = data.status + (data.message ? ' — ' + data.message : '');
+            if (itemsList && data.items) {
+                itemsList.innerHTML = '<ul class="mb-0">' + data.items.map(function(item) {
+                    return '<li>' + (item.course_code || '') + ' — ' + (item.status || '') + '</li>';
+                }).join('') + '</ul>';
+            }
+            if (data.status === 'completed' || data.status === 'failed') return data;
+            await new Promise(function(resolve) { setTimeout(resolve, 800); });
+        }
+        throw new Error('Batch generation timed out');
+    }
+
+    startBtn.addEventListener('click', async function() {
+        const raw = semesterSelect ? semesterSelect.value : '';
+        if (!raw) { alert('Select a semester.'); return; }
+        const parts = raw.split('|');
+        startBtn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Starting batch jobs...';
+        try {
+            const resp = await fetch(batchGenerateUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({
+                    academic_session: parts[0],
+                    year: parts[1],
+                    term: parts[2],
+                    batch: parts[3] || null,
+                    parts: ['A', 'B', 'C', 'D']
+                })
+            }).then(r => r.json());
+            if (!resp.success && !resp.batch_job_id) throw new Error(resp.message || 'Failed to start batch');
+            await pollBatch(resp.batch_job_id);
+            if (statusEl) statusEl.textContent = 'Batch generation finished.';
+        } catch (err) {
+            if (statusEl) statusEl.textContent = err.message;
+        } finally {
+            startBtn.disabled = false;
+        }
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

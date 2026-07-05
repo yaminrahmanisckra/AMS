@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block mobile_title %}Outline{% endblock %}
 
 {% block content %}
 <style>
@@ -192,6 +193,11 @@
                 <a href="{{ url_for('class_management.download_course_outline_pdf', session_id=session.id) }}" class="btn btn-danger">
                     <i class="fas fa-file-pdf me-1"></i><span class="d-none d-sm-inline">Download PDF</span>
             </a>
+                {% if ai_outline_enabled %}
+                <button type="button" class="btn btn-warning text-dark" id="generateFullOutlineAiBtn" title="Generate Parts A–D using AI">
+                    <i class="fas fa-robot me-1"></i><span class="d-none d-sm-inline">Generate with AI</span>
+                </button>
+                {% endif %}
         </div>
             <div class="form-check form-switch d-flex align-items-center justify-content-center justify-content-md-start">
                 <input class="form-check-input" type="checkbox" id="studentAccessToggle" name="student_access_enabled" {% if course_outline and course_outline.student_access_enabled %}checked{% endif %}>
@@ -820,6 +826,120 @@
         </div>
     </form>
 </div>
+
+{% if ai_outline_enabled %}
+<div class="modal fade" id="aiOutlineModal" tabindex="-1" aria-labelledby="aiOutlineModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="aiOutlineModalLabel"><i class="fas fa-robot me-2"></i>AI Course Outline Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="aiOutlineStatus" class="alert alert-info mb-3">
+                    নিচে কোর্স টাইপ ও নির্দেশনা সেট করুন, তারপর <strong>জেনারেট শুরু করুন</strong> চাপুন।
+                </div>
+
+                <div class="card border-0 bg-light mb-3">
+                    <div class="card-body py-3">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold mb-1">কোর্স ধরন</label>
+                                <select id="aiDeliveryType" class="form-select">
+                                    <option value="theory" {% if session_delivery_type == 'theory' %}selected{% endif %}>Theory (তাত্ত্বিক)</option>
+                                    <option value="sessional" {% if session_delivery_type == 'sessional' %}selected{% endif %}>Sessional (ব্যবহারিক)</option>
+                                </select>
+                                <div class="form-text">সেশনে সেট করা: <strong>{{ session_delivery_type|title }}</strong> — প্রয়োজনে বদলান।</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold mb-1">বিস্তারিত স্তর</label>
+                                <select id="aiDetailLevel" class="form-select">
+                                    <option value="standard" selected>স্ট্যান্ডার্ড</option>
+                                    <option value="concise">সংক্ষিপ্ত</option>
+                                    <option value="detailed">বিস্তারিত</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold mb-1">মোট ক্লাসের সংখ্যা</label>
+                                <input type="number" id="aiTotalClasses" class="form-control" min="1" step="1"
+                                       value="{{ ai_default_total_classes }}" placeholder="যেমন: 56">
+                                <div class="form-text">সেমিস্টারে মোট কত ক্লাস হবে (contact hours)।</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold mb-1">প্রতি সপ্তাহে ক্লাসের সংখ্যা</label>
+                                <input type="number" id="aiClassesPerWeek" class="form-control" min="1" step="1"
+                                       value="{{ ai_default_classes_per_week }}" placeholder="যেমন: 4">
+                                <div class="form-text">ক্রেডিট অনুযায়ী ডিফল্ট দেওয়া আছে — প্রয়োজনে বদলান।</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold mb-1">দ্রুত প্রিসেট</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-primary ai-preset-btn" data-preset="theory">Theory টেমপ্লেট</button>
+                                    <button type="button" class="btn btn-sm btn-outline-success ai-preset-btn" data-preset="sessional">Sessional টেমপ্লেট</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="aiClearInstructionsBtn">মুছুন</button>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-semibold mb-1">মূল্যায়নের ধরন ও সংখ্যা</label>
+                                <div id="aiAssessmentPlanContainer" class="d-flex flex-column gap-2 mb-2"></div>
+                                <button type="button" class="btn btn-sm btn-outline-primary" id="aiAddAssessmentRowBtn">
+                                    <i class="fas fa-plus me-1"></i>আরও যোগ করুন
+                                </button>
+                                <div class="form-text mt-2">প্রতিটি ধরনের জন্য কয়টি হবে তা লিখুন। «কাস্টম» বেছে নিজের ধরনের নাম দিতে পারবেন।</div>
+                                <div class="small text-muted mt-1">মোট মূল্যায়ন: <strong id="aiAssessmentTotal">0</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold" for="aiCustomInstructions">আপনার বিশেষ নির্দেশনা (ঐচ্ছিক)</label>
+                    <textarea id="aiCustomInstructions" class="form-control" rows="5"
+                              placeholder="উদাহরণ:&#10;- প্রতি সপ্তাহে case study অন্তর্ভুক্ত করুন&#10;- CIE ৩৫ / SMEE ৬৫ করুন&#10;- বাংলাদেশের আদালতের সিদ্ধান্ত বেশি দিন&#10;- Sessional হলে প্রতি সপ্তাহে practical exercise লিখুন"></textarea>
+                            <div class="form-text">এখানে যা লিখবেন, AI সেটাই মেনে আউটলাইন তৈরি করবে। <strong>Rationale, CLO ও Content</strong> সবসময় কারিকুলাম থেকেই নেবে — নিজে বানাবে না।</div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">কোন অংশ জেনারেট করবেন</label>
+                    <div class="d-flex flex-wrap gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input ai-part-check" type="checkbox" value="A" id="aiPartA" checked>
+                            <label class="form-check-label" for="aiPartA">Part A — Introduction</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input ai-part-check" type="checkbox" value="B" id="aiPartB" checked>
+                            <label class="form-check-label" for="aiPartB">Part B — Content</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input ai-part-check" type="checkbox" value="C" id="aiPartC" checked>
+                            <label class="form-check-label" for="aiPartC">Part C — Assessment</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input ai-part-check" type="checkbox" value="D" id="aiPartD" checked>
+                            <label class="form-check-label" for="aiPartD">Part D — Resources</label>
+                        </div>
+                    </div>
+                    <div class="form-text">Parts are generated one at a time to avoid timeouts on shared hosting.</div>
+                </div>
+                <div class="progress mb-3 d-none" id="aiOutlineProgressWrap">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" id="aiOutlineProgressBar" role="progressbar" style="width: 0%">0%</div>
+                </div>
+                <div id="aiOutlineSummary" class="small text-muted"></div>
+                <p class="mb-0 mt-3"><strong>Note:</strong> Applying will save generated content to this outline. Please review all sections before publishing to students.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">বাতিল</button>
+                <button type="button" class="btn btn-warning text-dark" id="startAiGenerateBtn">
+                    <i class="fas fa-play me-1"></i>জেনারেট শুরু করুন
+                </button>
+                <button type="button" class="btn btn-primary" id="applyAiOutlineBtn" disabled>
+                    <i class="fas fa-check me-1"></i>প্রয়োগ ও সংরক্ষণ
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <script>
 let cloData = [];
@@ -2037,22 +2157,24 @@ function initializeCourseContentsSummary() {
         if (existingContent && typeof existingContent === 'object' && existingContent !== null) {
             if (existingContent.sectionA && Array.isArray(existingContent.sectionA) && existingContent.sectionA.length > 0) {
                 existingContent.sectionA.forEach((item, idx) => {
-                    if (item && (item.content || item.hrs || item.clo)) {
+                    if (item && (item.content || item.topic || item.hrs || item.clo)) {
                         const selected = item.selected !== undefined ? item.selected : true;
+                        const contentText = item.content || item.topic || '';
                         // NEVER use num_classes/classes from curriculum - only from saved existingClasses or DB (course_content_summary)
                         const numClasses = (existingClasses && existingClasses.section_a && existingClasses.section_a[idx] != null && existingClasses.section_a[idx] !== '') ? String(existingClasses.section_a[idx]) : ((item.num_classes !== undefined && item.num_classes !== null && item.num_classes !== '') ? String(item.num_classes) : ((item.classes !== undefined && item.classes !== null && item.classes !== '') ? String(item.classes) : '1'));
-                        addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', idx, selected, numClasses);
+                        addCourseContentRow('A', contentText, item.hrs || '', item.clo || '', idx, selected, numClasses);
                         hasExistingData = true;
                     }
                 });
             }
             if (existingContent.sectionB && Array.isArray(existingContent.sectionB) && existingContent.sectionB.length > 0) {
                 existingContent.sectionB.forEach((item, idx) => {
-                    if (item && (item.content || item.hrs || item.clo)) {
+                    if (item && (item.content || item.topic || item.hrs || item.clo)) {
                         const selected = item.selected !== undefined ? item.selected : true;
+                        const contentText = item.content || item.topic || '';
                         // NEVER use num_classes/classes from curriculum - only from saved existingClasses or DB (course_content_summary)
                         const numClasses = (existingClasses && existingClasses.section_b && existingClasses.section_b[idx] != null && existingClasses.section_b[idx] !== '') ? String(existingClasses.section_b[idx]) : ((item.num_classes !== undefined && item.num_classes !== null && item.num_classes !== '') ? String(item.num_classes) : ((item.classes !== undefined && item.classes !== null && item.classes !== '') ? String(item.classes) : '1'));
-                        addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', idx, selected, numClasses);
+                        addCourseContentRow('B', contentText, item.hrs || '', item.clo || '', idx, selected, numClasses);
                         hasExistingData = true;
                     }
                 });
@@ -2384,8 +2506,6 @@ function updateAutoSaveStatus(success, message) {
 }
 
 function showSavingStatus() {
-    if (isSaving) return;
-    
     const statusDiv = document.getElementById('autoSaveStatus');
     const messageSpan = document.getElementById('autoSaveMessage');
     
@@ -2394,7 +2514,6 @@ function showSavingStatus() {
     statusDiv.className = 'alert alert-info alert-dismissible fade show mb-3';
     statusDiv.style.display = 'block';
     messageSpan.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
-    isSaving = true;
 }
 
 function autoSave() {
@@ -2408,10 +2527,7 @@ function autoSave() {
     
     // Set new timeout - save after 2 seconds of inactivity
     autoSaveTimeout = setTimeout(() => {
-        if (!isSaving) {
-            isSaving = true;
-            saveCourseOutline(true); // true = auto-save mode
-        }
+        saveCourseOutline(true); // true = auto-save mode
     }, 2000);
 }
 
@@ -2798,6 +2914,536 @@ document.addEventListener('DOMContentLoaded', function() {
             childList: true,
             subtree: true
         });
+    }
+
+    const generateFullBtn = document.getElementById('generateFullOutlineAiBtn');
+    const aiModalEl = document.getElementById('aiOutlineModal');
+    let aiGeneratedPayload = null;
+    let aiGenerationSeq = 0;
+    let aiGenInFlight = false;
+    const APPLY_BTN_HTML = '<i class="fas fa-check me-1"></i>প্রয়োগ ও সংরক্ষণ';
+    const START_BTN_HTML = '<i class="fas fa-play me-1"></i>জেনারেট শুরু করুন';
+
+    if (generateFullBtn && aiModalEl) {
+        const aiModal = new bootstrap.Modal(aiModalEl);
+        const statusEl = document.getElementById('aiOutlineStatus');
+        const summaryEl = document.getElementById('aiOutlineSummary');
+        const applyBtn = document.getElementById('applyAiOutlineBtn');
+        const startBtn = document.getElementById('startAiGenerateBtn');
+        const progressWrap = document.getElementById('aiOutlineProgressWrap');
+        const progressBar = document.getElementById('aiOutlineProgressBar');
+        const customInstructionsEl = document.getElementById('aiCustomInstructions');
+        const deliveryTypeEl = document.getElementById('aiDeliveryType');
+        const detailLevelEl = document.getElementById('aiDetailLevel');
+        const totalClassesEl = document.getElementById('aiTotalClasses');
+        const classesPerWeekEl = document.getElementById('aiClassesPerWeek');
+        const assessmentPlanContainer = document.getElementById('aiAssessmentPlanContainer');
+        const assessmentTotalEl = document.getElementById('aiAssessmentTotal');
+        const addAssessmentRowBtn = document.getElementById('aiAddAssessmentRowBtn');
+        const ASSESSMENT_TYPE_LABELS = {
+            class_test: 'Class Test',
+            quiz: 'Quiz',
+            assignment: 'Assignment',
+            presentation: 'Presentation',
+            term_paper: 'Term Paper',
+            case_brief: 'Case Brief',
+            sessional_report: 'Sessional Report',
+            viva: 'Viva',
+            custom: 'কাস্টম',
+        };
+        const ASSESSMENT_PRESETS = {
+            theory: [
+                { type: 'class_test', count: 2 },
+                { type: 'quiz', count: 1 },
+                { type: 'assignment', count: 1 },
+            ],
+            sessional: [
+                { type: 'sessional_report', count: 1 },
+                { type: 'viva', count: 1 },
+                { type: 'presentation', count: 1 },
+            ],
+        };
+        const saveUrl = '{{ url_for("class_management.save_course_outline", session_id=session.id) }}';
+        const generateUrl = '{{ url_for("class_management.generate_full_outline_ai", session_id=session.id) }}';
+        const tickUrlTemplate = '{{ url_for("class_management.tick_outline_ai_job", session_id=session.id, job_id=0) }}';
+        const sessionDeliveryType = {{ session_delivery_type | tojson }};
+        const AI_PRESETS = {
+            theory: {{ (
+                'সপ্তাহভিত্তিক lesson plan ক্যালেন্ডারের working days মেনে চলবে।\n'
+                'প্রতি ক্লাস সেশন = lesson plan-এ এক সারি; সপ্তাহে classes_per_week পর্যন্ত একই week নম্বর।\n'
+                'quiz, class test, assignment, presentation বিভিন্ন সপ্তাহে teaching_assessment-এ ছড়িয়ে দিন — শেষ সপ্তাহে সব নয়।\n'
+                'CIE ৪০ + SMEE ৬০; assessment_techniques প্রতিটি CLO-র সাথে লিংক করুন।\n'
+                'কোর্স কন্টেন্ট কারিকুলামের topic তালিকা অনুসরণ করবে।\n'
+                'ল্যান্ডমার্ক case ও Bangladesh context যোগ করুন।'
+            ) | tojson }},
+            sessional: {{ (
+                'প্রতি সপ্তাহে অন্তত একটি hands-on কার্যক্রম লিখুন।\n'
+                'মূল্যায়ন: Sessional Report ৬০, Sessional Viva ৩০, Attendance ১০।\n'
+                'রুব্রিক্স practical skill ও presentation-এর উপর ভিত্তি করে হবে।\n'
+                'বাংলা আইনি প্রসঙ্গে উদাহরণ দিন যেখানে প্রাসঙ্গিক।'
+            ) | tojson }}
+        };
+        const LS_KEY = 'aiOutlineInstructions_{{ session.id }}';
+        const LS_SCHEDULE_KEY = 'aiOutlineSchedule_{{ session.id }}';
+        const LS_ASSESSMENT_KEY = 'aiOutlineAssessment_{{ session.id }}';
+
+        function parsePositiveInt(el) {
+            if (!el || el.value === '') return null;
+            const n = parseInt(el.value, 10);
+            return (n > 0) ? n : null;
+        }
+
+        function assessmentTypeOptionsHtml(selected) {
+            let html = '';
+            Object.keys(ASSESSMENT_TYPE_LABELS).forEach(function(key) {
+                if (key === 'custom') return;
+                const sel = key === selected ? ' selected' : '';
+                html += '<option value="' + key + '"' + sel + '>' + ASSESSMENT_TYPE_LABELS[key] + '</option>';
+            });
+            const customSel = selected === 'custom' ? ' selected' : '';
+            html += '<option value="custom"' + customSel + '>কাস্টম (নিজে লিখুন)</option>';
+            return html;
+        }
+
+        function syncAssessmentRowUi(row) {
+            if (!row) return;
+            const typeEl = row.querySelector('.ai-assessment-type-select');
+            const customEl = row.querySelector('.ai-assessment-custom-name');
+            if (!typeEl || !customEl) return;
+            const isCustom = typeEl.value === 'custom';
+            customEl.classList.toggle('d-none', !isCustom);
+            customEl.required = isCustom;
+        }
+
+        function addAssessmentRow(data) {
+            if (!assessmentPlanContainer) return;
+            data = data || {};
+            const row = document.createElement('div');
+            row.className = 'ai-assessment-row border rounded p-2';
+            const typeVal = data.type || 'class_test';
+            const customName = data.name && typeVal === 'custom' ? data.name : (data.custom_name || '');
+            const countVal = data.count || 1;
+            row.innerHTML =
+                '<div class="row g-2 align-items-end">' +
+                    '<div class="col-md-5">' +
+                        '<label class="form-label small mb-1">ধরন</label>' +
+                        '<select class="form-select form-select-sm ai-assessment-type-select">' +
+                            assessmentTypeOptionsHtml(typeVal) +
+                        '</select>' +
+                    '</div>' +
+                    '<div class="col-md-4">' +
+                        '<label class="form-label small mb-1">কাস্টম নাম</label>' +
+                        '<input type="text" class="form-control form-control-sm ai-assessment-custom-name' +
+                            (typeVal === 'custom' ? '' : ' d-none') + '" value="' + (customName || '').replace(/"/g, '&quot;') + '" placeholder="যেমন: Case Analysis">' +
+                    '</div>' +
+                    '<div class="col-md-2">' +
+                        '<label class="form-label small mb-1">সংখ্যা</label>' +
+                        '<input type="number" class="form-control form-control-sm ai-assessment-count" min="1" max="12" step="1" value="' + countVal + '">' +
+                    '</div>' +
+                    '<div class="col-md-1 text-end">' +
+                        '<button type="button" class="btn btn-sm btn-outline-danger ai-assessment-remove" title="মুছুন"><i class="fas fa-trash"></i></button>' +
+                    '</div>' +
+                '</div>';
+            const typeEl = row.querySelector('.ai-assessment-type-select');
+            const customEl = row.querySelector('.ai-assessment-custom-name');
+            const countEl = row.querySelector('.ai-assessment-count');
+            const removeBtn = row.querySelector('.ai-assessment-remove');
+            typeEl.addEventListener('change', function() { syncAssessmentRowUi(row); updateAssessmentTotal(); });
+            if (customEl) customEl.addEventListener('input', updateAssessmentTotal);
+            if (countEl) countEl.addEventListener('input', updateAssessmentTotal);
+            if (removeBtn) {
+                removeBtn.addEventListener('click', function() {
+                    row.remove();
+                    updateAssessmentTotal();
+                });
+            }
+            assessmentPlanContainer.appendChild(row);
+            syncAssessmentRowUi(row);
+            updateAssessmentTotal();
+        }
+
+        function setAssessmentPlan(items) {
+            if (!assessmentPlanContainer) return;
+            assessmentPlanContainer.innerHTML = '';
+            (items || []).forEach(function(item) { addAssessmentRow(item); });
+            if (!assessmentPlanContainer.children.length) addAssessmentRow();
+            updateAssessmentTotal();
+        }
+
+        function collectAssessmentPlan() {
+            const plan = [];
+            if (!assessmentPlanContainer) return plan;
+            assessmentPlanContainer.querySelectorAll('.ai-assessment-row').forEach(function(row) {
+                const typeEl = row.querySelector('.ai-assessment-type-select');
+                const customEl = row.querySelector('.ai-assessment-custom-name');
+                const countEl = row.querySelector('.ai-assessment-count');
+                if (!typeEl || !countEl) return;
+                const type = typeEl.value || 'class_test';
+                const count = parseInt(countEl.value, 10);
+                if (!count || count < 1) return;
+                let name = '';
+                if (type === 'custom') {
+                    name = (customEl ? customEl.value : '').trim();
+                    if (!name) return;
+                } else {
+                    name = ASSESSMENT_TYPE_LABELS[type] || type;
+                }
+                plan.push({ type: type, name: name, count: count });
+            });
+            return plan;
+        }
+
+        function updateAssessmentTotal() {
+            const plan = collectAssessmentPlan();
+            const total = plan.reduce(function(sum, item) { return sum + item.count; }, 0);
+            if (assessmentTotalEl) assessmentTotalEl.textContent = String(total);
+        }
+
+        function applyAssessmentPreset(delivery) {
+            const preset = ASSESSMENT_PRESETS[delivery] || ASSESSMENT_PRESETS.theory;
+            setAssessmentPlan(preset);
+        }
+
+        if (addAssessmentRowBtn) {
+            addAssessmentRowBtn.addEventListener('click', function() { addAssessmentRow(); });
+        }
+
+        function selectedParts() {
+            return Array.from(document.querySelectorAll('.ai-part-check:checked')).map(el => el.value);
+        }
+
+        function buildGenerationOptions() {
+            const assessmentPlan = collectAssessmentPlan();
+            const assessmentCount = assessmentPlan.reduce(function(sum, item) { return sum + item.count; }, 0);
+            return {
+                delivery_type: deliveryTypeEl ? deliveryTypeEl.value : sessionDeliveryType,
+                language: 'en',
+                detail_level: detailLevelEl ? detailLevelEl.value : 'standard',
+                custom_instructions: customInstructionsEl ? customInstructionsEl.value.trim() : '',
+                use_admin_defaults: true,
+                total_classes: parsePositiveInt(totalClassesEl),
+                classes_per_week: parsePositiveInt(classesPerWeekEl),
+                assessment_plan: assessmentPlan,
+                assessment_count: assessmentCount || null,
+            };
+        }
+
+        function loadSavedSchedule() {
+            try {
+                const raw = localStorage.getItem(LS_SCHEDULE_KEY);
+                if (!raw) return;
+                const data = JSON.parse(raw);
+                if (totalClassesEl && data.total_classes) totalClassesEl.value = data.total_classes;
+                if (classesPerWeekEl && data.classes_per_week) classesPerWeekEl.value = data.classes_per_week;
+            } catch (e) { /* ignore */ }
+        }
+
+        function saveScheduleLocal() {
+            try {
+                localStorage.setItem(LS_SCHEDULE_KEY, JSON.stringify({
+                    total_classes: totalClassesEl ? totalClassesEl.value : '',
+                    classes_per_week: classesPerWeekEl ? classesPerWeekEl.value : '',
+                }));
+            } catch (e) { /* ignore */ }
+        }
+
+        function loadSavedAssessment() {
+            try {
+                const raw = localStorage.getItem(LS_ASSESSMENT_KEY);
+                if (!raw) return;
+                const data = JSON.parse(raw);
+                if (data.assessment_plan && data.assessment_plan.length) {
+                    setAssessmentPlan(data.assessment_plan);
+                    return;
+                }
+                if (data.assessment_types && data.assessment_types.length) {
+                    setAssessmentPlan(data.assessment_types.map(function(t) {
+                        return { type: t, count: 1 };
+                    }));
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        function saveAssessmentLocal() {
+            try {
+                localStorage.setItem(LS_ASSESSMENT_KEY, JSON.stringify({
+                    assessment_plan: collectAssessmentPlan(),
+                }));
+            } catch (e) { /* ignore */ }
+        }
+
+        function loadSavedInstructions() {
+            try {
+                const saved = localStorage.getItem(LS_KEY);
+                if (saved && customInstructionsEl) customInstructionsEl.value = saved;
+            } catch (e) { /* ignore */ }
+        }
+
+        function saveInstructionsLocal() {
+            try {
+                if (customInstructionsEl) localStorage.setItem(LS_KEY, customInstructionsEl.value || '');
+            } catch (e) { /* ignore */ }
+        }
+
+        document.querySelectorAll('.ai-preset-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                const key = btn.getAttribute('data-preset');
+                if (deliveryTypeEl && (key === 'theory' || key === 'sessional')) {
+                    deliveryTypeEl.value = key;
+                    applyAssessmentPreset(key);
+                }
+                if (customInstructionsEl && AI_PRESETS[key]) {
+                    customInstructionsEl.value = AI_PRESETS[key];
+                }
+            });
+        });
+
+        const clearBtn = document.getElementById('aiClearInstructionsBtn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function() {
+                if (customInstructionsEl) customInstructionsEl.value = '';
+            });
+        }
+
+        loadSavedInstructions();
+        loadSavedSchedule();
+        loadSavedAssessment();
+        try {
+            if (!localStorage.getItem(LS_ASSESSMENT_KEY) && deliveryTypeEl) {
+                applyAssessmentPreset(deliveryTypeEl.value || sessionDeliveryType);
+            }
+        } catch (e) {
+            if (deliveryTypeEl) applyAssessmentPreset(deliveryTypeEl.value || sessionDeliveryType);
+        }
+
+        function resetApplyButton() {
+            if (!applyBtn) return;
+            applyBtn.disabled = true;
+            applyBtn.setAttribute('disabled', 'disabled');
+            applyBtn.classList.add('disabled');
+            applyBtn.setAttribute('aria-disabled', 'true');
+            applyBtn.innerHTML = APPLY_BTN_HTML;
+        }
+
+        function enableApplyButton() {
+            if (!applyBtn) return;
+            applyBtn.disabled = false;
+            applyBtn.removeAttribute('disabled');
+            applyBtn.classList.remove('disabled');
+            applyBtn.setAttribute('aria-disabled', 'false');
+            applyBtn.innerHTML = APPLY_BTN_HTML;
+        }
+
+        function resetStartButton() {
+            if (!startBtn) return;
+            startBtn.disabled = false;
+            startBtn.innerHTML = START_BTN_HTML;
+        }
+
+        function setProgress(done, total, label) {
+            if (!progressWrap || !progressBar) return;
+            progressWrap.classList.remove('d-none');
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            progressBar.style.width = pct + '%';
+            progressBar.textContent = label || (pct + '%');
+        }
+
+        function tickJob(jobId) {
+            const tickUrl = tickUrlTemplate.replace('/0/tick', '/' + jobId + '/tick');
+            return fetch(tickUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({})
+            }).then(async function(r) {
+                const data = await r.json().catch(function() { return {}; });
+                if (!data.message && !r.ok) {
+                    data.message = 'Generation request failed (HTTP ' + r.status + ').';
+                }
+                if (data.status === 'failed' || (data.success === false && data.status !== 'completed')) {
+                    data.status = 'failed';
+                    data.message = data.message || 'Generation failed.';
+                }
+                return data;
+            });
+        }
+
+        function showAiError(message) {
+            if (progressWrap) progressWrap.classList.add('d-none');
+            if (statusEl) {
+                statusEl.className = 'alert alert-danger';
+                statusEl.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>' +
+                    (message || 'Generation failed.');
+            }
+        }
+
+        async function runAsyncGeneration(parts, generationOptions) {
+            const startResp = await fetch(generateUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ async: true, parts: parts, generation_options: generationOptions })
+            }).then(r => r.json());
+
+            if (!startResp.success) throw new Error(startResp.message || 'Could not start generation job');
+            const jobId = startResp.job_id;
+            if (!jobId) throw new Error('Missing job id from server');
+
+            let result = startResp;
+            const maxTicks = Math.max(parts.length * 4, 16);
+            let ticks = 0;
+
+            while (result.status !== 'completed' && result.status !== 'failed' && ticks < maxTicks) {
+                ticks += 1;
+                const prog = result.progress || {};
+                setProgress(prog.done || 0, prog.total || parts.length, prog.label || '');
+                if (statusEl) {
+                    statusEl.className = 'alert alert-info';
+                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>' +
+                        (result.message || ('Generating part ' + (prog.current_part || '...')));
+                }
+                result = await tickJob(jobId);
+                if (result.status === 'completed' || result.status === 'failed') break;
+                await new Promise(resolve => setTimeout(resolve, 400));
+            }
+
+            if (result.status !== 'completed' && result.status !== 'failed') {
+                result = await tickJob(jobId);
+            }
+
+            if (result.status !== 'completed') {
+                throw new Error(result.message || 'Generation failed');
+            }
+            if (!result.payload || (typeof result.payload === 'object' && !Object.keys(result.payload).length)) {
+                throw new Error('Generation finished without outline data.');
+            }
+            return result;
+        }
+
+        function finishGenerationUi(data, parts, generationOptions) {
+            aiGeneratedPayload = data.payload;
+            enableApplyButton();
+            const prog = data.progress || {};
+            setProgress(prog.done || parts.length, prog.total || parts.length, 'Done');
+            if (statusEl) {
+                statusEl.className = 'alert alert-success';
+                statusEl.innerHTML = '<i class="fas fa-check-circle me-2"></i>' +
+                    (data.message || 'Generated successfully.') +
+                    ' <strong>এখন «প্রয়োগ ও সংরক্ষণ» চাপুন।</strong>';
+            }
+            try {
+                if (summaryEl && data.context_summary) {
+                    const s = data.context_summary;
+                    const opts = s.generation_options || generationOptions;
+                    summaryEl.innerHTML = '<ul class="mb-0">' +
+                        '<li><strong>Course:</strong> ' + (s.course_code || '') + '</li>' +
+                        '<li><strong>ধরন:</strong> ' + (opts.delivery_type || s.delivery_type || '—') + '</li>' +
+                        '<li><strong>Parts:</strong> ' + parts.join(', ') + '</li>' +
+                        '<li><strong>Semester:</strong> ' + (s.semester_start || '—') + ' to ' + (s.semester_end || '—') + '</li>' +
+                        '<li><strong>Working days:</strong> ' + (s.working_days || '—') + '</li>' +
+                        (s.curriculator_document ? '<li><strong>Curriculator:</strong> ' + s.curriculator_document + '</li>' : '') +
+                        (s.rag_source_count ? '<li><strong>Uploaded files used:</strong> ' + s.rag_source_count + '</li>' : '') +
+                        '</ul>';
+                }
+            } catch (summaryErr) {
+                console.warn('AI summary render failed:', summaryErr);
+            }
+        }
+
+        generateFullBtn.addEventListener('click', function() {
+            if (!aiGenInFlight) {
+                aiGeneratedPayload = null;
+                resetApplyButton();
+            }
+            resetStartButton();
+            if (progressWrap) progressWrap.classList.add('d-none');
+            if (statusEl) {
+                statusEl.className = 'alert alert-info';
+                statusEl.innerHTML = 'নিচে কোর্স টাইপ ও নির্দেশনা সেট করুন, তারপর <strong>জেনারেট শুরু করুন</strong> চাপুন।';
+            }
+            if (summaryEl) summaryEl.textContent = '';
+            aiModal.show();
+        });
+
+        if (startBtn) {
+            startBtn.addEventListener('click', function() {
+                const parts = selectedParts();
+                if (!parts.length) {
+                    alert('অন্তত একটি অংশ (Part) বেছে নিন।');
+                    return;
+                }
+
+                const generationOptions = buildGenerationOptions();
+                saveInstructionsLocal();
+                saveScheduleLocal();
+                saveAssessmentLocal();
+
+                if (!generationOptions.total_classes || !generationOptions.classes_per_week) {
+                    alert('মোট ক্লাসের সংখ্যা এবং প্রতি সপ্তাহে ক্লাসের সংখ্যা দিন।');
+                    return;
+                }
+                if (!generationOptions.assessment_plan.length) {
+                    alert('অন্তত একটি মূল্যায়নের ধরন ও সংখ্যা দিন।');
+                    return;
+                }
+                if (!generationOptions.assessment_count) {
+                    alert('প্রতিটি মূল্যায়নের সংখ্যা ১ বা তার বেশি হতে হবে।');
+                    return;
+                }
+
+                aiGeneratedPayload = null;
+                resetApplyButton();
+                if (startBtn) {
+                    startBtn.disabled = true;
+                    startBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>জেনারেট হচ্ছে...';
+                }
+                if (progressWrap) progressWrap.classList.add('d-none');
+                if (statusEl) {
+                    statusEl.className = 'alert alert-info';
+                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>জেনারেশন শুরু হচ্ছে...';
+                }
+                if (summaryEl) summaryEl.textContent = '';
+
+                const generationSeq = ++aiGenerationSeq;
+                aiGenInFlight = true;
+                runAsyncGeneration(parts, generationOptions)
+            .then(data => {
+                if (generationSeq !== aiGenerationSeq) return;
+                finishGenerationUi(data, parts, generationOptions);
+            })
+            .catch(err => {
+                if (generationSeq !== aiGenerationSeq) return;
+                showAiError(err.message);
+                resetApplyButton();
+            })
+            .finally(() => {
+                if (generationSeq === aiGenerationSeq) {
+                    aiGenInFlight = false;
+                    resetStartButton();
+                }
+            });
+            });
+        }
+
+        if (applyBtn) {
+            applyBtn.addEventListener('click', function() {
+                if (!aiGeneratedPayload) return;
+                applyBtn.disabled = true;
+                applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>সংরক্ষণ হচ্ছে...';
+                fetch(saveUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify(aiGeneratedPayload)
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) throw new Error(data.message || 'Save failed');
+                    window.location.reload();
+                })
+                .catch(err => {
+                    enableApplyButton();
+                    alert(err.message);
+                });
+            });
+        }
     }
 });
 </script>

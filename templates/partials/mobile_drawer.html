@@ -1,0 +1,142 @@
+{% if current_user.is_authenticated %}
+{% set user_roles = parse_roles(current_user.role) %}
+{% set can_view_question_bank = 'student' in user_roles or 'teacher' in user_roles or 'head' in user_roles or 'dean' in user_roles or 'teaching_assistant' in user_roles %}
+
+<div class="m-drawer-backdrop d-lg-none" id="mDrawerBackdrop" hidden aria-hidden="true"></div>
+
+<aside class="m-drawer d-lg-none" id="mDrawer" aria-hidden="true" aria-label="Navigation menu">
+    <div class="m-drawer-header">
+        <div class="m-drawer-user">
+            <div class="m-drawer-user-name">{{ current_user.full_name or current_user.username }}</div>
+            <div class="m-drawer-user-sub">{{ current_user.active_role|replace('_', ' ')|title if current_user.active_role else 'User' }}</div>
+        </div>
+        <button type="button" class="m-drawer-close" id="mDrawerClose" aria-label="Close menu">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+    <nav class="m-drawer-body">
+        <div class="m-drawer-section">Main</div>
+        <a class="m-drawer-link" href="{{ url_for('index') }}" data-endpoint="index">
+            <i class="fas fa-home"></i><span>Dashboard</span>
+        </a>
+        {% if 'student' in user_roles and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
+        <a class="m-drawer-link" href="{{ url_for('student_dashboard') }}" data-endpoint="student_dashboard">
+            <i class="fas fa-user-graduate"></i><span>Student Dashboard</span>
+        </a>
+        {% endif %}
+        <a class="m-drawer-link" href="{{ url_for('class_management.my_invitations') }}" data-endpoint="class_management.my_invitations">
+            <i class="fas fa-envelope-open-text"></i>
+            <span>Invitations{% if pending_invites_count and pending_invites_count > 0 %} <span class="badge bg-warning text-dark ms-1">{{ pending_invites_count }}</span>{% endif %}</span>
+        </a>
+        {% if can_view_question_bank %}
+        <a class="m-drawer-link" href="{{ url_for('class_management.question_bank') }}" data-endpoint="class_management.question_bank">
+            <i class="fas fa-book-reader"></i><span>Question Bank</span>
+        </a>
+        {% endif %}
+
+        {% if has_teacher_privileges(current_user) or is_admin(current_user) %}
+        <div class="m-drawer-section">Modules</div>
+        {% if has_teacher_privileges(current_user) %}
+        {% if show_class_management %}
+        <a class="m-drawer-link" href="{{ url_for('class_management.index') }}" data-endpoint="class_management.index">
+            <i class="fas fa-chalkboard-teacher"></i><span>Class Management</span>
+        </a>
+        {% endif %}
+        {% if show_result_management %}
+        <a class="m-drawer-link" href="{{ url_for('result_management.index') }}" data-endpoint="result_management.index">
+            <i class="fas fa-poll"></i><span>Result Management</span>
+        </a>
+        {% endif %}
+        {% if show_routine_management %}
+        <a class="m-drawer-link" href="{{ url_for('routine_management.index') }}" data-endpoint="routine_management.index">
+            <i class="fas fa-calendar-alt"></i><span>Routine Management</span>
+        </a>
+        {% endif %}
+        <a class="m-drawer-link" href="{{ url_for('routine_management.view_routine') }}" data-endpoint="routine_management.view_routine">
+            <i class="fas fa-calendar-check"></i><span>View Routine</span>
+        </a>
+        {% if show_exam_evaluation %}
+        <a class="m-drawer-link" href="{{ url_for('exam_evaluation') }}" data-endpoint="exam_evaluation">
+            <i class="fas fa-file-alt"></i><span>Exam Evaluation</span>
+        </a>
+        {% endif %}
+        {% if show_academic_calendar %}
+        <a class="m-drawer-link" href="{{ url_for('academic_calendar.index') }}" data-endpoint="academic_calendar.index">
+            <i class="fas fa-calendar-check"></i><span>Academic Calendar</span>
+        </a>
+        {% endif %}
+        {% if show_students_management %}
+        <a class="m-drawer-link" href="{{ url_for('student_management.index') }}" data-endpoint="student_management.index">
+            <i class="fas fa-users"></i><span>Students</span>
+        </a>
+        {% endif %}
+        {% if show_curriculum_management %}
+        <a class="m-drawer-link" href="{{ url_for('course_management.index') }}" data-endpoint="course_management.index">
+            <i class="fas fa-book"></i><span>Curriculum Management</span>
+        </a>
+        <a class="m-drawer-link" href="{{ url_for('curriculator.index') }}" data-endpoint="curriculator.index">
+            <i class="fas fa-book-open"></i><span>Curriculator</span>
+        </a>
+        {% endif %}
+        {% if show_course_registration %}
+        <a class="m-drawer-link" href="{{ url_for('course_management.coordinator_registrations') }}" data-endpoint="course_management.coordinator_registrations">
+            <i class="fas fa-clipboard-check"></i><span>Course Registration</span>
+        </a>
+        {% endif %}
+        {% if show_remuneration %}
+        <a class="m-drawer-link" href="{{ url_for('remuneration_portal') }}" data-endpoint="remuneration_portal">
+            <i class="fas fa-money-bill-wave"></i><span>Remuneration</span>
+        </a>
+        {% endif %}
+        {% if show_exam_committee_management %}
+        <a class="m-drawer-link" href="{{ url_for('exam_committee_management') }}" data-endpoint="exam_committee_management">
+            <i class="fas fa-gavel"></i><span>Exam Committee Management</span>
+        </a>
+        {% endif %}
+        {% if is_exam_committee_chief() or is_exam_committee_member() %}
+        <a class="m-drawer-link" href="{{ url_for('exam_committee_chief_dashboard') }}" data-endpoint="exam_committee_chief_dashboard">
+            <i class="fas fa-gavel"></i><span>Exam Committee Chief</span>
+        </a>
+        {% endif %}
+        {% endif %}
+        {% if is_admin(current_user) %}
+        <a class="m-drawer-link" href="{{ url_for('admin_dashboard') }}" data-endpoint="admin_dashboard">
+            <i class="fas fa-user-shield"></i><span>Admin</span>
+        </a>
+        {% endif %}
+        {% endif %}
+
+        {% if 'student' in user_roles %}
+        <div class="m-drawer-section">Notifications</div>
+        <a class="m-drawer-link" href="{{ url_for('class_management.student_notifications_page') }}" data-endpoint="class_management.student_notifications_page">
+            <i class="fas fa-bell"></i>
+            <span>Notifications{% if student_notification_count|default(0) > 0 %} <span class="badge bg-danger ms-1">{{ student_notification_count }}</span>{% endif %}</span>
+        </a>
+        <a class="m-drawer-link" href="{{ url_for('class_management.student_view_scores') }}" data-endpoint="class_management.student_view_scores">
+            <i class="fas fa-chart-line"></i><span>My Scores &amp; Courses</span>
+        </a>
+        {% endif %}
+
+        {% if current_operational_window and show_window_switcher and active_operational_windows %}
+        <div class="m-drawer-section">Window</div>
+        {% for w in active_operational_windows %}
+        <form method="POST" action="{{ url_for('auth.set_window') }}">
+            <input type="hidden" name="window_id" value="{{ w.id }}">
+            <button type="submit" class="m-drawer-link w-100 border-0 bg-transparent text-start {% if current_operational_window.id == w.id %}is-active{% endif %}">
+                <i class="fas fa-layer-group"></i>
+                <span>W{{ w.id }} — {{ w.name }}{% if w.academic_session %} ({{ w.academic_session }}){% endif %}</span>
+            </button>
+        </form>
+        {% endfor %}
+        {% endif %}
+    </nav>
+    <div class="m-drawer-footer">
+        <a class="m-drawer-link" href="{{ url_for('profile') }}" data-endpoint="profile">
+            <i class="fas fa-user"></i><span>Profile</span>
+        </a>
+        <a class="m-drawer-link" href="{{ url_for('auth.logout') }}">
+            <i class="fas fa-sign-out-alt"></i><span>Logout</span>
+        </a>
+    </div>
+</aside>
+{% endif %}

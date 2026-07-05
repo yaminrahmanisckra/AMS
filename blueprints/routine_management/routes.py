@@ -927,9 +927,10 @@ def get_batches():
         
         # Method 3: Get from Curriculum.applicable_batches
         try:
+            window_id = get_effective_window_id() or 1
             curricula = Curriculum.query.all()
             for curriculum in curricula:
-                batch_list = curriculum.get_batches_list()
+                batch_list = curriculum.get_batches_list(window_id)
                 for b in batch_list:
                     if b and b.strip():
                         batches.add(b.strip())

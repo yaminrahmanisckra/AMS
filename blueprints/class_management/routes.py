@@ -70,17 +70,20 @@ try:
 except ImportError:
     filter_by_active_semester = None
 try:
-    from utils.window_utils import filter_by_active_window, get_effective_window_id, query_for_window, get_for_window, get_or_404_for_window
+    from utils.window_utils import filter_by_active_window, get_effective_window_id, query_for_window, get_for_window, get_or_404_for_window, filter_offered_courses, stamp_window_id
 except ImportError:
     filter_by_active_window = None
     get_effective_window_id = None
     query_for_window = None
+    filter_offered_courses = None
+    stamp_window_id = None
 
 
 def _class_students_for_session(session_id, order=True):
     """ClassStudent list for a session, excluding students deleted from Student Management."""
     q = ClassStudent.query.filter(ClassStudent.session_id == session_id)
-    if Student:
+    session = Session.query.get(session_id)
+    if Student and not getattr(session, 'is_external_course', False):
         q = q.filter(ClassStudent.student_id.in_(db.session.query(Student.student_id)))
     if order:
         q = q.order_by(ClassStudent.student_id)
@@ -93,7 +96,12 @@ def _class_students_for_sessions(session_ids, order=True):
         return []
     q = ClassStudent.query.filter(ClassStudent.session_id.in_(session_ids))
     if Student:
-        q = q.filter(ClassStudent.student_id.in_(db.session.query(Student.student_id)))
+        has_external = Session.query.filter(
+            Session.id.in_(session_ids),
+            Session.is_external_course.is_(True),
+        ).first() is not None
+        if not has_external:
+            q = q.filter(ClassStudent.student_id.in_(db.session.query(Student.student_id)))
     if order:
         q = q.order_by(ClassStudent.student_id)
     return q.all()
@@ -346,6 +354,149 @@ COURSE_SCOPE_LABELS = {
     SCOPE_PART_B: 'Part B',
 }
 
+EXTERNAL_ASSESSMENT_MODES = {
+    'best_three': 'Best three',
+    'part_a_b_15': 'Best of Part A (15) + Best of Part B (15)',
+    'best_three_40': 'Best three converted into 40',
+}
+DEFAULT_EXTERNAL_ASSESSMENT_MODE = 'best_three'
+EXTERNAL_ASSESSMENT_COLUMN_LABELS = {
+    'best_three': 'Total of Best 3 (30)',
+    'part_a_b_15': 'Part A (15) + Part B (15) (30)',
+    'best_three_40': 'Total (40)',
+}
+
+
+def _normalize_external_assessment_mode(mode):
+    normalized = (mode or DEFAULT_EXTERNAL_ASSESSMENT_MODE).strip().lower()
+    if normalized not in EXTERNAL_ASSESSMENT_MODES:
+        return DEFAULT_EXTERNAL_ASSESSMENT_MODE
+    return normalized
+
+
+def _external_assessment_mark_max(mode, assess_idx=None):
+    if _normalize_external_assessment_mode(mode) == 'part_a_b_15':
+        return 15
+    return 10
+
+
+def _external_assessment_column_header(assess_idx, mode):
+    return f'Assessment {assess_idx} ({_external_assessment_mark_max(mode)})'
+
+
+def _parse_external_assessment_value(raw_value, session):
+    """Parse and clamp assessment input for external theory sessions."""
+    if raw_value in (None, ''):
+        return None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if _is_external_theory_session(session):
+        mark_max = _external_assessment_mark_max(getattr(session, 'external_assessment_mode', None))
+        if value < 0:
+            return None
+        if value > mark_max:
+            value = float(mark_max)
+    return value
+
+
+def _compute_external_assessment_total(combined, mode=None):
+    """Compute display/persisted totals for external course assessment modes."""
+    mode = _normalize_external_assessment_mode(mode)
+    column_label = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode, EXTERNAL_ASSESSMENT_COLUMN_LABELS['best_three'])
+    empty = {
+        'display_total': None,
+        'assessment_total': None,
+        'assessment_total_40': None,
+        'assessment_avg': None,
+        'column_label': column_label,
+    }
+
+    if mode == 'part_a_b_15':
+        part_a = [combined.get(i) for i in (1, 2) if combined.get(i) is not None]
+        part_b = [combined.get(i) for i in (3, 4) if combined.get(i) is not None]
+        if not part_a and not part_b:
+            return empty
+        part_a_score = max(part_a) if part_a else 0
+        part_b_score = max(part_b) if part_b else 0
+        display_total = part_a_score + part_b_score
+        return {
+            'display_total': display_total,
+            'assessment_total': display_total,
+            'assessment_total_40': None,
+            'assessment_avg': None,
+            'column_label': column_label,
+        }
+
+    valid_marks = [v for v in combined.values() if v is not None]
+    if not valid_marks:
+        return empty
+
+    valid_marks.sort(reverse=True)
+    best = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
+    best_sum = sum(best)
+
+    if mode == 'best_three_40':
+        total_40 = _round_half_up_int((best_sum / 30) * 40)
+        return {
+            'display_total': total_40,
+            'assessment_total': None,
+            'assessment_total_40': total_40,
+            'assessment_avg': round(sum(best) / len(best), 2),
+            'column_label': column_label,
+        }
+
+    return {
+        'display_total': best_sum,
+        'assessment_total': best_sum,
+        'assessment_total_40': None,
+        'assessment_avg': None,
+        'column_label': column_label,
+    }
+
+
+def _combined_dict_from_entries(entries):
+    combined = {1: None, 2: None, 3: None, 4: None}
+    for entry in entries:
+        for idx in range(1, 5):
+            val = getattr(entry, f'assessment{idx}', None)
+            if val is not None and combined[idx] is None:
+                try:
+                    combined[idx] = float(val)
+                except (ValueError, TypeError):
+                    pass
+    return combined
+
+
+def _is_external_theory_session(session):
+    return bool(session and getattr(session, 'is_external_course', False) and session.course_type == 'theory')
+
+
+def _get_external_assessment_display_total(session, student_id, combined_values, combined_best3=None, combined_pg_total=None):
+    """Resolved display total for external theory exports (PDF/Excel/combined report)."""
+    mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+    combined = combined_values.get(student_id, {})
+    display_total = _compute_external_assessment_total(combined, mode)['display_total']
+    if display_total is None:
+        if mode == 'best_three_40' and combined_pg_total is not None:
+            display_total = combined_pg_total.get(student_id)
+        elif combined_best3 is not None:
+            display_total = combined_best3.get(student_id)
+    return display_total, mode
+
+
+def _combined_pdf_assessment_header(session):
+    """Assessment column header for combined attendance + assessment PDF."""
+    if _is_external_theory_session(session):
+        mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+        if mode == 'best_three_40':
+            return 'Continuous Assessment (40)'
+        return 'Continuous Assessment (30)'
+    if session.course_type == 'theory' and session.category == 'pg':
+        return 'Continuous Assessment (40)'
+    return 'Continuous Assessment (30)'
+
 
 def _normalize_session_course_type(raw_course_type):
     """Map course types to compact values fitting class_session.course_type."""
@@ -387,13 +538,123 @@ def _generate_feedback_code():
             return code
 
 
-def find_course_from_curriculum(session_course_code, session_course_name=None):
+def _external_course_conflict(course_code, teacher_id, exclude_session_id=None):
+    """Return an error message if the teacher already has this external course code."""
+    if not course_code:
+        return None
+    conflict_query = query_for_window(Session).filter(
+        Session.course_code == course_code,
+        Session.teacher_id == teacher_id,
+        Session.archived.is_(False),
+        Session.is_external_course.is_(True),
+    )
+    if exclude_session_id:
+        conflict_query = conflict_query.filter(Session.id != exclude_session_id)
+    if conflict_query.first():
+        return f'An external course with code "{course_code}" already exists.'
+    return None
+
+
+def _normalize_excel_student_id(value):
+    """Normalize Excel cell values into a clean student ID string."""
+    if value is None or (hasattr(pd, 'isna') and pd.isna(value)):
+        return ''
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value)).strip()
+    text = str(value).strip()
+    if text.lower() == 'nan':
+        return ''
+    if text.endswith('.0') and text[:-2].replace('.', '', 1).isdigit():
+        return text[:-2]
+    return text
+
+
+def _resolve_excel_student_columns(df):
+    """Map common Excel header variants to student_id and name columns."""
+    column_mapping = {
+        'student_id': ['student_id', 'id', 'studentid', 'roll', 'roll_no', 'registration_no', 'reg_no'],
+        'name': ['name', 'student_name', 'full_name', 'fullname'],
+    }
+    actual_columns = {}
+    for key, possible_names in column_mapping.items():
+        for col in df.columns:
+            if col in possible_names:
+                actual_columns[key] = col
+                break
+    return actual_columns
+
+
+def _import_students_from_excel(session, file, teacher):
+    """Import students from an Excel file into a class session.
+
+    Returns (added_count, skipped_count, error_message).
+    """
+    if not file or not getattr(file, 'filename', ''):
+        return 0, 0, None
+
+    filename = file.filename.lower()
+    if not (filename.endswith('.xlsx') or filename.endswith('.xls')):
+        return 0, 0, 'Please upload an Excel file (.xls or .xlsx)!'
+
+    try:
+        df = pd.read_excel(file)
+        df.columns = [str(col).strip().lower().replace(' ', '_') for col in df.columns]
+        actual_columns = _resolve_excel_student_columns(df)
+        if 'student_id' not in actual_columns or 'name' not in actual_columns:
+            found = ', '.join(df.columns) if len(df.columns) else '(none)'
+            return 0, 0, f'Excel file must have columns: Student ID, Name. Found: {found}'
+
+        existing_student_ids = {
+            s.student_id for s in ClassStudent.query.filter_by(session_id=session.id).all()
+        }
+        added_count = 0
+        skipped_count = 0
+        empty_rows = 0
+
+        for _, row in df.iterrows():
+            student_id = _normalize_excel_student_id(row[actual_columns['student_id']])
+            name_raw = row[actual_columns['name']]
+            name = '' if (name_raw is None or (hasattr(pd, 'isna') and pd.isna(name_raw))) else str(name_raw).strip()
+            if not student_id or not name or name.lower() == 'nan':
+                empty_rows += 1
+                continue
+            if student_id in existing_student_ids:
+                skipped_count += 1
+                continue
+
+            class_student = ClassStudent(
+                student_id=student_id,
+                name=name,
+                session_id=session.id,
+                teacher_id=session.teacher_id or teacher.id,
+            )
+            db.session.add(class_student)
+            _replicate_student_to_peers(session, class_student)
+            existing_student_ids.add(student_id)
+            added_count += 1
+
+        if added_count == 0 and skipped_count == 0 and empty_rows == 0 and len(df.index) > 0:
+            return 0, 0, 'No valid student rows found in the Excel file.'
+        return added_count, skipped_count, None
+    except Exception as exc:
+        return 0, 0, str(exc)
+
+
+def _student_upload_redirect(session_id, return_to=None):
+    if return_to == 'index':
+        return redirect(url_for('class_management.index'))
+    return redirect(url_for('class_management.students_list', session_id=session_id))
+
+
+def find_course_from_curriculum(session_course_code, session_course_name=None, session=None):
     """
     Find a Course from the curriculum that matches the session's course code or name.
     Handles various formats like "0421 28 Law 4103" -> "Law 4103" or "Law4103"
     
     Returns: Course object if found, None otherwise
     """
+    if session is not None and getattr(session, 'is_external_course', False):
+        return None
     import re
     import logging
     logger = logging.getLogger(__name__)
@@ -619,6 +880,8 @@ def _resolve_attendance_related_sessions(session, include_archived=False):
 
 def _carry_on_assessment_marks(class_student, session):
     """Carry on previous assessment marks for retake students if carry_on is enabled in registration"""
+    if getattr(session, 'is_external_course', False):
+        return
     if not StudentCourseRegistration or not Student:
         return
     
@@ -734,6 +997,17 @@ def _recalculate_assessment_totals(session):
         return
 
     _, student_map = _gather_split_student_map(session)
+    if _is_external_theory_session(session):
+        mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+        for entries in student_map.values():
+            combined = _combined_dict_from_entries(entries)
+            result = _compute_external_assessment_total(combined, mode)
+            for entry in entries:
+                entry.assessment_total = result['assessment_total']
+                entry.assessment_total_40 = result['assessment_total_40']
+                entry.assessment_avg = result['assessment_avg']
+        return
+
     for entries in student_map.values():
         marks = []
         for entry in entries:
@@ -841,7 +1115,18 @@ def _build_combined_assessment_values(session):
                         pass
         
         value_map[student_id] = combined
-        
+
+        if _is_external_theory_session(session):
+            mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+            result = _compute_external_assessment_total(combined, mode)
+            display_total = result['display_total']
+            if mode == 'best_three_40':
+                pg_total_map[student_id] = display_total
+                pg_avg_map[student_id] = result['assessment_avg']
+            else:
+                ug_best3[student_id] = display_total
+            continue
+
         # Step 5: Calculate Best 3 / PG Total
         valid_marks = [v for v in combined.values() if v is not None]
         valid_marks.sort(reverse=True)  # Descending
@@ -1266,7 +1551,8 @@ def index():
     # Start with base query
     query = query_for_window(Session).filter_by(
         teacher_id=teacher.id,
-        archived=False
+        archived=False,
+        is_external_course=False,
     )
     
     # IMPORTANT: Update sessions with academic_session BEFORE filtering
@@ -1310,6 +1596,8 @@ def index():
             # Now update sessions with academic_session from assignments
             updated_count = 0
             for session in sessions_before_update:
+                if getattr(session, 'is_external_course', False):
+                    continue
                 # Find CourseSessionAssignment for this session
                 assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
                 if assignment:
@@ -1436,7 +1724,8 @@ def index():
     # Re-query to get updated sessions including newly created ones
     query = query_for_window(Session).filter_by(
         teacher_id=teacher.id,
-        archived=False
+        archived=False,
+        is_external_course=False,
     )
     
     # Log sessions before filtering
@@ -1595,6 +1884,12 @@ def index():
                             current_app.logger.warning(f'Could not update session {session.id} academic_session: {update_error}')
                     
                     # Auto-add students from batch if session has no students but batch is available
+                    if getattr(session, 'is_external_course', False):
+                        assignment_map[session.id] = {
+                            'batch': batch or '',
+                            'academic_session': academic_session or ''
+                        }
+                        continue
                     if batch and batch.strip() and batch != 'None' and Student:
                         try:
                             existing_students_count = ClassStudent.query.filter_by(session_id=session.id).count()
@@ -1605,7 +1900,7 @@ def index():
                                     added_count = 0
                                     for student in students_from_batch:
                                         # Check if student is registered for this course (finalized registration only)
-                                        if StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
+                                        if not getattr(session, 'is_external_course', False) and StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
                                             registration = StudentCourseRegistration.query.filter_by(
                                                 student_id=student.id,
                                                 course_code=session.course_code,
@@ -1676,9 +1971,40 @@ def index():
     except Exception as e:
         current_app.logger.warning(f'Error loading Q&A notifications: {e}')
 
+    external_sessions = query_for_window(Session).filter_by(
+        teacher_id=teacher.id,
+        archived=False,
+        is_external_course=True,
+    ).order_by(Session.created_at.desc()).all()
+    external_archived_sessions = query_for_window(Session).filter_by(
+        teacher_id=teacher.id,
+        archived=True,
+        is_external_course=True,
+    ).order_by(Session.created_at.desc()).all()
+
+    active_semester_json = '{}'
+    active_semesters_json = '[]'
+    try:
+        from utils.semester_utils import get_active_semesters_for_user
+        active_semesters = get_active_semesters_for_user(admin_override=is_admin(current_user))
+        if active_semesters:
+            semester_rows = [{
+                'academic_session': sem.academic_session or '',
+                'year': sem.year or '',
+                'term': sem.term or '',
+            } for sem in active_semesters]
+            active_semesters_json = json.dumps(semester_rows)
+            active_semester_json = json.dumps(semester_rows[0])
+    except Exception:
+        pass
+
     return render_template(
         'class_management/index.html',
         sessions=sessions,
+        external_sessions=external_sessions,
+        external_archived_sessions=external_archived_sessions,
+        active_semester_json=active_semester_json,
+        active_semesters_json=active_semesters_json,
         teacher=teacher,
         teacher_display_name=(getattr(current_user, 'full_name', '') or teacher.name or current_user.username),
         teachers=teachers,
@@ -1739,7 +2065,8 @@ def create_session():
         window_id = get_effective_window_id(admin_override=is_admin(current_user)) if get_effective_window_id else None
         active_sessions_query = query_for_window(Session).filter(
             Session.course_code == course_code,
-            Session.archived.is_(False)
+            Session.archived.is_(False),
+            Session.is_external_course.is_(False),
         )
         if window_id is not None:
             active_sessions_query = active_sessions_query.filter(
@@ -2010,6 +2337,78 @@ def create_session():
         return redirect(url_for('class_management.index'))
 
 
+@class_management_bp.route('/create_external_session', methods=['POST'])
+@login_required
+def create_external_session():
+    """Create a manually entered external course session (isolated from curriculum)."""
+    try:
+        teacher = _ensure_current_teacher()
+        course_name = (request.form.get('course_name') or '').strip()
+        course_code = (request.form.get('course_code') or '').strip()
+        academic_session = (request.form.get('academic_session') or '').strip()
+        year = (request.form.get('year') or '').strip()
+        term = (request.form.get('term') or '').strip()
+        course_type = (request.form.get('course_type') or 'theory').strip().lower()
+        category = (request.form.get('category') or 'ug').strip().lower()
+
+        if not course_name or not course_code:
+            flash('Course name and course code are required!', 'error')
+            return redirect(url_for('class_management.index'))
+        if not academic_session or not year or not term:
+            flash('Academic Session, Year, and Term are required.', 'error')
+            return redirect(url_for('class_management.index'))
+        if course_type not in {'theory', 'sessional'}:
+            course_type = 'theory'
+        if category not in {'ug', 'pg'}:
+            category = 'ug'
+
+        conflict_message = _external_course_conflict(course_code, teacher.id)
+        if conflict_message:
+            flash(conflict_message, 'error')
+            return redirect(url_for('class_management.index'))
+
+        session_obj = Session(
+            year=year,
+            term=term,
+            academic_session=academic_session,
+            course_code=course_code,
+            course_name=course_name,
+            teacher_id=teacher.id,
+            course_type=course_type,
+            category=category,
+            course_scope=SCOPE_FULL,
+            is_external_course=True,
+        )
+        stamp_window_id(session_obj)
+        db.session.add(session_obj)
+        db.session.commit()
+
+        students_file = request.files.get('students_file')
+        if students_file and students_file.filename:
+            added_count, skipped_count, upload_error = _import_students_from_excel(
+                session_obj, students_file, teacher
+            )
+            if upload_error:
+                flash(f'External course created, but student upload failed: {upload_error}', 'warning')
+            else:
+                db.session.commit()
+                message = 'External course created successfully!'
+                if added_count:
+                    message += f' Added {added_count} student(s).'
+                if skipped_count:
+                    message += f' Skipped {skipped_count} duplicate student(s).'
+                flash(message, 'success')
+            return redirect(url_for('class_management.index'))
+
+        flash('External course created successfully!', 'success')
+        return redirect(url_for('class_management.index'))
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f'Error creating external session: {e}', exc_info=True)
+        flash(f'Error creating external course: {str(e)}', 'error')
+        return redirect(url_for('class_management.index'))
+
+
 @class_management_bp.route('/split_invites/<int:invite_id>/accept', methods=['POST'])
 @login_required
 def accept_split_invite(invite_id):
@@ -2085,43 +2484,37 @@ def decline_split_invite(invite_id):
 def upload_students(session_id):
     """Upload students from Excel file"""
     teacher = _ensure_current_teacher()
-    
+    return_to = (request.form.get('return_to') or '').strip()
+    session = get_or_404_for_window(Session, session_id)
+
     if 'file' not in request.files:
         flash('No file uploaded!', 'error')
-        return redirect(url_for('class_management.index'))
-    
+        return _student_upload_redirect(session_id, return_to=return_to)
+
     file = request.files['file']
     if file.filename == '':
         flash('No file selected!', 'error')
-        return redirect(url_for('class_management.index'))
-    
-    if not file.filename.endswith('.xlsx'):
-        flash('Please upload an Excel file!', 'error')
-        return redirect(url_for('class_management.index'))
-    
+        return _student_upload_redirect(session_id, return_to=return_to)
+
     try:
-        df = pd.read_excel(file)
-        # Clean and normalize column names
-        df.columns = [col.strip().lower().replace(' ', '_') for col in df.columns]
-        if 'student_id' not in df.columns or 'name' not in df.columns:
-            raise Exception('Excel file must have columns: Student ID, Name')
-        
-        session = get_or_404_for_window(Session, session_id)
-        for _, row in df.iterrows():
-            student = ClassStudent(
-                student_id=str(row['student_id']),
-                name=row['name'],
-                session_id=session.id,
-                teacher_id=session.teacher_id or teacher.id
-            )
-            db.session.add(student)
-            _replicate_student_to_peers(session, student)
+        added_count, skipped_count, upload_error = _import_students_from_excel(session, file, teacher)
+        if upload_error:
+            flash(upload_error, 'error')
+            return _student_upload_redirect(session_id, return_to=return_to)
+
         db.session.commit()
-        flash('Students uploaded successfully!', 'success')
+        if added_count == 0 and skipped_count == 0:
+            flash('No students were added. Check that the Excel file has Student ID and Name columns with valid data.', 'warning')
+        else:
+            message = f'Successfully uploaded {added_count} student(s).'
+            if skipped_count:
+                message += f' Skipped {skipped_count} duplicate student(s).'
+            flash(message, 'success')
     except Exception as e:
+        db.session.rollback()
         flash(f'Error uploading students: {str(e)}', 'error')
-    
-    return redirect(url_for('class_management.index'))
+
+    return _student_upload_redirect(session_id, return_to=return_to)
 
 @class_management_bp.route('/take_attendance/<int:session_id>', methods=['GET', 'POST'])
 @login_required
@@ -2860,8 +3253,9 @@ def get_curricula_by_batch():
         normalized_batch = str(batch).strip()
         current_app.logger.info(f'Searching curricula for batch: {normalized_batch}, Total curricula: {len(all_curricula)}')
         
+        window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else 1
         for curriculum in all_curricula:
-            batches_list = curriculum.get_batches_list()
+            batches_list = curriculum.get_batches_list(window_id)
             current_app.logger.debug(f'Curriculum {curriculum.id} ({curriculum.name}) has batches: {batches_list}')
             
             # Check if the batch matches any batch in the list
@@ -2904,7 +3298,13 @@ def get_years_terms_by_curriculum(curriculum_id):
         return jsonify({'success': False, 'message': 'Course Management module not available'}), 503
     
     Curriculum.query.get_or_404(curriculum_id)
-    courses = Course.query.filter_by(curriculum_id=curriculum_id, offered=True).all()  # Only offered courses
+    window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else 1
+    course_query = Course.query.filter_by(curriculum_id=curriculum_id)
+    if filter_offered_courses:
+        course_query = filter_offered_courses(course_query, window_id=window_id)
+    else:
+        course_query = course_query.filter_by(offered=True)
+    courses = course_query.all()  # Only offered courses in active window
     
     years = sorted({c.display_year for c in courses if getattr(c, 'display_year', None)}, key=lambda x: x or '')
     terms = sorted({c.display_term for c in courses if getattr(c, 'display_term', None)}, key=lambda x: x or '')
@@ -2926,7 +3326,12 @@ def get_courses_by_filters():
     year = request.args.get('year', '').strip()
     term = request.args.get('term', '').strip()
     
-    query = Course.query.filter_by(offered=True)  # Only show offered courses
+    window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else 1
+    query = Course.query
+    if filter_offered_courses:
+        query = filter_offered_courses(query, window_id=window_id)
+    else:
+        query = query.filter_by(offered=True)
     if curriculum_id:
         query = query.filter_by(curriculum_id=curriculum_id)
     
@@ -3036,7 +3441,7 @@ def add_student(session_id):
                 continue
             
             # Check if student is registered for this course (finalized registration only)
-            if StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
+            if not getattr(session, 'is_external_course', False) and StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
                 registration = StudentCourseRegistration.query.filter_by(
                     student_id=student.id,
                     course_code=session.course_code,
@@ -3080,19 +3485,20 @@ def add_student(session_id):
             return jsonify({'success': False, 'message': f'Error adding students: {str(e)}'}), 500
     
     # Handle form submission (backward compatibility)
-    student_id = request.form.get('student_id')
-    name = request.form.get('name')
-    
+    return_to = (request.form.get('return_to') or '').strip()
+    student_id = (request.form.get('student_id') or '').strip()
+    name = (request.form.get('name') or '').strip()
+
     if not student_id or not name:
         flash('Student ID and name are required!', 'error')
-        return redirect(url_for('class_management.students_list', session_id=session_id))
-    
+        return _student_upload_redirect(session_id, return_to=return_to)
+
     # Check if already exists
     existing = ClassStudent.query.filter_by(session_id=session_id, student_id=student_id).first()
     if existing:
         flash('Student already exists in this session!', 'error')
-        return redirect(url_for('class_management.students_list', session_id=session_id))
-    
+        return _student_upload_redirect(session_id, return_to=return_to)
+
     student = ClassStudent(
         student_id=student_id,
         name=name,
@@ -3101,14 +3507,14 @@ def add_student(session_id):
     )
     db.session.add(student)
     db.session.flush()  # Flush to get student.id before carry on
-    
+
     # Carry on assessment marks if enabled in registration
     _carry_on_assessment_marks(student, session)
-    
+
     _replicate_student_to_peers(session, student)
     db.session.commit()
     flash('Student added successfully!', 'success')
-    return redirect(url_for('class_management.students_list', session_id=session_id))
+    return _student_upload_redirect(session_id, return_to=return_to)
 
 @class_management_bp.route('/edit_student/<int:student_id>', methods=['POST'])
 @login_required
@@ -3276,7 +3682,7 @@ def course_file(session_id):
             flash('Course outline feature is not available. Please ensure database migration is complete.', 'warning')
     
     # Get course data from curriculum if available
-    course_data = find_course_from_curriculum(session.course_code, session.course_name)
+    course_data = find_course_from_curriculum(session.course_code, session.course_name, session=session)
     
     # Get uploaded files for this session
     from blueprints.class_management.models import CourseFileUpload
@@ -3296,7 +3702,7 @@ def save_course_outline(session_id):
         session = get_or_404_for_window(Session, session_id)
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
         
-        if not teacher or teacher.id != session.teacher_id:
+        if not _is_course_outline_authorized(session, teacher):
             if request.is_json:
                 return jsonify({'success': False, 'message': 'You are not authorized to edit this course outline.'}), 403
             flash('You are not authorized to edit this course outline.', 'danger')
@@ -3350,37 +3756,37 @@ def save_course_outline(session_id):
             current_app.logger.warning("Some new course_outline columns don't exist yet. Please run migration.")
         
         if 'course_content_summary' in data:
-            # Store as JSON format
+            # Store as JSON format (accept dict from AI apply or JSON string from form)
             content_summary = data.get('course_content_summary')
             if content_summary:
-                try:
-                    # Try to parse as JSON
-                    content_data = json.loads(content_summary)
-                    if isinstance(content_data, dict):
-                        # Merge Classes values from request if provided (fallback when frontend sends classes_a/classes_b)
-                        classes_a = data.get('classes_a')
-                        classes_b = data.get('classes_b')
-                        if isinstance(classes_a, list) and classes_a and content_data.get('sectionA'):
-                            for idx, item in enumerate(content_data['sectionA']):
-                                if idx < len(classes_a) and classes_a[idx] not in (None, ''):
-                                    try:
-                                        item['num_classes'] = max(1, int(classes_a[idx]) if isinstance(classes_a[idx], int) else int(classes_a[idx], 10))
-                                    except (TypeError, ValueError):
-                                        pass
-                        if isinstance(classes_b, list) and classes_b and content_data.get('sectionB'):
-                            for idx, item in enumerate(content_data['sectionB']):
-                                if idx < len(classes_b) and classes_b[idx] not in (None, ''):
-                                    try:
-                                        item['num_classes'] = max(1, int(classes_b[idx]) if isinstance(classes_b[idx], int) else int(classes_b[idx], 10))
-                                    except (TypeError, ValueError):
-                                        pass
-                        course_outline.course_content_summary = json.dumps(content_data)
-                    else:
-                        # Store as text if not valid JSON
+                content_data = None
+                if isinstance(content_summary, dict):
+                    content_data = content_summary
+                elif isinstance(content_summary, str):
+                    try:
+                        content_data = json.loads(content_summary)
+                    except (json.JSONDecodeError, TypeError):
                         course_outline.course_content_summary = content_summary
-                except (json.JSONDecodeError, TypeError):
-                    # Not JSON, store as text
-                    course_outline.course_content_summary = content_summary
+                if isinstance(content_data, dict):
+                    classes_a = data.get('classes_a')
+                    classes_b = data.get('classes_b')
+                    if isinstance(classes_a, list) and classes_a and content_data.get('sectionA'):
+                        for idx, item in enumerate(content_data['sectionA']):
+                            if idx < len(classes_a) and classes_a[idx] not in (None, ''):
+                                try:
+                                    item['num_classes'] = max(1, int(classes_a[idx]) if isinstance(classes_a[idx], int) else int(classes_a[idx], 10))
+                                except (TypeError, ValueError):
+                                    pass
+                    if isinstance(classes_b, list) and classes_b and content_data.get('sectionB'):
+                        for idx, item in enumerate(content_data['sectionB']):
+                            if idx < len(classes_b) and classes_b[idx] not in (None, ''):
+                                try:
+                                    item['num_classes'] = max(1, int(classes_b[idx]) if isinstance(classes_b[idx], int) else int(classes_b[idx], 10))
+                                except (TypeError, ValueError):
+                                    pass
+                    course_outline.course_content_summary = json.dumps(content_data)
+                elif content_data is not None and not isinstance(content_data, dict):
+                    course_outline.course_content_summary = str(content_summary)
             else:
                 course_outline.course_content_summary = None
         # Handle Classes: save to course_content_classes (separate column)
@@ -3409,7 +3815,8 @@ def save_course_outline(session_id):
                 course_outline.course_content_classes = json.dumps(classes_data)
                 current_app.logger.info("Saved Classes (form): A=%s, B=%s", len(classes_a_raw), len(classes_b_raw))
         if 'clo_plo_mapping' in data:
-            course_outline.clo_plo_mapping = data.get('clo_plo_mapping')
+            clo_plo = data.get('clo_plo_mapping')
+            course_outline.clo_plo_mapping = json.dumps(clo_plo) if isinstance(clo_plo, (dict, list)) else clo_plo
         if 'evaluation_policy' in data:
             course_outline.evaluation_policy = json.dumps(data.get('evaluation_policy', {})) if isinstance(data.get('evaluation_policy'), dict) else data.get('evaluation_policy')
         if 'cie_breakdown' in data:
@@ -3565,11 +3972,18 @@ def upload_course_file(session_id):
             file_path=file_path,
             file_size=file_size,
             file_type=file_type,
+            file_category=file_category or None,
             description=description,
             student_access_enabled=True
         )
         
         db.session.add(uploaded_file)
+        db.session.flush()
+        try:
+            from utils.ai.rag_context import ensure_upload_extracted
+            ensure_upload_extracted(uploaded_file)
+        except Exception as extract_error:
+            current_app.logger.warning(f'Could not extract text from upload {file_path}: {extract_error}')
         db.session.commit()
         current_app.logger.info(f"Course file uploaded successfully: {file_name} for session {session_id}")
         try:
@@ -3663,6 +4077,280 @@ def delete_course_file(file_id):
             return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
         return redirect(url_for('class_management.index'))
 
+def _is_course_outline_authorized(session, teacher):
+    if not teacher:
+        return False
+    if teacher.id == session.teacher_id:
+        return True
+    if session.split_group_id:
+        related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
+        return any(related_session.teacher_id == teacher.id for related_session in related_sessions)
+    return False
+
+
+def _ai_outline_calendar_and_course(session):
+    from datetime import date as date_cls
+    from blueprints.academic_calendar.models import AcademicCalendarEvent
+
+    year_start = date_cls(date_cls.today().year, 1, 1)
+    year_end = date_cls(date_cls.today().year + 1, 12, 31)
+    calendar_events = query_for_window(AcademicCalendarEvent).filter(
+        AcademicCalendarEvent.event_date >= year_start,
+        AcademicCalendarEvent.event_date <= year_end,
+    ).order_by(AcademicCalendarEvent.event_date.asc()).all()
+    course_data = find_course_from_curriculum(session.course_code, session.course_name, session=session)
+    curriculum = course_data.curriculum if course_data and getattr(course_data, 'curriculum', None) else None
+    return calendar_events, course_data, curriculum
+
+
+@class_management_bp.route('/course_file/<int:session_id>/outline/generate-full-ai', methods=['POST'])
+@login_required
+def generate_full_outline_ai(session_id):
+    """Generate Course Outline using AI (sync or async job)."""
+    session = get_or_404_for_window(Session, session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not _is_course_outline_authorized(session, teacher):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    try:
+        from utils.ai.client import AIClientError, get_active_provider_setting
+        from utils.ai.job_service import normalize_parts
+        from utils.ai.outline_service import generate_full_outline_for_session, start_async_outline_job
+        from blueprints.class_management.models import CourseFileUpload
+
+        get_active_provider_setting()
+
+        data = request.get_json(silent=True) or {}
+        parts = normalize_parts(data.get('parts'))
+        use_async = data.get('async', True)
+
+        calendar_events, course_data, curriculum = _ai_outline_calendar_and_course(session)
+        teacher_name = teacher.name if teacher else current_user.full_name
+        teacher_id = teacher.id if teacher else None
+
+        from utils.ai.outline_guidelines import normalize_generation_options
+        generation_options = normalize_generation_options(
+            data.get('generation_options'), session=session, course_data=course_data,
+        )
+
+        if use_async:
+            response = start_async_outline_job(
+                session,
+                user_id=current_user.id,
+                teacher_id=teacher_id,
+                teacher_name=teacher_name,
+                course_data=course_data,
+                curriculum=curriculum,
+                calendar_events=calendar_events,
+                Course=Course,
+                CurriculumYearTerm=CurriculumYearTerm,
+                query_for_window=query_for_window,
+                parts=parts,
+                CourseSessionAssignment=CourseSessionAssignment,
+                CourseFileUpload=CourseFileUpload,
+                generation_options=generation_options,
+            )
+            return jsonify(response)
+
+        result = generate_full_outline_for_session(
+            session,
+            teacher_name=teacher_name,
+            course_data=course_data,
+            curriculum=curriculum,
+            calendar_events=calendar_events,
+            Course=Course,
+            CurriculumYearTerm=CurriculumYearTerm,
+            query_for_window=query_for_window,
+            user_id=current_user.id,
+            parts=parts,
+            use_parts=True,
+            CourseSessionAssignment=CourseSessionAssignment,
+            CourseFileUpload=CourseFileUpload,
+            generation_options=generation_options,
+        )
+        return jsonify({
+            'success': True,
+            'message': 'Course outline generated successfully. Review and save.',
+            'payload': result['payload'],
+            'context_summary': result['context_summary'],
+            'parts': parts,
+        })
+    except AIClientError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        current_app.logger.error(f'AI full outline generation failed for session {session_id}: {exc}', exc_info=True)
+        message = str(exc)
+        status = 400 if 'AI' in message or 'Curriculum' in message or 'Semester' in message else 500
+        return jsonify({'success': False, 'message': message}), status
+
+
+@class_management_bp.route('/course_file/<int:session_id>/outline/generate-ai-job/<int:job_id>/tick', methods=['POST'])
+@login_required
+def tick_outline_ai_job(session_id, job_id):
+    """Process one part of an async outline generation job (poll from browser)."""
+    session = get_or_404_for_window(Session, session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not _is_course_outline_authorized(session, teacher):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    try:
+        from utils.ai.models import AIOutlineGenerationJob
+        from utils.ai.outline_service import tick_async_outline_job
+        from blueprints.class_management.models import CourseFileUpload
+
+        job = AIOutlineGenerationJob.query.get_or_404(job_id)
+        if job.session_id != session_id or job.user_id != current_user.id:
+            return jsonify({'success': False, 'message': 'Invalid generation job.'}), 403
+
+        calendar_events, course_data, curriculum = _ai_outline_calendar_and_course(session)
+        response = tick_async_outline_job(
+            job,
+            session,
+            teacher_name=teacher.name if teacher else current_user.full_name,
+            course_data=course_data,
+            curriculum=curriculum,
+            calendar_events=calendar_events,
+            Course=Course,
+            CurriculumYearTerm=CurriculumYearTerm,
+            query_for_window=query_for_window,
+            CourseSessionAssignment=CourseSessionAssignment,
+            CourseFileUpload=CourseFileUpload,
+        )
+        status = 200 if response.get('success') else 400
+        return jsonify(response), status
+    except Exception as exc:
+        current_app.logger.error(f'AI job tick failed for session {session_id} job {job_id}: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
+def _can_batch_generate_ai_outline():
+    from role_utils import is_admin, parse_roles
+    if is_admin(current_user):
+        return True
+    roles = parse_roles(getattr(current_user, 'role', '') or '')
+    return 'head' in roles or 'dean' in roles
+
+
+@class_management_bp.route('/outline/batch-generate', methods=['POST'])
+@login_required
+def batch_generate_outlines():
+    """Start async outline jobs for all sessions in a semester (admin/head)."""
+    if not _can_batch_generate_ai_outline():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    try:
+        from utils.ai.batch_service import batch_job_to_response, create_batch_outline_jobs
+        from utils.ai.job_service import normalize_parts
+        from blueprints.class_management.models import CourseFileUpload
+
+        data = request.get_json(silent=True) or {}
+        academic_session = (data.get('academic_session') or '').strip()
+        year = (data.get('year') or '').strip()
+        term = (data.get('term') or '').strip()
+        batch = (data.get('batch') or '').strip() or None
+        parts = normalize_parts(data.get('parts'))
+
+        if not academic_session or not year or not term:
+            return jsonify({'success': False, 'message': 'academic_session, year, and term are required.'}), 400
+
+        from datetime import date as date_cls
+        from blueprints.academic_calendar.models import AcademicCalendarEvent
+        year_start = date_cls(date_cls.today().year, 1, 1)
+        year_end = date_cls(date_cls.today().year + 1, 12, 31)
+        calendar_events = query_for_window(AcademicCalendarEvent).filter(
+            AcademicCalendarEvent.event_date >= year_start,
+            AcademicCalendarEvent.event_date <= year_end,
+        ).order_by(AcademicCalendarEvent.event_date.asc()).all()
+
+        batch_job, items = create_batch_outline_jobs(
+            user_id=current_user.id,
+            academic_session=academic_session,
+            year=year,
+            term=term,
+            batch=batch,
+            parts=parts,
+            query_for_window=query_for_window,
+            Session=Session,
+            CourseSessionAssignment=CourseSessionAssignment,
+            Course=Course,
+            CurriculumYearTerm=CurriculumYearTerm,
+            calendar_events=calendar_events,
+            find_course_from_curriculum=find_course_from_curriculum,
+            CourseFileUpload=CourseFileUpload,
+        )
+        response = batch_job_to_response(batch_job)
+        response['message'] = f'Started outline generation for {len(items)} session(s).'
+        return jsonify(response)
+    except Exception as exc:
+        current_app.logger.error(f'Batch outline generation failed: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+
+@class_management_bp.route('/outline/batch-job/<int:batch_job_id>', methods=['GET'])
+@login_required
+def batch_outline_job_status(batch_job_id):
+    if not _can_batch_generate_ai_outline():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    from utils.ai.batch_service import batch_job_to_response
+    from utils.ai.models import AIOutlineBatchJob
+
+    batch_job = AIOutlineBatchJob.query.get_or_404(batch_job_id)
+    if batch_job.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Invalid batch job.'}), 403
+    return jsonify(batch_job_to_response(batch_job))
+
+
+@class_management_bp.route('/outline/batch-job/<int:batch_job_id>/tick-next', methods=['POST'])
+@login_required
+def batch_outline_job_tick_next(batch_job_id):
+    """Tick the next pending child session job (one part per call)."""
+    if not _can_batch_generate_ai_outline():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    try:
+        from utils.ai.batch_service import batch_job_to_response, refresh_batch_job_status
+        from utils.ai.models import AIOutlineBatchJob, AIOutlineGenerationJob
+        from utils.ai.outline_service import tick_async_outline_job
+        from blueprints.class_management.models import CourseFileUpload
+
+        batch_job = AIOutlineBatchJob.query.get_or_404(batch_job_id)
+        if batch_job.user_id != current_user.id:
+            return jsonify({'success': False, 'message': 'Invalid batch job.'}), 403
+
+        for item in batch_job.items_list():
+            job = AIOutlineGenerationJob.query.get(item.get('job_id'))
+            if not job or job.status in (
+                AIOutlineGenerationJob.STATUS_COMPLETED,
+                AIOutlineGenerationJob.STATUS_FAILED,
+            ):
+                continue
+            session = Session.query.get(item.get('session_id'))
+            if not session:
+                continue
+            calendar_events, course_data, curriculum = _ai_outline_calendar_and_course(session)
+            tick_async_outline_job(
+                job,
+                session,
+                teacher_name=current_user.full_name,
+                course_data=course_data,
+                curriculum=curriculum,
+                calendar_events=calendar_events,
+                Course=Course,
+                CurriculumYearTerm=CurriculumYearTerm,
+                query_for_window=query_for_window,
+                CourseSessionAssignment=CourseSessionAssignment,
+                CourseFileUpload=CourseFileUpload,
+            )
+            break
+
+        refresh_batch_job_status(batch_job)
+        return jsonify(batch_job_to_response(batch_job))
+    except Exception as exc:
+        current_app.logger.error(f'Batch tick failed for {batch_job_id}: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
 @class_management_bp.route('/course_file/<int:session_id>/outline/generate-ai', methods=['POST'])
 @login_required
 def generate_weekly_plan_ai(session_id):
@@ -3719,7 +4407,7 @@ def generate_weekly_plan_ai(session_id):
         
         if not credit:
             # Try to get from course data
-            course_data = find_course_from_curriculum(session.course_code, session.course_name)
+            course_data = find_course_from_curriculum(session.course_code, session.course_name, session=session)
             if course_data and course_data.credit:
                 try:
                     credit = float(course_data.credit)
@@ -3766,7 +4454,7 @@ def generate_weekly_plan_ai(session_id):
         
         # If no course content from section 14, try to get from curriculum
         if not course_contents:
-            if course_data := find_course_from_curriculum(session.course_code, session.course_name):
+            if course_data := find_course_from_curriculum(session.course_code, session.course_name, session=session):
                 # For split courses, use only the specified part (A or B)
                 # For full courses, combine both sections
                 if part == 'A':
@@ -3804,7 +4492,7 @@ def generate_weekly_plan_ai(session_id):
         
         # Get CLOs
         clos = []
-        course_data = find_course_from_curriculum(session.course_code, session.course_name)
+        course_data = find_course_from_curriculum(session.course_code, session.course_name, session=session)
         if course_data:
             clos = course_data.get_clos_list()
             
@@ -4822,14 +5510,6 @@ def edit_course_outline(session_id):
         except Exception as e:
             current_app.logger.warning(f"Error parsing course contents: {e}")
     
-    # Parse existing course content summary
-    existing_content_summary = None
-    if course_outline.course_content_summary:
-        try:
-            existing_content_summary = json.loads(course_outline.course_content_summary)
-        except:
-            existing_content_summary = course_outline.course_content_summary
-
     # Load Classes separately (stored in course_content_classes)
     existing_classes = {'section_a': [], 'section_b': []}
     if getattr(course_outline, 'course_content_classes', None):
@@ -4841,6 +5521,19 @@ def edit_course_outline(session_id):
             existing_classes.setdefault('section_b', [])
         except (TypeError, ValueError):
             pass
+
+    # Parse existing course content summary (fallback to curriculum for display)
+    existing_content_summary = None
+    if course_outline.course_content_summary:
+        try:
+            existing_content_summary = json.loads(course_outline.course_content_summary)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            existing_content_summary = course_outline.course_content_summary
+
+    from utils.ai.curriculum_anchor import resolve_course_content_summary
+    existing_content_summary = resolve_course_content_summary(
+        existing_content_summary, course_data=course_data, classes_data=existing_classes,
+    )
 
     # Parse JSON fields
     outline_data = {
@@ -4862,6 +5555,33 @@ def edit_course_outline(session_id):
         'course_file_components': json.loads(course_outline.course_file_components) if course_outline.course_file_components else [],
         'other_issues': json.loads(course_outline.other_issues) if course_outline.other_issues else {},
     }
+    from utils.ai.outline_parser import normalize_assessment_strategy
+    outline_data['assessment_strategy'] = normalize_assessment_strategy(outline_data.get('assessment_strategy'))
+
+    ai_outline_enabled = False
+    try:
+        from utils.ai.models import AIProviderSetting
+        ai_outline_enabled = bool(AIProviderSetting.get_active_default())
+    except Exception:
+        ai_outline_enabled = False
+
+    ai_default_classes_per_week = ''
+    ai_default_total_classes = ''
+    try:
+        credit_val = float(course_data.credit) if course_data and course_data.credit else None
+    except (TypeError, ValueError):
+        credit_val = None
+    if credit_val:
+        cpw = int(credit_val)
+        if getattr(session, 'course_scope', None) in ('part_a', 'part_b'):
+            cpw = max(1, cpw // 2)
+        ai_default_classes_per_week = cpw
+        ai_default_total_classes = int(credit_val * 14)
+    if course_outline and course_outline.contact_hours:
+        try:
+            ai_default_total_classes = int(float(str(course_outline.contact_hours).strip()))
+        except (TypeError, ValueError):
+            pass
     
     return render_template('class_management/edit_course_outline.html',
                          session=session,
@@ -4871,7 +5591,11 @@ def edit_course_outline(session_id):
                          existing_classes=existing_classes,
                          course_contents_a=course_contents_a,
                          course_contents_b=course_contents_b,
-                         course_teachers=course_teachers)
+                         course_teachers=course_teachers,
+                         ai_outline_enabled=ai_outline_enabled,
+                         session_delivery_type=(session.course_type or 'theory'),
+                         ai_default_total_classes=ai_default_total_classes,
+                         ai_default_classes_per_week=ai_default_classes_per_week)
 
 def _generate_course_outline_docx(session_id):
     """Generate course outline as DOCX document"""
@@ -4888,7 +5612,7 @@ def _generate_course_outline_docx(session_id):
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
     # Get course data
-    course_data = find_course_from_curriculum(session.course_code, session.course_name)
+    course_data = find_course_from_curriculum(session.course_code, session.course_name, session=session)
     
     # Parse JSON fields
     course_objectives = json.loads(course_outline.course_objectives) if course_outline.course_objectives else []
@@ -5049,7 +5773,7 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
     # Get course data from curriculum if available
-    course_data = find_course_from_curriculum(session.course_code, session.course_name)
+    course_data = find_course_from_curriculum(session.course_code, session.course_name, session=session)
     
     # Parse all JSON fields
     def safe_json_parse(data, default=None):
@@ -5086,18 +5810,13 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
             classes_data.setdefault('section_b', [])
         except (TypeError, ValueError):
             pass
-    if course_content_summary and isinstance(course_content_summary, dict):
-        section_a = course_content_summary.get('sectionA', [])
-        if section_a:
-            for idx, item in enumerate(section_a):
-                if isinstance(item, dict):
-                    item['num_classes'] = classes_data.get('section_a', [])[idx] if idx < len(classes_data.get('section_a', [])) else item.get('num_classes', 1)
-        section_b = course_content_summary.get('sectionB', [])
-        if section_b:
-            for idx, item in enumerate(section_b):
-                if isinstance(item, dict):
-                    item['num_classes'] = classes_data.get('section_b', [])[idx] if idx < len(classes_data.get('section_b', [])) else item.get('num_classes', 1)
+    from utils.ai.curriculum_anchor import resolve_course_content_summary
+    course_content_summary = resolve_course_content_summary(
+        course_content_summary, course_data=course_data, classes_data=classes_data,
+    )
     assessment_strategy = safe_json_parse(course_outline.assessment_strategy, {})
+    from utils.ai.outline_parser import normalize_assessment_strategy
+    assessment_strategy = normalize_assessment_strategy(assessment_strategy)
     assessment_techniques = safe_json_parse(course_outline.assessment_techniques, [])
     cie_breakdown = safe_json_parse(course_outline.cie_breakdown, []) if hasattr(course_outline, 'cie_breakdown') else []
     smee_breakdown = safe_json_parse(course_outline.smee_breakdown, []) if hasattr(course_outline, 'smee_breakdown') else []
@@ -5211,17 +5930,35 @@ def edit_session(session_id):
     
     if request.method == 'POST':
         try:
-            session.year = request.form.get('year')
-            session.term = request.form.get('term')
-            session.academic_session = request.form.get('academic_session')
+            if getattr(session, 'is_external_course', False):
+                academic_session = (request.form.get('academic_session') or '').strip()
+                year = (request.form.get('year') or '').strip()
+                term = (request.form.get('term') or '').strip()
+                session.academic_session = academic_session or session.academic_session
+                session.year = year or session.year
+                session.term = term or session.term
+            else:
+                session.year = request.form.get('year')
+                session.term = request.form.get('term')
+                session.academic_session = request.form.get('academic_session')
             session.course_code = request.form.get('course_code')
             session.course_name = request.form.get('course_name')
             session.course_type = request.form.get('course_type', 'theory')
             session.category = request.form.get('category', 'ug')
-            
+
             if not session.year or not session.term:
                 flash('Year and term are required!', 'error')
                 return redirect(url_for('class_management.edit_session', session_id=session_id))
+
+            if getattr(session, 'is_external_course', False):
+                conflict_message = _external_course_conflict(
+                    session.course_code,
+                    session.teacher_id,
+                    exclude_session_id=session.id,
+                )
+                if conflict_message:
+                    flash(conflict_message, 'error')
+                    return redirect(url_for('class_management.edit_session', session_id=session_id))
             
             db.session.commit()
             flash('Session updated successfully!', 'success')
@@ -5693,7 +6430,16 @@ def download_pdf_report(session_id):
                 # For theory courses, use combined assessment
                 assessment_marks_display = 0
                 if session.course_type == 'theory':
-                    if session.category == 'pg':
+                    if _is_external_theory_session(session):
+                        display_total, _ = _get_external_assessment_display_total(
+                            session,
+                            student.student_id,
+                            combined_values,
+                            combined_best3=combined_best3,
+                            combined_pg_total=combined_pg_total,
+                        )
+                        assessment_marks_display = display_total if display_total is not None else 0
+                    elif session.category == 'pg':
                         combined = combined_values.get(student.student_id, {})
                         valid_marks = [v for v in combined.values() if v is not None]
                         valid_marks.sort(reverse=True)
@@ -5734,9 +6480,7 @@ def download_pdf_report(session_id):
             table = Table(table_data, colWidths=[1.5*inch, 1.5*inch, 2*inch, 2*inch], repeatRows=0)
         else:
             # For theory courses: single assessment column
-            assessment_header_text = "Continuous Assessment (30)"
-            if session.course_type == 'theory' and session.category == 'pg':
-                assessment_header_text = "Continuous Assessment (40)"
+            assessment_header_text = _combined_pdf_assessment_header(session)
             
             table_data = [['ID', 'Attendance (10)', assessment_header_text]]
             for s_data in student_data_for_pdf:
@@ -6359,7 +7103,10 @@ def assessment(session_id):
                                     setattr(student, f'assessment{i}', None)
                                 else:
                                     value = request.form.get(f'assessment{i}_{student.id}')
-                                    setattr(student, f'assessment{i}', float(value) if value else None)
+                                    if _is_external_theory_session(session):
+                                        setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
+                                    else:
+                                        setattr(student, f'assessment{i}', float(value) if value else None)
                         
                         # Save absent status
                         student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -6417,6 +7164,20 @@ def assessment(session_id):
         # Build combined assessment values from all related sessions (for split courses)
         combined_assessment_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         combined_sessional_values, combined_sessional_absent = _build_combined_sessional_values(session)
+
+        external_assessment_mode = DEFAULT_EXTERNAL_ASSESSMENT_MODE
+        external_total_column_label = EXTERNAL_ASSESSMENT_COLUMN_LABELS[DEFAULT_EXTERNAL_ASSESSMENT_MODE]
+        combined_external_total = {}
+        if _is_external_theory_session(session):
+            external_assessment_mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+            external_total_column_label = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(
+                external_assessment_mode,
+                EXTERNAL_ASSESSMENT_COLUMN_LABELS[DEFAULT_EXTERNAL_ASSESSMENT_MODE],
+            )
+            for student in students:
+                combined_vals = combined_assessment_values.get(student.student_id, {})
+                result = _compute_external_assessment_total(combined_vals, external_assessment_mode)
+                combined_external_total[student.student_id] = result['display_total']
         
         # Debug logging for split courses
         if session.split_group_id:
@@ -6495,6 +7256,10 @@ def assessment(session_id):
             combined_best3=combined_best3,
             combined_pg_avg=combined_pg_avg,
             combined_pg_total=combined_pg_total,
+            combined_external_total=combined_external_total,
+            external_assessment_mode=external_assessment_mode,
+            external_assessment_modes=EXTERNAL_ASSESSMENT_MODES,
+            external_total_column_label=external_total_column_label,
             sessional_display_map=sessional_display_map,
             absent_status_map=absent_status_map,
             current_teacher_id=current_teacher.id,
@@ -6575,6 +7340,41 @@ def toggle_assessment_reveal(session_id):
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
 
+@class_management_bp.route('/assessment/<int:session_id>/set-external-mode', methods=['POST'])
+@login_required
+def set_external_assessment_mode(session_id):
+    """Save external course assessment total calculation mode."""
+    try:
+        session = get_or_404_for_window(Session, session_id)
+        if not _is_external_theory_session(session):
+            return jsonify({'success': False, 'message': 'This option is only available for external theory courses.'}), 400
+
+        data = request.get_json(silent=True) or {}
+        mode = _normalize_external_assessment_mode(data.get('mode'))
+        session.external_assessment_mode = mode
+        _recalculate_assessment_totals(session)
+        db.session.commit()
+
+        students = _class_students_for_session(session_id)
+        _, combined_best3, _, combined_pg_total = _build_combined_assessment_values(session)
+        totals = {}
+        for student in students:
+            if mode == 'best_three_40':
+                display = combined_pg_total.get(student.student_id)
+            else:
+                display = combined_best3.get(student.student_id)
+            totals[str(student.id)] = display
+
+        return jsonify({
+            'success': True,
+            'mode': mode,
+            'column_label': EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode),
+            'totals': totals,
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 @class_management_bp.route('/assessment/<int:session_id>/auto-save', methods=['POST'])
 @login_required
 def auto_save_assessment(session_id):
@@ -6616,7 +7416,10 @@ def auto_save_assessment(session_id):
                                 setattr(student, f'assessment{i}', None)
                             else:
                                 value = data.get(key, '')
-                                setattr(student, f'assessment{i}', float(value) if value else None)
+                                if _is_external_theory_session(session):
+                                    setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
+                                else:
+                                    setattr(student, f'assessment{i}', float(value) if value else None)
                     
                     # Save absent status
                     student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -6873,7 +7676,31 @@ def student_view_scores():
             best3_total = None
             pg_total = None
             
-            if session_obj.course_type == 'theory' and session_obj.category == 'ug':
+            if _is_external_theory_session(session_obj):
+                combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session_obj)
+                student_combined_values = combined_values.get(student_id, {})
+                for i in range(1, 5):
+                    max_value = None
+                    for combined_student_values in combined_values.values():
+                        current_value = combined_student_values.get(i)
+                        if current_value is not None and (max_value is None or current_value > max_value):
+                            max_value = current_value
+                    highest_assessment_scores[f'assessment{i}'] = max_value
+
+                for i in range(1, 5):
+                    assessment_key = f'assessment{i}'
+                    if reveal_status.get(assessment_key, False):
+                        value = student_combined_values.get(i, None)
+                        assessment_scores[assessment_key] = value
+
+                revealed_combined = {i: assessment_scores.get(f'assessment{i}') for i in range(1, 5)}
+                mode = _normalize_external_assessment_mode(getattr(session_obj, 'external_assessment_mode', None))
+                result = _compute_external_assessment_total(revealed_combined, mode)
+                if mode == 'best_three_40':
+                    pg_total = result['display_total']
+                else:
+                    best3_total = result['display_total']
+            elif session_obj.course_type == 'theory' and session_obj.category == 'ug':
                 # Use _build_combined_assessment_values which properly handles split courses
                 combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session_obj)
                 student_combined_values = combined_values.get(student_id, {})
@@ -7462,7 +8289,35 @@ def download_assessment_excel(session_id):
         
         # Build data for DataFrame
         data = []
-        if session.course_type == 'theory' and session.category == 'ug':
+        if _is_external_theory_session(session):
+            mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+            total_column = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode, 'Total')
+            columns = [
+                'Student ID', 'Name',
+                _external_assessment_column_header(1, mode),
+                _external_assessment_column_header(2, mode),
+                _external_assessment_column_header(3, mode),
+                _external_assessment_column_header(4, mode),
+                total_column,
+            ]
+            for s in students:
+                total_value, _ = _get_external_assessment_display_total(
+                    session,
+                    s.student_id,
+                    combined_values,
+                    combined_best3=combined_best3,
+                    combined_pg_total=combined_pg_total,
+                )
+                data.append([
+                    s.student_id,
+                    s.name,
+                    get_assessment_value(s, 1),
+                    get_assessment_value(s, 2),
+                    get_assessment_value(s, 3),
+                    get_assessment_value(s, 4),
+                    total_value,
+                ])
+        elif session.course_type == 'theory' and session.category == 'ug':
             columns = ['Student ID', 'Name', 'Assessment 1', 'Assessment 2', 'Assessment 3', 'Assessment 4', 'Total of Best 3']
             for s in students:
                 best3_total = combined_best3.get(s.student_id) if combined_best3 else None
@@ -7651,7 +8506,39 @@ def download_assessment_pdf(session_id):
         elements.append(Spacer(1, 0.2*inch))
         
         # Table data
-        if session.course_type == 'theory' and session.category == 'ug':
+        if _is_external_theory_session(session):
+            mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+            total_header = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode, 'Total')
+            calc_label = EXTERNAL_ASSESSMENT_MODES.get(mode, mode)
+            elements.append(Paragraph(f"<b>Calculation:</b> {calc_label}", info_style))
+            elements.append(Spacer(1, 0.1*inch))
+            table_data = [[
+                'SI', 'Student ID',
+                _external_assessment_column_header(1, mode),
+                _external_assessment_column_header(2, mode),
+                _external_assessment_column_header(3, mode),
+                _external_assessment_column_header(4, mode),
+                total_header,
+            ]]
+            for idx, student in enumerate(students, start=1):
+                total_value, _ = _get_external_assessment_display_total(
+                    session,
+                    student.student_id,
+                    combined_values,
+                    combined_best3=combined_best3,
+                    combined_pg_total=combined_pg_total,
+                )
+                row = [
+                    str(idx),
+                    str(student.student_id),
+                    format_mark_for_pdf(get_assessment_value(student, 1)),
+                    format_mark_for_pdf(get_assessment_value(student, 2)),
+                    format_mark_for_pdf(get_assessment_value(student, 3)),
+                    format_mark_for_pdf(get_assessment_value(student, 4)),
+                    format_mark_for_pdf(total_value),
+                ]
+                table_data.append(row)
+        elif session.course_type == 'theory' and session.category == 'ug' and not _is_external_theory_session(session):
             # UG Theory: Assessment 1-4 and Total of Best 3
             table_data = [['SI', 'Student ID', 'Assessment 1 (10)', 'Assessment 2 (10)', 'Assessment 3 (10)', 'Assessment 4 (10)', 'Total of Best 3 (30)']]
             
@@ -7669,7 +8556,7 @@ def download_assessment_pdf(session_id):
                 ]
                 table_data.append(row)
         
-        elif session.course_type == 'theory' and session.category == 'pg':
+        elif session.course_type == 'theory' and session.category == 'pg' and not _is_external_theory_session(session):
             # PG Theory: Assessment 1-4 and Total (40)
             table_data = [['SI', 'Student ID', 'Assessment 1 (10)', 'Assessment 2 (10)', 'Assessment 3 (10)', 'Assessment 4 (10)', 'Total (40)']]
             

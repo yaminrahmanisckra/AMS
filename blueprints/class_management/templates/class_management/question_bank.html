@@ -2,6 +2,8 @@
 
 {% block title %}Question Bank{% endblock %}
 
+{% block mobile_title %}Questions{% endblock %}
+
 {% block content %}
 <div class="container my-4">
     <style>
@@ -77,21 +79,6 @@
             padding-top: 0.45rem !important;
             padding-bottom: 0.45rem !important;
             font-size: 0.88rem;
-        }
-        @media (max-width: 768px) {
-            .qb-folder-label {
-                max-width: 170px;
-            }
-            .qb-toolbar {
-                padding: 8px;
-            }
-            .qb-breadcrumb {
-                width: 100%;
-                margin-top: 4px;
-            }
-            .qb-hide-mobile {
-                display: none !important;
-            }
         }
     </style>
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">

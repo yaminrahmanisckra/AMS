@@ -36,8 +36,9 @@ from blueprints.class_management.models import (
 )
 from blueprints.student_management.models import Student
 from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig, CourseSessionAssignment, OperationalWindow
+from utils.ai.models import AIProviderSetting, AIOutlineGenerationJob, AIOutlineGenerationLog, AIOutlineBatchJob  # noqa: F401
 from blueprints.remuneration_management.models import RemunerationForm
-from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window
+from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window, filter_offered_courses
 
 try:
     from openpyxl import Workbook
@@ -976,7 +977,7 @@ def create_app():
 
     def _auto_assign_scrutinizer_for_entry(entry):
         """Auto assign scrutinizer when an exam entry is created."""
-        if not entry or not entry.course_code:
+        if not entry or not entry.course_code or getattr(entry, 'is_external_subject', False):
             return
         assignments = query_for_window(DutyAssignment).filter_by(duty_type='scrutinizer', status='active').all()
         for assignment in assignments:
@@ -985,7 +986,7 @@ def create_app():
                 db.session.commit()
                 break
 
-    def _has_section_conflict(course_code, new_section, exclude_entry_id=None):
+    def _has_section_conflict(course_code, new_section, exclude_entry_id=None, external_only=False):
         """Return an error message if the course already has conflicting sections assigned."""
         if not course_code:
             return None
@@ -994,6 +995,10 @@ def create_app():
             ExamPaperEvaluation.course_code == course_code,
             ExamPaperEvaluation.archived.is_(False)
         )
+        if external_only:
+            query = query.filter(ExamPaperEvaluation.is_external_subject.is_(True))
+        else:
+            query = query.filter(ExamPaperEvaluation.is_external_subject.is_(False))
         if exclude_entry_id:
             query = query.filter(ExamPaperEvaluation.id != exclude_entry_id)
         existing_entries = query.all()
@@ -1027,6 +1032,7 @@ def create_app():
             term = (request.form.get('term') or '').strip() or None
             section = request.form.get('section')
             program_level = request.form.get('program_level', 'ug')
+            is_external_subject = request.form.get('is_external_subject') == '1'
 
             # If course_id is provided, fetch course details from Course model
             try:
@@ -1057,19 +1063,24 @@ def create_app():
                 except Exception as e:
                     current_app.logger.error(f'Error checking active semester: {e}', exc_info=True)
                     # Continue with chief check if error
-                
-                chief_exists = query_for_window(DutyAssignment).filter_by(
-                    duty_type='exam_committee_chief',
-                    academic_session=academic_session,
-                    year=year,
-                    term=term,
-                    status='active'
-                ).first()
-                if not chief_exists:
-                    flash('No Exam Committee Chief is assigned for this session/year/term. Please assign a chief before submitting marksheets.', 'danger')
-                    return redirect(url_for('exam_evaluation'))
 
-                conflict_message = _has_section_conflict(course_code, section)
+                if not is_external_subject:
+                    chief_exists = query_for_window(DutyAssignment).filter_by(
+                        duty_type='exam_committee_chief',
+                        academic_session=academic_session,
+                        year=year,
+                        term=term,
+                        status='active'
+                    ).first()
+                    if not chief_exists:
+                        flash('No Exam Committee Chief is assigned for this session/year/term. Please assign a chief before submitting marksheets.', 'danger')
+                        return redirect(url_for('exam_evaluation'))
+
+                conflict_message = _has_section_conflict(
+                    course_code,
+                    section,
+                    external_only=is_external_subject,
+                )
                 if conflict_message:
                     flash(conflict_message, 'danger')
                     return redirect(url_for('exam_evaluation'))
@@ -1085,12 +1096,14 @@ def create_app():
                     term=term,
                     section=section,
                     program_level=program_level,
+                    is_external_subject=is_external_subject,
                     owner_teacher_id=owner_teacher.id if owner_teacher else None
                 )
                 stamp_window_id(record)
                 db.session.add(record)
                 db.session.commit()
-                _auto_assign_scrutinizer_for_entry(record)
+                if not is_external_subject:
+                    _auto_assign_scrutinizer_for_entry(record)
                 flash('Exam paper evaluation entry saved successfully!', 'success')
                 return redirect(url_for('exam_evaluation'))
 
@@ -1259,10 +1272,12 @@ def create_app():
                 pass
 
             entries = assigned_query.filter(
-                ExamPaperEvaluation.archived.is_(False)
+                ExamPaperEvaluation.archived.is_(False),
+                ExamPaperEvaluation.is_external_subject.is_(False),
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
             archived_entries = assigned_query.filter(
-                ExamPaperEvaluation.archived.is_(True)
+                ExamPaperEvaluation.archived.is_(True),
+                ExamPaperEvaluation.is_external_subject.is_(False),
             ).order_by(ExamPaperEvaluation.created_at.desc()).all()
         else:
             base_query = query_for_window(ExamPaperEvaluation)
@@ -1279,8 +1294,26 @@ def create_app():
             except ImportError:
                 pass
 
-            entries = base_query.filter_by(archived=False).order_by(ExamPaperEvaluation.created_at.desc()).all()
-            archived_entries = base_query.filter_by(archived=True).order_by(ExamPaperEvaluation.created_at.desc()).all()
+            entries = base_query.filter_by(archived=False).filter(
+                ExamPaperEvaluation.is_external_subject.is_(False)
+            ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+            archived_entries = base_query.filter_by(archived=True).filter(
+                ExamPaperEvaluation.is_external_subject.is_(False)
+            ).order_by(ExamPaperEvaluation.created_at.desc()).all()
+
+        external_entries = []
+        external_archived_entries = []
+        if current_teacher:
+            external_query = query_for_window(ExamPaperEvaluation).filter(
+                ExamPaperEvaluation.owner_teacher_id.in_(list(current_teacher_ids)),
+                ExamPaperEvaluation.is_external_subject.is_(True),
+            )
+            external_entries = external_query.filter_by(archived=False).order_by(
+                ExamPaperEvaluation.created_at.desc()
+            ).all()
+            external_archived_entries = external_query.filter_by(archived=True).order_by(
+                ExamPaperEvaluation.created_at.desc()
+            ).all()
 
         evaluator_assigned_entry_ids = set(committee_assignment_entry_ids)
         scrutiny_entries = []
@@ -1289,6 +1322,7 @@ def create_app():
             owned_ids = {entry.id for entry in entries}
             base_scrutiny_query = query_for_window(ExamPaperEvaluation).filter(
                 ExamPaperEvaluation.archived.is_(False),
+                ExamPaperEvaluation.is_external_subject.is_(False),
                 ExamPaperEvaluation.assigned_scrutinizer_id == current_teacher.id,
                 ExamPaperEvaluation.submitted_to_committee.is_(True)
             )
@@ -1593,6 +1627,8 @@ def create_app():
         return render_template('exam_evaluation.html',
                                entries=entries,
                                archived_entries=archived_entries,
+                               external_entries=external_entries,
+                               external_archived_entries=external_archived_entries,
                                teacher_map=teacher_map,
                                batches=batches,
                                academic_sessions=available_sessions,
@@ -1611,6 +1647,9 @@ def create_app():
         if restriction:
             return restriction
         entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
+        if getattr(entry, 'is_external_subject', False):
+            flash('External subject entries cannot be submitted to the Exam Committee.', 'warning')
+            return redirect(url_for('exam_evaluation'))
         current_teacher = _current_teacher()
         current_teacher_ids = _teacher_identity_ids(current_teacher)
         if not current_teacher or entry.owner_teacher_id not in current_teacher_ids:
@@ -1632,6 +1671,9 @@ def create_app():
         if restriction:
             return restriction
         entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
+        if getattr(entry, 'is_external_subject', False):
+            flash('External subject entries are not part of the committee workflow.', 'warning')
+            return redirect(url_for('exam_evaluation'))
         current_teacher = _current_teacher()
         current_teacher_ids = _teacher_identity_ids(current_teacher)
         if not current_teacher or entry.owner_teacher_id not in current_teacher_ids:
@@ -1656,20 +1698,34 @@ def create_app():
         if request.method == 'POST':
             course_code = request.form.get('course_code')
             section = request.form.get('section')
-            conflict_message = _has_section_conflict(course_code, section, exclude_entry_id=entry.id) if course_code else None
+            conflict_message = _has_section_conflict(
+                course_code,
+                section,
+                exclude_entry_id=entry.id,
+                external_only=getattr(entry, 'is_external_subject', False),
+            ) if course_code else None
             if conflict_message:
                 flash(conflict_message, 'danger')
                 return redirect(url_for('exam_evaluation'))
             entry.course_name = request.form.get('course_name')
             entry.course_code = request.form.get('course_code')
-            entry.batch = request.form.get('batch')
-            entry.academic_session = request.form.get('academic_session')
+            entry.batch = request.form.get('batch') or None
             entry.discipline = request.form.get('discipline')
             entry.school = request.form.get('school')
-            entry.year = request.form.get('year')
-            entry.term = request.form.get('term')
             entry.section = request.form.get('section')
             entry.program_level = request.form.get('program_level', entry.program_level)
+            if getattr(entry, 'is_external_subject', False):
+                # Keep semester context for external entries; blank edits must not hide them from the list.
+                academic_session = (request.form.get('academic_session') or '').strip()
+                year = (request.form.get('year') or '').strip()
+                term = (request.form.get('term') or '').strip()
+                entry.academic_session = academic_session or entry.academic_session
+                entry.year = year or entry.year
+                entry.term = term or entry.term
+            else:
+                entry.academic_session = request.form.get('academic_session')
+                entry.year = request.form.get('year')
+                entry.term = request.form.get('term')
             db.session.commit()
             flash('Entry updated successfully.', 'success')
             return redirect(url_for('exam_evaluation'))
@@ -2301,6 +2357,9 @@ def create_app():
         if restriction:
             return restriction
         entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
+        if getattr(entry, 'is_external_subject', False):
+            flash('External subject entries do not use scrutinizer workflow.', 'warning')
+            return redirect(url_for('exam_evaluation'))
         current_teacher = _current_teacher()
 
         if not current_teacher:
@@ -2411,6 +2470,13 @@ def create_app():
         if restriction:
             return restriction
         invite = get_or_404_for_window(ExamScrutinizerInvite, invite_id)
+        exam_entry = invite.exam_entry if invite else None
+        if exam_entry and getattr(exam_entry, 'is_external_subject', False):
+            flash('External subject entries do not use scrutinizer workflow.', 'warning')
+            next_url = request.form.get('next') or request.args.get('next')
+            if next_url:
+                return redirect(next_url)
+            return redirect(url_for('exam_evaluation'))
         teacher = _current_teacher()
         if not teacher or teacher.id != invite.scrutinizer_teacher_id:
             flash('You are not authorized to respond to this invitation.', 'danger')
@@ -3003,6 +3069,263 @@ def create_app():
         except Exception as e:
             current_app.logger.error(f'Error deactivating window: {e}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+    @app.route('/admin/ai-settings', methods=['GET', 'POST'])
+    @login_required
+    def admin_ai_settings():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from utils.ai.models import AIProviderSetting, AIOutlineGenerationLog
+        from utils.ai.encryption import encrypt_api_key, decrypt_api_key, mask_api_key
+        from utils.ai.provider_presets import PROVIDER_PRESETS, default_model_for, normalize_model_for_provider
+        from sqlalchemy import func
+        from utils.semester_utils import get_active_semesters
+        from role_utils import parse_roles
+
+        provider_choices = [
+            (key, preset['label_bn'], preset.get('recommended', False))
+            for key, preset in PROVIDER_PRESETS.items()
+        ]
+
+        def _clean_base_url_form(value):
+            cleaned = (value or '').strip()
+            if not cleaned or cleaned.lower() in ('none', 'null', 'undefined'):
+                return None
+            return cleaned
+
+        def _setup_form_from_setting(setting):
+            return {
+                'setting_id': setting.id or '',
+                'provider': setting.provider,
+                'model_name': setting.model_name,
+                'display_name': setting.display_name or '',
+                'api_base_url': setting.api_base_url or '',
+                'temperature': setting.temperature,
+                'max_tokens': setting.max_tokens,
+            }
+
+        def _build_setup_form(draft, edit_row):
+            if draft:
+                return draft
+            if edit_row:
+                return _setup_form_from_setting(edit_row)
+            default_provider = AIProviderSetting.PROVIDER_GEMINI
+            return {
+                'setting_id': '',
+                'provider': default_provider,
+                'model_name': default_model_for(default_provider),
+                'display_name': '',
+                'api_base_url': '',
+                'temperature': 0.3,
+                'max_tokens': 8000,
+            }
+
+        edit_setting = None
+        edit_id = request.args.get('edit', type=int)
+        if edit_id:
+            edit_setting = AIProviderSetting.query.get(edit_id)
+
+        # Fix bad api_base_url values saved as literal "None" from older forms.
+        dirty_urls = AIProviderSetting.query.filter(
+            AIProviderSetting.api_base_url.in_(['None', 'null', 'undefined', ''])
+        ).all()
+        if dirty_urls:
+            for row in dirty_urls:
+                row.api_base_url = None
+            db.session.commit()
+
+        if request.method == 'POST':
+            from utils.ai.client import AIClientError, test_provider_connection
+
+            action = (request.form.get('action') or 'save').strip()
+            setting_id = request.form.get('setting_id', type=int)
+            setting = AIProviderSetting.query.get(setting_id) if setting_id else AIProviderSetting()
+            setting.provider = (request.form.get('provider') or AIProviderSetting.PROVIDER_OPENAI).strip()
+            preset = PROVIDER_PRESETS.get(setting.provider, {})
+            setting.display_name = (request.form.get('display_name') or '').strip() or preset.get('label_bn') or preset.get('label')
+            model_choice = (request.form.get('model_name') or '').strip()
+            setting.model_name = normalize_model_for_provider(setting.provider, model_choice)
+            setting.api_base_url = _clean_base_url_form(request.form.get('api_base_url'))
+            try:
+                setting.temperature = float(request.form.get('temperature') or 0.3)
+            except (TypeError, ValueError):
+                setting.temperature = 0.3
+            try:
+                setting.max_tokens = int(request.form.get('max_tokens') or 8000)
+            except (TypeError, ValueError):
+                setting.max_tokens = 8000
+            setting.is_active = request.form.get('is_active', 'on') == 'on'
+            setting.is_default = request.form.get('is_default', 'on') == 'on'
+
+            api_key = (request.form.get('api_key') or '').strip()
+            if not api_key and setting.id and setting.api_key_encrypted:
+                api_key = decrypt_api_key(setting.api_key_encrypted) or ''
+
+            if action == 'outline_defaults':
+                from utils.ai.outline_guidelines import save_admin_defaults
+                save_admin_defaults(
+                    theory=request.form.get('outline_default_theory'),
+                    sessional=request.form.get('outline_default_sessional'),
+                    global_notes=request.form.get('outline_default_global'),
+                )
+                flash('Outline generation defaults saved.', 'success')
+                return redirect(url_for('admin_ai_settings'))
+
+            if action == 'test':
+                if not api_key:
+                    flash('API key দিন। উপরের "API Key পেজে যান" লিংক থেকে key তৈরি করে পেস্ট করুন।', 'danger')
+                else:
+                    try:
+                        msg = test_provider_connection(
+                            setting.provider,
+                            api_key,
+                            model_name=setting.model_name,
+                            api_base_url=setting.api_base_url,
+                        )
+                        flash(msg + ' এখন অবশ্যই **সংরক্ষণ করুন** — না করলে Course Outline AI চালু হবে না।', 'success')
+                    except AIClientError as exc:
+                        flash(str(exc), 'danger')
+                    except Exception as exc:
+                        current_app.logger.error(f'AI settings test failed: {exc}', exc_info=True)
+                        flash(f'সংযোগ ব্যর্থ: {exc}', 'danger')
+                session['ai_setup_draft'] = _setup_form_from_setting(setting)
+                redirect_target = url_for('admin_ai_settings', edit=setting.id) if setting.id else url_for('admin_ai_settings')
+                return redirect(redirect_target)
+
+            if api_key:
+                setting.api_key_encrypted = encrypt_api_key(api_key)
+            elif not setting.id:
+                flash('API key is required for a new provider.', 'danger')
+                return redirect(url_for('admin_ai_settings'))
+
+            if setting.is_default:
+                AIProviderSetting.query.filter(AIProviderSetting.id != (setting.id or 0)).update({'is_default': False})
+
+            if not setting.id:
+                db.session.add(setting)
+            db.session.commit()
+            session.pop('ai_setup_draft', None)
+            flash('AI provider saved successfully.', 'success')
+            return redirect(url_for('admin_ai_settings'))
+
+        settings = AIProviderSetting.query.order_by(AIProviderSetting.id.asc()).all()
+        settings_view = []
+        for row in settings:
+            plain = decrypt_api_key(row.api_key_encrypted)
+            settings_view.append({
+                'id': row.id,
+                'provider': row.provider,
+                'display_name': row.display_name,
+                'model_name': row.model_name,
+                'api_key_masked': mask_api_key(plain) if plain else None,
+                'is_active': row.is_active,
+                'is_default': row.is_default,
+            })
+
+        edit_view = None
+        if edit_setting:
+            plain = decrypt_api_key(edit_setting.api_key_encrypted)
+            edit_view = edit_setting
+            edit_view.api_key_masked = mask_api_key(plain) if plain else None
+
+        recent_logs = AIOutlineGenerationLog.query.order_by(
+            AIOutlineGenerationLog.created_at.desc()
+        ).limit(50).all()
+        generation_logs = [{
+            'id': row.id,
+            'session_id': row.session_id,
+            'part': row.part,
+            'provider': row.provider,
+            'model_name': row.model_name,
+            'prompt_tokens': row.prompt_tokens,
+            'completion_tokens': row.completion_tokens,
+            'total_tokens': row.total_tokens,
+            'estimated_cost_usd': row.estimated_cost_usd,
+            'duration_ms': row.duration_ms,
+            'status': row.status,
+            'created_at': row.created_at,
+        } for row in recent_logs]
+
+        log_stats = db.session.query(
+            func.count(AIOutlineGenerationLog.id),
+            func.coalesce(func.sum(AIOutlineGenerationLog.total_tokens), 0),
+            func.coalesce(func.sum(AIOutlineGenerationLog.estimated_cost_usd), 0),
+        ).first()
+
+        can_batch_generate = is_admin(current_user) or 'head' in parse_roles(getattr(current_user, 'role', '') or '') or 'dean' in parse_roles(getattr(current_user, 'role', '') or '')
+        active_semesters = get_active_semesters(window_id=None) if can_batch_generate else []
+        setup_form = _build_setup_form(session.get('ai_setup_draft'), edit_view)
+
+        from utils.ai.outline_guidelines import load_admin_defaults
+        outline_defaults = load_admin_defaults()
+
+        return render_template(
+            'admin/ai_settings.html',
+            settings=settings_view,
+            edit_setting=edit_view,
+            setup_form=setup_form,
+            outline_defaults=outline_defaults,
+            provider_choices=provider_choices,
+            provider_presets=PROVIDER_PRESETS,
+            generation_logs=generation_logs,
+            log_stats=log_stats,
+            can_batch_generate=can_batch_generate,
+            active_semesters=active_semesters,
+        )
+
+    @app.route('/admin/ai-settings/test', methods=['POST'])
+    @login_required
+    def admin_ai_settings_test():
+        """Test API key before saving (AJAX)."""
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        from utils.ai.client import AIClientError, test_provider_connection
+        from utils.ai.encryption import decrypt_api_key
+        from utils.ai.models import AIProviderSetting
+        from utils.ai.provider_presets import default_model_for
+
+        data = request.get_json(silent=True) or {}
+        provider = (data.get('provider') or AIProviderSetting.PROVIDER_OPENAI).strip()
+        from utils.ai.provider_presets import normalize_model_for_provider
+        model_name = normalize_model_for_provider(provider, (data.get('model_name') or '').strip())
+        api_base_url = (data.get('api_base_url') or '').strip() or None
+        api_key = (data.get('api_key') or '').strip()
+
+        if not api_key:
+            setting_id = data.get('setting_id')
+            if setting_id:
+                row = AIProviderSetting.query.get(int(setting_id))
+                if row and row.api_key_encrypted:
+                    api_key = decrypt_api_key(row.api_key_encrypted) or ''
+        if not api_key:
+            return jsonify({'success': False, 'message': 'API key দিন অথবা আগে সংরক্ষিত key রাখুন।'}), 400
+
+        try:
+            message = test_provider_connection(provider, api_key, model_name=model_name, api_base_url=api_base_url)
+            return jsonify({'success': True, 'message': message})
+        except AIClientError as exc:
+            return jsonify({'success': False, 'message': str(exc)}), 400
+        except Exception as exc:
+            current_app.logger.error(f'AI settings test failed: {exc}', exc_info=True)
+            return jsonify({'success': False, 'message': str(exc)}), 500
+
+    @app.route('/admin/ai-settings/<int:setting_id>/delete', methods=['POST'])
+    @login_required
+    def admin_ai_settings_delete(setting_id):
+        if not is_admin(current_user):
+            flash('You do not have permission to perform this action.', 'danger')
+            return redirect(url_for('index'))
+
+        from utils.ai.models import AIProviderSetting
+
+        setting = AIProviderSetting.query.get_or_404(setting_id)
+        db.session.delete(setting)
+        db.session.commit()
+        flash('AI provider deleted.', 'success')
+        return redirect(url_for('admin_ai_settings'))
 
     @app.route('/admin/active-semester/preview-deletion', methods=['POST'])
     @login_required
@@ -5006,8 +5329,9 @@ def create_app():
         try:
             curriculum_ids = []
             if Curriculum:
+                window_id = get_effective_window_id(admin_override=False) or 1
                 for curriculum in Curriculum.query.all():
-                    if batch in curriculum.get_batches_list():
+                    if batch in curriculum.get_batches_list(window_id):
                         curriculum_ids.append(curriculum.id)
             
             course_query = Course.query
@@ -6921,11 +7245,14 @@ def create_app():
                 # Get all curriculum IDs
                 curriculum_ids = [config.curriculum_id for config in configs]
 
-                # Get all courses for these curricula - only Theory courses
-                all_courses = Course.query.filter(
+                # Get all courses for these curricula - only Theory courses offered in active window
+                course_query = Course.query.filter(
                     Course.curriculum_id.in_(curriculum_ids),
-                    Course.offered == True,
-                    Course.course_type == 'Theory'
+                    Course.course_type == 'Theory',
+                )
+                all_courses = filter_offered_courses(
+                    course_query,
+                    window_id=get_effective_window_id(admin_override=False),
                 ).order_by(Course.course_code).all()
             
             # Normalize year/term for comparison

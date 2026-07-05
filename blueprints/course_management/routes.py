@@ -14,6 +14,7 @@ except ImportError:
 try:
     from utils.window_utils import (
         filter_by_active_window,
+        filter_offered_courses,
         get_effective_window_id,
         query_for_window,
         stamp_window_id,
@@ -21,6 +22,7 @@ try:
     )
 except ImportError:
     filter_by_active_window = None
+    filter_offered_courses = None
     get_effective_window_id = None
     query_for_window = None
     stamp_window_id = None
@@ -43,6 +45,17 @@ def _csa_query():
     if query_for_window:
         return query_for_window(CourseSessionAssignment)
     return CourseSessionAssignment.query
+
+
+def _active_window_id():
+    """Resolved operational window id for curriculum UI and writes."""
+    if not get_effective_window_id:
+        return 1
+    window_id = get_effective_window_id(admin_override=is_admin(current_user))
+    if window_id is None:
+        return 1
+    return window_id
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -520,13 +533,20 @@ def index():
     curricula = Curriculum.query.order_by(Curriculum.created_at.desc()).all()
     curriculum_form = CurriculumForm()
     curriculum_form.applicable_batches.choices = get_available_batches()
-    return render_template('course_management/index.html', curricula=curricula, curriculum_form=curriculum_form)
+    active_window_id = _active_window_id()
+    return render_template(
+        'course_management/index.html',
+        curricula=curricula,
+        curriculum_form=curriculum_form,
+        active_window_id=active_window_id,
+    )
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>')
 @login_required
 def view_curriculum(curriculum_id):
     """View courses in a specific curriculum"""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
+    active_window_id = _active_window_id()
     courses = Course.query.filter_by(curriculum_id=curriculum_id).order_by('course_code').all()
     course_form = CourseForm()
     curriculum_form = CurriculumForm()
@@ -535,8 +555,8 @@ def view_curriculum(curriculum_id):
     # Create edit form for this curriculum
     edit_curriculum_form = CurriculumForm()
     edit_curriculum_form.applicable_batches.choices = get_available_batches(exclude_curriculum_id=curriculum_id)
-    # Include batches already assigned to this curriculum
-    existing_batches = curriculum.get_batches_list()
+    # Include batches already assigned to this curriculum (active window)
+    existing_batches = curriculum.get_batches_list(window_id=active_window_id)
     for batch in existing_batches:
         if (batch, batch) not in edit_curriculum_form.applicable_batches.choices:
             edit_curriculum_form.applicable_batches.choices.append((batch, batch))
@@ -578,7 +598,7 @@ def view_curriculum(curriculum_id):
         course_info_forms[course.id] = form
     
     # Get batches for dropdown - only show batches applicable to this curriculum + "None" option
-    curriculum_batches = curriculum.get_batches_list() if curriculum else []
+    curriculum_batches = curriculum.get_batches_list(window_id=active_window_id) if curriculum else []
     
     # Get teachers for assignment dropdown (exclude Head of the Discipline)
     teachers = _get_teachers_excluding_head()
@@ -628,13 +648,9 @@ def view_curriculum(curriculum_id):
     except Exception:
         year_term_configs_map = {}
 
-    active_window_id = None
-    if get_effective_window_id:
-        active_window_id = get_effective_window_id(admin_override=is_admin(current_user))
-        if active_window_id is None:
-            active_window_id = 1
+    active_window_id = _active_window_id()
 
-    return render_template('course_management/index.html', 
+    return render_template('course_management/index.html',
                          curriculum=curriculum, 
                          courses=courses, 
                          courses_by_year_term=sorted_groups,
@@ -657,15 +673,16 @@ def add_curriculum():
     form = CurriculumForm()
     form.applicable_batches.choices = get_available_batches()
     if form.validate_on_submit():
-        # Convert selected batches to comma-separated string
-        applicable_batches_str = ','.join(form.applicable_batches.data) if form.applicable_batches.data else None
-        
         new_curriculum = Curriculum(
             name=form.name.data,
             date=form.date.data,
-            applicable_batches=applicable_batches_str
         )
         db.session.add(new_curriculum)
+        db.session.flush()
+        new_curriculum.set_batches_for_window(
+            form.applicable_batches.data or [],
+            window_id=_active_window_id(),
+        )
         db.session.commit()
         flash(f'Curriculum "{form.name.data}" added successfully!', 'success')
         return redirect(url_for('course_management.view_curriculum', curriculum_id=new_curriculum.id))
@@ -679,11 +696,12 @@ def add_curriculum():
 def edit_curriculum(curriculum_id):
     """Edit a curriculum"""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
+    active_window_id = _active_window_id()
     form = CurriculumForm()
     form.applicable_batches.choices = get_available_batches(exclude_curriculum_id=curriculum_id)
     
-    # Include batches already assigned to this curriculum
-    existing_batches = curriculum.get_batches_list()
+    # Include batches already assigned to this curriculum (active window)
+    existing_batches = curriculum.get_batches_list(window_id=active_window_id)
     for batch in existing_batches:
         if (batch, batch) not in form.applicable_batches.choices:
             form.applicable_batches.choices.append((batch, batch))
@@ -696,12 +714,12 @@ def edit_curriculum(curriculum_id):
                 form.applicable_batches.choices.append((batch, batch))
         
         if form.validate_on_submit():
-            # Convert selected batches to comma-separated string
-            applicable_batches_str = ','.join(form.applicable_batches.data) if form.applicable_batches.data else None
-            
             curriculum.name = form.name.data
             curriculum.date = form.date.data
-            curriculum.applicable_batches = applicable_batches_str
+            curriculum.set_batches_for_window(
+                form.applicable_batches.data or [],
+                window_id=active_window_id,
+            )
             
             db.session.commit()
             flash(f'Curriculum "{form.name.data}" updated successfully!', 'success')
@@ -888,6 +906,8 @@ def add_course(curriculum_id):
             term=entered_term or None
         )
         db.session.add(new_course)
+        db.session.flush()
+        new_course.set_offered_for_window(True, window_id=_active_window_id())
         db.session.commit()
         flash('Course added successfully!', 'success')
         return redirect(url_for('course_management.view_curriculum', curriculum_id=curriculum_id))
@@ -1113,9 +1133,10 @@ def course_info(course_id):
 @course_management_bp.route('/course/<int:course_id>/toggle-offered', methods=['POST'])
 @login_required
 def toggle_offered(course_id):
-    """Toggle the offered status of a course"""
+    """Toggle the offered status of a course for the active operational window"""
     try:
         course = Course.query.get_or_404(course_id)
+        active_window_id = _active_window_id()
         
         if request.is_json:
             data = request.get_json()
@@ -1123,13 +1144,13 @@ def toggle_offered(course_id):
         else:
             offered = request.form.get('offered', 'true').lower() == 'true'
         
-        course.offered = offered
+        course.set_offered_for_window(offered, window_id=active_window_id)
         db.session.commit()
         
         return jsonify({
             'success': True,
             'message': f'Course {"offered" if offered else "not offered"} status updated successfully',
-            'offered': course.offered
+            'offered': course.is_offered(window_id=active_window_id)
         })
     except Exception as e:
         db.session.rollback()
@@ -1229,7 +1250,7 @@ def get_courses_for_registration():
                 refined_ids = set()
                 curricula = Curriculum.query.filter(Curriculum.id.in_(allowed_curriculum_ids)).all()
                 for curriculum in curricula:
-                    applicable_batches = curriculum.get_batches_list()
+                    applicable_batches = curriculum.get_batches_list(window_id=_active_window_id())
                     if not applicable_batches or batch_value in applicable_batches:
                         refined_ids.add(curriculum.id)
                 allowed_curriculum_ids = refined_ids
@@ -1244,8 +1265,11 @@ def get_courses_for_registration():
             allowed_curriculum_ids = set()
             curriculum_label = 'Curriculum lookup failed'
     
-    # Get all offered courses
-    query = Course.query.filter_by(offered=True)
+    # Get offered courses for the active operational window
+    if filter_offered_courses:
+        query = filter_offered_courses(Course.query, window_id=_active_window_id())
+    else:
+        query = Course.query.filter_by(offered=True)
     courses = query.order_by(Course.course_name.asc()).all()
     
     # Filter by year and term
@@ -1320,10 +1344,14 @@ def get_relevant_courses_for_retake():
         if not allowed_curriculum_ids:
             return jsonify({'success': True, 'courses': []})
 
-        offered_courses = Course.query.filter(
-            Course.offered.is_(True),
-            Course.curriculum_id.in_(allowed_curriculum_ids)
-        ).order_by(Course.course_code.asc(), Course.course_name.asc(), Course.id.asc()).all()
+        offered_query = Course.query.filter(Course.curriculum_id.in_(allowed_curriculum_ids))
+        if filter_offered_courses:
+            offered_query = filter_offered_courses(offered_query, window_id=_active_window_id())
+        else:
+            offered_query = offered_query.filter(Course.offered.is_(True))
+        offered_courses = offered_query.order_by(
+            Course.course_code.asc(), Course.course_name.asc(), Course.id.asc()
+        ).all()
 
         relevant_candidates = []
         seen_course_codes = set()

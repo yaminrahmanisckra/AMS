@@ -4,8 +4,8 @@
   "description": "Academic Management System for Law Discipline, Khulna University",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#4f46e5",
-  "theme_color": "#4f46e5",
+  "background_color": "#f0f2f5",
+  "theme_color": "#667eea",
   "orientation": "portrait-primary",
   "scope": "/",
   "icons": [

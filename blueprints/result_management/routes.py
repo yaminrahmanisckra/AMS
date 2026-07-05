@@ -17,7 +17,7 @@ from blueprints.class_management.models import Teacher, Session as ClassSession,
 from blueprints.course_management.models import StudentCourseRegistration, Course, ActiveSemesterConfig, CurriculumYearTerm
 from blueprints.student_management.models import Student as StudentProfile
 from blueprints.course_management.models import DutyAssignment
-from utils.window_utils import query_for_window, filter_by_active_window, stamp_window_id, ensure_record_in_window, get_for_window, get_or_404_for_window
+from utils.window_utils import query_for_window, filter_by_active_window, stamp_window_id, ensure_record_in_window, get_for_window, get_or_404_for_window, get_effective_window_id, filter_offered_courses
 import json
 from openpyxl import load_workbook
 import io
@@ -889,10 +889,9 @@ def add_subject(session_id):
                     if not Course:
                         return jsonify({'success': False, 'message': 'Course Management module not available'}), 503
                     
-                    courses = Course.query.filter_by(
-                        curriculum_id=curriculum_id,
-                        offered=True
-                    ).all()
+                    window_id = get_effective_window_id(admin_override=False) or 1
+                    course_query = Course.query.filter_by(curriculum_id=curriculum_id)
+                    courses = filter_offered_courses(course_query, window_id=window_id).all()
                     
                     if not courses:
                         return jsonify({
@@ -1010,10 +1009,9 @@ def add_subject(session_id):
                     
                     # Load offered courses from the curriculum
                     # Then filter strictly by year/term
-                    all_courses = Course.query.filter_by(
-                        curriculum_id=matching_cyt.curriculum_id,
-                        offered=True
-                    ).all()
+                    window_id = get_effective_window_id(admin_override=False) or 1
+                    course_query = Course.query.filter_by(curriculum_id=matching_cyt.curriculum_id)
+                    all_courses = filter_offered_courses(course_query, window_id=window_id).all()
                     
                     # Strictly filter courses by year/term - must match exactly
                     courses = []
@@ -1217,8 +1215,9 @@ def get_curricula_for_batch():
         
         normalized_batch = str(batch).strip()
         
+        window_id = get_effective_window_id(admin_override=False) or 1
         for curriculum in all_curricula:
-            batches_list = curriculum.get_batches_list()
+            batches_list = curriculum.get_batches_list(window_id)
             for b in batches_list:
                 if str(b).strip() == normalized_batch:
                     applicable_curricula.append({
@@ -1683,6 +1682,11 @@ def clear_exam_marks_from_result_management(exam_entry_id):
             result['message'] = f'Exam entry {exam_entry_id} not found'
             result['errors'].append(result['message'])
             return result
+
+        if getattr(exam_entry, 'is_external_subject', False):
+            result['message'] = 'External subject entries are not synced to Result Management'
+            result['success'] = True
+            return result
         
         # Validate required fields
         if not exam_entry.academic_session or not exam_entry.term:
@@ -1835,10 +1839,15 @@ def sync_exam_marks_to_result_management(exam_entry_id):
             result['message'] = f'Exam entry {exam_entry_id} not found'
             result['errors'].append(result['message'])
             return result
+
+        if getattr(exam_entry, 'is_external_subject', False):
+            result['message'] = 'External subject entries are not synced to Result Management'
+            result['success'] = True
+            return result
         
         # Validate required fields
         if not exam_entry.academic_session or not exam_entry.term:
-            result['message'] = 'Exam entry missing required fields: academic_session and term are required'
+            result['message'] = 'Exam entry missing required fields (academic_session, term)'
             result['errors'].append(result['message'])
             return result
         

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
     <meta name="theme-color" content="#4f46e5">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -19,6 +19,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/mobile.css') }}" rel="stylesheet">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     {% block extra_css %}{% endblock %}
     <style>
@@ -91,17 +92,14 @@
     </style>
     {% block force_scrolling_css %}{% endblock %}
 </head>
-<body>
-    <nav class="navbar navbar-expand-lg navbar-dark">
+<body data-active-endpoint="{{ request.endpoint or '' }}">
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-desktop d-none d-lg-block">
         <div class="container">
             <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
                 <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="KU Logo" style="height: 50px; width: auto; margin-right: 12px;">
                 <span>Academic Management System</span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
+            <div class="navbar-collapse show" id="navbarNav">
                 {% if current_user.is_authenticated %}
                 {% set active_role = current_user.active_role %}
                 {% set head_active = (active_role == 'head') %}
@@ -317,97 +315,6 @@
                             </a>
                         </div>
                     </div>
-                    <div class="d-flex d-lg-none flex-column mt-2 w-100">
-                        <div class="dropdown w-100 mb-2">
-                                {% if has_teacher_privileges(current_user) and show_class_management|default(false) %}
-                                <a class="btn btn-light w-100 mb-2 d-flex align-items-center justify-content-center" href="{{ url_for('class_management.index') }}" style="min-height: 44px; font-size: 0.95rem;">
-                                    <i class="fas fa-bell me-2"></i>Question Notifications
-                                    {% if question_notification_count|default(0) > 0 %}
-                                    <span class="badge bg-danger ms-2">{{ question_notification_count }}</span>
-                                    {% endif %}
-                                </a>
-                                {% endif %}
-                                <button class="btn btn-light w-100 dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="min-height: 44px; font-size: 0.95rem;">
-                                <i class="fas fa-compass me-2"></i>Modules Menu
-                            </button>
-                            <ul class="dropdown-menu w-100">
-                                <li><a class="dropdown-item" href="{{ url_for('index') }}"><i class="fas fa-home me-2"></i>Dashboard</a></li>
-                                {% if 'student' in user_roles %}
-                                <li>
-                                    <a class="dropdown-item d-flex align-items-center" href="{{ url_for('class_management.student_notifications_page') }}">
-                                        <i class="fas fa-bell me-2"></i>Notifications
-                                        {% if student_notification_count|default(0) > 0 %}
-                                        <span class="badge bg-danger ms-2">{{ student_notification_count }}</span>
-                                        {% endif %}
-                                    </a>
-                                </li>
-                                {% endif %}
-                                {% if 'student' in user_roles and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
-                                <li><a class="dropdown-item" href="{{ url_for('student_dashboard') }}"><i class="fas fa-user-graduate me-2"></i>Student Dashboard</a></li>
-                                {% endif %}
-                                {% if can_view_question_bank %}
-                                <li><a class="dropdown-item" href="{{ url_for('class_management.question_bank') }}"><i class="fas fa-book-reader me-2"></i>Question Bank</a></li>
-                                {% endif %}
-                                {% if has_teacher_privileges(current_user) %}
-                                {% if show_class_management %}
-                                <li><a class="dropdown-item" href="{{ url_for('class_management.index') }}"><i class="fas fa-chalkboard-teacher me-2"></i>Class Management</a></li>
-                                {% endif %}
-                                {% if show_result_management %}
-                                <li><a class="dropdown-item" href="{{ url_for('result_management.index') }}"><i class="fas fa-poll me-2"></i>Result Management</a></li>
-                                {% endif %}
-                                {% if show_routine_management %}
-                                <li><a class="dropdown-item" href="{{ url_for('routine_management.index') }}"><i class="fas fa-calendar-alt me-2"></i>Routine Management</a></li>
-                                {% endif %}
-                                <li><a class="dropdown-item" href="{{ url_for('routine_management.view_routine') }}"><i class="fas fa-calendar-check me-2"></i>View Routine</a></li>
-                                {% if show_exam_evaluation %}
-                                <li><a class="dropdown-item" href="{{ url_for('exam_evaluation') }}"><i class="fas fa-file-alt me-2"></i>Exam Evaluation</a></li>
-                                {% endif %}
-                                {% if show_academic_calendar %}
-                                <li><a class="dropdown-item" href="{{ url_for('academic_calendar.index') }}"><i class="fas fa-calendar-check me-2"></i>Academic Calendar</a></li>
-                                {% endif %}
-                                {% if show_students_management %}
-                                <li><a class="dropdown-item" href="{{ url_for('student_management.index') }}"><i class="fas fa-users me-2"></i>Students</a></li>
-                                {% endif %}
-                                {% if show_curriculum_management %}
-                                <li><a class="dropdown-item" href="{{ url_for('course_management.index') }}"><i class="fas fa-book me-2"></i>Curriculum</a></li>
-                                    {% endif %}
-                                    {% if show_curriculum_management %}
-                                    <li><a class="dropdown-item" href="{{ url_for('curriculator.index') }}"><i class="fas fa-book-open me-2"></i>Curriculator</a></li>
-                                    {% endif %}
-                                    {% if show_course_registration %}
-                                <li><a class="dropdown-item" href="{{ url_for('course_management.coordinator_registrations') }}"><i class="fas fa-clipboard-check me-2"></i>Course Registration</a></li>
-                                {% endif %}
-                                {% if show_remuneration %}
-                                <li><a class="dropdown-item" href="{{ url_for('remuneration_portal') }}"><i class="fas fa-money-bill-wave me-2"></i>Remuneration</a></li>
-                                {% endif %}
-                                {% if show_exam_committee_management %}
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" href="{{ url_for('exam_committee_management') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Management</a></li>
-                                {% endif %}
-                                {% if is_exam_committee_chief() or is_exam_committee_member() %}
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" href="{{ url_for('exam_committee_chief_dashboard') }}"><i class="fas fa-gavel me-2"></i>Exam Committee Chief</a></li>
-                                {% endif %}
-                                <li><a class="dropdown-item" href="{{ url_for('class_management.my_invitations') }}"><i class="fas fa-envelope-open-text me-2"></i>Invitations
-                                    {% if pending_invites_count and pending_invites_count > 0 %}
-                                        <span class="badge bg-warning text-dark ms-1">{{ pending_invites_count }}</span>
-                                    {% endif %}
-                                </a></li>
-                                {% endif %}
-                                {% if is_admin(current_user) %}
-                                <li><a class="dropdown-item" href="{{ url_for('admin_dashboard') }}"><i class="fas fa-user-shield me-2"></i>Admin</a></li>
-                                {% endif %}
-                            </ul>
-                        </div>
-                        <div class="d-flex flex-column gap-2 w-100">
-                            <a class="btn btn-outline-light w-100 d-flex align-items-center justify-content-center" href="{{ url_for('profile') }}" style="min-height: 44px; font-size: 0.95rem;">
-                                <i class="fas fa-user me-2"></i>Profile
-                            </a>
-                            <a class="btn btn-danger w-100 d-flex align-items-center justify-content-center" href="{{ url_for('auth.logout') }}" style="min-height: 44px; font-size: 0.95rem;">
-                                <i class="fas fa-sign-out-alt me-2"></i>Logout
-                            </a>
-                        </div>
-                    </div>
                 </div>
                 {% else %}
                 <div class="navbar-nav ms-auto">
@@ -421,13 +328,93 @@
                 {% endif %}
             </div>
         </div>
-    </div>
-</nav>
+    </nav>
 
-    <main>
+    <header class="m-topbar d-lg-none">
+        <a class="m-topbar-brand" href="{{ url_for('index') }}">
+            <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="KU">
+            <span class="m-topbar-brand-text">AMS</span>
+        </a>
+        <span class="m-topbar-title">{% block mobile_title %}{% endblock %}</span>
+        <div class="m-topbar-actions">
+            {% if current_user.is_authenticated %}
+            {% if current_operational_window %}
+            {% if show_window_switcher and active_operational_windows %}
+            <div class="dropdown">
+                <button class="m-topbar-btn dropdown-toggle border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Switch window">
+                    <span class="window-pill"><i class="fas fa-layer-group"></i> W{{ current_operational_window.id }}</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow py-1">
+                    {% for w in active_operational_windows %}
+                    <li>
+                        <form method="POST" action="{{ url_for('auth.set_window') }}">
+                            <input type="hidden" name="window_id" value="{{ w.id }}">
+                            <button type="submit" class="dropdown-item small {% if current_operational_window.id == w.id %}active{% endif %}">W{{ w.id }} — {{ w.name }}</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <span class="m-topbar-btn" title="{{ current_operational_window.name }}">
+                <span class="window-pill"><i class="fas fa-layer-group"></i> W{{ current_operational_window.id }}</span>
+            </span>
+            {% endif %}
+            {% endif %}
+            {% if has_teacher_privileges(current_user) and show_class_management|default(false) %}
+            <div class="dropdown">
+                <a class="m-topbar-btn dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="Question notifications">
+                    <i class="fas fa-bell"></i>
+                    {% if question_notification_count|default(0) > 0 %}<span class="badge-dot">{{ question_notification_count }}</span>{% endif %}
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end shadow notification-dropdown">
+                    <li class="dropdown-header small fw-bold">Course Questions</li>
+                    {% if question_notifications|default([]) %}
+                    {% for n in question_notifications[:5] %}
+                    <li><a class="dropdown-item small py-2" href="{{ url_for('class_management.course_questions', session_id=n.session_id) }}">{{ n.subject }}</a></li>
+                    {% endfor %}
+                    <li><a class="dropdown-item small text-primary" href="{{ url_for('class_management.index') }}">View all</a></li>
+                    {% else %}
+                    <li class="dropdown-item small text-muted">No new questions</li>
+                    {% endif %}
+                </ul>
+            </div>
+            {% endif %}
+            {% if current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role) %}
+            <div class="dropdown">
+                <a class="m-topbar-btn dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+                    <i class="fas fa-bell"></i>
+                    {% if student_notification_count|default(0) > 0 %}<span class="badge-dot">{{ student_notification_count }}</span>{% endif %}
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end shadow notification-dropdown">
+                    <li class="dropdown-header small fw-bold">Notifications</li>
+                    {% if student_notifications|default([]) %}
+                    {% for n in student_notifications[:5] %}
+                    <li><a class="dropdown-item small py-2" href="{{ url_for('class_management.student_notification_read', notification_id=n.id) }}">{{ n.title }}</a></li>
+                    {% endfor %}
+                    <li><a class="dropdown-item small text-primary" href="{{ url_for('class_management.student_notifications_page') }}">View all</a></li>
+                    {% else %}
+                    <li class="dropdown-item small text-muted">No new notifications</li>
+                    {% endif %}
+                </ul>
+            </div>
+            {% endif %}
+            <button type="button" class="m-topbar-btn" id="mMenuBtn" aria-label="Open menu">
+                <i class="fas fa-bars"></i>
+            </button>
+            {% else %}
+            <a class="m-topbar-btn" href="{{ url_for('auth.login') }}" title="Login"><i class="fas fa-sign-in-alt"></i></a>
+            <a class="m-topbar-btn" href="{{ url_for('auth.register') }}" title="Register"><i class="fas fa-user-plus"></i></a>
+            {% endif %}
+        </div>
+    </header>
+
+    {% include 'partials/mobile_drawer.html' %}
+
+    <main class="m-main">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                <div class="container mt-3">
+                <div class="m-flash-wrap container mt-lg-3 mt-0">
                     {% for category, message in messages %}
                         <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
                             <i class="fas fa-{{ 'exclamation-triangle' if category == 'error' else 'info-circle' }} me-2"></i>
@@ -619,6 +606,7 @@
     <script src="{{ url_for('static', filename='js/debug.js') }}"></script>
     <!-- Custom App-wide JS -->
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mobile-shell.js') }}"></script>
     
     <!-- Page-specific scripts -->
     {% block scripts %}{% endblock %}

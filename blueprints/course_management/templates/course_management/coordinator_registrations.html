@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Course Registration Review{% endblock %}
+{% block mobile_title %}Registration{% endblock %}
 {% block content %}
 <div class="container my-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -93,7 +94,7 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="table-responsive">
+                    <div class="table-responsive m-table-scroll-sticky">
                         <table class="table table-sm table-bordered">
                             <thead class="table-light">
                                 <tr>
@@ -160,7 +161,7 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="table-responsive">
+                    <div class="table-responsive m-table-scroll-sticky">
                         <table class="table table-sm table-bordered">
                             <thead class="table-light">
                                 <tr>
@@ -384,7 +385,7 @@ function viewRegistration(studentId, session, year, term, isPending) {
                         </button>
                     </div>
                 </div>
-                <div class="table-responsive">
+                <div class="table-responsive m-table-scroll-sticky">
                     <table class="table table-bordered" id="editTable">
                         <thead class="table-light">
                             <tr>

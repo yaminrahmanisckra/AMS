@@ -285,3 +285,46 @@ def deactivate_window(window_id):
 
 def get_active_window_info():
     return [w.to_dict() for w in get_active_windows()]
+
+
+def get_curriculum_batches(curriculum, window_id=None):
+    """Window-scoped applicable batches for a curriculum."""
+    if curriculum is None:
+        return []
+    return curriculum.get_batches_list(window_id=window_id)
+
+
+def course_is_offered(course, window_id=None):
+    """Window-scoped offered flag for a course."""
+    if course is None:
+        return False
+    return course.is_offered(window_id=window_id)
+
+
+def filter_offered_courses(query, window_id=None):
+    """Filter a Course query to rows offered in the active operational window."""
+    from sqlalchemy import and_, exists, or_
+
+    from blueprints.course_management.models import Course, CourseWindowOffered
+
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+    if window_id is None:
+        return query.filter(Course.offered.is_(True))
+
+    window_row = CourseWindowOffered
+    has_window_row = exists().where(
+        and_(
+            window_row.course_id == Course.id,
+            window_row.window_id == window_id,
+        )
+    )
+    window_offered = exists().where(
+        and_(
+            window_row.course_id == Course.id,
+            window_row.window_id == window_id,
+            window_row.offered.is_(True),
+        )
+    )
+    fallback_offered = and_(~has_window_row, Course.offered.is_(True))
+    return query.filter(or_(window_offered, fallback_offered))

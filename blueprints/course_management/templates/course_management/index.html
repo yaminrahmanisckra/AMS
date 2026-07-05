@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}Curriculum Management{% endblock %}
+{% block mobile_title %}Curriculum{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -433,8 +434,9 @@
                                 {% if curr.date %}
                                     <div class="text-muted small mb-1"><i class="fas fa-calendar me-1"></i>{{ curr.date }}</div>
                                 {% endif %}
-                                {% if curr.get_batches_list() %}
-                                    <div class="text-muted small mb-1"><i class="fas fa-users me-1"></i>{{ curr.get_batches_list()|join(', ') }}</div>
+                                {% set window_id = active_window_id|default(1) %}
+                                {% if curr.get_batches_list(window_id) %}
+                                    <div class="text-muted small mb-1"><i class="fas fa-users me-1"></i>{{ curr.get_batches_list(window_id)|join(', ') }}</div>
                                 {% endif %}
                                 <div class="text-muted small"><i class="fas fa-book me-1"></i><strong>{{ curr.courses.count() }}</strong> courses</div>
                             </a>
@@ -444,7 +446,7 @@
                 </div>
 
                 <!-- Right Content: Courses or Curriculum Info -->
-                <div class="col-lg-9 col-md-8 content-wrapper" id="contentWrapper">
+                <div class="col-lg-9 col-md-8 content-wrapper curriculum-main" id="contentWrapper">
                     {% if curriculum %}
                         <!-- Viewing a specific curriculum -->
                         <div class="curriculum-info-card">
@@ -458,10 +460,11 @@
                                                 <span>{{ curriculum.date }}</span>
                                             </div>
                                         {% endif %}
-                                        {% if curriculum.get_batches_list() %}
+                                        {% set window_id = active_window_id|default(1) %}
+                                        {% if curriculum.get_batches_list(window_id) %}
                                             <div class="text-muted d-flex align-items-center">
                                                 <i class="fas fa-users me-2 text-primary"></i>
-                                                <span><strong>Applicable for:</strong> {{ curriculum.get_batches_list()|join(', ') }}</span>
+                                                <span><strong>Applicable for:</strong> {{ curriculum.get_batches_list(window_id)|join(', ') }}{% if active_window_id %}<span class="curriculum-window-pill ms-2" title="Per operational window">W{{ active_window_id }}</span>{% endif %}</span>
                                             </div>
                                         {% endif %}
                                     </div>
@@ -616,7 +619,7 @@
                                                             <th style="min-width: 70px;">Type</th>
                                                             <th style="min-width: 60px;">Category</th>
                                                         <th style="min-width: 100px;">Core/Optional</th>
-                                                        <th style="min-width: 80px;">Offered</th>
+                                                        <th style="min-width: 80px;">Offered{% if active_window_id %}<span class="curriculum-window-pill table-pill" title="Offered status per operational window">W{{ active_window_id }}</span>{% endif %}</th>
                                                         <th style="min-width: 200px;">Assigned{% if active_window_id %}<span class="curriculum-window-pill table-pill" title="Teacher assignments per operational window">W{{ active_window_id }}</span>{% endif %}</th>
                                                             <th style="min-width: 200px; width: 200px;">Actions</th>
                                                         </tr>
@@ -647,10 +650,10 @@
                                                                     <input class="form-check-input offered-toggle" type="checkbox" 
                                                                            id="offered_{{ course.id }}" 
                                                                            data-course-id="{{ course.id }}"
-                                                                           {% if course.offered %}checked{% endif %}>
+                                                                           {% if course.is_offered(active_window_id|default(1)) %}checked{% endif %}>
                                                                     <label class="form-check-label" for="offered_{{ course.id }}">
-                                                                        <span class="badge bg-{{ 'success' if course.offered else 'secondary' }}">
-                                                                            {{ 'ON' if course.offered else 'OFF' }}
+                                                                        <span class="badge bg-{{ 'success' if course.is_offered(active_window_id|default(1)) else 'secondary' }}">
+                                                                            {{ 'ON' if course.is_offered(active_window_id|default(1)) else 'OFF' }}
                                                                         </span>
                                                                     </label>
                                                                 </div>
@@ -730,7 +733,7 @@
                                                 <th style="min-width: 70px;">Type</th>
                                                 <th style="min-width: 60px;">Category</th>
                                                 <th style="min-width: 100px;">Core/Optional</th>
-                                                <th style="min-width: 80px;">Offered</th>
+                                                <th style="min-width: 80px;">Offered{% if active_window_id %}<span class="curriculum-window-pill table-pill" title="Offered status per operational window">W{{ active_window_id }}</span>{% endif %}</th>
                                                 <th style="min-width: 200px;">Assigned{% if active_window_id %}<span class="curriculum-window-pill table-pill" title="Teacher assignments per operational window">W{{ active_window_id }}</span>{% endif %}</th>
                                                 <th style="min-width: 120px; width: 120px;">Actions</th>
                                             </tr>
@@ -761,10 +764,10 @@
                                                         <input class="form-check-input offered-toggle" type="checkbox" 
                                                                id="offered_{{ course.id }}" 
                                                                data-course-id="{{ course.id }}"
-                                                               {% if course.offered %}checked{% endif %}>
+                                                               {% if course.is_offered(active_window_id|default(1)) %}checked{% endif %}>
                                                         <label class="form-check-label" for="offered_{{ course.id }}">
-                                                            <span class="badge bg-{{ 'success' if course.offered else 'secondary' }}">
-                                                                {{ 'ON' if course.offered else 'OFF' }}
+                                                            <span class="badge bg-{{ 'success' if course.is_offered(active_window_id|default(1)) else 'secondary' }}">
+                                                                {{ 'ON' if course.is_offered(active_window_id|default(1)) else 'OFF' }}
                                                             </span>
                                                         </label>
                                                     </div>
@@ -863,10 +866,11 @@
                                                 </div>
                                             {% endif %}
                                             
-                                            {% if curr.get_batches_list() %}
+                                            {% set window_id = active_window_id|default(1) %}
+                                            {% if curr.get_batches_list(window_id) %}
                                                 <div class="text-muted mb-3">
                                                     <i class="fas fa-users me-2 text-primary"></i>
-                                                    <strong>Applicable for:</strong> {{ curr.get_batches_list()|join(', ') }}
+                                                    <strong>Applicable for:</strong> {{ curr.get_batches_list(window_id)|join(', ') }}
                                                 </div>
                                             {% endif %}
                                             
@@ -929,6 +933,7 @@
                     <div class="mb-3">
                         <label class="form-label fw-bold">
                             <i class="fas fa-users me-2"></i>{{ curriculum_form.applicable_batches.label.text }}
+                            {% if active_window_id %}<span class="curriculum-window-pill ms-1" title="Per operational window">W{{ active_window_id }}</span>{% endif %}
                         </label>
                         <!-- Hidden select field for form submission -->
                         <select name="applicable_batches" id="applicable_batches_hidden" multiple style="display: none;">
@@ -1008,6 +1013,7 @@
                     <div class="mb-3">
                         <label class="form-label fw-bold">
                             <i class="fas fa-users me-2"></i>{{ edit_curriculum_form.applicable_batches.label.text }}
+                            {% if active_window_id %}<span class="curriculum-window-pill ms-1" title="Per operational window">W{{ active_window_id }}</span>{% endif %}
                         </label>
                         <!-- Hidden select field for form submission -->
                         <select name="applicable_batches" id="edit_applicable_batches_hidden" multiple style="display: none;">

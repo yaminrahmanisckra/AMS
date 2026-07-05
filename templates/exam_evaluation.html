@@ -1,201 +1,183 @@
 {% extends "base.html" %}
 
+{% block mobile_title %}Exam Eval{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-        <h3 class="mb-0"><i class="fas fa-file-alt me-2 text-primary"></i>Exam Paper Evaluation</h3>
-        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Dashboard</a>
+<div class="container mt-3 exam-eval-page">
+    <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+        <h3 class="mb-0 exam-eval-page-title"><i class="fas fa-file-alt me-2 text-primary"></i>Exam Paper Evaluation</h3>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left me-1"></i>Back to Dashboard</a>
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newExamEntryModal">
+                <i class="fas fa-plus me-1"></i>External Subject Entry
+            </button>
+        </div>
     </div>
 
-    <div class="row">
-        <div class="col-12 mb-4">
-            <div class="d-flex justify-content-between align-items-center">
-                <div></div>
-                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newExamEntryModal">
-                    <i class="fas fa-plus me-2"></i>External Subject Entry
-                </button>
-            </div>
-        </div>
-
-        <div class="col-12 mb-4">
+    <div class="row exam-eval-sections">
+        <div class="col-12 mb-2">
+            {% set qs_ns = namespace(count=0) %}
+            {% if question_setter_roster %}
+                {% for group in question_setter_roster %}
+                    {% for row in group.rows %}
+                        {% set qs_ns.count = qs_ns.count + 1 %}
+                    {% endfor %}
+                {% endfor %}
+            {% endif %}
             <div class="card shadow-sm h-100 border-primary border-opacity-25">
-                <div class="card-header bg-primary-subtle text-primary d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
-                    <h5 class="mb-0"><i class="fas fa-user-edit me-2"></i>Your question setter courses</h5>
-                    <small class="text-muted mb-0">আপনি প্রশ্ন প্রণেতা হিসেবে যে কোর্সগুলোতে আছেন (চালু সেমিস্টার)</small>
+                <div class="card-header bg-primary-subtle text-primary exam-eval-collapse-toggle d-flex justify-content-between align-items-center flex-wrap gap-2 py-2"
+                     role="button"
+                     data-bs-toggle="collapse"
+                     data-bs-target="#questionSetterCollapse"
+                     aria-expanded="false"
+                     aria-controls="questionSetterCollapse">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <h5 class="mb-0"><i class="fas fa-user-edit me-2"></i>Your question setter courses</h5>
+                        {% if qs_ns.count %}
+                        <span class="badge bg-primary">{{ qs_ns.count }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <small class="text-muted mb-0 d-none d-md-inline">আপনি প্রশ্ন প্রণেতা হিসেবে যে কোর্সগুলোতে আছেন</small>
+                        <i class="fas fa-chevron-down collapse-chevron text-primary"></i>
+                    </div>
                 </div>
-                <div class="card-body">
-                    {% if question_setter_roster %}
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th scope="col">Course</th>
-                                        <th scope="col">Code</th>
-                                        <th scope="col">Part</th>
-                                        <th scope="col">Session / Year / Term</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for group in question_setter_roster %}
-                                        {% for row in group.rows %}
+                <div class="collapse" id="questionSetterCollapse">
+                    <div class="card-body pt-2">
+                        {% if question_setter_roster %}
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle mb-0 exam-eval-qs-table">
+                                    <thead class="table-light">
                                         <tr>
-                                            <td>{{ row.course_name or '—' }}</td>
-                                            <td><span class="font-monospace small">{{ row.course_code or '—' }}</span></td>
-                                            <td>
-                                                {% if row.part %}
-                                                <span class="badge bg-info text-white">Part {{ row.part }}</span>
-                                                {% else %}
-                                                <span class="text-muted">—</span>
-                                                {% endif %}
-                                            </td>
-                                            <td class="small text-nowrap">
-                                                {{ row.academic_session or '—' }}
-                                                <span class="text-muted">·</span>
-                                                {{ row.year or '—' }} / {{ row.term or '—' }}
-                                            </td>
+                                            <th scope="col" class="col-course">Course</th>
+                                            <th scope="col" class="col-code">Code</th>
+                                            <th scope="col" class="col-part">Part</th>
+                                            <th scope="col" class="col-session">Session / Year / Term</th>
                                         </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for group in question_setter_roster %}
+                                            {% for row in group.rows %}
+                                            <tr>
+                                                <td data-label="Course">{{ row.course_name or '—' }}</td>
+                                                <td data-label="Code"><span class="font-monospace small">{{ row.course_code or '—' }}</span></td>
+                                                <td data-label="Part">
+                                                    {% if row.part %}
+                                                    <span class="badge bg-info text-white exam-eval-badge-part">Part {{ row.part }}</span>
+                                                    {% else %}
+                                                    <span class="text-muted">—</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td data-label="Session" class="small">
+                                                    {{ row.academic_session or '—' }}
+                                                    <span class="text-muted">·</span>
+                                                    {{ row.year or '—' }} / {{ row.term or '—' }}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
                                         {% endfor %}
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <p class="text-muted mb-0 small">
-                            <i class="fas fa-info-circle me-1"></i>
-                            You have no question setter assignments for the active semester, or no semester is active.
-                        </p>
-                    {% endif %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <p class="text-muted mb-0 small">
+                                <i class="fas fa-info-circle me-1"></i>
+                                You have no question setter assignments for the active semester, or no semester is active.
+                            </p>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-12 mb-4">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h5 class="mb-0 text-primary"><i class="fas fa-list me-2 text-primary"></i>Recent Entries</h5>
+        <div class="col-12 mb-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h5 class="mb-0 text-primary exam-eval-section-title"><i class="fas fa-list me-2 text-primary"></i>Recent Entries</h5>
                 {% if archived_entries %}
                 <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#archivedTable" aria-expanded="false" aria-controls="archivedTable">
                     <i class="fas fa-archive me-1"></i>Archived Entries
                 </button>
                 {% endif %}
             </div>
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
+            <div class="card shadow-sm h-100 exam-eval-entries-card">
+                <div class="card-body py-2 px-2">
                     {% if entries %}
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle">
-                                <thead class="d-none d-md-table-header-group">
-                                    <tr>
-                                        <th>Course</th>
-                                        <th>Code</th>
-                                        <th>Part</th>
-                                        <th>Year / Term</th>
-                                        <th>Level</th>
-                                        {% if not hide_scrutinizer_info %}
-                                        <th>Scrutinizer</th>
+                        <div class="exam-eval-entries-list">
+                            {% for entry in entries %}
+                            <div class="exam-eval-entry">
+                                <div class="exam-eval-entry__info">
+                                    <div class="exam-eval-entry__title-row">
+                                        <span class="exam-eval-entry__title">{{ entry.course_name }}</span>
+                                        {% if entry.show_retake_label %}
+                                        <span class="badge bg-danger-subtle text-danger exam-eval-meta-badge">Retake</span>
                                         {% endif %}
-                                        <th>Created</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for entry in entries %}
-                                    <tr>
-                                        <td data-label="Course">
-                                            {{ entry.course_name }}
-                                            {% if entry.show_retake_label %}
-                                                <span class="text-danger fw-semibold ms-1">(Retake)</span>
-                                            {% endif %}
-                                        </td>
-                                        <td data-label="Code">{{ entry.course_code }}</td>
-                                        <td data-label="Part">
-                                            {% if entry.section %}
-                                                <span class="badge bg-info text-white">Part: {{ entry.section }}</span>
-                                            {% else %}
-                                                <span class="text-muted">—</span>
-                                            {% endif %}
-                                        </td>
-                                        <td data-label="Year / Term">{{ (entry.year or '-') ~ ' / ' ~ (entry.term or '-') }}</td>
-                                        <td class="text-uppercase" data-label="Level">{{ entry.program_level }}</td>
-                                        {% if not hide_scrutinizer_info %}
-                                        <td data-label="Scrutinizer">
-                                            {% set scr = teacher_map.get(entry.assigned_scrutinizer_id) %}
-                                            {% if scr %}
-                                                <span class="badge bg-success-subtle text-success"><i class="fas fa-user-check me-1"></i>{{ scr.name }}</span>
-                                            {% else %}
-                                                <span class="text-muted small">Not assigned</span>
-                                            {% endif %}
-                                        </td>
+                                        {% if entry.program_level == 'pg' %}
+                                        <span class="badge bg-dark exam-eval-badge-level">PG</span>
+                                        {% elif entry.program_level == 'ug' %}
+                                        <span class="badge bg-secondary exam-eval-badge-level">UG</span>
                                         {% endif %}
-                                        <td data-label="Created">{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
-                                    </tr>
-                                    <tr class="table-light">
-                                        <td colspan="{{ 7 if not hide_scrutinizer_info else 6 }}">
-                                            <div class="d-flex flex-wrap gap-2 align-items-center">
-                                                {% if entry.submitted_to_committee %}
-                                                <button class="btn btn-outline-primary btn-sm" disabled title="Cannot edit marks after submission. Please unsubmit first.">Marks Entry</button>
-                                                {% else %}
-                                                <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
-                                                {% endif %}
-                                                {% if entry.id in evaluator_assigned_entry_ids %}
-                                                    {# Entry is from Exam Committee Chief assignment - show submit/unsubmit #}
-                                                    {% if entry.submitted_to_committee %}
-                                                    <button class="btn btn-outline-secondary btn-sm" disabled>Submitted</button>
-                                                    <form action="{{ url_for('unsubmit_exam_entry', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Withdraw submission and edit again?');">
-                                                        <button type="submit" class="btn btn-outline-danger btn-sm">Unsubmit</button>
-                                                    </form>
-                                                    {% else %}
-                                                    <form action="{{ url_for('submit_exam_entry_to_committee', entry_id=entry.id) }}" method="POST" class="m-0">
-                                                        <button type="submit" class="btn btn-outline-info btn-sm" {% if not entry.marks_data %}disabled title="Please enter marks first"{% endif %}>Submit to Committee</button>
-                                                    </form>
-                                                    {% endif %}
-                                                {% endif %}
-                                                {# If entry is NOT from evaluator assignment (evaluator created it themselves), no submit button #}
-                                                <div class="dropdown">
-                                                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="entry-more-{{ entry.id }}" data-bs-toggle="dropdown" aria-expanded="false" aria-label="More actions">
-                                                        <i class="fas fa-ellipsis-h me-1"></i>More
+                                    </div>
+                                    <div class="exam-eval-entry__meta">
+                                        <span><span class="text-muted">Code:</span> <span class="font-monospace">{{ entry.course_code }}</span></span>
+                                        <span><span class="text-muted">Part:</span> {% if entry.section %}{{ entry.section }}{% else %}—{% endif %}</span>
+                                        <span><span class="text-muted">Year/Term:</span> {{ (entry.year or '-') ~ '/' ~ (entry.term or '-') }}</span>
+                                        {% if entry.submitted_to_committee %}
+                                        <span class="text-success"><i class="fas fa-check-circle me-1"></i>Submitted {{ entry.submitted_at.strftime('%Y-%m-%d') if entry.submitted_at else '' }}</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="exam-eval-entry__actions">
+                                    {% if entry.submitted_to_committee %}
+                                    <button class="btn btn-outline-primary btn-sm" disabled title="Unsubmit first to edit marks">Marks Entry</button>
+                                    {% else %}
+                                    <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
+                                    {% endif %}
+                                    {% if entry.id in evaluator_assigned_entry_ids %}
+                                        {% if entry.submitted_to_committee %}
+                                        <form action="{{ url_for('unsubmit_exam_entry', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Withdraw submission and edit again?');">
+                                            <button type="submit" class="btn btn-outline-warning btn-sm">Unsubmit</button>
+                                        </form>
+                                        {% else %}
+                                        <form action="{{ url_for('submit_exam_entry_to_committee', entry_id=entry.id) }}" method="POST" class="m-0">
+                                            <button type="submit" class="btn btn-outline-info btn-sm" {% if not entry.marks_data %}disabled title="Enter marks first"{% endif %}>Submit to Committee</button>
+                                        </form>
+                                        {% endif %}
+                                    {% endif %}
+                                    <div class="dropdown exam-eval-more-dropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" aria-label="More actions for {{ entry.course_name }}">
+                                            More
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                                            <li>
+                                                <a class="dropdown-item" href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}">
+                                                    <i class="fas fa-edit me-2 text-warning"></i>Edit
+                                                </a>
+                                            </li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li>
+                                                <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Archive this entry?');">
+                                                    <button type="submit" class="dropdown-item">
+                                                        <i class="fas fa-archive me-2 text-secondary"></i>Archive
                                                     </button>
-                                                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="entry-more-{{ entry.id }}">
-                                                        <li>
-                                                            <a class="dropdown-item" href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}">
-                                                                <i class="fas fa-edit me-2 text-warning"></i>Edit
-                                                            </a>
-                                                        </li>
-                                                        <li><hr class="dropdown-divider"></li>
-                                                        <li>
-                                                            <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Archive this entry?');">
-                                                                <button type="submit" class="dropdown-item">
-                                                                    <i class="fas fa-archive me-2 text-secondary"></i>Archive
-                                                                </button>
-                                                            </form>
-                                                        </li>
-                                                        <li>
-                                                            <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this entry?');">
-                                                                <button type="submit" class="dropdown-item text-danger">
-                                                                    <i class="fas fa-trash-alt me-2"></i>Delete
-                                                                </button>
-                                                            </form>
-                                                        </li>
-                                                    </ul>
-                                                </div>
-                                            </div>
-                                            {% if entry.submitted_to_committee %}
-                                            <div class="mt-2 small {{ 'text-success' if entry.submitted_to_committee else 'text-muted' }}">
-                                                {% if entry.submitted_to_committee %}
-                                                    Submitted on {{ entry.submitted_at.strftime('%Y-%m-%d %H:%M') if entry.submitted_at else '—' }}
-                                                {% else %}
-                                                    Not yet submitted to committee
-                                                {% endif %}
-                                            </div>
-                                            {% endif %}
-                                        </td>
-                                    </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
+                                                </form>
+                                            </li>
+                                            <li>
+                                                <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this entry?');">
+                                                    <button type="submit" class="dropdown-item text-danger">
+                                                        <i class="fas fa-trash-alt me-2"></i>Delete
+                                                    </button>
+                                                </form>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
                         </div>
                     {% else %}
-                        <div class="text-center text-muted py-4">
-                            <i class="fas fa-folder-open fa-3x mb-2"></i>
-                            <p class="mb-0">No entries recorded yet.</p>
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-folder-open fa-2x mb-1"></i>
+                            <p class="mb-0 small">No entries recorded yet.</p>
                         </div>
                     {% endif %}
                 </div>
@@ -242,6 +224,129 @@
                                             {% else %}
                                             <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Open</a>
                                             {% endif %}
+                                            <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="d-inline">
+                                                <input type="hidden" name="undo" value="1">
+                                                <button type="submit" class="btn btn-outline-secondary btn-sm">Restore</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="col-12 mb-2 exam-eval-external-section">
+            <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+                <div>
+                    <h5 class="mb-0 text-secondary exam-eval-section-title"><i class="fas fa-external-link-alt me-2 text-secondary"></i>External Subject Evaluation</h5>
+                    <small class="text-muted exam-eval-section-subtitle">অন্য ডিসিপ্লিনের খাতা — নিজ ডিসিপ্লিনের পরীক্ষা/কমিটির সাথে সম্পর্কিত নয়</small>
+                </div>
+                {% if external_archived_entries %}
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#externalArchivedTable" aria-expanded="false" aria-controls="externalArchivedTable">
+                    <i class="fas fa-archive me-1"></i>Archived External Entries
+                </button>
+                {% endif %}
+            </div>
+            <div class="card shadow-sm h-100 border-secondary border-opacity-25 exam-eval-entries-card">
+                <div class="card-body py-2 px-2">
+                    {% if external_entries %}
+                        <div class="exam-eval-entries-list">
+                            {% for entry in external_entries %}
+                            <div class="exam-eval-entry exam-eval-entry--external">
+                                <div class="exam-eval-entry__info">
+                                    <div class="exam-eval-entry__title-row">
+                                        <span class="exam-eval-entry__title">{{ entry.course_name }}</span>
+                                        {% if entry.program_level == 'pg' %}
+                                        <span class="badge bg-dark exam-eval-badge-level">PG</span>
+                                        {% elif entry.program_level == 'ug' %}
+                                        <span class="badge bg-secondary exam-eval-badge-level">UG</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="exam-eval-entry__meta">
+                                        <span><span class="text-muted">Code:</span> <span class="font-monospace">{{ entry.course_code }}</span></span>
+                                        <span><span class="text-muted">Part:</span> {% if entry.section %}{{ entry.section }}{% else %}—{% endif %}</span>
+                                        <span><span class="text-muted">Year/Term:</span> {{ (entry.year or '-') ~ '/' ~ (entry.term or '-') }}</span>
+                                    </div>
+                                </div>
+                                <div class="exam-eval-entry__actions">
+                                    <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Marks Entry</a>
+                                    <div class="dropdown exam-eval-more-dropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="true" aria-expanded="false" aria-label="More actions for {{ entry.course_name }}">
+                                            More
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end shadow">
+                                            <li>
+                                                <a class="dropdown-item" href="{{ url_for('edit_exam_evaluation', entry_id=entry.id) }}">
+                                                    <i class="fas fa-edit me-2 text-warning"></i>Edit
+                                                </a>
+                                            </li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li>
+                                                <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Archive this external entry?');">
+                                                    <button type="submit" class="dropdown-item">
+                                                        <i class="fas fa-archive me-2 text-secondary"></i>Archive
+                                                    </button>
+                                                </form>
+                                            </li>
+                                            <li>
+                                                <form action="{{ url_for('delete_exam_evaluation', entry_id=entry.id) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this external entry?');">
+                                                    <button type="submit" class="dropdown-item text-danger">
+                                                        <i class="fas fa-trash-alt me-2"></i>Delete
+                                                    </button>
+                                                </form>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-folder-open fa-2x mb-1"></i>
+                            <p class="mb-0 small">No external subjects recorded yet.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% if external_archived_entries %}
+            <div class="collapse mt-3" id="externalArchivedTable">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0"><i class="fas fa-archive me-2 text-secondary"></i>Archived External Entries</h6>
+                    </div>
+                    <div class="card-body p-2">
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Course</th>
+                                        <th>Code</th>
+                                        <th>Part</th>
+                                        <th>Archived On</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for entry in external_archived_entries %}
+                                    <tr class="text-muted">
+                                        <td>{{ entry.course_name }}</td>
+                                        <td>{{ entry.course_code }}</td>
+                                        <td>
+                                            {% if entry.section %}
+                                                <span class="badge bg-secondary text-white">Part: {{ entry.section }}</span>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ entry.created_at.strftime('%Y-%m-%d') }}</td>
+                                        <td class="text-end">
+                                            <a href="{{ url_for('exam_marks_entry', entry_id=entry.id) }}" class="btn btn-outline-primary btn-sm">Open</a>
                                             <form action="{{ url_for('archive_exam_evaluation', entry_id=entry.id) }}" method="POST" class="d-inline">
                                                 <input type="hidden" name="undo" value="1">
                                                 <button type="submit" class="btn btn-outline-secondary btn-sm">Restore</button>
@@ -353,6 +458,7 @@
             </div>
             <div class="modal-body">
                 <form method="POST" id="examEntryForm">
+                    <input type="hidden" name="is_external_subject" value="1">
                     <input type="hidden" id="selected_batch" name="batch" value="">
                     <input type="hidden" id="curriculum_id_hidden" name="curriculum_id" value="">
                     <input type="hidden" id="entry_academic_session" name="academic_session" value="">
@@ -560,6 +666,46 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     initializeEntryContext();
+
+    // More dropdown: fixed positioning + auto dropup near viewport bottom
+    document.querySelectorAll('.exam-eval-more-dropdown').forEach(function(dropdownEl) {
+        const toggle = dropdownEl.querySelector('[data-bs-toggle="dropdown"]');
+        const menu = dropdownEl.querySelector('.dropdown-menu');
+        if (!toggle || !menu || typeof bootstrap === 'undefined') {
+            return;
+        }
+
+        const dropdown = bootstrap.Dropdown.getOrCreateInstance(toggle, {
+            popperConfig: function(defaultConfig) {
+                const modifiers = (defaultConfig && defaultConfig.modifiers) ? defaultConfig.modifiers.slice() : [];
+                modifiers.push({
+                    name: 'preventOverflow',
+                    options: { boundary: 'viewport', padding: 8 }
+                });
+                modifiers.push({
+                    name: 'flip',
+                    options: { fallbackPlacements: ['top-start', 'bottom-start'] }
+                });
+                return Object.assign({}, defaultConfig || {}, {
+                    strategy: 'fixed',
+                    modifiers: modifiers
+                });
+            }
+        });
+
+        toggle.addEventListener('show.bs.dropdown', function() {
+            dropdownEl.classList.remove('dropup');
+            const menuHeight = menu.offsetHeight || 140;
+            const toggleRect = toggle.getBoundingClientRect();
+            if (toggleRect.bottom + menuHeight + 8 > window.innerHeight) {
+                dropdownEl.classList.add('dropup');
+            }
+        });
+
+        toggle.addEventListener('hidden.bs.dropdown', function() {
+            dropdownEl.classList.remove('dropup');
+        });
+    });
 });
 </script>
 {% endblock %}

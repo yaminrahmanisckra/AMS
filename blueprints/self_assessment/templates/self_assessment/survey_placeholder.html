@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{% if survey_type == 'employer' %}Employer Survey{% elif survey_type == 'faculty' %}Faculty Survey{% elif survey_type == 'non_academic' %}Non Academic Staff Survey{% else %}Student Survey{% endif %}{% endblock %}
+
+{% block mobile_title %}Survey{% endblock %}
 {% block extra_css %}
 <style>
     /* টিক/চেকবক্স ও রেডিও বক্স গাঢ় ডিজাইন */

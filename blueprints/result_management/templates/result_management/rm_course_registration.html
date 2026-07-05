@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block mobile_title %}Registration{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -28,7 +30,7 @@
     {% if selected_subject %}
     <form method="POST">
         <input type="hidden" name="subject_id" value="{{ selected_subject.id }}">
-        <div class="table-responsive">
+        <div class="table-responsive m-table-scroll-sticky">
             <table class="table table-bordered table-hover table-striped align-middle">
                 <thead class="table-dark">
                     <tr class="text-center">

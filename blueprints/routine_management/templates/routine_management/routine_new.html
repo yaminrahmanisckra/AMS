@@ -3,6 +3,8 @@
 
 {% block title %}{% if is_student %}Class Routine{% else %}Routine Maker{% endif %}{% endblock %}
 
+{% block mobile_title %}{% if is_student %}Routine{% else %}Routine{% endif %}{% endblock %}
+
 {% block content %}
 
 <style>
@@ -1007,39 +1009,6 @@ body.fullscreen-active .routine-table {
     }
 }
 
-@media (max-width: 768px) {
-    .routine-topbar {
-        padding: 8px 12px;
-        flex-wrap: wrap;
-    }
-    
-    .topbar-left {
-        flex-wrap: wrap;
-    }
-    
-    .topbar-right {
-        flex-wrap: wrap;
-    }
-    
-    .topbar-btn {
-        padding: 6px 12px;
-        font-size: 12px;
-    }
-    
-    .routine-table-wrapper {
-        padding: 8px;
-    }
-    
-    .routine-table {
-        font-size: 11px;
-    }
-    
-    .routine-table tbody td.slot-cell {
-        min-height: 40px;
-        height: 40px;
-    }
-}
-
 /* Landscape mode fixes for mobile */
 @media (max-width: 768px) and (orientation: landscape) {
     /* Fix student container wrapper */
@@ -1214,7 +1183,7 @@ body.fullscreen-active .routine-table {
         <main class="r-main routine-main">
         {% if can_edit %}
         <div class="r-table-wrap routine-table-area routine-table-area-with-panel">
-            <div class="routine-table-wrapper">
+            <div class="routine-table-wrapper routine-table-container">
                 <table class="routine-table" id="routine-table">
                         <thead>
                             <tr>
@@ -1260,7 +1229,7 @@ body.fullscreen-active .routine-table {
         {% else %}
         <!-- Non-editor view: Simple scrollable routine table (same for teachers and students) -->
         <div class="routine-table-area">
-            <div class="routine-table-wrapper">
+            <div class="routine-table-wrapper routine-table-container">
                 <table class="routine-table" id="routine-table">
                     <thead>
                         <tr>

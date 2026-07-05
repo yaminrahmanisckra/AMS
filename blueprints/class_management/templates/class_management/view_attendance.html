@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block mobile_title %}Attendance{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <div class="card shadow">
@@ -162,7 +164,7 @@
                     </div>
                     <div class="card-body">
                         {% if teacher_data.student_report_data %}
-                            <div class="table-responsive">
+                            <div class="table-responsive m-table-scroll-sticky">
                                 <table class="attendance-table" data-session-id="{{ teacher_data.session.id }}">
                                     <thead>
                                         <tr>
@@ -348,7 +350,7 @@
                     </div>
                 </div>
 
-                <div class="table-responsive">
+                <div class="table-responsive m-table-scroll-sticky">
                     <table class="attendance-table" data-session-id="{{ session.id }}">
                         <thead>
                             <tr>

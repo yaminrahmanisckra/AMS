@@ -9,6 +9,10 @@ from blueprints.course_management.models import Curriculum, DutyAssignment
 from blueprints.class_management.models import ClassStudent
 from user_models import User
 from role_utils import parse_roles, serialize_roles
+try:
+    from utils.window_utils import get_effective_window_id
+except ImportError:
+    get_effective_window_id = None
 
 
 def _generate_student_email(preferred_email, student_id):
@@ -108,10 +112,11 @@ def index():
     batches = [batch[0] for batch in all_batches]
     
     # Get all curricula and create a mapping of batch to curricula
+    window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else 1
     all_curricula = Curriculum.query.all()
     batch_to_curricula = {}
     for curriculum in all_curricula:
-        applicable_batches = curriculum.get_batches_list()
+        applicable_batches = curriculum.get_batches_list(window_id)
         for batch in applicable_batches:
             if batch not in batch_to_curricula:
                 batch_to_curricula[batch] = []

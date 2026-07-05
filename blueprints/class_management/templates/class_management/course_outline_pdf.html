@@ -269,9 +269,13 @@
         table.clo-table td:nth-child(3) { width: 1.7in; }
         
         /* Specific column widths for content table */
+        table.content-table th:nth-child(1),
         table.content-table td:nth-child(1) { width: 0.5in; }
+        table.content-table th:nth-child(2),
         table.content-table td:nth-child(2) { width: 4.0in; }
+        table.content-table th:nth-child(3),
         table.content-table td:nth-child(3) { width: 0.8in; }
+        table.content-table th:nth-child(4),
         table.content-table td:nth-child(4) { width: 0.7in; }
     </style>
 </head>
@@ -412,6 +416,8 @@
         {% set section_b = course_content_summary.get('sectionB', []) %}
         {% set selected_section_a = section_a | selectattr('selected', 'equalto', True) | list if section_a else [] %}
         {% set selected_section_b = section_b | selectattr('selected', 'equalto', True) | list if section_b else [] %}
+        {% if not selected_section_a %}{% set selected_section_a = section_a %}{% endif %}
+        {% if not selected_section_b %}{% set selected_section_b = section_b %}{% endif %}
         
         <!-- Section A -->
         <div class="content-section">
@@ -419,8 +425,8 @@
             <table class="data-table content-table">
                 <thead>
                     <tr>
+                        <th class="center">No.</th>
                         <th>Course Contents</th>
-                        <th></th>
                         <th class="center">Hrs</th>
                         <th class="center">Classes</th>
                         <th class="center">CLOs</th>
@@ -431,7 +437,7 @@
                         {% for item in selected_section_a %}
                         <tr>
                             <td>{{ loop.index }}.</td>
-                            <td>{{ item.get('content', '') }}</td>
+                            <td>{{ item.get('content') or item.get('topic', '') }}</td>
                             <td class="center">{{ item.get('hrs', '') }}</td>
                             <td class="center">{{ item.get('num_classes', item.get('classes', '')) }}</td>
                             <td class="center">{{ item.get('clo', '') }}</td>
@@ -452,8 +458,8 @@
             <table class="data-table content-table">
                 <thead>
                     <tr>
+                        <th class="center">No.</th>
                         <th>Course Contents</th>
-                        <th></th>
                         <th class="center">Hrs</th>
                         <th class="center">Classes</th>
                         <th class="center">CLOs</th>
@@ -464,7 +470,7 @@
                         {% for item in selected_section_b %}
                         <tr>
                             <td>{{ loop.index }}.</td>
-                            <td>{{ item.get('content', '') }}</td>
+                            <td>{{ item.get('content') or item.get('topic', '') }}</td>
                             <td class="center">{{ item.get('hrs', '') }}</td>
                             <td class="center">{{ item.get('num_classes', item.get('classes', '')) }}</td>
                             <td class="center">{{ item.get('clo', '') }}</td>
@@ -485,8 +491,8 @@
             <table class="data-table content-table">
                 <thead>
                     <tr>
+                        <th class="center">No.</th>
                         <th>Course Contents</th>
-                        <th></th>
                         <th class="center">Hrs</th>
                         <th class="center">Classes</th>
                         <th class="center">CLOs</th>
@@ -504,8 +510,8 @@
             <table class="data-table content-table">
                 <thead>
                     <tr>
+                        <th class="center">No.</th>
                         <th>Course Contents</th>
-                        <th></th>
                         <th class="center">Hrs</th>
                         <th class="center">Classes</th>
                         <th class="center">CLOs</th>

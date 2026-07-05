@@ -2,6 +2,8 @@
 
 {% block title %}Students Management{% endblock %}
 
+{% block mobile_title %}Students{% endblock %}
+
 {% block extra_css %}
 <style>
 :root {
@@ -130,8 +132,8 @@
         </div>
         <div class="card-body">
             {% if students.items %}
-            <div class="table-responsive">
-                <table class="table table-hover">
+            <div class="table-responsive table-mobile-stack">
+                <table class="table table-hover student-mgmt-table">
                     <thead class="table-light">
                         <tr>
                             <th>Student ID</th>
@@ -147,11 +149,11 @@
                     <tbody>
                         {% for student in students.items %}
                         <tr>
-                            <td><strong>{{ student.student_id }}</strong></td>
-                            <td>{{ student.name }}</td>
-                            <td>{{ student.batch or '-' }}</td>
-                            <td>{{ student.hall or '-' }}</td>
-                            <td>
+                            <td data-label="Student ID"><strong>{{ student.student_id }}</strong></td>
+                            <td data-label="Name">{{ student.name }}</td>
+                            <td data-label="Batch">{{ student.batch or '-' }}</td>
+                            <td data-label="Hall">{{ student.hall or '-' }}</td>
+                            <td data-label="Curriculum">
                                 {% if student.batch and batch_to_curricula.get(student.batch) %}
                                     <div class="d-flex flex-wrap gap-1">
                                         {% for curriculum in batch_to_curricula[student.batch] %}
@@ -164,9 +166,9 @@
                                     <span class="text-muted">-</span>
                                 {% endif %}
                             </td>
-                            <td>{{ student.email or '-' }}</td>
-                            <td>{{ student.phone or '-' }}</td>
-                            <td>
+                            <td data-label="Email">{{ student.email or '-' }}</td>
+                            <td data-label="Phone">{{ student.phone or '-' }}</td>
+                            <td data-label="Actions">
                                 <div class="btn-group btn-group-sm">
                                     <a href="{{ url_for('student_management.edit_student', student_id=student.id) }}" 
                                        class="btn btn-outline-primary">

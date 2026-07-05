@@ -21,7 +21,10 @@ PATCHES = {
     ],
     'duty_assignment': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'session_archive': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
-    'exam_paper_evaluation': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
+    'exam_paper_evaluation': [
+        ('window_id', 'window_id INTEGER REFERENCES operational_window(id)'),
+        ('is_external_subject', 'is_external_subject BOOLEAN NOT NULL DEFAULT 0'),
+    ],
     'exam_scrutinizer_invite': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'exam_paper_evaluator_assignment': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'remuneration_form': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
@@ -35,7 +38,11 @@ PATCHES = {
     'psac_committee': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'survey_link': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'course_session_assignment': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
-    'class_session': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
+    'class_session': [
+        ('window_id', 'window_id INTEGER REFERENCES operational_window(id)'),
+        ('is_external_course', 'is_external_course BOOLEAN NOT NULL DEFAULT 0'),
+        ('external_assessment_mode', "external_assessment_mode VARCHAR(20) NOT NULL DEFAULT 'best_three'"),
+    ],
     'active_semester_config': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'class_attendance': [
         ('slot_number', 'slot_number INTEGER'),
@@ -60,6 +67,13 @@ PATCHES = {
         ('is_read', 'is_read BOOLEAN NOT NULL DEFAULT 0'),
         ('is_starred', 'is_starred BOOLEAN NOT NULL DEFAULT 0'),
     ],
+    'course_file_upload': [
+        ('file_category', 'file_category VARCHAR(50)'),
+        ('extracted_text', 'extracted_text TEXT'),
+    ],
+    'curriculum_year_term': [
+        ('window_id', 'window_id INTEGER REFERENCES operational_window(id)'),
+    ],
 }
 
 WINDOW_BACKFILL_TABLES = [
@@ -68,6 +82,7 @@ WINDOW_BACKFILL_TABLES = [
     'saved_routine', 'routine', 'routine_time_slot', 'assigned_course',
     'course_registration_invite', 'academic_calendar_event', 'psac_committee', 'survey_link',
     'course_session_assignment', 'class_session', 'student_course_registration', 'active_semester_config',
+    'curriculum_year_term',
 ]
 
 
@@ -127,8 +142,19 @@ def main():
             WHERE committee_id IS NOT NULL AND window_id IS NULL
         ''')
 
+    if table_exists(cur, 'exam_paper_evaluation') and 'is_external_subject' in table_columns(cur, 'exam_paper_evaluation'):
+        cur.execute('''
+            UPDATE exam_paper_evaluation
+            SET is_external_subject = 1
+            WHERE owner_teacher_id IS NOT NULL
+              AND id NOT IN (
+                SELECT exam_paper_evaluation_id FROM exam_paper_evaluator_assignment
+                WHERE exam_paper_evaluation_id IS NOT NULL
+              )
+        ''')
+
     cur.execute('DELETE FROM alembic_version')
-    cur.execute("INSERT INTO alembic_version (version_num) VALUES ('g7b8c9d0e1f2')")
+    cur.execute("INSERT INTO alembic_version (version_num) VALUES ('o5p6q7r8s9t0')")
 
     conn.commit()
     conn.close()

@@ -20,12 +20,55 @@ class Curriculum(db.Model):
     
     courses = db.relationship('Course', back_populates='curriculum', cascade="all, delete-orphan", lazy='dynamic')
     year_term_configs = db.relationship('CurriculumYearTerm', back_populates='curriculum', cascade="all, delete-orphan", lazy='dynamic')
+    applicable_batch_windows = db.relationship(
+        'CurriculumApplicableBatch',
+        back_populates='curriculum',
+        cascade="all, delete-orphan",
+        lazy='dynamic',
+    )
 
-    def get_batches_list(self):
-        """Return applicable batches as a list"""
-        if self.applicable_batches:
-            return [b.strip() for b in self.applicable_batches.split(',') if b.strip()]
-        return []
+    @staticmethod
+    def _parse_batches_text(text):
+        if not text:
+            return []
+        return [b.strip() for b in str(text).split(',') if b.strip()]
+
+    def _resolve_window_id(self, window_id=None):
+        if window_id is not None:
+            return window_id
+        try:
+            from utils.window_utils import get_effective_window_id, DEFAULT_WINDOW_ID
+            window_id = get_effective_window_id(admin_override=False)
+            if window_id is None:
+                window_id = DEFAULT_WINDOW_ID
+        except ImportError:
+            window_id = 1
+        return window_id
+
+    def get_batches_list(self, window_id=None):
+        """Return applicable batches for an operational window (fallback: global column)."""
+        window_id = self._resolve_window_id(window_id)
+        row = self.applicable_batch_windows.filter_by(window_id=window_id).first()
+        if row and row.applicable_batches:
+            return self._parse_batches_text(row.applicable_batches)
+        return self._parse_batches_text(self.applicable_batches)
+
+    def set_batches_for_window(self, batches, window_id=None):
+        """Upsert applicable batches for the active operational window."""
+        window_id = self._resolve_window_id(window_id)
+        applicable_batches_str = ','.join(batches) if batches else None
+        row = self.applicable_batch_windows.filter_by(window_id=window_id).first()
+        if row:
+            row.applicable_batches = applicable_batches_str
+            row.updated_at = datetime.utcnow()
+        else:
+            row = CurriculumApplicableBatch(
+                curriculum_id=self.id,
+                window_id=window_id,
+                applicable_batches=applicable_batches_str,
+            )
+            db.session.add(row)
+        return row
 
     def _year_term_configs_for_window(self, window_id=None):
         """Year/term rows scoped to an operational window."""
@@ -121,6 +164,35 @@ class CurriculumYearTerm(db.Model):
 
     def __repr__(self):
         return f'<CurriculumYearTerm {self.curriculum_id} - {self.year} - {self.term}>'
+
+
+class CurriculumApplicableBatch(db.Model):
+    """Per-window applicable batch list for a curriculum."""
+    __tablename__ = 'curriculum_applicable_batch'
+
+    id = db.Column(db.Integer, primary_key=True)
+    curriculum_id = db.Column(db.Integer, db.ForeignKey('curriculum.id'), nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=False, index=True)
+    applicable_batches = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    curriculum = db.relationship('Curriculum', back_populates='applicable_batch_windows')
+    operational_window = db.relationship(
+        'OperationalWindow',
+        backref=db.backref('curriculum_applicable_batches', lazy='dynamic'),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('curriculum_id', 'window_id', name='uq_curriculum_applicable_batch_window'),
+    )
+
+    def get_batches_list(self):
+        return Curriculum._parse_batches_text(self.applicable_batches)
+
+    def __repr__(self):
+        return f'<CurriculumApplicableBatch curriculum={self.curriculum_id} window={self.window_id}>'
+
 
 class Course(db.Model):
     __tablename__ = 'course'
@@ -220,8 +292,50 @@ class Course(db.Model):
         else:
             self.clo = None
 
+    def _resolve_window_id(self, window_id=None):
+        if window_id is not None:
+            return window_id
+        try:
+            from utils.window_utils import get_effective_window_id, DEFAULT_WINDOW_ID
+            window_id = get_effective_window_id(admin_override=False)
+            if window_id is None:
+                window_id = DEFAULT_WINDOW_ID
+        except ImportError:
+            window_id = 1
+        return window_id
+
+    def is_offered(self, window_id=None):
+        """Whether the course is offered in the active operational window."""
+        window_id = self._resolve_window_id(window_id)
+        row = self.window_offered_rows.filter_by(window_id=window_id).first()
+        if row is not None:
+            return bool(row.offered)
+        return bool(self.offered)
+
+    def set_offered_for_window(self, offered, window_id=None):
+        """Upsert offered status for the active operational window."""
+        window_id = self._resolve_window_id(window_id)
+        row = self.window_offered_rows.filter_by(window_id=window_id).first()
+        if row:
+            row.offered = bool(offered)
+            row.updated_at = datetime.utcnow()
+        else:
+            row = CourseWindowOffered(
+                course_id=self.id,
+                window_id=window_id,
+                offered=bool(offered),
+            )
+            db.session.add(row)
+        return row
+
     # Relationships
     curriculum = db.relationship('Curriculum', back_populates='courses')
+    window_offered_rows = db.relationship(
+        'CourseWindowOffered',
+        back_populates='course',
+        cascade="all, delete-orphan",
+        lazy='dynamic',
+    )
     assigned_teachers = db.relationship('AssignedCourse', back_populates='course', cascade="all, delete-orphan", lazy='dynamic')
 
     __table_args__ = (
@@ -231,6 +345,31 @@ class Course(db.Model):
 
     def __repr__(self):
         return f'<Course {self.course_code}>'
+
+
+class CourseWindowOffered(db.Model):
+    """Per-window offered flag for a course."""
+    __tablename__ = 'course_window_offered'
+
+    id = db.Column(db.Integer, primary_key=True)
+    course_id = db.Column(db.Integer, db.ForeignKey('course.id'), nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=False, index=True)
+    offered = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    course = db.relationship('Course', back_populates='window_offered_rows')
+    operational_window = db.relationship(
+        'OperationalWindow',
+        backref=db.backref('course_window_offered_rows', lazy='dynamic'),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('course_id', 'window_id', name='uq_course_window_offered'),
+    )
+
+    def __repr__(self):
+        return f'<CourseWindowOffered course={self.course_id} window={self.window_id} offered={self.offered}>'
 
 
 class CourseSessionAssignment(db.Model):

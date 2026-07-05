@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block mobile_title %}Add Marks{% endblock %}
+
 {% block breadcrumb %}
 <li class="breadcrumb-item"><a href="{{ url_for('index') }}" class="text-decoration-none">Sessions</a></li>
 <li class="breadcrumb-item active">Add Marks</li>
@@ -62,7 +64,7 @@
             </button>
         </div>
         
-        <div class="table-responsive">
+        <div class="table-responsive m-table-scroll-sticky">
             <table class="table table-bordered table-hover table-striped align-middle">
                 <thead class="table-dark">
                 <tr>

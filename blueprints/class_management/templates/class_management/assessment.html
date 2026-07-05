@@ -1,38 +1,13 @@
 {% extends "base.html" %}
 
+{% block mobile_title %}Assessment{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <style>
         .assessment-input-field {
             width: 85px !important;
             text-align: center;
-        }
-        
-        /* Mobile responsive styles */
-        @media (max-width: 768px) {
-            .assessment-input-field {
-                width: 100% !important;
-                min-width: 80px !important;
-                font-size: 16px !important;
-                padding: 0.5rem !important;
-                min-height: 44px !important;
-            }
-            
-            .table.table-bordered {
-                min-width: auto !important;
-            }
-            
-            .table.table-bordered th,
-            .table.table-bordered td {
-                padding: 0.5rem 0.35rem !important;
-                font-size: 0.85rem;
-            }
-            
-            .table.table-bordered td .d-flex {
-                flex-direction: column;
-                gap: 0.5rem;
-                align-items: flex-start;
-            }
         }
     </style>
     <div class="card shadow">
@@ -61,6 +36,23 @@
                 {% endif %}
             </div>
             
+            {% if session.is_external_course and session.course_type == 'theory' %}
+            <div class="card mb-3 border-secondary">
+                <div class="card-body py-3">
+                    <label for="externalAssessmentMode" class="form-label mb-1 fw-semibold">
+                        <i class="fas fa-calculator me-1"></i>Assessment Total Calculation
+                    </label>
+                    <select class="form-select form-select-sm" id="externalAssessmentMode" style="max-width: 420px;">
+                        {% for mode_key, mode_label in external_assessment_modes.items() %}
+                        <option value="{{ mode_key }}" {% if external_assessment_mode == mode_key %}selected{% endif %}>{{ mode_label }}</option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted d-block mt-1">External course only — changes apply to this table and PDF/Excel export.</small>
+                    <small class="text-muted d-block">Part A/B mode: enter each assessment out of 15; total = best(A1,A2) + best(A3,A4).</small>
+                </div>
+            </div>
+            {% endif %}
+
             <!-- Assessment Reveal Controls -->
             <div class="card mb-3 border-info">
                 <div class="card-header bg-info text-white">
@@ -151,9 +143,65 @@
             </div>
             
             <form method="POST">
-                <div class="table-responsive">
+                <div class="table-responsive m-table-scroll-sticky">
                     <table class="table table-bordered align-middle table-sm" style="min-width: 700px; font-size: 0.95em;">
-                        {% if session.course_type == 'theory' and session.category == 'ug' %}
+                        {% if session.is_external_course and session.course_type == 'theory' %}
+                        {% set ext_mark_max = 15 if external_assessment_mode == 'part_a_b_15' else 10 %}
+                        <thead class="table-light">
+                            <tr>
+                                <th class="fw-bold text-center">Student ID</th>
+                                <th class="fw-bold text-center">Name</th>
+                                {% for i in range(1,5) %}
+                                <th class="fw-bold text-center external-assessment-col-header" id="assessment-col-header-{{ i }}">Assessment {{ i }} ({{ ext_mark_max }})</th>
+                                {% endfor %}
+                                <th class="fw-bold text-center" id="assessment-total-header">{{ external_total_column_label }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for student in students %}
+                            <tr>
+                                <td class="text-start">{{ student.student_id }}</td>
+                                <td class="text-start">{{ student.name }}</td>
+                                {% for i in range(1,5) %}
+                                <td class="text-end">
+                                    {% set combined_val_dict = combined_assessment_values.get(student.student_id, {}) %}
+                                    {% set value = combined_val_dict.get(i) if combined_val_dict else None %}
+                                    {% set student_absent = absent_status_map.get(student.id, {}) %}
+                                    {% set is_absent = student_absent.get('assessment' ~ i, False) %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if is_absent %}
+                                        <span class="text-muted fw-bold">Absent</span>
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field external-assessment-input" min="0" max="{{ ext_mark_max }}" step="0.01" value="" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" data-mark-max="{{ ext_mark_max }}" disabled style="display: none;">
+                                        {% else %}
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field external-assessment-input" min="0" max="{{ ext_mark_max }}" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" data-mark-max="{{ ext_mark_max }}">
+                                        {% endif %}
+                                        <div class="form-check">
+                                            <input class="form-check-input absent-checkbox external-absent-checkbox" type="checkbox" id="absent_{{i}}_{{student.id}}" name="absent_{{i}}_{{student.id}}" data-student-id="{{student.id}}" data-assess-idx="{{i}}" {% if is_absent %}checked{% endif %}>
+                                            <label class="form-check-label" for="absent_{{i}}_{{student.id}}" style="font-size: 0.9em;">Absent</label>
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+                                <td class="fw-bold text-end">
+                                    {% set ext_total = combined_external_total.get(student.student_id) %}
+                                    <span id="assessment-total-{{ student.id }}" class="external-assessment-total" data-initial-value="{% if ext_total is not none %}{{ ext_total }}{% endif %}">
+                                        {% if ext_total is not none %}
+                                            {% if external_assessment_mode == 'best_three_40' %}
+                                                {{ ext_total|int }}
+                                            {% elif ext_total == ext_total|int %}
+                                                {{ ext_total|int }}
+                                            {% else %}
+                                                {{ "%.2f"|format(ext_total)|replace('.00', '')|replace('.0', '') }}
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        {% elif session.course_type == 'theory' and session.category == 'ug' %}
                         <thead class="table-light">
                             <tr>
                                 <th class="fw-bold text-center">Student ID</th>
@@ -349,7 +397,7 @@
                     </table>
                 </div>
                 
-                {% if students and ((session.course_type == 'theory' and session.category == 'ug') or (session.course_type == 'theory' and session.category == 'pg') or (session.course_type == 'sessional' and session.category == 'ug')) %}
+                {% if students and ((session.is_external_course and session.course_type == 'theory') or (session.course_type == 'theory' and session.category == 'ug') or (session.course_type == 'theory' and session.category == 'pg') or (session.course_type == 'sessional' and session.category == 'ug')) %}
                     <div class="d-flex gap-2 mt-3 flex-wrap align-items-center">
                         <div id="auto-save-status" class="me-2" style="display: none;">
                             <small class="text-muted">
@@ -379,7 +427,200 @@
     </div>
 </div>
 
-{% if session.course_type == 'theory' and session.category == 'ug' %}
+{% if session.is_external_course and session.course_type == 'theory' %}
+<script>
+const EXTERNAL_ASSESSMENT_COLUMN_LABELS = {{ {
+    'best_three': 'Total of Best 3 (30)',
+    'part_a_b_15': 'Part A (15) + Part B (15) (30)',
+    'best_three_40': 'Total (40)'
+}|tojson }};
+const EXTERNAL_ASSESSMENT_MARK_MAX = {{ {
+    'best_three': 10,
+    'part_a_b_15': 15,
+    'best_three_40': 10
+}|tojson }};
+const SET_EXTERNAL_MODE_URL = {{ url_for('class_management.set_external_assessment_mode', session_id=session.id)|tojson }};
+
+function getExternalAssessmentMarks(studentId) {
+    const marks = {1: null, 2: null, 3: null, 4: null};
+    for (let i = 1; i <= 4; i++) {
+        const absentBox = document.querySelector(`#absent_${i}_${studentId}`);
+        if (absentBox && absentBox.checked) continue;
+        const input = document.querySelector(`input[name="assessment${i}_${studentId}"]`);
+        if (!input) continue;
+        let inputValue = input.getAttribute('data-assessment-value');
+        if (!inputValue || inputValue === '') {
+            inputValue = input.value || '';
+        }
+        if (!inputValue) continue;
+        const v = parseFloat(inputValue);
+        if (!isNaN(v) && v >= 0) {
+            marks[i] = v;
+        }
+    }
+    return marks;
+}
+
+function computeExternalTotal(marks, mode) {
+    if (mode === 'part_a_b_15') {
+        const partA = [marks[1], marks[2]].filter(v => v !== null);
+        const partB = [marks[3], marks[4]].filter(v => v !== null);
+        if (!partA.length && !partB.length) return null;
+        const partAScore = partA.length ? Math.max(...partA) : 0;
+        const partBScore = partB.length ? Math.max(...partB) : 0;
+        return partAScore + partBScore;
+    }
+    const vals = Object.values(marks).filter(v => v !== null);
+    if (!vals.length) return null;
+    vals.sort((a, b) => b - a);
+    const best = vals.length >= 3 ? vals.slice(0, 3) : vals;
+    const bestSum = best.reduce((a, b) => a + b, 0);
+    if (mode === 'best_three_40') {
+        return Math.round((bestSum / 30) * 40);
+    }
+    return bestSum;
+}
+
+function formatExternalTotal(value, mode) {
+    if (value === null || value === undefined || isNaN(value)) {
+        return '<span class="text-muted">-</span>';
+    }
+    if (mode === 'best_three_40') {
+        return String(Math.round(value));
+    }
+    const text = value.toFixed(2).replace(/\.?0+$/, '');
+    return text;
+}
+
+function calcExternalTotal(studentId, mode) {
+    const cell = document.getElementById('assessment-total-' + studentId);
+    if (!cell) return;
+    const total = computeExternalTotal(getExternalAssessmentMarks(studentId), mode);
+    cell.innerHTML = formatExternalTotal(total, mode);
+}
+
+function recalcAllExternalTotals(mode) {
+    document.querySelectorAll('.external-assessment-total').forEach(cell => {
+        const studentId = cell.id.replace('assessment-total-', '');
+        calcExternalTotal(studentId, mode);
+    });
+}
+
+function updateExternalHeader(mode) {
+    const header = document.getElementById('assessment-total-header');
+    if (header) {
+        header.textContent = EXTERNAL_ASSESSMENT_COLUMN_LABELS[mode] || EXTERNAL_ASSESSMENT_COLUMN_LABELS.best_three;
+    }
+}
+
+function updateExternalColumnHeaders(mode) {
+    const markMax = EXTERNAL_ASSESSMENT_MARK_MAX[mode] || 10;
+    for (let i = 1; i <= 4; i++) {
+        const colHeader = document.getElementById('assessment-col-header-' + i);
+        if (colHeader) {
+            colHeader.textContent = `Assessment ${i} (${markMax})`;
+        }
+    }
+    document.querySelectorAll('.external-assessment-input').forEach(input => {
+        input.max = markMax;
+        input.dataset.markMax = markMax;
+    });
+}
+
+function applyExternalModeUi(mode) {
+    updateExternalHeader(mode);
+    updateExternalColumnHeaders(mode);
+    recalcAllExternalTotals(mode);
+}
+
+document.querySelectorAll('.external-assessment-input').forEach(input => {
+    if (input.dataset.editable !== '1') return;
+    input.addEventListener('input', function() {
+        const modeSelect = document.getElementById('externalAssessmentMode');
+        calcExternalTotal(this.dataset.studentId, modeSelect ? modeSelect.value : 'best_three');
+    });
+});
+
+document.querySelectorAll('.external-absent-checkbox').forEach(chk => {
+    chk.addEventListener('change', function() {
+        const studentId = this.dataset.studentId;
+        const idx = this.dataset.assessIdx;
+        const input = document.querySelector(`[name=assessment${idx}_${studentId}]`);
+        const td = this.closest('td');
+        if (this.checked) {
+            if (input) {
+                input.value = '';
+                input.disabled = true;
+                input.style.display = 'none';
+            }
+            let absentSpan = td.querySelector('.absent-text');
+            if (!absentSpan) {
+                absentSpan = document.createElement('span');
+                absentSpan.className = 'text-muted fw-bold absent-text';
+                absentSpan.textContent = 'Absent';
+                td.querySelector('.d-flex').insertBefore(absentSpan, td.querySelector('.form-check'));
+            }
+        } else {
+            if (input) {
+                input.disabled = false;
+                input.style.display = '';
+            }
+            const absentSpan = td.querySelector('.absent-text');
+            if (absentSpan) absentSpan.remove();
+        }
+        const modeSelect = document.getElementById('externalAssessmentMode');
+        calcExternalTotal(studentId, modeSelect ? modeSelect.value : 'best_three');
+    });
+});
+
+const externalModeSelect = document.getElementById('externalAssessmentMode');
+if (externalModeSelect) {
+    externalModeSelect.addEventListener('change', function() {
+        const mode = this.value;
+        applyExternalModeUi(mode);
+        fetch(SET_EXTERNAL_MODE_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ mode: mode })
+        }).then(response => response.json()).then(data => {
+            if (!data.success) {
+                alert(data.message || 'Failed to save assessment calculation mode.');
+                return;
+            }
+            if (data.column_label) {
+                updateExternalHeader(data.mode || mode);
+            }
+            if (data.totals) {
+                Object.keys(data.totals).forEach(studentRowId => {
+                    const cell = document.getElementById('assessment-total-' + studentRowId);
+                    if (cell) {
+                        cell.innerHTML = formatExternalTotal(data.totals[studentRowId], data.mode || mode);
+                    }
+                });
+            }
+        }).catch(() => {
+            alert('Failed to save assessment calculation mode.');
+        });
+    });
+}
+
+(function() {
+    function runExternalInitialCalc() {
+        const modeSelect = document.getElementById('externalAssessmentMode');
+        const mode = modeSelect ? modeSelect.value : 'best_three';
+        applyExternalModeUi(mode);
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', runExternalInitialCalc);
+    } else {
+        setTimeout(runExternalInitialCalc, 100);
+    }
+})();
+</script>
+{% elif session.course_type == 'theory' and session.category == 'ug' %}
 <script>
 function calcBest3Total(studentId) {
     let vals = [];
