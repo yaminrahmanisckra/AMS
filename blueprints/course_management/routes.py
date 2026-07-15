@@ -28,8 +28,9 @@ except ImportError:
     stamp_window_id = None
     get_for_window = None
 from user_models import User
-from sqlalchemy import or_, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import noload
 from io import BytesIO
 
 
@@ -98,6 +99,100 @@ def _normalize_source_year_term(payload_source_year, payload_source_term, runnin
 def _is_retake_remark(remark_value):
     remark_normalized = str(remark_value or '').strip().lower()
     return remark_normalized in {'retake', 're-retake', 're retake', 'reretake'}
+
+
+def _course_code_lookup_key(course_code):
+    return str(course_code or '').strip().replace(' ', '').lower()
+
+
+def _collapsed_course_code_column(column):
+    return func.replace(func.lower(column), ' ', '')
+
+
+def _registration_course_filter(course_code, academic_session, year, term, include_archived=False):
+    """Build filters for course-wise registration queries.
+
+    Includes:
+    - Direct registrations on the selected course code (Regular or Retake)
+    - Retake rows mapped to this subject via relevant_course_code, using either
+      the running semester or the stored relevant semester context
+    """
+    course_code_key = _course_code_lookup_key(course_code)
+    status_filters = []
+    if not include_archived:
+        status_filters.append(StudentCourseRegistration.status != 'archived')
+
+    remark_lower = func.lower(func.trim(StudentCourseRegistration.remark))
+    retake_remarks = ['retake', 're-retake', 're retake', 'reretake']
+
+    direct_clause = and_(
+        _collapsed_course_code_column(StudentCourseRegistration.course_code) == course_code_key,
+        StudentCourseRegistration.academic_session == academic_session,
+        StudentCourseRegistration.year == year,
+        StudentCourseRegistration.term == term,
+        *status_filters,
+    )
+
+    retake_via_relevant_context = and_(
+        _collapsed_course_code_column(StudentCourseRegistration.relevant_course_code) == course_code_key,
+        StudentCourseRegistration.relevant_academic_session == academic_session,
+        StudentCourseRegistration.relevant_year == year,
+        StudentCourseRegistration.relevant_term == term,
+        remark_lower.in_(retake_remarks),
+        *status_filters,
+    )
+
+    retake_via_running_context = and_(
+        _collapsed_course_code_column(StudentCourseRegistration.relevant_course_code) == course_code_key,
+        StudentCourseRegistration.academic_session == academic_session,
+        StudentCourseRegistration.year == year,
+        StudentCourseRegistration.term == term,
+        remark_lower.in_(retake_remarks),
+        *status_filters,
+    )
+
+    return or_(direct_clause, retake_via_relevant_context, retake_via_running_context), course_code_key
+
+
+def _serialize_course_wise_registration(reg, student, selected_course_code_key=None):
+    registered_code_key = _course_code_lookup_key(reg.course_code)
+    relevant_code_key = _course_code_lookup_key(getattr(reg, 'relevant_course_code', '') or '')
+    is_retake_row = _is_retake_remark(reg.remark)
+    is_merged_retake = (
+        selected_course_code_key
+        and is_retake_row
+        and relevant_code_key == selected_course_code_key
+        and registered_code_key != selected_course_code_key
+    )
+    return {
+        'registration_id': reg.id,
+        'course_id': reg.course_id,
+        'student_id': student.id,
+        'student_roll': getattr(student, 'student_id', '') or '',
+        'student_name': getattr(student, 'name', '') or '',
+        'batch': getattr(student, 'batch', '') or '',
+        'remark': reg.remark or 'Regular',
+        'carry_on': bool(getattr(reg, 'carry_on', False)),
+        'use_relevant_for_committee': (
+            reg.use_relevant_for_committee
+            if hasattr(reg, 'use_relevant_for_committee') and reg.use_relevant_for_committee is not None
+            else True
+        ),
+        'status': reg.status,
+        'source_year': reg.source_year or reg.year,
+        'source_term': reg.source_term or reg.term,
+        'registered_course_code': reg.course_code,
+        'registered_course_name': reg.course_name,
+        'is_merged_retake': is_merged_retake,
+        'relevant_course_id': getattr(reg, 'relevant_course_id', None),
+        'relevant_course_code': getattr(reg, 'relevant_course_code', '') or '',
+        'relevant_academic_session': getattr(reg, 'relevant_academic_session', '') or '',
+        'relevant_year': getattr(reg, 'relevant_year', '') or '',
+        'relevant_term': getattr(reg, 'relevant_term', '') or '',
+        'credit': reg.credit,
+        'course_type': reg.course_type,
+        'nature': reg.nature or 'Core',
+    }
 
 
 def _normalize_use_relevant_for_committee(raw_value, is_retake):
@@ -513,6 +608,195 @@ def infer_year_and_term(course_code: str):
         '2': 'Second'
     }
     return year_map.get(year_digit, ''), term_map.get(term_digit, '')
+
+
+def _normalize_registration_year(label):
+    """Normalize year labels for registration matching (LLM <-> Fifth, etc.)."""
+    if not label:
+        return ''
+    value = str(label).strip().lower()
+    for suffix in [' year', 'yr', ' years']:
+        if value.endswith(suffix):
+            value = value[:-len(suffix)].strip()
+    year_map = {
+        '1': 'first', '1st': 'first', 'first': 'first',
+        '2': 'second', '2nd': 'second', 'second': 'second',
+        '3': 'third', '3rd': 'third', 'third': 'third',
+        '4': 'fourth', '4th': 'fourth', 'fourth': 'fourth',
+        '5': 'fifth', '5th': 'fifth', 'fifth': 'fifth',
+        'llm': 'llm',
+    }
+    canonical = year_map.get(value, value)
+    if canonical in {'fifth', 'llm'}:
+        return 'llm'
+    return canonical
+
+
+def _normalize_registration_term(label):
+    """Normalize term labels for registration matching."""
+    if not label:
+        return ''
+    value = str(label).strip().lower()
+    for suffix in [' term', 'semester', ' sem']:
+        if value.endswith(suffix):
+            value = value[:-len(suffix)].strip()
+    term_map = {
+        '1': 'first', '1st': 'first', 'first': 'first',
+        '2': 'second', '2nd': 'second', 'second': 'second',
+        'thesis': 'thesis', 'thesis term': 'thesis',
+    }
+    return term_map.get(value, value)
+
+
+def _registration_years_match(year_a, year_b):
+    if not year_a or not year_b:
+        return False
+    return _normalize_registration_year(year_a) == _normalize_registration_year(year_b)
+
+
+def _registration_terms_match(term_a, term_b):
+    if not term_a or not term_b:
+        return False
+    return _normalize_registration_term(term_a) == _normalize_registration_term(term_b)
+
+
+def _cyt_rows_for_session_year_term(session_name=None, year=None, term=None):
+    """Return curriculum year/term rows matching session/year/term with label normalization."""
+    rows = _cyt_query().all()
+    matched = []
+    for row in rows:
+        if session_name and str(row.academic_session or '').strip() != str(session_name).strip():
+            continue
+        if year and not _registration_years_match(row.year, year):
+            continue
+        if term and not _registration_terms_match(row.term, term):
+            continue
+        matched.append(row)
+    return matched
+
+
+def _batches_from_csv(batch_text):
+    if not batch_text:
+        return []
+    return [b.strip() for b in str(batch_text).split(',') if b.strip() and b.strip() != 'None']
+
+
+def _curriculum_accepts_batch(curriculum, batch_value, window_id=None):
+    """Return True when batch is allowed by curriculum-level applicable batches."""
+    if not curriculum or not batch_value:
+        return False
+    applicable = curriculum.get_batches_list(window_id=window_id)
+    if not applicable:
+        return True
+    return batch_value in applicable
+
+
+def _cyt_row_accepts_batch(cfg, batch_value, curriculum, window_id=None):
+    """Match batch against CurriculumYearTerm row and curriculum applicable batches."""
+    configured = _batches_from_csv(cfg.batch if cfg else None)
+    if configured:
+        return batch_value in configured
+    return _curriculum_accepts_batch(curriculum, batch_value, window_id)
+
+
+def _resolve_allowed_curriculum_ids(session_name, year, term, batch_value, window_id=None):
+    """Resolve curricula for coordinator/student registration course dropdowns."""
+    if not session_name or not batch_value:
+        return None, ''
+
+    matching_configs = _cyt_rows_for_session_year_term(session_name, year, term)
+    curriculum_ids = {cfg.curriculum_id for cfg in matching_configs if cfg.curriculum_id}
+    curricula_by_id = {
+        c.id: c for c in Curriculum.query.filter(Curriculum.id.in_(curriculum_ids)).all()
+    } if curriculum_ids else {}
+
+    allowed = set()
+    for cfg in matching_configs:
+        curriculum = curricula_by_id.get(cfg.curriculum_id)
+        if not curriculum:
+            continue
+        if _cyt_row_accepts_batch(cfg, batch_value, curriculum, window_id):
+            allowed.add(curriculum.id)
+
+    if not allowed:
+        for curriculum in Curriculum.query.order_by(Curriculum.name.asc()).all():
+            if not _curriculum_accepts_batch(curriculum, batch_value, window_id):
+                continue
+            cfg = curriculum.get_year_term_config(year, term, window_id=window_id)
+            if not cfg:
+                continue
+            if session_name and str(cfg.academic_session or '').strip() != str(session_name).strip():
+                continue
+            allowed.add(curriculum.id)
+
+    if allowed:
+        names = Curriculum.query.filter(Curriculum.id.in_(allowed)).order_by(Curriculum.name.asc()).all()
+        label = ', '.join(c.name for c in names)
+    else:
+        label = f'No configured curriculum for batch {batch_value}'
+    return allowed, label
+
+
+def _not_running_curriculum_ids(session_name, year, term, window_id=None):
+    """Curricula explicitly marked not running for session/year/term."""
+    blocked = set()
+    for row in _cyt_rows_for_session_year_term(session_name=session_name or None, year=year, term=term):
+        if not row.curriculum_id:
+            continue
+        if row.batch and str(row.batch).strip() and str(row.batch).strip() != 'None':
+            continue
+        curriculum = Curriculum.query.get(row.curriculum_id)
+        if curriculum and curriculum.get_batches_list(window_id=window_id):
+            continue
+        blocked.add(row.curriculum_id)
+    return blocked
+
+
+def _is_postgraduate_course(course):
+    """Detect PG courses even when category was not saved as pg."""
+    if not course:
+        return False
+    if (course.category or '').lower() == 'pg':
+        return True
+    if _normalize_registration_year(course.derived_year or '') == 'llm':
+        return True
+    digits = course._extract_year_term_digits() if hasattr(course, '_extract_year_term_digits') else ''
+    return bool(digits and len(digits) >= 4 and digits[0] == '5')
+
+
+def _course_matches_registration_year_term(course, year, term):
+    """Match course year/term labels to registration selection, including PG aliases."""
+    course_year = course.display_year or course.year or ''
+    course_term = course.display_term or course.term or ''
+    derived_term = course.derived_term or ''
+
+    term_ok = _registration_terms_match(course_term, term)
+    if not term_ok and derived_term:
+        term_ok = _registration_terms_match(derived_term, term)
+    if not term_ok:
+        return False
+
+    if _registration_years_match(course_year, year):
+        return True
+
+    if _is_postgraduate_course(course) and _normalize_registration_year(year) == 'llm':
+        return True
+
+    return False
+
+
+def _serialize_registration_course(course, year, term):
+    return {
+        'id': course.id,
+        'course_code': course.course_code,
+        'course_name': course.course_name,
+        'credit': course.credit,
+        'course_type': course.course_type,
+        'category': course.category,
+        'nature': course.core_optional or 'Core',
+        'source_year': year,
+        'source_term': term,
+    }
 
 def get_available_batches(exclude_curriculum_id=None):
     """Get all distinct batches from Student model.
@@ -1204,94 +1488,82 @@ def get_courses_for_registration():
     if not year or not term:
         return jsonify({'success': False, 'message': 'Year and Term are required'}), 400
 
-    # If a curriculum's Year/Term config is marked as Not Running (batch is NULL/empty/"None"),
-    # then courses from that curriculum for this year/term should not appear in registration dropdowns.
+    active_window_id = _active_window_id()
+
     try:
-        not_running_curriculum_ids = {
-            row.curriculum_id
-            for row in _cyt_query().filter(
-                CurriculumYearTerm.year == year,
-                CurriculumYearTerm.term == term,
-                or_(
-                    CurriculumYearTerm.batch.is_(None),
-                    CurriculumYearTerm.batch == '',
-                    CurriculumYearTerm.batch == 'None'
-                )
-            ).all()
-        }
+        not_running_curriculum_ids = _not_running_curriculum_ids(
+            session_name, year, term, window_id=active_window_id
+        )
     except Exception as e:
         current_app.logger.warning(f'Error checking CurriculumYearTerm not-running filter: {e}', exc_info=True)
         not_running_curriculum_ids = set()
 
-    # Optional strict curriculum scope for coordinator mixed-registration flow:
-    # when session+batch are provided, only return courses from curricula configured for
-    # selected session/year/term and containing the selected batch.
     allowed_curriculum_ids = None
     curriculum_label = ''
     if session_name and batch_value:
-        allowed_curriculum_ids = set()
         try:
-            matching_configs = _cyt_query().filter(
-                CurriculumYearTerm.academic_session == session_name,
-                CurriculumYearTerm.year == year,
-                CurriculumYearTerm.term == term,
-                CurriculumYearTerm.batch.isnot(None),
-                CurriculumYearTerm.batch != '',
-                CurriculumYearTerm.batch != 'None'
-            ).all()
-
-            for cfg in matching_configs:
-                configured_batches = [b.strip() for b in (cfg.batch or '').split(',') if b.strip()]
-                if batch_value in configured_batches:
-                    allowed_curriculum_ids.add(cfg.curriculum_id)
-
-            # Respect curriculum-level applicable batch settings too.
-            if allowed_curriculum_ids:
-                refined_ids = set()
-                curricula = Curriculum.query.filter(Curriculum.id.in_(allowed_curriculum_ids)).all()
-                for curriculum in curricula:
-                    applicable_batches = curriculum.get_batches_list(window_id=_active_window_id())
-                    if not applicable_batches or batch_value in applicable_batches:
-                        refined_ids.add(curriculum.id)
-                allowed_curriculum_ids = refined_ids
-
-            if allowed_curriculum_ids:
-                curricula = Curriculum.query.filter(Curriculum.id.in_(allowed_curriculum_ids)).order_by(Curriculum.name.asc()).all()
-                curriculum_label = ', '.join([c.name for c in curricula]) if curricula else ''
-            else:
-                curriculum_label = f'No configured curriculum for batch {batch_value}'
+            allowed_curriculum_ids, curriculum_label = _resolve_allowed_curriculum_ids(
+                session_name, year, term, batch_value, window_id=active_window_id
+            )
         except Exception as e:
             current_app.logger.warning(f'Error resolving curriculum scope by batch: {e}', exc_info=True)
             allowed_curriculum_ids = set()
             curriculum_label = 'Curriculum lookup failed'
     
     # Get offered courses for the active operational window
-    if filter_offered_courses:
-        query = filter_offered_courses(Course.query, window_id=_active_window_id())
+    if allowed_curriculum_ids is not None:
+        base_query = Course.query.filter(Course.curriculum_id.in_(allowed_curriculum_ids))
+        if filter_offered_courses:
+            courses = filter_offered_courses(base_query, window_id=active_window_id).order_by(Course.course_name.asc()).all()
+            if not courses:
+                courses = base_query.order_by(Course.course_name.asc()).all()
+                current_app.logger.info(
+                    f'No offered courses in active window for curricula {allowed_curriculum_ids}; '
+                    f'using all {len(courses)} courses from matched curricula'
+                )
+        else:
+            courses = base_query.filter_by(offered=True).order_by(Course.course_name.asc()).all()
+            if not courses:
+                courses = base_query.order_by(Course.course_name.asc()).all()
+    elif filter_offered_courses:
+        query = filter_offered_courses(Course.query, window_id=active_window_id)
+        courses = query.order_by(Course.course_name.asc()).all()
     else:
-        query = Course.query.filter_by(offered=True)
-    courses = query.order_by(Course.course_name.asc()).all()
+        courses = Course.query.filter_by(offered=True).order_by(Course.course_name.asc()).all()
     
     # Filter by year and term
     filtered_courses = []
+    allowed_set = allowed_curriculum_ids or set()
+    active_not_running = {
+        cid for cid in not_running_curriculum_ids
+        if cid not in allowed_set
+    }
     for c in courses:
-        if c.display_year == year and c.display_term == term:
-            if c.curriculum_id and c.curriculum_id in not_running_curriculum_ids:
+        if not _course_matches_registration_year_term(c, year, term):
+            continue
+        if c.curriculum_id and c.curriculum_id in active_not_running:
+            continue
+        if allowed_curriculum_ids is not None:
+            if not c.curriculum_id or c.curriculum_id not in allowed_curriculum_ids:
                 continue
-            if allowed_curriculum_ids is not None:
-                if not c.curriculum_id or c.curriculum_id not in allowed_curriculum_ids:
-                    continue
-            filtered_courses.append({
-                'id': c.id,
-                'course_code': c.course_code,
-                'course_name': c.course_name,
-                'credit': c.credit,
-                'course_type': c.course_type,
-                'category': c.category,
-                'nature': c.core_optional or 'Core',
-                'source_year': year,
-                'source_term': term
-            })
+        filtered_courses.append(_serialize_registration_course(c, year, term))
+
+    if not filtered_courses and allowed_curriculum_ids and courses:
+        for c in courses:
+            if c.curriculum_id not in allowed_curriculum_ids:
+                continue
+            if c.curriculum_id and c.curriculum_id in active_not_running:
+                continue
+            if not _is_postgraduate_course(c):
+                continue
+            course_term = c.display_term or c.term or c.derived_term or ''
+            if not _registration_terms_match(course_term, term):
+                continue
+            filtered_courses.append(_serialize_registration_course(c, year, term))
+        if filtered_courses:
+            current_app.logger.info(
+                f'PG fallback loaded {len(filtered_courses)} course(s) for curricula {allowed_curriculum_ids}'
+            )
     
     return jsonify({
         'success': True,
@@ -1316,29 +1588,13 @@ def get_relevant_courses_for_retake():
         return jsonify({'success': False, 'message': 'Session, Year and Term are required'}), 400
 
     try:
-        def normalize_label(label):
-            if not label:
-                return ''
-            label = str(label).strip()
-            for suffix in [' Year', ' Term', 'Year', 'Term']:
-                if label.lower().endswith(suffix.lower()):
-                    label = label[:-len(suffix)].strip()
-            return label
-
-        normalized_year = normalize_label(year)
-        normalized_term = normalize_label(term)
-
         # Scope relevant candidates to curricula configured for the selected
         # academic session + year + term.
-        configured_year_terms = _cyt_query().filter(
-            CurriculumYearTerm.academic_session == session_name
-        ).all()
+        configured_year_terms = _cyt_rows_for_session_year_term(session_name, year, term)
         allowed_curriculum_ids = {
             row.curriculum_id
             for row in configured_year_terms
             if row.curriculum_id
-            and normalize_label(row.year or '') == normalized_year
-            and normalize_label(row.term or '') == normalized_term
         }
 
         if not allowed_curriculum_ids:
@@ -1352,13 +1608,17 @@ def get_relevant_courses_for_retake():
         offered_courses = offered_query.order_by(
             Course.course_code.asc(), Course.course_name.asc(), Course.id.asc()
         ).all()
+        if not offered_courses:
+            offered_courses = Course.query.filter(
+                Course.curriculum_id.in_(allowed_curriculum_ids)
+            ).order_by(
+                Course.course_code.asc(), Course.course_name.asc(), Course.id.asc()
+            ).all()
 
         relevant_candidates = []
         seen_course_codes = set()
         for course in offered_courses:
-            course_year = normalize_label(course.display_year or course.year or '')
-            course_term = normalize_label(course.display_term or course.term or '')
-            if course_year != normalized_year or course_term != normalized_term:
+            if not _course_matches_registration_year_term(course, year, term):
                 continue
 
             normalized_code = (course.course_code or '').strip().lower()
@@ -2331,12 +2591,21 @@ def coordinator_registrations():
             status='finalized'
         )
         
-        # Apply active semester filtering (if not admin and filter function available)
-        if filter_by_active_semester and not is_admin(current_user):
+        # Head/Dean (and admin) review ALL finalized registrations, so they must
+        # not be limited to the currently active semester/operational window —
+        # otherwise past or other-window registrations show "No finalized
+        # registrations found" even though they exist. The explicit
+        # session/batch/student filters below already scope the results.
+        can_view_all_registrations = (
+            is_admin(current_user) or 'head' in roles or 'dean' in roles
+        )
+
+        # Apply active semester filtering (if not privileged and filter function available)
+        if filter_by_active_semester and not can_view_all_registrations:
             batch_for_filter = batch_filter if batch_filter else None
             reg_query = filter_by_active_semester(reg_query, StudentCourseRegistration, batch=batch_for_filter, admin_override=False)
 
-        if filter_by_active_window and not is_admin(current_user):
+        if filter_by_active_window and not can_view_all_registrations:
             reg_query = filter_by_active_window(reg_query, StudentCourseRegistration, admin_override=False)
         
         # Apply filters to registrations
@@ -2425,6 +2694,8 @@ def coordinator_registrations():
         students_query = students_query.filter_by(batch=batch_filter)
     students = students_query.order_by(Student.student_id.asc()).limit(500).all()
 
+    can_course_wise_review = is_admin(current_user) or 'head' in roles or 'dean' in roles
+
     return render_template('course_management/coordinator_registrations.html',
                          pending_registrations=pending_by_student,
                          finalized_registrations=finalized_by_student,
@@ -2433,7 +2704,199 @@ def coordinator_registrations():
                          students=students,
                          selected_session=session_filter,
                          selected_batch=batch_filter,
-                         selected_student_id=student_id_filter)
+                         selected_student_id=student_id_filter,
+                         can_course_wise_review=can_course_wise_review)
+
+
+@course_management_bp.route('/coordinator/registrations/api/course-subjects', methods=['GET'])
+@login_required
+def get_course_subjects_for_registration_review():
+    """List subjects with registrations for course-wise review (Head/Dean)."""
+    roles = parse_roles(current_user.role)
+    if not (is_admin(current_user) or 'head' in roles or 'dean' in roles):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    session_name = request.args.get('session', '').strip()
+    year = request.args.get('year', '').strip()
+    term = request.args.get('term', '').strip()
+
+    if not session_name or not year or not term:
+        return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
+
+    try:
+        rows = db.session.query(
+            StudentCourseRegistration.student_id,
+            StudentCourseRegistration.course_code,
+            StudentCourseRegistration.course_name,
+            StudentCourseRegistration.course_id,
+            StudentCourseRegistration.remark,
+            StudentCourseRegistration.relevant_course_code,
+            StudentCourseRegistration.relevant_course_id,
+            StudentCourseRegistration.use_relevant_for_committee,
+        ).filter(
+            StudentCourseRegistration.academic_session == session_name,
+            StudentCourseRegistration.year == year,
+            StudentCourseRegistration.term == term,
+            StudentCourseRegistration.status != 'archived'
+        ).all()
+
+        subjects_map = {}
+
+        def _track_subject(code, name, course_id, student_id):
+            code_key = _course_code_lookup_key(code)
+            if not code_key or not student_id:
+                return
+            entry = subjects_map.get(code_key)
+            if not entry:
+                entry = {
+                    'course_code': (code or '').strip(),
+                    'course_name': (name or code or '').strip(),
+                    'course_id': course_id,
+                    'student_ids': set(),
+                }
+                subjects_map[code_key] = entry
+            else:
+                if name and len(name) > len(entry['course_name'] or ''):
+                    entry['course_name'] = name.strip()
+                if course_id and not entry['course_id']:
+                    entry['course_id'] = course_id
+            entry['student_ids'].add(student_id)
+
+        for row in rows:
+            _track_subject(row.course_code, row.course_name, row.course_id, row.student_id)
+
+            relevant_code = (row.relevant_course_code or '').strip()
+            if (
+                _is_retake_remark(row.remark)
+                and relevant_code
+                and _course_code_lookup_key(relevant_code) != _course_code_lookup_key(row.course_code)
+            ):
+                _track_subject(
+                    relevant_code,
+                    relevant_code,
+                    row.relevant_course_id,
+                    row.student_id
+                )
+
+        if subjects_map:
+            course_name_lookup = {}
+            course_keys = list(subjects_map.keys())
+            matched_courses = Course.query.filter(
+                _collapsed_course_code_column(Course.course_code).in_(course_keys)
+            ).order_by(Course.id.desc()).all()
+            for course in matched_courses:
+                key = _course_code_lookup_key(course.course_code)
+                if key and key not in course_name_lookup:
+                    course_name_lookup[key] = course
+
+            for code_key, entry in subjects_map.items():
+                matched = course_name_lookup.get(code_key)
+                if matched:
+                    if not entry['course_id']:
+                        entry['course_id'] = matched.id
+                    if entry['course_name'] == entry['course_code'] or not entry['course_name']:
+                        entry['course_name'] = matched.course_name or entry['course_code']
+
+        subjects = [{
+            'course_code': entry['course_code'],
+            'course_name': entry['course_name'],
+            'course_id': entry['course_id'],
+            'registration_count': len(entry['student_ids']),
+        } for entry in subjects_map.values()]
+        subjects.sort(key=lambda item: item['course_code'])
+
+        return jsonify({'success': True, 'subjects': subjects})
+    except Exception as exc:
+        current_app.logger.error(f'Error fetching course subjects for review: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Error fetching subjects'}), 500
+
+
+@course_management_bp.route('/coordinator/registrations/api/course-wise', methods=['GET'])
+@login_required
+def get_course_wise_registrations():
+    """Get registered students for a specific course (Head/Dean course-wise review)."""
+    roles = parse_roles(current_user.role)
+    if not (is_admin(current_user) or 'head' in roles or 'dean' in roles):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    session_name = request.args.get('session', '').strip()
+    year = request.args.get('year', '').strip()
+    term = request.args.get('term', '').strip()
+    course_code = request.args.get('course_code', '').strip()
+
+    if not session_name or not year or not term or not course_code:
+        return jsonify({'success': False, 'message': 'Session, Year, Term, and Course are required'}), 400
+
+    try:
+        scope_filter, course_code_key = _registration_course_filter(
+            course_code, session_name, year, term
+        )
+        rows = db.session.query(
+            StudentCourseRegistration, Student
+        ).join(
+            Student, Student.id == StudentCourseRegistration.student_id
+        ).options(
+            noload(StudentCourseRegistration.relevant_course),
+            noload(StudentCourseRegistration.course),
+        ).filter(
+            scope_filter
+        ).order_by(
+            Student.student_id.asc(),
+            StudentCourseRegistration.id.asc()
+        ).all()
+
+        students = []
+        regs = []
+        for reg, student in rows:
+            regs.append(reg)
+            students.append(_serialize_course_wise_registration(reg, student, course_code_key))
+
+        course_info = {}
+        if regs:
+            first = regs[0]
+            course_info = {
+                'course_id': first.course_id,
+                'course_code': first.course_code,
+                'course_name': first.course_name,
+                'credit': first.credit,
+                'course_type': first.course_type,
+                'nature': first.nature or 'Core',
+            }
+        else:
+            matched_course = Course.query.filter(
+                _collapsed_course_code_column(Course.course_code) == course_code_key
+            ).order_by(Course.id.desc()).first()
+            if matched_course:
+                course_info = {
+                    'course_id': matched_course.id,
+                    'course_code': matched_course.course_code,
+                    'course_name': matched_course.course_name,
+                    'credit': matched_course.credit,
+                    'course_type': matched_course.course_type,
+                    'nature': matched_course.core_optional or 'Core',
+                }
+            else:
+                course_info = {
+                    'course_id': None,
+                    'course_code': course_code,
+                    'course_name': '',
+                    'credit': 0,
+                    'course_type': '',
+                    'nature': 'Core',
+                }
+
+        return jsonify({
+            'success': True,
+            'session': session_name,
+            'year': year,
+            'term': term,
+            'course': course_info,
+            'students': students,
+            'count': len(students)
+        })
+    except Exception as exc:
+        current_app.logger.error(f'Error fetching course-wise registrations: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': f'Error fetching registrations: {exc}'}), 500
 
 
 @course_management_bp.route('/coordinator/registration/<int:student_id>/view', methods=['GET'])
@@ -3592,30 +4055,29 @@ def get_batches_for_registration():
         return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
     
     try:
-        # Get distinct batches from CurriculumYearTerm for the given session, year, and term (primary batches)
-        primary_batch_query = _cyt_query().with_entities(CurriculumYearTerm.batch).distinct().filter(
-            CurriculumYearTerm.academic_session == session_name,
-            CurriculumYearTerm.year == year,
-            CurriculumYearTerm.term == term,
-            CurriculumYearTerm.batch.isnot(None),
-            CurriculumYearTerm.batch != '',
-            CurriculumYearTerm.batch != 'None'  # Exclude "Not Running" entries
-        ).order_by(CurriculumYearTerm.batch.desc()).all()
-        
+        active_window_id = _active_window_id()
+        matching_configs = _cyt_rows_for_session_year_term(session_name, year, term)
         primary_batches = []
         seen_primary = set()
-        for row in primary_batch_query:
-            raw_value = (row[0] or '').strip()
-            if not raw_value or raw_value == 'None':
-                continue
-            for batch in [b.strip() for b in raw_value.split(',') if b.strip()]:
+        curriculum_ids = {cfg.curriculum_id for cfg in matching_configs if cfg.curriculum_id}
+        curricula_by_id = {
+            c.id: c for c in Curriculum.query.filter(Curriculum.id.in_(curriculum_ids)).all()
+        } if curriculum_ids else {}
+
+        for cfg in matching_configs:
+            configured = _batches_from_csv(cfg.batch)
+            batch_candidates = configured
+            if not batch_candidates:
+                curriculum = curricula_by_id.get(cfg.curriculum_id)
+                if curriculum:
+                    batch_candidates = curriculum.get_batches_list(window_id=active_window_id) or []
+            for batch in batch_candidates:
                 if batch == 'None' or batch in seen_primary:
                     continue
                 seen_primary.add(batch)
                 primary_batches.append(batch)
         
         current_app.logger.info(f'[get_batches_for_registration] Session: {session_name}, Year: {year}, Term: {term}')
-        current_app.logger.info(f'[get_batches_for_registration] Primary batch query returned: {primary_batch_query}')
         current_app.logger.info(f'[get_batches_for_registration] Primary batches (Recommended): {primary_batches}')
         
         # Also get all batches from Student table (for retake students who might be from other batches)

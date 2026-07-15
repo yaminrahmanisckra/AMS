@@ -493,6 +493,7 @@ class DutyAssignment(db.Model):
     assigned_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=True)
     student_id = db.Column(db.Integer, db.ForeignKey('student.id'), nullable=True)
     assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Head who assigned
+    exam_entry_id = db.Column(db.Integer, db.ForeignKey('exam_paper_evaluation.id'), nullable=True)
     remarks = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(20), nullable=False, default='active')  # active | inactive
     window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)

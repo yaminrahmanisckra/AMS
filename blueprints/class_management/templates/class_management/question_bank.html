@@ -180,7 +180,7 @@
                             <i class="fas fa-folder text-warning"></i>
                         </span>
                         <span class="fw-semibold qb-folder-label" title="{{ node.folder_name }}">{{ node.folder_basename or node.folder_name }}</span>
-                        <span class="badge bg-secondary ms-2">{{ node.files|length }} file(s)</span>
+                        <span class="badge bg-secondary ms-2">{{ node.total_files|default(node.files|length) }} file(s)</span>
                         <span class="qb-folder-meta qb-hide-mobile">/{{ node.folder_name }}</span>
                         {% if can_manage %}
                         <div class="dropdown ms-auto" onclick="event.stopPropagation();">

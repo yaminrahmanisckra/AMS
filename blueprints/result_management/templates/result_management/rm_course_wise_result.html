@@ -73,10 +73,10 @@
                 <tr>
                     <td>{{ student_id }}</td>
                     <td>{{ name }}</td>
-                    <td>{{ "%.1f"|format(attendance) if attendance is not none }}</td>
-                    <td>{{ "%.1f"|format(continuous_assessment) if continuous_assessment is not none }}</td>
-                    <td>{{ "%.1f"|format(part_a) if part_a is not none }}</td>
-                    <td>{{ "%.1f"|format(part_b) if part_b is not none }}</td>
+                    <td>{{ attendance|round(0)|int if attendance is not none }}</td>
+                    <td>{{ continuous_assessment|round(0)|int if continuous_assessment is not none }}</td>
+                    <td>{{ part_a|round(0)|int if part_a is not none }}</td>
+                    <td>{{ part_b|round(0)|int if part_b is not none }}</td>
                     <td>{{ "%.0f"|format(total_marks) if total_marks is not none else 'N/A' }}</td>
                     <td>{{ grade_letter or 'N/A' }}</td>
                     <td>{{ "%.2f"|format(grade_point) if grade_point is not none else 'N/A' }}</td>

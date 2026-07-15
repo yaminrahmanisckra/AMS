@@ -137,32 +137,48 @@
             background: #f8f8f8;
         }
         
+        .meta-value-emphasis {
+            font-size: 11pt;
+            font-weight: 400;
+        }
+        
+        .meta-exam-dates {
+            font-size: 11pt;
+            font-weight: 600;
+        }
+        
+        .rem-text-normal {
+            font-weight: 400 !important;
+        }
+        
         .rem-table {
             width: 100%;
             border-collapse: collapse;
             margin: 0.35rem 0;
-            font-size: 8pt;
+            font-size: 10.5pt;
             table-layout: fixed;
         }
         
         .rem-table th,
         .rem-table td {
             border: 1px solid #000;
-            padding: 0.2rem 0.25rem;
+            padding: 0.14rem 0.25rem;
             vertical-align: middle;
             overflow: hidden;
-            text-overflow: ellipsis;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
         }
         
         .rem-table th {
             text-align: center;
             font-weight: 600;
             background: #f8f8f8;
-            font-size: 7pt;
+            font-size: 9.5pt;
         }
         
         .rem-table td {
-            font-size: 8pt;
+            font-size: 10.5pt;
         }
         
         .rem-table th:first-child,
@@ -179,7 +195,7 @@
         }
         
         .rem-table td:nth-child(2) {
-            font-size: 9.5pt !important;
+            font-size: 11.5pt !important;
         }
         
         .rem-table th:nth-child(3),
@@ -194,6 +210,12 @@
             width: 17%;
         }
         
+        .rem-table td.rem-qty-cell,
+        .rem-table td:nth-child(4) {
+            font-size: 12pt !important;
+            font-weight: 600;
+        }
+        
         .rem-table th:nth-child(5),
         .rem-table td:nth-child(5) {
             text-align: center;
@@ -206,10 +228,22 @@
             width: 12%;
         }
         
+        .rem-table td.rem-rate-cell,
+        .rem-table td:nth-child(6) {
+            font-size: 12pt !important;
+            font-weight: 600;
+        }
+        
         .rem-table th:nth-child(7),
         .rem-table td:nth-child(7) {
             text-align: right;
             width: 12%;
+        }
+        
+        .rem-table td.rem-amount-cell,
+        .rem-table td:nth-child(7) {
+            font-size: 12.5pt !important;
+            font-weight: 700;
         }
         
         .foot-table {
@@ -472,14 +506,14 @@
             </tr>
             <tr>
                 <td class="meta-label">শিক্ষাবর্ষ:</td>
-                <td class="english-text">{{ academic_year or '' }}</td>
+                <td class="english-text meta-value-emphasis">{{ academic_year or '' }}</td>
                 <td class="meta-label">টার্ম:</td>
                 <td class="english-text">{{ term or '' }}</td>
             </tr>
             <tr>
                 <td class="meta-label">পরীক্ষা অনুষ্ঠানের তারিখ:</td>
-                <td><span class="english-text">{{ exam_start_date or '' }}</span> থেকে</td>
-                <td colspan="2"><span class="english-text">{{ exam_end_date or '' }}</span> পর্যন্ত</td>
+                <td class="meta-exam-dates"><span class="english-text">{{ exam_start_date or '' }}</span> থেকে</td>
+                <td class="meta-exam-dates" colspan="2"><span class="english-text">{{ exam_end_date or '' }}</span> পর্যন্ত</td>
             </tr>
         </table>
         
@@ -501,11 +535,11 @@
                 <tr>
                     <td class="text-center">{{ job_data.serial }}</td>
                     <td>{{ job_data.description }}</td>
-                    <td class="english-text">{{ job_data.courses }}</td>
-                    <td class="english-text">{% if job_data.quantity %}{{ job_data.quantity|safe }}{% endif %}</td>
+                    <td class="english-text{% if job_data.courses and job_data.courses|upper == 'ALL' %} rem-text-normal{% endif %}">{{ job_data.courses }}</td>
+                    <td class="english-text{% if job_data.quantity and job_data.quantity|upper == 'ALL' %} rem-qty-cell rem-text-normal{% else %} rem-qty-cell{% endif %}">{% if job_data.quantity %}{{ job_data.quantity|safe }}{% endif %}</td>
                     <td class="english-text">{{ job_data.paper_type }}</td>
-                    <td class="english-text">{{ job_data.rate }}</td>
-                    <td class="text-right english-text">{{ job_data.amount }}</td>
+                    <td class="english-text rem-rate-cell">{{ job_data.rate }}</td>
+                    <td class="text-right english-text rem-amount-cell">{{ job_data.amount }}</td>
                 </tr>
                 {% endfor %}
                 <tr>
@@ -515,7 +549,7 @@
                     <td></td>
                     <td></td>
                     <td class="text-right"><strong>সর্বমোট টাকার পরিমাণ</strong></td>
-                    <td class="text-right english-text"><strong>{{ total_amount or '' }}</strong></td>
+                    <td class="text-right english-text rem-amount-cell"><strong>{{ total_amount or '' }}</strong></td>
                 </tr>
             </tbody>
         </table>

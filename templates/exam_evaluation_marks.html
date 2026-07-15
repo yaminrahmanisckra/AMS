@@ -57,6 +57,7 @@
                     <div class="btn-group btn-group-sm" role="group">
                         <button type="button" class="btn btn-primary" id="btn-add-question"><i class="fas fa-plus me-1"></i>Add Question</button>
                         <button type="button" class="btn btn-outline-primary" id="btn-add-student"><i class="fas fa-user-plus me-1"></i>Add Student Row</button>
+                        <button type="button" class="btn btn-outline-primary" id="btn-add-custom-rows"><i class="fas fa-users me-1"></i>Custom Rows</button>
                         <button type="button" class="btn btn-outline-danger" id="btn-clear-table"><i class="fas fa-trash-alt me-1"></i>Clear Table</button>
                     </div>
                 </div>
@@ -151,14 +152,16 @@
 .student-id-input {
     min-width: 140px;
 }
-/* Duplicate Student ID highlighting */
-.duplicate-student-id {
+/* Duplicate Code / Student ID highlighting */
+.duplicate-field-row {
     background-color: #fff3cd !important;
     border-left: 3px solid #ffc107 !important;
 }
-.duplicate-student-id .student-id-input.is-invalid {
+.duplicate-field-row .code-input.is-invalid,
+.duplicate-field-row .student-id-input.is-invalid {
     border-color: #dc3545 !important;
     background-color: #f8d7da !important;
+    font-weight: 600;
 }
 .total-field {
     min-width: 90px;
@@ -223,6 +226,7 @@
     const tbody = document.getElementById('marks-body');
     const addQuestionBtn = document.getElementById('btn-add-question');
     const addStudentBtn = document.getElementById('btn-add-student');
+    const addCustomRowsBtn = document.getElementById('btn-add-custom-rows');
     const clearTableBtn = document.getElementById('btn-clear-table');
     const pdfBtn = document.getElementById('btn-download-pdf');
     const excelBtn = document.getElementById('btn-download-excel');
@@ -261,6 +265,13 @@
         buildPayload();
         const payload = payloadInput.value;
         if (!payload) return;
+
+        const duplicateGroups = checkAllDuplicates();
+        if (hasAnyDuplicates(duplicateGroups)) {
+            highlightDuplicates(duplicateGroups);
+            showSaveStatus('✗ Duplicate Code/Student ID found', false);
+            return;
+        }
         
         try {
             const data = JSON.parse(payload);
@@ -924,60 +935,115 @@
         payloadInput.value = JSON.stringify(data);
     }
 
-    function checkDuplicateStudentIds() {
-        const studentIds = new Map(); // Map to track student_id -> row number
+    function findDuplicateValues(inputSelector) {
+        const valueToRows = new Map();
+        const allRows = Array.from(tbody.querySelectorAll('.marks-row'));
+
+        allRows.forEach((row, index) => {
+            const input = row.querySelector(inputSelector);
+            const value = input ? input.value.trim() : '';
+            if (!value) {
+                return;
+            }
+            if (!valueToRows.has(value)) {
+                valueToRows.set(value, []);
+            }
+            valueToRows.get(value).push(index + 1);
+        });
+
         const duplicates = [];
-        
-        tbody.querySelectorAll('.marks-row').forEach((row, index) => {
-            const studentInput = row.querySelector('.student-id-input');
-            if (studentInput) {
-                const studentId = studentInput.value.trim();
-                if (studentId) {
-                    if (studentIds.has(studentId)) {
-                        // Found duplicate
-                        const firstRow = studentIds.get(studentId);
-                        duplicates.push({
-                            studentId: studentId,
-                            row1: firstRow + 1, // 1-based row number
-                            row2: index + 1
-                        });
-                    } else {
-                        studentIds.set(studentId, index);
-                    }
-                }
+        valueToRows.forEach((rows, value) => {
+            if (rows.length > 1) {
+                duplicates.push({ value, rows });
             }
         });
-        
         return duplicates;
     }
 
-    function highlightDuplicateRows(duplicates) {
-        // Remove previous highlights
+    function checkAllDuplicates() {
+        return {
+            code: findDuplicateValues('.code-input'),
+            studentId: findDuplicateValues('.student-id-input'),
+        };
+    }
+
+    function hasAnyDuplicates(groups) {
+        return groups.code.length > 0 || groups.studentId.length > 0;
+    }
+
+    function clearDuplicateHighlights() {
         tbody.querySelectorAll('.marks-row').forEach(row => {
-            row.classList.remove('duplicate-student-id');
+            row.classList.remove('duplicate-field-row');
+            const codeInput = row.querySelector('.code-input');
             const studentInput = row.querySelector('.student-id-input');
+            if (codeInput) {
+                codeInput.classList.remove('is-invalid');
+            }
             if (studentInput) {
                 studentInput.classList.remove('is-invalid');
             }
         });
-        
-        // Highlight duplicate rows
+    }
+
+    function highlightDuplicates(groups) {
+        clearDuplicateHighlights();
         const allRows = Array.from(tbody.querySelectorAll('.marks-row'));
-        duplicates.forEach(dup => {
-            const row1 = allRows[dup.row1 - 1];
-            const row2 = allRows[dup.row2 - 1];
-            
-            if (row1) {
-                row1.classList.add('duplicate-student-id');
-                const input1 = row1.querySelector('.student-id-input');
-                if (input1) input1.classList.add('is-invalid');
-            }
-            if (row2) {
-                row2.classList.add('duplicate-student-id');
-                const input2 = row2.querySelector('.student-id-input');
-                if (input2) input2.classList.add('is-invalid');
-            }
+
+        const markFieldDuplicates = (items, inputSelector) => {
+            items.forEach(item => {
+                item.rows.forEach(rowNum => {
+                    const row = allRows[rowNum - 1];
+                    if (!row) {
+                        return;
+                    }
+                    row.classList.add('duplicate-field-row');
+                    const input = row.querySelector(inputSelector);
+                    if (input) {
+                        input.classList.add('is-invalid');
+                    }
+                });
+            });
+        };
+
+        markFieldDuplicates(groups.code, '.code-input');
+        markFieldDuplicates(groups.studentId, '.student-id-input');
+    }
+
+    function formatDuplicateMessage(groups) {
+        const messages = [];
+        groups.code.forEach(item => {
+            messages.push(`Code "${item.value}" in rows: ${item.rows.join(', ')}`);
         });
+        groups.studentId.forEach(item => {
+            messages.push(`Student ID "${item.value}" in rows: ${item.rows.join(', ')}`);
+        });
+        return messages;
+    }
+
+    function validateBeforeSave() {
+        const groups = checkAllDuplicates();
+        if (!hasAnyDuplicates(groups)) {
+            clearDuplicateHighlights();
+            return true;
+        }
+
+        highlightDuplicates(groups);
+        let message = 'Duplicate number(s) found:\n\n';
+        formatDuplicateMessage(groups).forEach((line, idx) => {
+            message += `${idx + 1}. ${line}\n`;
+        });
+        message += '\nPlease fix duplicate Code/Student ID before saving.';
+        alert(message);
+        return false;
+    }
+
+    function validateDuplicatesOnInput() {
+        const groups = checkAllDuplicates();
+        if (hasAnyDuplicates(groups)) {
+            highlightDuplicates(groups);
+        } else {
+            clearDuplicateHighlights();
+        }
     }
 
     function submitWithAction(action) {
@@ -993,29 +1059,9 @@
             return;
         }
         
-        // Check for duplicate Student IDs before saving
-        const duplicates = checkDuplicateStudentIds();
-        if (duplicates.length > 0) {
-            highlightDuplicateRows(duplicates);
-            
-            let message = 'Duplicate Student ID found:\n\n';
-            duplicates.forEach((dup, idx) => {
-                message += `${idx + 1}. Student ID "${dup.studentId}" appears in row ${dup.row1} and row ${dup.row2}\n`;
-            });
-            message += '\nPlease fix duplicate Student IDs before saving.';
-            
-            alert(message);
+        if (!validateBeforeSave()) {
             return false;
         }
-        
-        // Remove any previous highlights
-        tbody.querySelectorAll('.marks-row').forEach(row => {
-            row.classList.remove('duplicate-student-id');
-            const studentInput = row.querySelector('.student-id-input');
-            if (studentInput) {
-                studentInput.classList.remove('is-invalid');
-            }
-        });
         
         actionInput.value = action;
         buildPayload();
@@ -1047,6 +1093,7 @@
         } else {
             addStudentRow({});
         }
+        validateDuplicatesOnInput();
     }
 
     addQuestionBtn.addEventListener('click', () => addQuestion());
@@ -1058,6 +1105,29 @@
         }
         addStudentRow({});
     });
+    addCustomRowsBtn.addEventListener('click', () => {
+        const validation = validateCodeFields();
+        if (!validation.valid) {
+            alert('কোড ফাঁকা আছে');
+            return;
+        }
+        const input = prompt('How many rows would you like to add?', '5');
+        if (input === null) {
+            return;
+        }
+        const count = parseInt(String(input).trim(), 10);
+        if (!Number.isInteger(count) || count < 1) {
+            alert('Please enter a valid number (1 or more).');
+            return;
+        }
+        if (count > 100) {
+            alert('You can add at most 100 rows at a time.');
+            return;
+        }
+        for (let i = 0; i < count; i++) {
+            addStudentRow({});
+        }
+    });
     clearTableBtn.addEventListener('click', clearTable);
     pdfBtn.addEventListener('click', () => submitWithAction('pdf'));
     excelBtn.addEventListener('click', () => submitWithAction('excel'));
@@ -1065,55 +1135,19 @@
         actionInput.value = 'save';
     });
 
-    marksForm.addEventListener('submit', buildPayload);
+    marksForm.addEventListener('submit', function(e) {
+        buildPayload();
+        const action = actionInput.value || 'save';
+        if (action === 'save' && !validateBeforeSave()) {
+            e.preventDefault();
+            return false;
+        }
+    });
     
-    // Add auto-save to code and student ID inputs (delegated event listener)
-    function validateStudentIdOnInput(input) {
-        if (!input || !input.classList.contains('student-id-input')) {
-            return;
-        }
-        
-        const studentId = input.value.trim();
-        if (!studentId) {
-            // Remove validation if empty
-            input.classList.remove('is-invalid');
-            input.closest('.marks-row')?.classList.remove('duplicate-student-id');
-            return;
-        }
-        
-        // Check for duplicates
-        const allRows = Array.from(tbody.querySelectorAll('.marks-row'));
-        const currentRow = input.closest('.marks-row');
-        const currentIndex = allRows.indexOf(currentRow);
-        
-        let hasDuplicate = false;
-        allRows.forEach((row, index) => {
-            if (index !== currentIndex) {
-                const otherInput = row.querySelector('.student-id-input');
-                if (otherInput && otherInput.value.trim() === studentId) {
-                    hasDuplicate = true;
-                }
-            }
-        });
-        
-        // Update validation state
-        if (hasDuplicate) {
-            input.classList.add('is-invalid');
-            currentRow?.classList.add('duplicate-student-id');
-        } else {
-            input.classList.remove('is-invalid');
-            currentRow?.classList.remove('duplicate-student-id');
-        }
-    }
-
     document.addEventListener('input', function(e) {
         if (e.target.classList.contains('code-input') || e.target.classList.contains('student-id-input')) {
             debounceAutoSave();
-            
-            // Real-time validation for Student ID
-            if (e.target.classList.contains('student-id-input')) {
-                validateStudentIdOnInput(e.target);
-            }
+            validateDuplicatesOnInput();
         }
     });
 

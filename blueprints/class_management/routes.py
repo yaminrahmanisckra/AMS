@@ -498,6 +498,13 @@ def _combined_pdf_assessment_header(session):
     return 'Continuous Assessment (30)'
 
 
+def _combined_pdf_title(session):
+    """Main title for combined attendance + assessment PDF."""
+    if session.course_type == 'sessional':
+        return 'Sessional Assessment and Attendance Marks'
+    return 'Continuous Assessment and Attendance Marks'
+
+
 def _normalize_session_course_type(raw_course_type):
     """Map course types to compact values fitting class_session.course_type."""
     value = (raw_course_type or '').strip().lower()
@@ -6385,6 +6392,11 @@ def download_pdf_report(session_id):
         # so marks stay consistent between display and combined PDF.
         attendance_summary = _build_attendance_summary(session, include_archived=True)
         combined_assessment_map = _collect_combined_assessment_marks(session)
+        combined_sessional_values, _combined_sessional_absent = (
+            _build_combined_sessional_values(session)
+            if session.course_type == 'sessional'
+            else ({}, {})
+        )
 
         buffer = io.BytesIO()
         
@@ -6417,14 +6429,24 @@ def download_pdf_report(session_id):
             attendance_marks = attendance_stats.get('marks', 0)
 
             if session.course_type == 'sessional':
-                # For sessional courses, keep report and viva separate
-                sessional_report = student.sessional_report or 0
-                sessional_viva = student.sessional_viva or 0
+                merged_values = combined_sessional_values.get(student.student_id, {})
+                sessional_report = (
+                    student.sessional_report
+                    if student.sessional_report is not None
+                    else merged_values.get('sessional_report')
+                ) or 0
+                sessional_viva = (
+                    student.sessional_viva
+                    if student.sessional_viva is not None
+                    else merged_values.get('sessional_viva')
+                ) or 0
+                total_marks = attendance_marks + sessional_report + sessional_viva
                 student_data_for_pdf.append({
                     'id': student.student_id,
                     'attendance': format_one_decimal(attendance_marks),
                     'sessional_report': format_one_decimal(sessional_report),
-                    'sessional_viva': format_one_decimal(sessional_viva)
+                    'sessional_viva': format_one_decimal(sessional_viva),
+                    'total': format_one_decimal(total_marks),
                 })
             else:
                 # For theory courses, use combined assessment
@@ -6468,16 +6490,26 @@ def download_pdf_report(session_id):
 
         # --- Table Creation ---
         if session.course_type == 'sessional':
-            # For sessional courses: separate columns for Report and Viva
-            table_data = [['ID', 'Attendance (10)', 'Sessional Report (60)', 'Sessional Viva (30)']]
+            table_data = [[
+                'ID',
+                'Attendance (10)',
+                'Sessional Report (60)',
+                'Sessional Viva (30)',
+                'Total Marks (100)',
+            ]]
             for s_data in student_data_for_pdf:
                 table_data.append([
-                    s_data['id'], 
-                    s_data['attendance'], 
+                    s_data['id'],
+                    s_data['attendance'],
                     s_data['sessional_report'],
-                    s_data['sessional_viva']
+                    s_data['sessional_viva'],
+                    s_data['total'],
                 ])
-            table = Table(table_data, colWidths=[1.5*inch, 1.5*inch, 2*inch, 2*inch], repeatRows=0)
+            table = Table(
+                table_data,
+                colWidths=[1.1 * inch, 1.3 * inch, 1.6 * inch, 1.6 * inch, 1.4 * inch],
+                repeatRows=0,
+            )
         else:
             # For theory courses: single assessment column
             assessment_header_text = _combined_pdf_assessment_header(session)
@@ -6510,7 +6542,7 @@ def download_pdf_report(session_id):
 
                 canvas_obj.setFont('Helvetica', 12)
                 canvas_obj.drawCentredString(width / 2.0, height - 1.35 * inch, "Law Discipline")
-                canvas_obj.drawCentredString(width / 2.0, height - 1.60 * inch, "Continuous Assessment and Attendance Marks")
+                canvas_obj.drawCentredString(width / 2.0, height - 1.60 * inch, _combined_pdf_title(session))
 
                 canvas_obj.setFont('Helvetica-Bold', 10)
                 course_info = f"Course: {session.course_name} ({session.course_code or 'N/A'})  |  Type: {session.course_type.capitalize()}"
@@ -10789,6 +10821,20 @@ def question_bank():
         nodes.sort(key=_qb_year_sort_key)
 
     _sort_children(folder_tree)
+
+    # Compute total file count per folder including everything in its subfolders,
+    # so a parent folder (e.g. "Third Year") reflects files stored deeper in the
+    # tree instead of showing "0 file(s)".
+    def _compute_total_files(node):
+        total = len(node.get('files') or [])
+        for child in node.get('children', []):
+            total += _compute_total_files(child)
+        node['total_files'] = total
+        return total
+
+    for _root_node in folder_tree:
+        _compute_total_files(_root_node)
+
     folder_options = sorted(
         {f"{opt['label']}::{opt['value']}": opt for opt in folder_options}.values(),
         key=lambda opt: (opt.get('label') or '').lower()

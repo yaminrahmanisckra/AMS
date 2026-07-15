@@ -230,6 +230,26 @@ EXECUTE alterIfNotExists;
 DEALLOCATE PREPARE alterIfNotExists;
 
 -- ============================================
+-- 6. DUTY_ASSIGNMENT TABLE - Link scrutinizer duties to exam entries
+-- ============================================
+SET @tablename = 'duty_assignment';
+SET @columnname = 'exam_entry_id';
+SET @preparedStatement = (SELECT IF(
+  (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE
+      (TABLE_SCHEMA = @dbname)
+      AND (TABLE_NAME = @tablename)
+      AND (COLUMN_NAME = @columnname)
+  ) > 0,
+  'SELECT 1',
+  CONCAT('ALTER TABLE ', @tablename, ' ADD COLUMN ', @columnname, ' INT NULL, ADD INDEX idx_duty_assignment_exam_entry_id (', @columnname, '), ADD CONSTRAINT fk_duty_assignment_exam_entry FOREIGN KEY (', @columnname, ') REFERENCES exam_paper_evaluation(id) ON DELETE SET NULL')
+));
+PREPARE alterIfNotExists FROM @preparedStatement;
+EXECUTE alterIfNotExists;
+DEALLOCATE PREPARE alterIfNotExists;
+
+-- ============================================
 -- SUCCESS MESSAGE
 -- ============================================
 SELECT 'Migration completed successfully! All missing columns have been added without affecting existing data.' AS Status;

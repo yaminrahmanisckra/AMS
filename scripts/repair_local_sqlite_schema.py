@@ -19,7 +19,10 @@ PATCHES = {
         ('window_id', 'window_id INTEGER REFERENCES operational_window(id)'),
         ('use_relevant_for_committee', 'use_relevant_for_committee BOOLEAN NOT NULL DEFAULT 1'),
     ],
-    'duty_assignment': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
+    'duty_assignment': [
+        ('window_id', 'window_id INTEGER REFERENCES operational_window(id)'),
+        ('exam_entry_id', 'exam_entry_id INTEGER REFERENCES exam_paper_evaluation(id)'),
+    ],
     'session_archive': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
     'exam_paper_evaluation': [
         ('window_id', 'window_id INTEGER REFERENCES operational_window(id)'),

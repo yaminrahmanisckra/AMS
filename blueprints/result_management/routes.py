@@ -127,6 +127,256 @@ def _normalize_term_label(value):
     return v
 
 
+def _canonical_year_label(value):
+    """Canonical year label for cross-module matching (LLM <-> Fifth, etc.)."""
+    y = _normalize_year_label(value)
+    if not y:
+        return ''
+    if y == 'llm' or y.startswith('llm '):
+        return 'llm'
+    if y in {'fifth', '5th', '5'}:
+        return 'llm'
+    return _normalize_year_term(value) or y
+
+
+def _years_match(year_a, year_b):
+    if not year_a or not year_b:
+        return True
+    return _canonical_year_label(year_a) == _canonical_year_label(year_b)
+
+
+def _terms_match(term_a, term_b):
+    if not term_a or not term_b:
+        return True
+    return _normalize_term_label(term_a) == _normalize_term_label(term_b)
+
+
+def _sessions_match(session_a, session_b):
+    if not session_a or not session_b:
+        return True
+    return _normalize_session_name(session_a) == _normalize_session_name(session_b)
+
+
+def _normalize_student_public_id(value):
+    if value is None:
+        return ''
+    return ' '.join(str(value).strip().upper().split())
+
+
+def _class_session_matches_result(class_session, session_name=None, year=None, term=None):
+    if not class_session:
+        return False
+    if session_name and not _sessions_match(class_session.academic_session, session_name):
+        return False
+    if year and not _years_match(class_session.year, year):
+        return False
+    if term and not _terms_match(class_session.term, term):
+        return False
+    return True
+
+
+def _find_class_sessions_for_result(course_code, session_name=None, year=None, term=None):
+    """Find Class Management sessions for a result subject context."""
+    from blueprints.class_management.models import Session as ClassSession
+
+    if not course_code:
+        return []
+
+    candidates = ClassSession.query.filter(
+        ClassSession.course_code == course_code
+    ).order_by(ClassSession.created_at.desc()).all()
+
+    if not session_name and not year and not term:
+        return candidates
+
+    strict_matches = [
+        cs for cs in candidates
+        if _class_session_matches_result(cs, session_name, year, term)
+    ]
+    if strict_matches:
+        return strict_matches
+
+    if session_name and term:
+        relaxed_matches = [
+            cs for cs in candidates
+            if _sessions_match(cs.academic_session, session_name)
+            and _terms_match(cs.term, term)
+        ]
+        if relaxed_matches:
+            return relaxed_matches
+
+    return candidates
+
+
+def _find_class_student_for_result(student_public_id, course_code, session_name=None, year=None, term=None):
+    """Find a ClassStudent row and its session using robust ID/year matching."""
+    from blueprints.class_management.models import Session as ClassSession, ClassStudent
+
+    target_id = _normalize_student_public_id(student_public_id)
+    if not target_id or not course_code:
+        return None, None
+
+    for class_session in _find_class_sessions_for_result(course_code, session_name, year, term):
+        for class_student in ClassStudent.query.filter_by(session_id=class_session.id).all():
+            if _normalize_student_public_id(class_student.student_id) == target_id:
+                return class_student, class_session
+
+    fallback_rows = ClassStudent.query.join(
+        ClassSession, ClassStudent.session_id == ClassSession.id
+    ).filter(
+        ClassSession.course_code == course_code,
+    ).order_by(ClassSession.created_at.desc(), ClassStudent.id.desc()).all()
+
+    for class_student in fallback_rows:
+        if _normalize_student_public_id(class_student.student_id) == target_id:
+            return class_student, ClassSession.query.get(class_student.session_id)
+
+    return None, None
+
+
+def _get_attendance_marks_for_student(class_session, student_public_id):
+    """Return attendance marks from Class Management summary for one student."""
+    if not class_session:
+        return None
+    try:
+        from blueprints.class_management.routes import _build_attendance_summary
+
+        summary = _build_attendance_summary(class_session)
+        target_id = _normalize_student_public_id(student_public_id)
+        for key, data in (summary.get('per_student') or {}).items():
+            if _normalize_student_public_id(key) != target_id:
+                continue
+            if not isinstance(data, dict) or 'marks' not in data:
+                return None
+            marks = data.get('marks')
+            return _round_result_mark(marks)
+    except Exception as exc:
+        current_app.logger.debug(
+            f'Could not read attendance summary for {student_public_id}: {exc}'
+        )
+    return None
+
+
+def _round_result_mark(value):
+    """Round a mark component to the nearest whole number."""
+    if value is None:
+        return None
+    try:
+        return float(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_result_mark_for_display(value):
+    """Format a mark value as a whole number for UI/PDF display."""
+    rounded = _round_result_mark(value)
+    if rounded is None:
+        return ''
+    return str(int(rounded))
+
+
+def _round_theory_component_marks(mark):
+    """Round Theory mark components (Attendance, CA, Part A, Part B) to whole numbers."""
+    if not mark:
+        return
+    for field in ('attendance', 'continuous_assessment', 'part_a', 'part_b'):
+        val = getattr(mark, field, None)
+        if val is not None:
+            setattr(mark, field, _round_result_mark(val))
+
+
+def _get_continuous_assessment_from_class_student(class_student):
+    """Extract continuous assessment (out of 40) from a ClassStudent row."""
+    if not class_student:
+        return None
+    if class_student.assessment_total_40 is not None:
+        return _round_result_mark(class_student.assessment_total_40)
+    if class_student.assessment_total is not None:
+        assessment_total = float(class_student.assessment_total)
+        if assessment_total <= 40:
+            return _round_result_mark(assessment_total)
+        return _round_result_mark(min(40.0, (assessment_total / 30) * 40))
+    return None
+
+
+def _populate_class_management_marks(mark, student, selected_subject, result_session, refresh=False):
+    """
+    Populate attendance and continuous assessment from Class Management.
+    Returns True when mark fields were updated.
+    """
+    if not mark or not student or not selected_subject:
+        return False
+
+    theory_types = ('Theory', 'Theory (UG)', 'Theory (PG)')
+    updated = False
+    class_student, class_session = _find_class_student_for_result(
+        student.student_id,
+        selected_subject.code,
+        session_name=result_session.name,
+        year=result_session.year,
+        term=result_session.term,
+    )
+
+    if not class_session and class_student:
+        class_session = class_student.session
+
+    if not class_session:
+        matching_sessions = _find_class_sessions_for_result(
+            selected_subject.code,
+            session_name=result_session.name,
+            year=result_session.year,
+            term=result_session.term,
+        )
+        class_session = matching_sessions[0] if matching_sessions else None
+
+    if not mark.attendance_manual and (refresh or mark.attendance is None):
+        attendance_marks = _get_attendance_marks_for_student(class_session, student.student_id)
+        if attendance_marks is not None:
+            mark.attendance = attendance_marks
+            updated = True
+
+    if selected_subject.subject_type in theory_types and (refresh or mark.continuous_assessment is None):
+        ca_marks = _get_continuous_assessment_from_class_student(class_student)
+        if ca_marks is not None:
+            mark.continuous_assessment = ca_marks
+            updated = True
+
+    if updated and selected_subject.subject_type in theory_types:
+        _round_theory_component_marks(mark)
+
+    return updated
+
+
+def _year_registration_variants(year):
+    if not year:
+        return []
+    variants = {str(year).strip()}
+    canonical = _canonical_year_label(year)
+    if canonical == 'llm':
+        variants.update({'LLM', 'llm', 'Fifth', 'fifth', '5', '5th', 'Fifth Year', '5th Year'})
+    elif canonical == 'first':
+        variants.update({'First', 'first', '1', '1st', 'First Year'})
+    elif canonical == 'second':
+        variants.update({'Second', 'second', '2', '2nd', 'Second Year'})
+    elif canonical == 'third':
+        variants.update({'Third', 'third', '3', '3rd', 'Third Year'})
+    elif canonical == 'fourth':
+        variants.update({'Fourth', 'fourth', '4', '4th', 'Fourth Year'})
+    return list(variants)
+
+
+def _term_registration_variants(term):
+    if not term:
+        return []
+    variants = {str(term).strip()}
+    canonical = _normalize_term_label(term)
+    if canonical == 'first':
+        variants.update({'First', 'first', '1', '1st', 'First Term', 'First Semester'})
+    elif canonical == 'second':
+        variants.update({'Second', 'second', '2', '2nd', 'Second Term', 'Second Semester'})
+    return list(variants)
+
+
 def _get_rsession_or_404(session_id):
     """Load a result session scoped to the active operational window."""
     return get_or_404_for_window(RSession, session_id)
@@ -160,9 +410,17 @@ def _build_original_course_registration_filters(student_profile_ids, subject_cod
     if session_name:
         filters.append(StudentCourseRegistration.academic_session == session_name)
     if year:
-        filters.append(StudentCourseRegistration.year == year)
+        year_variants = _year_registration_variants(year)
+        if len(year_variants) == 1:
+            filters.append(StudentCourseRegistration.year == year_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.year.in_(year_variants))
     if term:
-        filters.append(StudentCourseRegistration.term == term)
+        term_variants = _term_registration_variants(term)
+        if len(term_variants) == 1:
+            filters.append(StudentCourseRegistration.term == term_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.term.in_(term_variants))
     return filters
 
 def _can_access_session(session):
@@ -619,7 +877,7 @@ def add_student(session_id):
                 continue
             cs_year = _normalize_year_label(cs.year)
             cs_term = _normalize_term_label(cs.term)
-            year_match = (not target_year) or (cs_year == target_year)
+            year_match = (not target_year) or _years_match(cs.year, session.year)
             term_match = (not target_term) or (cs_term == target_term)
             if year_match and term_match:
                 matching_class_sessions.append(cs)
@@ -674,7 +932,7 @@ def add_student(session_id):
             reg_term = _normalize_term_label(reg.term)
             if reg_session != target_session:
                 continue
-            if target_year and reg_year != target_year:
+            if target_year and not _years_match(reg.year, session.year):
                 continue
             if target_term and reg_term != target_term:
                 continue
@@ -1308,132 +1566,41 @@ def refresh_marks(session_id):
                 
                 # Import from Class Management
                 try:
-                    from blueprints.class_management.models import Session, ClassStudent
-                    
-                    # Find matching session in Class Management by course code
-                    # Try multiple matching strategies:
-                    # 1. Exact match: course_code + year + term + academic_session
-                    # 2. Partial match: course_code + year + term (ignore academic_session)
-                    # 3. Fallback: course_code only (for backward compatibility)
-                    class_session = None
-                    
-                    if session.year and session.term and session.name:
-                        class_session = Session.query.filter_by(
-                            course_code=selected_subject.code,
+                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                        _populate_class_management_marks(
+                            mark, student, selected_subject, session, refresh=True
+                        )
+                    elif selected_subject.subject_type == 'Sessional':
+                        class_student, _class_session = _find_class_student_for_result(
+                            student.student_id,
+                            selected_subject.code,
+                            session_name=session.name,
                             year=session.year,
                             term=session.term,
-                            academic_session=session.name
-                        ).first()
-                    
-                    if not class_session and session.year and session.term:
-                        class_session = Session.query.filter_by(
-                            course_code=selected_subject.code,
-                            year=session.year,
-                            term=session.term
-                        ).first()
-                    
-                    if not class_session:
-                        class_session = Session.query.filter_by(
-                            course_code=selected_subject.code
-                        ).order_by(Session.created_at.desc()).first()  # Get most recent if multiple
-                    
-                    if class_session:
-                        # Find student in Class Management
-                        class_student = ClassStudent.query.filter_by(
-                            session_id=class_session.id,
-                            student_id=student.student_id
-                        ).first()
-                        
+                        )
                         if class_student:
-                            # Import attendance marks
-                            # Only auto-populate if attendance_manual is False or None (not manually entered)
-                            if not mark.attendance_manual:
-                                try:
-                                    from blueprints.class_management.routes import _build_attendance_summary
-                                    
-                                    attendance_summary = _build_attendance_summary(class_session)
-                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                    
-                                    if student_attendance and 'marks' in student_attendance:
-                                        attendance_marks = student_attendance.get('marks', 0)
-                                        if attendance_marks is not None:
-                                            mark.attendance = float(attendance_marks)
-                                        else:
-                                            mark.attendance = None
-                                    else:
-                                        mark.attendance = None
-                                except Exception as e:
-                                    current_app.logger.error(f"Error importing attendance for student {student.student_id}: {e}", exc_info=True)
-                            
-                            # Import marks based on subject type
-                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                                # Import continuous assessment for Theory courses
-                                if class_student.assessment_total_40 is not None:
-                                    # PG: Already rounded in assessment calculation
-                                    mark.continuous_assessment = float(class_student.assessment_total_40)
-                                elif class_student.assessment_total is not None:
-                                    assessment_total = float(class_student.assessment_total)
-                                    if assessment_total <= 40:
-                                        # UG: Round for result generation
-                                        mark.continuous_assessment = round(assessment_total)
-                                    else:
-                                        # Scale from 30 to 40 if needed, then round for result generation
-                                        mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                                else:
-                                    mark.continuous_assessment = None
-                            
-                            elif selected_subject.subject_type == 'Sessional':
-                                # Import sessional report and viva for Sessional courses
-                                if class_student.sessional_report is not None:
-                                    mark.sessional_report = float(class_student.sessional_report)
-                                else:
-                                    mark.sessional_report = None
-                                
-                                if class_student.sessional_viva is not None:
-                                    mark.sessional_viva = float(class_student.sessional_viva)
-                                else:
-                                    mark.sessional_viva = None
-                        else:
-                            # class_student not found - try to import attendance from Class Management anyway
-                            # This ensures attendance and assessment are imported even if student is not in Class Management session
-                            if not mark.attendance_manual:
-                                try:
-                                    from blueprints.class_management.routes import _build_attendance_summary
-                                    
-                                    attendance_summary = _build_attendance_summary(class_session)
-                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                    
-                                    if student_attendance and 'marks' in student_attendance:
-                                        attendance_marks = student_attendance.get('marks', 0)
-                                        if attendance_marks is not None:
-                                            mark.attendance = float(attendance_marks)
-                                except Exception as e:
-                                    current_app.logger.debug(f"Could not import attendance for student {student.student_id} (not in Class Management): {e}")
-                            
-                            # Try to find student in other Class Management sessions for this course
-                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                                if mark.continuous_assessment is None:
-                                    # Try to find student in any Class Management session for this course
-                                    alternative_class_student = ClassStudent.query.join(
-                                        Session, ClassStudent.session_id == Session.id
-                                    ).filter(
-                                        Session.course_code == selected_subject.code,
-                                        ClassStudent.student_id == student.student_id
-                                    ).first()
-                                    
-                                    if alternative_class_student:
-                                        if alternative_class_student.assessment_total_40 is not None:
-                                            mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
-                                        elif alternative_class_student.assessment_total is not None:
-                                            assessment_total = float(alternative_class_student.assessment_total)
-                                            if assessment_total <= 40:
-                                                mark.continuous_assessment = round(assessment_total)
-                                            else:
-                                                mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                        
-                        # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
-                        # This should be done for all students, regardless of class_student existence
-                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                            if class_student.sessional_report is not None:
+                                mark.sessional_report = float(class_student.sessional_report)
+                            else:
+                                mark.sessional_report = None
+                            if class_student.sessional_viva is not None:
+                                mark.sessional_viva = float(class_student.sessional_viva)
+                            else:
+                                mark.sessional_viva = None
+                        if not mark.attendance_manual:
+                            attendance_marks = _get_attendance_marks_for_student(
+                                _class_session, student.student_id
+                            )
+                            if attendance_marks is not None:
+                                mark.attendance = attendance_marks
+                    else:
+                        _populate_class_management_marks(
+                            mark, student, selected_subject, session, refresh=True
+                        )
+
+                    # Import Section A and B from Exam Paper Evaluation (only for Theory courses)
+                    # This should be done for all students, regardless of class_student existence
+                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
                                 try:
                                     from blueprints.class_management.models import ExamPaperEvaluation
                                     import json
@@ -1554,6 +1721,9 @@ def refresh_marks(session_id):
                 
                 # Calculate total_marks, grade_point, and grade_letter
                 try:
+                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                        _round_theory_component_marks(mark)
+
                     # Get is_retake status
                     registration = RCourseRegistration.query.filter_by(student_id=student.id, subject_id=subject_id).first()
                     is_retake = registration.is_retake if registration else False
@@ -2343,6 +2513,7 @@ def sync_exam_marks_to_result_management(exam_entry_id):
                 # #endregion
                 
                 result['marks_updated'] += 1
+                _round_theory_component_marks(r_mark)
                 
             except Exception as e:
                 error_msg = f'Error processing student row {row.get("student_id", "unknown")}: {str(e)}'
@@ -2569,55 +2740,9 @@ def add_marks(session_id):
                         if class_student:
                             # Create new RMark and auto-populate from Class Management
                             mark = RMark(student_id=student.id, subject_id=selected_subject.id)
-                            
-                            # Import attendance calculation functions from Class Management
-                            # Only auto-populate if attendance_manual is False or None (not manually entered)
-                            if not mark.attendance_manual:
-                                try:
-                                    from blueprints.class_management.routes import _build_attendance_summary
-                                    
-                                    # Build attendance summary for the session (same as Class Management uses)
-                                    attendance_summary = _build_attendance_summary(class_session)
-                                    
-                                    # Get student's attendance data using student_id (public ID)
-                                    # The summary uses student_id (public) as key, not database ID
-                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                    
-                                    if student_attendance and 'marks' in student_attendance:
-                                        # Get marks directly from the summary (already calculated by Class Management)
-                                        attendance_marks = student_attendance.get('marks', 0)
-                                        if attendance_marks is not None:
-                                            mark.attendance = float(attendance_marks)
-                                        else:
-                                            mark.attendance = None
-                                    else:
-                                        # If no attendance data found, set to None
-                                        mark.attendance = None
-                                        current_app.logger.debug(f"No attendance data found for student {student.student_id} in session {class_session.id}")
-                                except ImportError as e:
-                                    # If import fails, log warning
-                                    current_app.logger.warning(f"Could not import _build_attendance_summary: {e}")
-                                    mark.attendance = None
-                                except Exception as e:
-                                    current_app.logger.error(f"Error calculating attendance marks from Class Management for student {student.student_id}: {e}", exc_info=True)
-                                    mark.attendance = None
-                            
-                            # Get continuous assessment (sum of best 3 assessments or assessment_total_40)
-                            if class_student.assessment_total_40 is not None:
-                                # PG: Already rounded in assessment calculation
-                                mark.continuous_assessment = float(class_student.assessment_total_40)
-                            elif class_student.assessment_total is not None:
-                                # assessment_total might be out of 30, convert to out of 40 if needed
-                                assessment_total = float(class_student.assessment_total)
-                                # If it's already out of 40, use as is; otherwise scale it
-                                if assessment_total <= 40:
-                                    # UG: Round for result generation
-                                    mark.continuous_assessment = round(assessment_total)
-                                else:
-                                    # Scale from 30 to 40 if needed, then round for result generation
-                                    mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                            else:
-                                mark.continuous_assessment = None
+                            _populate_class_management_marks(
+                                mark, student, selected_subject, session, refresh=False
+                            )
                             
                             # Get Section A and B marks from Exam Paper Evaluation
                             try:
@@ -2759,49 +2884,16 @@ def add_marks(session_id):
                                 current_app.logger.error(f"Error fetching exam marks: {e}", exc_info=True)
                             
                             # Save the auto-populated mark
+                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                _round_theory_component_marks(mark)
                             db.session.add(mark)
                             db.session.commit()
                         else:
-                            # class_student not found - try to import attendance from Class Management anyway
-                            # Create mark even if class_student doesn't exist
+                            # class_student not found - still try robust class-management import
                             mark = RMark(student_id=student.id, subject_id=selected_subject.id)
-                            
-                            # Try to import attendance from Class Management session
-                            if not mark.attendance_manual:
-                                try:
-                                    from blueprints.class_management.routes import _build_attendance_summary
-                                    
-                                    attendance_summary = _build_attendance_summary(class_session)
-                                    student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                    
-                                    if student_attendance and 'marks' in student_attendance:
-                                        attendance_marks = student_attendance.get('marks', 0)
-                                        if attendance_marks is not None:
-                                            mark.attendance = float(attendance_marks)
-                                except Exception as e:
-                                    current_app.logger.debug(f"Could not import attendance for student {student.student_id} (not in Class Management): {e}")
-                            
-                            # Try to find student in other Class Management sessions for this course
-                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                                # Try to find student in any Class Management session for this course
-                                alternative_class_student = ClassStudent.query.join(
-                                    Session, ClassStudent.session_id == Session.id
-                                ).filter(
-                                    Session.course_code == selected_subject.code,
-                                    ClassStudent.student_id == student.student_id
-                                ).first()
-                                
-                                if alternative_class_student:
-                                    if alternative_class_student.assessment_total_40 is not None:
-                                        mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
-                                        current_app.logger.debug(f'Imported assessment_total_40={mark.continuous_assessment} for student {student.student_id}')
-                                    elif alternative_class_student.assessment_total is not None:
-                                        assessment_total = float(alternative_class_student.assessment_total)
-                                        if assessment_total <= 40:
-                                            mark.continuous_assessment = round(assessment_total)
-                                        else:
-                                            mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                                        current_app.logger.debug(f'Imported assessment_total={mark.continuous_assessment} for student {student.student_id}')
+                            _populate_class_management_marks(
+                                mark, student, selected_subject, session, refresh=False
+                            )
                             
                             # Import exam marks (Part A/B) even if class_student not found
                             try:
@@ -2870,47 +2962,20 @@ def add_marks(session_id):
                                 current_app.logger.debug(f"Error fetching exam marks for student {student.student_id}: {e}")
                             
                             # Save the mark even if no data was imported
+                            if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                                _round_theory_component_marks(mark)
                             db.session.add(mark)
                             db.session.commit()
                             current_app.logger.debug(f'Created mark for student {student.student_id} (class_student not found)')
                     else:
-                        # class_session not found - create empty mark and try to import from alternative sources
+                        # class_session not found - create empty mark and try robust import
                         mark = RMark(student_id=student.id, subject_id=selected_subject.id)
+                        _populate_class_management_marks(
+                            mark, student, selected_subject, session, refresh=False
+                        )
                         
-                        # Try to find student in any Class Management session for this course
                         if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                            alternative_class_student = ClassStudent.query.join(
-                                Session, ClassStudent.session_id == Session.id
-                            ).filter(
-                                Session.course_code == selected_subject.code,
-                                ClassStudent.student_id == student.student_id
-                            ).first()
-                            
-                            if alternative_class_student:
-                                # Import assessment
-                                if alternative_class_student.assessment_total_40 is not None:
-                                    mark.continuous_assessment = float(alternative_class_student.assessment_total_40)
-                                elif alternative_class_student.assessment_total is not None:
-                                    assessment_total = float(alternative_class_student.assessment_total)
-                                    if assessment_total <= 40:
-                                        mark.continuous_assessment = round(assessment_total)
-                                    else:
-                                        mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                                
-                                # Try to import attendance from the alternative session
-                                try:
-                                    from blueprints.class_management.routes import _build_attendance_summary
-                                    alt_session = Session.query.get(alternative_class_student.session_id)
-                                    if alt_session:
-                                        attendance_summary = _build_attendance_summary(alt_session)
-                                        student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                        if student_attendance and 'marks' in student_attendance:
-                                            attendance_marks = student_attendance.get('marks', 0)
-                                            if attendance_marks is not None:
-                                                mark.attendance = float(attendance_marks)
-                                except Exception as e:
-                                    current_app.logger.debug(f"Could not import attendance from alternative session: {e}")
-                        
+                            _round_theory_component_marks(mark)
                         db.session.add(mark)
                         db.session.commit()
                         current_app.logger.debug(f'Created mark for student {student.student_id} (class_session not found)')
@@ -2927,122 +2992,15 @@ def add_marks(session_id):
                         current_app.logger.error(f"Error creating empty mark: {create_error}", exc_info=True)
                         mark = None
             else:
-                # Mark exists - sync attendance and continuous_assessment if they're None
-                if mark:
-                    needs_update = False
-                    
-                    # Sync attendance if not manually entered and None
-                    if not mark.attendance_manual and mark.attendance is None:
-                        try:
-                            from blueprints.class_management.models import Session, ClassStudent
-                            from blueprints.class_management.routes import _build_attendance_summary
-                            
-                            # Find matching session (try multiple strategies)
-                            class_session = None
-                            
-                            if session.year and session.term and session.name:
-                                class_session = Session.query.filter_by(
-                                    course_code=selected_subject.code,
-                                    year=session.year,
-                                    term=session.term,
-                                    academic_session=session.name
-                                ).first()
-                            
-                            if not class_session and session.year and session.term:
-                                class_session = Session.query.filter_by(
-                                    course_code=selected_subject.code,
-                                    year=session.year,
-                                    term=session.term
-                                ).first()
-                            
-                            if not class_session:
-                                class_session = Session.query.filter_by(
-                                    course_code=selected_subject.code
-                                ).order_by(Session.created_at.desc()).first()
-                            
-                            if class_session:
-                                attendance_summary = _build_attendance_summary(class_session)
-                                student_attendance = attendance_summary.get('per_student', {}).get(student.student_id, {})
-                                
-                                if student_attendance and 'marks' in student_attendance:
-                                    attendance_marks = student_attendance.get('marks', 0)
-                                    if attendance_marks is not None:
-                                        mark.attendance = float(attendance_marks)
-                                        needs_update = True
-                                        current_app.logger.debug(f'Synced attendance={mark.attendance} for student {student.student_id}')
-                        except Exception as e:
-                            current_app.logger.debug(f"Error syncing attendance for existing mark: {e}")
-                    
-                    # Sync continuous_assessment if None (for Theory subjects)
-                    if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                        if mark.continuous_assessment is None:
-                            try:
-                                from blueprints.class_management.models import Session, ClassStudent
-                                
-                                # Find matching session (try multiple strategies)
-                                class_session = None
-                                
-                                if session.year and session.term and session.name:
-                                    class_session = Session.query.filter_by(
-                                        course_code=selected_subject.code,
-                                        year=session.year,
-                                        term=session.term,
-                                        academic_session=session.name
-                                    ).first()
-                                
-                                if not class_session and session.year and session.term:
-                                    class_session = Session.query.filter_by(
-                                        course_code=selected_subject.code,
-                                        year=session.year,
-                                        term=session.term
-                                    ).first()
-                                
-                                if not class_session:
-                                    class_session = Session.query.filter_by(
-                                        course_code=selected_subject.code
-                                    ).order_by(Session.created_at.desc()).first()
-                                
-                                # Try to find class_student in the found session
-                                class_student = None
-                                if class_session:
-                                    class_student = ClassStudent.query.filter_by(
-                                        session_id=class_session.id,
-                                        student_id=student.student_id
-                                    ).first()
-                                
-                                # If not found, try alternative sessions
-                                if not class_student:
-                                    class_student = ClassStudent.query.join(
-                                        Session, ClassStudent.session_id == Session.id
-                                    ).filter(
-                                        Session.course_code == selected_subject.code,
-                                        ClassStudent.student_id == student.student_id
-                                    ).first()
-                                
-                                if class_student:
-                                    # Update continuous_assessment from Class Management
-                                    if class_student.assessment_total_40 is not None:
-                                        mark.continuous_assessment = float(class_student.assessment_total_40)
-                                        needs_update = True
-                                        current_app.logger.debug(f'Synced assessment_total_40={mark.continuous_assessment} for student {student.student_id}')
-                                    elif class_student.assessment_total is not None:
-                                        assessment_total = float(class_student.assessment_total)
-                                        if assessment_total <= 40:
-                                            mark.continuous_assessment = round(assessment_total)
-                                        else:
-                                            mark.continuous_assessment = round(min(40.0, (assessment_total / 30) * 40))
-                                        needs_update = True
-                                        current_app.logger.debug(f'Synced assessment_total={mark.continuous_assessment} for student {student.student_id}')
-                                
-                                # Commit the update
-                                if needs_update:
-                                    db.session.commit()
-                            except Exception as e:
-                                current_app.logger.error(f"Error syncing continuous_assessment for existing mark: {e}", exc_info=True)
-                                db.session.rollback()
+                if mark and _populate_class_management_marks(
+                    mark, student, selected_subject, session, refresh=False
+                ):
+                    db.session.commit()
             
             # Add mark to marks_data (even if None) to ensure all registered students are shown
             # Template will handle None marks by showing empty input fields
+            if mark and selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+                _round_theory_component_marks(mark)
             marks_data[student.id] = mark
             # registrations_data is already populated above from StudentCourseRegistration
 
@@ -3080,6 +3038,7 @@ def add_marks(session_id):
                 existing_mark.continuous_assessment = float(continuous_assessment) if continuous_assessment else None
                 existing_mark.part_a = float(part_a) if part_a else None
                 existing_mark.part_b = float(part_b) if part_b else None
+                _round_theory_component_marks(existing_mark)
                 
                 total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.continuous_assessment, existing_mark.part_a, existing_mark.part_b]))
             
@@ -3269,6 +3228,7 @@ def auto_save_marks(session_id):
                     existing_mark.continuous_assessment = float(student_marks.get('continuous_assessment')) if student_marks.get('continuous_assessment') else None
                     existing_mark.part_a = float(student_marks.get('part_a')) if student_marks.get('part_a') else None
                     existing_mark.part_b = float(student_marks.get('part_b')) if student_marks.get('part_b') else None
+                    _round_theory_component_marks(existing_mark)
                     total_marks = sum(filter(None, [existing_mark.attendance, existing_mark.continuous_assessment, existing_mark.part_a, existing_mark.part_b]))
                 
                 elif subject.subject_type == 'Sessional':
@@ -3646,7 +3606,7 @@ def student_wise_result(session_id):
             total_earned_credits += earned_credits
             total_earned_credit_points += earned_credit_points
 
-        tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
+        tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
         
         term_assessment = {
             'total_registered_credits': total_registered_credits,
@@ -3807,6 +3767,111 @@ def delete_session(session_id):
     return redirect(url_for('result_management.index'))
 
 
+def _ensure_paragraph_style(styles, name, **kwargs):
+    """Register a custom paragraph style once (bulk PDF generation reuses stylesheet)."""
+    if name in styles:
+        return
+    styles.add(ParagraphStyle(name=name, **kwargs))
+
+
+def _build_pdf_document(pdf_instance, elements):
+    """Build a ReportLab PDF into the instance buffer and return bytes."""
+    pdf_instance.doc.build(elements)
+    pdf_instance.buffer.seek(0)
+    return pdf_instance.buffer.getvalue()
+
+
+def _sanitize_zip_entry_name(name):
+    """Make archive entry names safe across operating systems."""
+    import re
+    cleaned = re.sub(r'[\\/:*?"<>|]+', '_', str(name or '').strip())
+    return cleaned or 'document.pdf'
+
+
+def _course_result_extra_columns(subject):
+    """Return mark columns for course-wise result/PDF queries."""
+    if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+        return [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
+    if subject.subject_type == 'Sessional':
+        return [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
+    if subject.subject_type == 'Dissertation':
+        if subject.dissertation_type == 'Type1':
+            return [RMark.supervisor_assessment, RMark.proposal_presentation]
+        return [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
+    if subject.subject_type == 'Viva':
+        return [RMark.viva]
+    return []
+
+
+def _query_course_result_rows(session_id, subject):
+    """Fetch course-wise result rows for PDF generation."""
+    base_columns = [
+        RStudent.student_id, RStudent.name, RMark.total_marks,
+        RMark.grade_letter, RMark.grade_point, RMark.is_retake
+    ]
+    all_columns = base_columns + _course_result_extra_columns(subject)
+    registrations_count = RCourseRegistration.query.filter_by(subject_id=subject.id).count()
+    if registrations_count > 0:
+        return db.session.query(*all_columns)\
+            .join(RMark, RStudent.id == RMark.student_id)\
+            .join(
+                RCourseRegistration,
+                (RCourseRegistration.student_id == RStudent.id)
+                & (RCourseRegistration.subject_id == subject.id)
+            )\
+            .filter(RMark.subject_id == subject.id)\
+            .order_by(RStudent.student_id).all()
+    return db.session.query(*all_columns)\
+        .select_from(RStudent)\
+        .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == subject.id))\
+        .filter(RStudent.session_id == session_id)\
+        .order_by(RStudent.student_id).all()
+
+
+def _resolve_course_result_display(res, marks_data):
+    """Return (total, grade_point, grade_letter) for a course-wise result row.
+
+    Falls back to computing the total and grade from the individual component
+    marks when the stored values were never finalized (marks entered but the
+    total/grade was not calculated and saved). This keeps single and bulk PDFs
+    consistent so Total Marks / Grade Point / Grade Letter never render blank
+    when the component marks are present.
+    """
+    total_marks = res.total_marks
+    grade_point = res.grade_point
+    grade_letter = res.grade_letter
+
+    if total_marks is None and marks_data:
+        components = [_round_result_mark(m) for m in marks_data]
+        if components and all(c is not None for c in components):
+            total_marks = sum(components)
+
+    if total_marks is not None and (grade_point is None or not grade_letter):
+        computed_point, computed_letter = calculate_grade(
+            total_marks, is_retake=bool(res.is_retake)
+        )
+        if grade_point is None:
+            grade_point = computed_point
+        if not grade_letter:
+            grade_letter = computed_letter
+
+    return total_marks, grade_point, grade_letter
+
+
+def _build_course_result_pdf_bytes(subject, session, results):
+    buffer = BytesIO()
+    pdf = CourseTabulationPDF(buffer, subject, session)
+    elements = pdf.generate_elements(results)
+    return _build_pdf_document(pdf, elements)
+
+
+def _build_student_result_pdf_bytes(student, session, processed_results, term_assessment):
+    buffer = BytesIO()
+    pdf = StudentTabulationPDF(buffer, student, session)
+    elements = pdf.generate_elements(processed_results, term_assessment)
+    return _build_pdf_document(pdf, elements)
+
+
 class PDFGenerator:
     def __init__(self, buffer, pagesize):
         from reportlab.platypus import SimpleDocTemplate
@@ -3857,13 +3922,13 @@ class CourseTabulationPDF(PDFGenerator):
     def generate_elements(self, results):
         styles = getSampleStyleSheet()
         # Custom styles
-        styles.add(ParagraphStyle(name='Center', alignment=TA_CENTER))
-        styles.add(ParagraphStyle(name='Right', alignment=TA_RIGHT))
-        styles.add(ParagraphStyle(name='Left', alignment=TA_LEFT))
-        styles.add(ParagraphStyle(name='Line_Data', parent=styles['Normal'], alignment=TA_CENTER, leading=14))
-        styles.add(ParagraphStyle(name='TableCellCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_CENTER, leading=8))
-        styles.add(ParagraphStyle(name='TableCellLeftCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_LEFT, leading=8))
-        styles.add(ParagraphStyle(name='InfoCompact', parent=styles['Normal'], fontSize=9, leading=10))
+        _ensure_paragraph_style(styles, 'Center', alignment=TA_CENTER)
+        _ensure_paragraph_style(styles, 'Right', alignment=TA_RIGHT)
+        _ensure_paragraph_style(styles, 'Left', alignment=TA_LEFT)
+        _ensure_paragraph_style(styles, 'Line_Data', parent=styles['Normal'], alignment=TA_CENTER, leading=14)
+        _ensure_paragraph_style(styles, 'TableCellCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_CENTER, leading=8)
+        _ensure_paragraph_style(styles, 'TableCellLeftCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_LEFT, leading=8)
+        _ensure_paragraph_style(styles, 'InfoCompact', parent=styles['Normal'], fontSize=9, leading=10)
         
         # Center align headers
         styles['h1'].alignment = TA_CENTER
@@ -3892,7 +3957,7 @@ class CourseTabulationPDF(PDFGenerator):
         base_headers = ['Student\nNo.']
         specific_headers = []
         # Specific headers based on subject type
-        if self.subject.subject_type in ['Theory', 'Theory (UG)']:
+        if self.subject.subject_type in ['Theory', 'Theory (UG)', 'Theory (PG)']:
             specific_headers = ['Attendance\n(10)', 'C.A.\n(40)', 'Sec. A\n(25)', 'Sec. B\n(25)']
         elif self.subject.subject_type == 'Sessional':
             specific_headers = ['Attendance\n(10)', 'Report\n(60)', 'Viva\n(30)']
@@ -3909,12 +3974,13 @@ class CourseTabulationPDF(PDFGenerator):
             row_data = [Paragraph(str(res.student_id), styles['TableCellCompact'])]
             marks_data = list(res)[6:]
             for mark in marks_data:
-                row_data.append(Paragraph(f"{mark:.1f}" if mark is not None else '', styles['TableCellCompact']))
-            total_marks_rounded = round(res.total_marks) if res.total_marks is not None else None
+                row_data.append(Paragraph(_format_result_mark_for_display(mark), styles['TableCellCompact']))
+            total_marks, grade_point, grade_letter = _resolve_course_result_display(res, marks_data)
+            total_marks_rounded = _round_result_mark(total_marks)
             row_data.extend([
-                Paragraph(f"{total_marks_rounded}" if total_marks_rounded is not None else '', styles['TableCellCompact']),
-                Paragraph(f"{res.grade_point:.2f}" if res.grade_point is not None else '', styles['TableCellCompact']),
-                Paragraph(res.grade_letter or '', styles['TableCellCompact']),
+                Paragraph(_format_result_mark_for_display(total_marks_rounded), styles['TableCellCompact']),
+                Paragraph(f"{grade_point:.2f}" if grade_point is not None else '', styles['TableCellCompact']),
+                Paragraph(grade_letter or '', styles['TableCellCompact']),
                 Paragraph('Retake' if res.is_retake else '', styles['TableCellCompact'])
             ])
             data.append(row_data)
@@ -3978,12 +4044,12 @@ class StudentTabulationPDF(PDFGenerator):
         from reportlab.lib.enums import TA_CENTER, TA_LEFT
         from reportlab.lib.units import inch
         styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name='Bold', parent=styles['Normal'], fontName='Helvetica-Bold'))
-        styles.add(ParagraphStyle(name='TableCell', parent=styles['Normal'], fontSize=10, wordWrap='CJK', alignment=TA_LEFT))
-        styles.add(ParagraphStyle(name='TableCellCenter', parent=styles['Normal'], fontSize=10, wordWrap='CJK', alignment=TA_CENTER))
-        styles.add(ParagraphStyle(name='TableCellCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_LEFT, leading=8))
-        styles.add(ParagraphStyle(name='TableCellCenterCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_CENTER, leading=8))
-        styles.add(ParagraphStyle(name='InfoCompact', parent=styles['Normal'], fontSize=9, leading=10))
+        _ensure_paragraph_style(styles, 'Bold', parent=styles['Normal'], fontName='Helvetica-Bold')
+        _ensure_paragraph_style(styles, 'TableCell', parent=styles['Normal'], fontSize=10, wordWrap='CJK', alignment=TA_LEFT)
+        _ensure_paragraph_style(styles, 'TableCellCenter', parent=styles['Normal'], fontSize=10, wordWrap='CJK', alignment=TA_CENTER)
+        _ensure_paragraph_style(styles, 'TableCellCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_LEFT, leading=8)
+        _ensure_paragraph_style(styles, 'TableCellCenterCompact', parent=styles['Normal'], fontSize=7, wordWrap='CJK', alignment=TA_CENTER, leading=8)
+        _ensure_paragraph_style(styles, 'InfoCompact', parent=styles['Normal'], fontSize=9, leading=10)
         elements = []
 
         # Title
@@ -4044,7 +4110,7 @@ class StudentTabulationPDF(PDFGenerator):
             for key in ['attendance', 'continuous_assessment', 'part_a', 'part_b', 'sessional_report', 'sessional_viva', 'supervisor_assessment', 'proposal_presentation', 'project_report', 'defense']:
                 if key in res:
                     val = res.get(key, None)
-                    extra_fields.append(Paragraph(str(val) if val is not None else '', styles['TableCellCenterCompact']))
+                    extra_fields.append(Paragraph(_format_result_mark_for_display(val), styles['TableCellCenterCompact']))
             if extra_fields:
                 row = row[:3] + extra_fields + row[3:]
             data.append(row)
@@ -4169,53 +4235,12 @@ def download_course_result(session_id, subject_id):
         
         subject = _get_rsubject_or_404(subject_id)
         session = _get_rsession_or_404(session_id)
-
-        # Build query based on subject type
-        base_columns = [
-            RStudent.student_id, RStudent.name, RMark.total_marks,
-            RMark.grade_letter, RMark.grade_point, RMark.is_retake
-        ]
-        extra_columns = []
-        if subject.subject_type in ['Theory', 'Theory (UG)']:
-            extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
-        elif subject.subject_type == 'Sessional':
-            extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
-        elif subject.subject_type == 'Dissertation':
-            if subject.dissertation_type == 'Type1':
-                extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
-            else:
-                extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
-        elif subject.subject_type == 'Viva':
-            extra_columns = [RMark.viva]
-        all_columns = base_columns + extra_columns
-        
-        # Check if registrations exist
-        registrations_count = RCourseRegistration.query.filter_by(subject_id=subject_id).count()
-        
-        if registrations_count > 0:
-            results = db.session.query(*all_columns)\
-                .join(RMark, RStudent.id == RMark.student_id)\
-                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject_id))\
-                .filter(RMark.subject_id == subject_id)\
-                .order_by(RStudent.student_id).all()
-        else:
-            # No registrations found - query marks directly
-            results = db.session.query(*all_columns)\
-                .select_from(RStudent)\
-                .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == subject_id))\
-                .filter(RStudent.session_id == session_id)\
-                .order_by(RStudent.student_id).all()
-        
-        buffer = BytesIO()
-        pdf = CourseTabulationPDF(buffer, subject, session)
-        elements = pdf.generate_elements(results)
-        pdf.doc.build(elements)
-        buffer.seek(0)
+        results = _query_course_result_rows(session_id, subject)
+        pdf_data = _build_course_result_pdf_bytes(subject, session, results)
         
         current_app.logger.info(f"Course result PDF generated successfully for session {session_id}, subject {subject_id}")
         
         # Enhanced headers for cPanel compatibility
-        pdf_data = buffer.getvalue()
         filename = f"Course_{subject.code}_Result.pdf"
         
         response = Response(
@@ -4319,22 +4344,17 @@ def download_student_result(session_id, student_id):
             total_earned_credits += earned_credits
             total_earned_credit_points += earned_credit_points
 
-        tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
+        tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
         term_assessment = {
             'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
             'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
         }
 
-        buffer = BytesIO()
-        pdf = StudentTabulationPDF(buffer, student, session)
-        elements = pdf.generate_elements(processed_results, term_assessment)
-        pdf.doc.build(elements)
-        buffer.seek(0)
+        pdf_data = _build_student_result_pdf_bytes(student, session, processed_results, term_assessment)
         
         current_app.logger.info(f"Student result PDF generated successfully for session {session_id}, student {student_id}")
         
         # Enhanced headers for cPanel compatibility
-        pdf_data = buffer.getvalue()
         filename = f"Student_{student.student_id}_Tabulation.pdf"
         
         response = Response(
@@ -4395,7 +4415,7 @@ def download_student_result_docx(session_id, student_id):
         total_earned_credits += earned_credits
         total_earned_credit_points += earned_credit_points
 
-    tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
+    tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
     term_assessment = {
         'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
         'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
@@ -4521,54 +4541,92 @@ def download_all_student_results(session_id):
     
     if not students:
         flash('No students in this session to generate results for.', 'warning')
-        return redirect(url_for('result_management.student_wise_result', session_id=session_id))
+        return redirect(url_for('result_management.view_results', session_id=session_id))
 
     zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
+    files_added = 0
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for student in students:
-            # Re-use logic from download_student_result
-            results_query = db.session.query(
-                RSubject.code.label('subject_code'), RSubject.name.label('subject_name'), RSubject.credit.label('registered_credits'),
-                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-            ).select_from(RMark)
-            results_query = results_query.join(RStudent, RStudent.id == RMark.student_id)
-            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
-            results_query = results_query.join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))
-            results_query = results_query.filter(RStudent.id == student.id).order_by(RSubject.code)
-            results_query = results_query.all()
+            try:
+                registrations_count = RCourseRegistration.query.filter_by(student_id=student.id).count()
+                if registrations_count > 0:
+                    results_query = db.session.query(
+                        RSubject.code.label('subject_code'),
+                        RSubject.name.label('subject_name'),
+                        RSubject.credit.label('registered_credits'),
+                        RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
+                    ).select_from(RStudent)
+                    results_query = results_query.join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)
+                    results_query = results_query.join(RSubject, RSubject.id == RCourseRegistration.subject_id)
+                    results_query = results_query.outerjoin(
+                        RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id)
+                    )
+                    results_query = results_query.filter(RStudent.id == student.id)
+                    results_query = results_query.filter(RSubject.session_id == session_id)
+                    results_query = results_query.order_by(RSubject.code)
+                    results = results_query.all()
+                else:
+                    results = db.session.query(
+                        RSubject.code.label('subject_code'),
+                        RSubject.name.label('subject_name'),
+                        RSubject.credit.label('registered_credits'),
+                        RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
+                    ).select_from(RStudent)
+                    results = results.join(RMark, RMark.student_id == RStudent.id)
+                    results = results.join(RSubject, RSubject.id == RMark.subject_id)
+                    results = results.filter(RStudent.id == student.id)
+                    results = results.filter(RSubject.session_id == session_id)
+                    results = results.order_by(RSubject.code).all()
 
-            if not results_query: continue
+                if not results:
+                    continue
 
-            total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
-            processed_results = []
-            for res in results_query:
-                earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
-                earned_credit_points = (res.grade_point or 0) * res.registered_credits
-                processed_results.append({
-                    'subject_code': res.subject_code, 'subject_name': res.subject_name, 'registered_credits': res.registered_credits,
-                    'grade_letter': res.grade_letter, 'grade_point': res.grade_point, 'earned_credits': earned_credits,
-                    'earned_credit_points': earned_credit_points, 'remarks': 'Retake' if res.is_retake else ''
-                })
-                total_registered_credits += res.registered_credits
-                total_earned_credits += earned_credits
-                total_earned_credit_points += earned_credit_points
-            
-            tgpa = total_earned_credit_points / total_registered_credits if total_registered_credits > 0 else 0
-            term_assessment = {
-                'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
-                'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
-            }
-            
-            pdf_buffer = BytesIO()
-            pdf = StudentTabulationPDF(pdf_buffer, student, session)
-            elements = pdf.generate_elements(processed_results, term_assessment)
-            pdf.doc.build(elements)
-            pdf_buffer.seek(0)
-            zf.writestr(f'Student_{student.student_id}_Tabulation.pdf', pdf_buffer.read())
+                total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
+                processed_results = []
+                for res in results:
+                    earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
+                    earned_credit_points = (res.grade_point or 0) * res.registered_credits
+                    processed_results.append({
+                        'subject_code': res.subject_code, 'subject_name': res.subject_name,
+                        'registered_credits': res.registered_credits,
+                        'grade_letter': res.grade_letter, 'grade_point': res.grade_point,
+                        'earned_credits': earned_credits,
+                        'earned_credit_points': earned_credit_points,
+                        'remarks': 'Retake' if res.is_retake else ''
+                    })
+                    total_registered_credits += res.registered_credits
+                    total_earned_credits += earned_credits
+                    total_earned_credit_points += earned_credit_points
+
+                tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
+                term_assessment = {
+                    'total_registered_credits': total_registered_credits,
+                    'total_earned_credits': total_earned_credits,
+                    'total_earned_credit_points': total_earned_credit_points,
+                    'tgpa': tgpa
+                }
+
+                pdf_data = _build_student_result_pdf_bytes(student, session, processed_results, term_assessment)
+                if not pdf_data.startswith(b'%PDF'):
+                    current_app.logger.warning(
+                        f'Skipping invalid student PDF for {student.student_id}: missing PDF header'
+                    )
+                    continue
+
+                entry_name = _sanitize_zip_entry_name(f'Student_{student.student_id}_Tabulation.pdf')
+                zf.writestr(entry_name, pdf_data)
+                files_added += 1
+            except Exception as exc:
+                current_app.logger.error(
+                    f'Failed to generate bulk student PDF for {student.student_id}: {exc}',
+                    exc_info=True
+                )
+
+    if files_added == 0:
+        flash('No student result PDFs could be generated for this session.', 'warning')
+        return redirect(url_for('result_management.view_results', session_id=session_id))
 
     zip_buffer.seek(0)
-    
-    # Enhanced headers for cPanel compatibility
     zip_data = zip_buffer.getvalue()
     filename = f'All_Student_Results_{session.name}.zip'
     
@@ -4596,44 +4654,38 @@ def download_all_course_results(session_id):
 
     if not subjects:
         flash('No subjects in this session to generate results for.', 'warning')
-        return redirect(url_for('result_management.course_wise_result', session_id=session_id))
+        return redirect(url_for('result_management.view_results', session_id=session_id))
         
     zip_buffer = BytesIO()
-    with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
+    files_added = 0
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for subject in subjects:
-            base_columns = [
-                RStudent.student_id, RStudent.name, RMark.total_marks,
-                RMark.grade_letter, RMark.grade_point, RMark.is_retake
-            ]
-            extra_columns = []
-            if subject.subject_type in ['Theory', 'Theory (UG)']:
-                extra_columns = [RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b]
-            elif subject.subject_type == 'Sessional':
-                extra_columns = [RMark.attendance, RMark.sessional_report, RMark.sessional_viva]
-            elif subject.subject_type == 'Dissertation':
-                if subject.dissertation_type == 'Type1':
-                    extra_columns = [RMark.supervisor_assessment, RMark.proposal_presentation]
-                else:
-                    extra_columns = [RMark.supervisor_assessment, RMark.project_report, RMark.defense]
-            all_columns = base_columns + extra_columns
-            results = db.session.query(*all_columns)\
-                .join(RMark, RStudent.id == RMark.student_id)\
-                .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == subject.id))\
-                .filter(RMark.subject_id == subject.id)\
-                .order_by(RStudent.student_id).all()
+            try:
+                results = _query_course_result_rows(session_id, subject)
+                if not results:
+                    continue
 
-            if not results: continue
+                pdf_data = _build_course_result_pdf_bytes(subject, session, results)
+                if not pdf_data.startswith(b'%PDF'):
+                    current_app.logger.warning(
+                        f'Skipping invalid course PDF for {subject.code}: missing PDF header'
+                    )
+                    continue
 
-            pdf_buffer = BytesIO()
-            pdf = CourseTabulationPDF(pdf_buffer, subject, session)
-            elements = pdf.generate_elements(results)
-            pdf.doc.build(elements)
-            pdf_buffer.seek(0)
-            zf.writestr(f'Course_{subject.code}_Result.pdf', pdf_buffer.read())
+                entry_name = _sanitize_zip_entry_name(f'Course_{subject.code}_Result.pdf')
+                zf.writestr(entry_name, pdf_data)
+                files_added += 1
+            except Exception as exc:
+                current_app.logger.error(
+                    f'Failed to generate bulk course PDF for {subject.code}: {exc}',
+                    exc_info=True
+                )
+
+    if files_added == 0:
+        flash('No course result PDFs could be generated for this session.', 'warning')
+        return redirect(url_for('result_management.view_results', session_id=session_id))
 
     zip_buffer.seek(0)
-    
-    # Enhanced headers for cPanel compatibility
     zip_data = zip_buffer.getvalue()
     filename = f'All_Course_Results_{session.name}.zip'
     

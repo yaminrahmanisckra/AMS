@@ -1970,39 +1970,10 @@ function calculateRow3WithMinimumPerCourse(amountField) {
         
         // Try to get from Statement of Remuneration data
         if (globalRemunerationStatementData && globalRemunerationStatementData.script_examination && currentTeacherName) {
-            const courseCode = courseValue.split(' - ')[0].trim();
-            
-            const matchingItem = globalRemunerationStatementData.script_examination.find(item => {
-                if (!item.course_code && !item.course) return false;
-                const itemCourseCode = (item.course_code || item.course).toString().split(' - ')[0].trim();
-                const itemSection = (item.section || '').toUpperCase();
-                
-                // Match course
-                const courseMatches = itemCourseCode === courseCode || 
-                                     (item.course_code || item.course).toString() === courseValue ||
-                                     (item.course_code || item.course).toString().includes(courseCode) ||
-                                     courseCode.includes(itemCourseCode);
-                
-                // Match section (A, B, or Full/empty)
-                const sectionMatches = sectionValue === 'FULL' || sectionValue === '' || 
-                                       itemSection === sectionValue ||
-                                       (sectionValue === '' && (itemSection === '' || itemSection === 'FULL'));
-                
-                // Match teacher - flexible matching
-                let teacherMatches = false;
-                if (item.teacher) {
-                    const itemTeacher = item.teacher.toString().trim();
-                    const currentTeacher = currentTeacherName.trim();
-                    
-                    if (itemTeacher === currentTeacher ||
-                        itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-                        itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-                        currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase())) {
-                        teacherMatches = true;
-                    }
-                }
-                
-                return courseMatches && sectionMatches && teacherMatches;
+            const matchingItem = findStatementItem(globalRemunerationStatementData.script_examination, {
+                course: courseValue,
+                section: sectionValue,
+                teacher: currentTeacherName
             });
             
             if (matchingItem && matchingItem.scripts) {
@@ -2384,6 +2355,137 @@ async function loadRemunerationStatementData() {
 // Store Remuneration Statement data globally for use in event handlers
 let globalRemunerationStatementData = null;
 
+// ---------------------------------------------------------------------------
+// Shared helpers for course/teacher/section matching across all bill-form rows.
+// Statement data may store "CODE" while dropdowns use "CODE - Name" — these
+// helpers bridge that gap and prevent race conditions when populating multiple
+// course rows.
+// ---------------------------------------------------------------------------
+function normalizeCourseCode(value) {
+    if (!value) return '';
+    return String(value).trim().split(' - ')[0].trim().replace(/\s+/g, ' ');
+}
+
+function courseCodesMatch(a, b) {
+    const codeA = normalizeCourseCode(a).toLowerCase();
+    const codeB = normalizeCourseCode(b).toLowerCase();
+    if (!codeA || !codeB) return false;
+    return codeA === codeB || codeA.includes(codeB) || codeB.includes(codeA);
+}
+
+function normalizeSectionValue(section) {
+    const s = (section || '').toString().trim().toUpperCase();
+    if (!s || s === 'FULL') return 'FULL';
+    return s;
+}
+
+function sectionsMatch(wanted, actual) {
+    return normalizeSectionValue(wanted) === normalizeSectionValue(actual);
+}
+
+function teacherNamesMatch(a, b) {
+    if (!a || !b) return false;
+    const ta = String(a).trim();
+    const tb = String(b).trim();
+    if (ta === tb) return true;
+    const la = ta.toLowerCase();
+    const lb = tb.toLowerCase();
+    return la === lb || la.includes(lb) || lb.includes(la);
+}
+
+function findMatchingCourseOption(select, courseRef) {
+    if (!select || !courseRef) return null;
+    for (const opt of select.options) {
+        if (!opt.value) continue;
+        if (opt.value === courseRef || courseCodesMatch(opt.value, courseRef)) {
+            return opt;
+        }
+    }
+    return null;
+}
+
+function setCourseSelectValue(select, courseRef) {
+    if (!select || !courseRef) return false;
+    const match = findMatchingCourseOption(select, courseRef);
+    if (match) {
+        select.value = match.value;
+        return true;
+    }
+    const opt = document.createElement('option');
+    opt.value = String(courseRef).includes(' - ') ? courseRef : normalizeCourseCode(courseRef);
+    opt.textContent = opt.value;
+    opt.selected = true;
+    select.appendChild(opt);
+    select.value = opt.value;
+    return true;
+}
+
+function setSectionSelectValue(select, section) {
+    if (!select) return;
+    const norm = normalizeSectionValue(section);
+    select.value = (norm === 'FULL') ? '' : norm;
+}
+
+function findStatementItem(items, { course, section, teacher }) {
+    if (!items || !items.length) return null;
+    return items.find(item => {
+        const itemCourse = item.course_code || item.course || '';
+        if (!courseCodesMatch(itemCourse, course)) return false;
+        if (teacher) {
+            const itemTeacher = item.teacher || item.teacher_name || '';
+            if (!teacherNamesMatch(itemTeacher, teacher)) return false;
+        }
+        if (section !== undefined && section !== null) {
+            if (!sectionsMatch(section, item.section)) return false;
+        }
+        return true;
+    }) || null;
+}
+
+function delayMs(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Populate multiple course rows one at a time (avoids parallel-setTimeout races).
+async function populateCourseRowsSequential(rowId, entries, options = {}) {
+    const { withSection = true, onComplete } = options;
+    const container = document.getElementById(`container_${rowId}`);
+    if (!container || !entries || !entries.length) return;
+
+    const existing = container.querySelectorAll('.course-section-item');
+    existing.forEach((item, idx) => { if (idx > 0) item.remove(); });
+
+    for (let i = 0; i < entries.length; i++) {
+        if (i > 0) {
+            const addBtn = container.querySelector('.add-course-btn');
+            if (addBtn) addBtn.click();
+            await delayMs(150);
+        }
+        const allItems = container.querySelectorAll('.course-section-item');
+        const item = allItems[i];
+        if (!item) continue;
+
+        const courseSelect = item.querySelector('.course-select');
+        const sectionSelect = item.querySelector('.section-select');
+        const entry = entries[i];
+        const courseRef = entry.course || entry.course_code || entry;
+
+        if (courseSelect) {
+            setCourseSelectValue(courseSelect, courseRef);
+            courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (withSection && sectionSelect) {
+            setSectionSelectValue(sectionSelect, entry.section);
+            sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        await delayMs(50);
+    }
+
+    if (typeof onComplete === 'function') {
+        onComplete(container);
+    }
+}
+
 // Populate Bill Form columns from Remuneration Statement data
 function populateBillFormFromRemunerationStatement(remunerationData) {
     console.log('Populating Bill Form from Remuneration Statement data...');
@@ -2714,80 +2816,39 @@ function autoPopulateRow1(teacherName) {
         return;
     }
     
-    const container1 = document.getElementById('container_1');
-    if (!container1) return;
-    
-    // Find all courses for this teacher
     const teacherCourses = globalRemunerationStatementData.question_preparation.filter(item => {
         if (!item.teacher) return false;
-        const itemTeacher = item.teacher.toString().trim();
-        const currentTeacher = teacherName.trim();
-        return itemTeacher === currentTeacher ||
-               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+        return teacherNamesMatch(item.teacher, teacherName);
     });
     
     if (teacherCourses.length === 0) return;
     
-    // Get the first course select (or create if needed)
-    let courseSelect = container1.querySelector('.course-select');
-    if (!courseSelect) return;
-    
-    // Populate courses
-    teacherCourses.forEach((item, index) => {
-        const courseValue = item.course_code || item.course;
-        if (!courseValue) return;
-        
-        if (index === 0) {
-            // Set first course
-            courseSelect.value = courseValue;
-            courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        } else {
-            // Add more courses using the add button
-            const addBtn = container1.querySelector('.add-course-btn');
-            if (addBtn) {
-                addBtn.click();
-                setTimeout(() => {
-                    const newSelects = container1.querySelectorAll('.course-select');
-                    const newSelect = newSelects[newSelects.length - 1];
-                    if (newSelect) {
-                        newSelect.value = courseValue;
-                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }, 100);
-            }
+    const courseSectionMap = new Map();
+    teacherCourses.forEach(item => {
+        const course = item.course_code || item.course;
+        const section = item.section || 'Full';
+        const key = `${normalizeCourseCode(course)}_${normalizeSectionValue(section)}`;
+        if (!courseSectionMap.has(key)) {
+            courseSectionMap.set(key, { course, section });
         }
     });
     
-    // Auto-select rate based on course type (UG or PG)
-    setTimeout(() => {
-        const rateSelect = document.getElementById('rate_1');
-        if (rateSelect && !rateSelect.value) {
-            const firstCourse = teacherCourses[0];
-            const courseValue = firstCourse.course_code || firstCourse.course;
-            const isPG = isPostgraduateCourse(courseValue, firstCourse);
-            
-            if (isPG) {
-                // PG rate: স্নাতকোত্তর/এমফিল/পিএইচডি (প্রতি প্রশ্নপত্র) - 2400
-                const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
-                if (pgOption) {
-                    rateSelect.value = '2400';
-                    console.log('✅ Row 1: Selected PG rate (2400) for course:', courseValue);
-                }
-            } else {
-                // UG rate: স্নাতক (প্রতি প্রশ্নপত্র) - 2300
-                const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '2300');
-                if (ugOption) {
-                    rateSelect.value = '2300';
-                    console.log('✅ Row 1: Selected UG rate (2300) for course:', courseValue);
-                }
-            }
-            if (rateSelect.value) {
+    const entries = Array.from(courseSectionMap.values());
+    
+    populateCourseRowsSequential(1, entries, {
+        withSection: true,
+        onComplete: (container) => {
+            const rateSelect = document.getElementById('rate_1');
+            if (rateSelect && !rateSelect.value && entries[0]) {
+                const courseValue = entries[0].course;
+                const isPG = isPostgraduateCourse(courseValue);
+                rateSelect.value = isPG ? '2400' : '2300';
                 rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
             }
+            loadQuestionCountForRow1();
+            setTimeout(() => calculateRow(1), 200);
         }
-    }, 500);
+    });
 }
 
 // Auto-populate Row 3: উত্তরপত্র পরীক্ষণ
@@ -2796,116 +2857,46 @@ function autoPopulateRow3(teacherName) {
         return;
     }
     
-    const container3 = document.getElementById('container_3');
-    if (!container3) return;
-    
-    // Find all courses for this teacher
     const teacherCourses = globalRemunerationStatementData.script_examination.filter(item => {
         if (!item.teacher) return false;
-        const itemTeacher = item.teacher.toString().trim();
-        const currentTeacher = teacherName.trim();
-        return itemTeacher === currentTeacher ||
-               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+        return teacherNamesMatch(item.teacher, teacherName);
     });
     
     if (teacherCourses.length === 0) return;
     
-    // Group by course and section
     const courseSectionMap = new Map();
     teacherCourses.forEach(item => {
         const course = item.course_code || item.course;
-        const section = (item.section || 'Full').toUpperCase();
-        const key = `${course}_${section}`;
+        const section = item.section || 'Full';
+        const key = `${normalizeCourseCode(course)}_${normalizeSectionValue(section)}`;
         if (!courseSectionMap.has(key)) {
-            courseSectionMap.set(key, item);
+            courseSectionMap.set(key, { course, section });
         }
     });
     
-    // Populate courses
-    let index = 0;
-    courseSectionMap.forEach((item, key) => {
-        const courseValue = item.course_code || item.course;
-        const sectionValue = item.section || 'Full';
-        
-        if (index === 0) {
-            // Set first course
-            const courseSelect = container3.querySelector('.course-select');
-            const sectionSelect = container3.querySelector('.section-select');
-            if (courseSelect && sectionSelect) {
-                courseSelect.value = courseValue;
-                sectionSelect.value = sectionValue;
-                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } else {
-            // Add more courses
-            const addBtn = container3.querySelector('.add-course-btn');
-            if (addBtn) {
-                addBtn.click();
-                setTimeout(() => {
-                    const items = container3.querySelectorAll('.course-section-item');
-                    const lastItem = items[items.length - 1];
-                    if (lastItem) {
-                        const courseSelect = lastItem.querySelector('.course-select');
-                        const sectionSelect = lastItem.querySelector('.section-select');
-                        if (courseSelect && sectionSelect) {
-                            courseSelect.value = courseValue;
-                            sectionSelect.value = sectionValue;
-                            courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                            sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
-                    }
-                }, 100);
-            }
-        }
-        index++;
-    });
+    const entries = Array.from(courseSectionMap.values());
     
-    // Auto-select rate based on course type and section
-    setTimeout(() => {
-        const rateSelect = document.getElementById('rate_3');
-        if (rateSelect && !rateSelect.value) {
-            // Get the first course to determine UG/PG
-            const firstItem = courseSectionMap.values().next().value;
-            if (firstItem) {
-                const courseValue = firstItem.course_code || firstItem.course;
-                const sectionValue = (firstItem.section || 'Full').toUpperCase();
-                const isPG = isPostgraduateCourse(courseValue, firstItem);
-                
-                let rateValue = null;
-                if (sectionValue === 'FULL' || sectionValue === '') {
-                    // Full paper
-                    if (isPG) {
-                        // PG: Check if Mid Term or Final Term
-                        // For now, default to Final Term (160)
-                        rateValue = '160';
-                    } else {
-                        // UG: Default to half paper rate (80) for full paper
-                        rateValue = '80';
-                    }
-                } else {
-                    // Half paper (A or B)
-                    if (isPG) {
-                        rateValue = '100'; // PG half paper
-                    } else {
-                        rateValue = '80'; // UG half paper
-                    }
-                }
-                
-                if (rateValue) {
-                    const option = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
-                    if (option) {
-                        rateSelect.value = rateValue;
-                        console.log(`✅ Row 3: Selected rate (${rateValue}) for ${isPG ? 'PG' : 'UG'} course, section: ${sectionValue}`);
-                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
+    populateCourseRowsSequential(3, entries, {
+        withSection: true,
+        onComplete: (container3) => {
+            const rateSelect = document.getElementById('rate_3');
+            if (rateSelect && !rateSelect.value && entries[0]) {
+                const courseValue = entries[0].course;
+                const sectionValue = normalizeSectionValue(entries[0].section);
+                const isPG = isPostgraduateCourse(courseValue);
+                let rateValue = (sectionValue === 'FULL') ? (isPG ? '160' : '80') : (isPG ? '100' : '80');
+                const option = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
+                if (option) {
+                    rateSelect.value = rateValue;
+                    rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }
+            setTimeout(() => {
+                loadScriptCountForRow3(container3);
+                calculateRow3WithMinimumPerCourse(document.querySelector('input[name="amount_3"]'));
+            }, 300);
         }
-        loadScriptCountForRow3(container3);
-    }, 1000);
+    });
 }
 
 // Auto-populate Row 4: ক্লাস টেস্ট/টার্ম পেপার
@@ -2914,100 +2905,37 @@ function autoPopulateRow4(teacherName) {
         return;
     }
     
-    const container4 = document.getElementById('container_4');
-    if (!container4) return;
-    
-    // Find all courses for this teacher
     const teacherCourses = globalRemunerationStatementData.class_test.filter(item => {
         if (!item.teacher && !item.teacher_name) return false;
-        const itemTeacher = (item.teacher || item.teacher_name).toString().trim();
-        const currentTeacher = teacherName.trim();
-        return itemTeacher === currentTeacher ||
-               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+        return teacherNamesMatch(item.teacher || item.teacher_name, teacherName);
     });
     
     if (teacherCourses.length === 0) return;
     
-    // Group by course and section
     const courseSectionMap = new Map();
     teacherCourses.forEach(item => {
         const course = item.course_code || item.course;
-        const section = (item.section || 'Full').toUpperCase();
-        const key = `${course}_${section}`;
+        const section = item.section || 'Full';
+        const key = `${normalizeCourseCode(course)}_${normalizeSectionValue(section)}`;
         if (!courseSectionMap.has(key)) {
-            courseSectionMap.set(key, item);
+            courseSectionMap.set(key, { course, section });
         }
     });
     
-    // Populate courses
-    let index = 0;
-    courseSectionMap.forEach((item, key) => {
-        const courseValue = item.course_code || item.course;
-        const sectionValue = item.section || 'Full';
-        
-        if (index === 0) {
-            const courseSelect = container4.querySelector('.course-select');
-            const sectionSelect = container4.querySelector('.section-select');
-            if (courseSelect && sectionSelect) {
-                courseSelect.value = courseValue;
-                sectionSelect.value = sectionValue;
-                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } else {
-            const addBtn = container4.querySelector('.add-course-btn');
-            if (addBtn) {
-                addBtn.click();
-                setTimeout(() => {
-                    const items = container4.querySelectorAll('.course-section-item');
-                    const lastItem = items[items.length - 1];
-                    if (lastItem) {
-                        const courseSelect = lastItem.querySelector('.course-select');
-                        const sectionSelect = lastItem.querySelector('.section-select');
-                        if (courseSelect && sectionSelect) {
-                            courseSelect.value = courseValue;
-                            sectionSelect.value = sectionValue;
-                            courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                            sectionSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                        }
-                    }
-                }, 100);
-            }
-        }
-        index++;
-    });
+    const entries = Array.from(courseSectionMap.values());
     
-    // Auto-select rate and load student count
-    setTimeout(() => {
-        const rateSelect = document.getElementById('rate_4');
-        if (rateSelect && !rateSelect.value) {
-            const firstCourse = teacherCourses[0];
-            const courseValue = firstCourse.course_code || firstCourse.course;
-            const isPG = isPostgraduateCourse(courseValue, firstCourse);
-            
-            if (isPG) {
-                // PG: স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী) - 40
-                const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '40');
-                if (pgOption) {
-                    rateSelect.value = '40';
-                    console.log('✅ Row 4: Selected PG rate (40) for course:', courseValue);
-                }
-            } else {
-                // UG: স্নাতক - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী) - 30
-                const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '30');
-                if (ugOption) {
-                    rateSelect.value = '30';
-                    console.log('✅ Row 4: Selected UG rate (30) for course:', courseValue);
-                }
-            }
-            if (rateSelect.value) {
+    populateCourseRowsSequential(4, entries, {
+        withSection: true,
+        onComplete: (container4) => {
+            const rateSelect = document.getElementById('rate_4');
+            if (rateSelect && !rateSelect.value && entries[0]) {
+                const isPG = isPostgraduateCourse(entries[0].course);
+                rateSelect.value = isPG ? '40' : '30';
                 rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
             }
+            setTimeout(() => loadStudentCountForRow4(container4), 300);
         }
-        loadStudentCountForRow4(container4);
-    }, 1000);
+    });
 }
 
 // Auto-populate Row 5: সেশনাল
@@ -3016,52 +2944,29 @@ function autoPopulateRow5(teacherName) {
         return;
     }
     
-    const container5 = document.getElementById('container_5');
-    if (!container5) return;
-    
     const teacherCourses = globalRemunerationStatementData.sessional_assessment.filter(item => {
         if (!item.teacher) return false;
-        const itemTeacher = item.teacher.toString().trim();
-        const currentTeacher = teacherName.trim();
-        return itemTeacher === currentTeacher ||
-               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+        return teacherNamesMatch(item.teacher, teacherName);
     });
     
     if (teacherCourses.length === 0) return;
     
-    // Get unique courses
-    const uniqueCourses = [...new Set(teacherCourses.map(item => item.course_code || item.course))];
-    
-    uniqueCourses.forEach((courseValue, index) => {
-        if (!courseValue) return;
-        
-        if (index === 0) {
-            const courseSelect = container5.querySelector('.course-select');
-            if (courseSelect) {
-                courseSelect.value = courseValue;
-                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } else {
-            const addBtn = container5.querySelector('.add-course-btn');
-            if (addBtn) {
-                addBtn.click();
-                setTimeout(() => {
-                    const selects = container5.querySelectorAll('.course-select');
-                    const newSelect = selects[selects.length - 1];
-                    if (newSelect) {
-                        newSelect.value = courseValue;
-                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }, 100);
-            }
+    const courseSectionMap = new Map();
+    teacherCourses.forEach(item => {
+        const course = item.course_code || item.course;
+        const section = item.section || 'Full';
+        const key = `${normalizeCourseCode(course)}_${normalizeSectionValue(section)}`;
+        if (!courseSectionMap.has(key)) {
+            courseSectionMap.set(key, { course, section });
         }
     });
     
-    setTimeout(() => {
-        loadDataForRow5(container5);
-    }, 1000);
+    populateCourseRowsSequential(5, Array.from(courseSectionMap.values()), {
+        withSection: true,
+        onComplete: (container5) => {
+            setTimeout(() => loadDataForRow5(container5), 300);
+        }
+    });
 }
 
 // Auto-populate Row 6: সেশনাল মৌখিক পরীক্ষা
@@ -3070,60 +2975,37 @@ function autoPopulateRow6(teacherName) {
         return;
     }
     
-    const container6 = document.getElementById('container_6');
-    if (!container6) return;
-    
     const teacherCourses = globalRemunerationStatementData.sessional_viva.filter(item => {
         if (!item.teacher) return false;
-        const itemTeacher = item.teacher.toString().trim();
-        const currentTeacher = teacherName.trim();
-        return itemTeacher === currentTeacher ||
-               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+        return teacherNamesMatch(item.teacher, teacherName);
     });
     
     if (teacherCourses.length === 0) return;
     
-    const uniqueCourses = [...new Set(teacherCourses.map(item => item.course_code || item.course))];
-    
-    uniqueCourses.forEach((courseValue, index) => {
-        if (!courseValue) return;
-        
-        if (index === 0) {
-            const courseSelect = container6.querySelector('.course-select');
-            if (courseSelect) {
-                courseSelect.value = courseValue;
-                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } else {
-            const addBtn = container6.querySelector('.add-course-btn');
-            if (addBtn) {
-                addBtn.click();
-                setTimeout(() => {
-                    const selects = container6.querySelectorAll('.course-select');
-                    const newSelect = selects[selects.length - 1];
-                    if (newSelect) {
-                        newSelect.value = courseValue;
-                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }, 100);
-            }
+    const courseSectionMap = new Map();
+    teacherCourses.forEach(item => {
+        const course = item.course_code || item.course;
+        const section = item.section || 'Full';
+        const key = `${normalizeCourseCode(course)}_${normalizeSectionValue(section)}`;
+        if (!courseSectionMap.has(key)) {
+            courseSectionMap.set(key, { course, section });
         }
     });
     
-    // Auto-select rate (usually 50 per student)
-    setTimeout(() => {
-        const rateSelect = document.getElementById('rate_6');
-        if (rateSelect && !rateSelect.value) {
-            const option = Array.from(rateSelect.options).find(opt => opt.value === '50');
-            if (option) {
-                rateSelect.value = '50';
-                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    populateCourseRowsSequential(6, Array.from(courseSectionMap.values()), {
+        withSection: true,
+        onComplete: (container6) => {
+            const rateSelect = document.getElementById('rate_6');
+            if (rateSelect && !rateSelect.value) {
+                const option = Array.from(rateSelect.options).find(opt => opt.value === '50');
+                if (option) {
+                    rateSelect.value = '50';
+                    rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }
+            setTimeout(() => loadDataForRow6(container6), 300);
         }
-        loadDataForRow6(container6);
-    }, 1000);
+    });
 }
 
 // Auto-populate Row 7: প্রফেশনাল এ্যাটাসমেন্ট
@@ -3132,60 +3014,37 @@ function autoPopulateRow7(teacherName) {
         return;
     }
     
-    const container7 = document.getElementById('container_7');
-    if (!container7) return;
-    
     const teacherCourses = globalRemunerationStatementData.professional_attachment.filter(item => {
         if (!item.teacher) return false;
-        const itemTeacher = item.teacher.toString().trim();
-        const currentTeacher = teacherName.trim();
-        return itemTeacher === currentTeacher ||
-               itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-               itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-               currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase());
+        return teacherNamesMatch(item.teacher, teacherName);
     });
     
     if (teacherCourses.length === 0) return;
     
-    const uniqueCourses = [...new Set(teacherCourses.map(item => item.course_code || item.course))];
-    
-    uniqueCourses.forEach((courseValue, index) => {
-        if (!courseValue) return;
-        
-        if (index === 0) {
-            const courseSelect = container7.querySelector('.course-select');
-            if (courseSelect) {
-                courseSelect.value = courseValue;
-                courseSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        } else {
-            const addBtn = container7.querySelector('.add-course-btn');
-            if (addBtn) {
-                addBtn.click();
-                setTimeout(() => {
-                    const selects = container7.querySelectorAll('.course-select');
-                    const newSelect = selects[selects.length - 1];
-                    if (newSelect) {
-                        newSelect.value = courseValue;
-                        newSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }, 100);
-            }
+    const courseSectionMap = new Map();
+    teacherCourses.forEach(item => {
+        const course = item.course_code || item.course;
+        const section = item.section || 'Full';
+        const key = `${normalizeCourseCode(course)}_${normalizeSectionValue(section)}`;
+        if (!courseSectionMap.has(key)) {
+            courseSectionMap.set(key, { course, section });
         }
     });
     
-    // Auto-select rate (usually 100 per student)
-    setTimeout(() => {
-        const rateSelect = document.getElementById('rate_7');
-        if (rateSelect && !rateSelect.value) {
-            const option = Array.from(rateSelect.options).find(opt => opt.value === '100');
-            if (option) {
-                rateSelect.value = '100';
-                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    populateCourseRowsSequential(7, Array.from(courseSectionMap.values()), {
+        withSection: true,
+        onComplete: (container7) => {
+            const rateSelect = document.getElementById('rate_7');
+            if (rateSelect && !rateSelect.value) {
+                const option = Array.from(rateSelect.options).find(opt => opt.value === '100');
+                if (option) {
+                    rateSelect.value = '100';
+                    rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
             }
+            setTimeout(() => loadDataForRow7(container7), 300);
         }
-        loadDataForRow7(container7);
-    }, 1000);
+    });
 }
 
 // Populate data for courses that are already selected
@@ -3210,22 +3069,21 @@ function populateExistingSelections() {
     // Row 2: Question Moderation - only if teacher is in moderation committee
     autoPopulateRow2();
     
-    // Row 3: Check if course and section are already selected
+    // Row 3: Check if course is selected (section may be empty for Full paper)
     const container3 = document.getElementById('container_3');
     if (container3) {
         const courseSelect = container3.querySelector('.course-select');
-        const sectionSelect = container3.querySelector('.section-select');
-        if (courseSelect && courseSelect.value && sectionSelect && sectionSelect.value) {
+        if (courseSelect && courseSelect.value) {
             loadScriptCountForRow3(container3);
+            calculateRow3WithMinimumPerCourse(document.querySelector('input[name="amount_3"]'));
         }
     }
     
-    // Row 4: Check if course and section are already selected
+    // Row 4: Check if course is selected (section may be empty for Full paper)
     const container4 = document.getElementById('container_4');
     if (container4) {
         const courseSelect = container4.querySelector('.course-select');
-        const sectionSelect = container4.querySelector('.section-select');
-        if (courseSelect && courseSelect.value && sectionSelect && sectionSelect.value) {
+        if (courseSelect && courseSelect.value) {
             loadStudentCountForRow4(container4);
         }
     }
@@ -3486,60 +3344,23 @@ function loadDataForRow5(container) {
     console.log('Row 5: Matching for teacher:', currentTeacherName);
     console.log('Row 5: Available sessional_assessment data:', globalRemunerationStatementData.sessional_assessment);
     
-    const allCourseSelects = container.querySelectorAll('.course-select');
+    const courseSectionItems = container.querySelectorAll('.course-section-item');
     let totalStudents = 0;
     
-    allCourseSelects.forEach(select => {
-        const courseValue = select.value;
-        if (!courseValue) return;
+    courseSectionItems.forEach(item => {
+        const select = item.querySelector('.course-select');
+        const sectionSelect = item.querySelector('.section-select');
+        if (!select || !select.value) return;
         
-        const courseCode = courseValue.split(' - ')[0].trim();
-        
-        console.log(`Row 5: Looking for course: ${courseValue} (code: ${courseCode})`);
-        
-        // Find ALL matching items (not just first) to sum them up
-        const matchingItems = globalRemunerationStatementData.sessional_assessment.filter(item => {
-            const itemCourse = (item.course_code || item.course || '').toString();
-            const itemCourseCode = itemCourse.split(' - ')[0].trim();
-            
-            // Strict course matching - must match course code exactly
-            const courseMatches = itemCourseCode === courseCode || 
-                                 itemCourseCode === courseValue ||
-                                 (itemCourse && itemCourse.includes(courseCode));
-            
-            // Teacher matching - more flexible
-            let teacherMatches = false;
-            if (item.teacher) {
-                const itemTeacher = item.teacher.toString().trim();
-                const currentTeacher = currentTeacherName.trim();
-                
-                if (itemTeacher === currentTeacher ||
-                    itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-                    itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-                    currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase())) {
-                    teacherMatches = true;
-                }
-            }
-            
-            const matches = courseMatches && teacherMatches;
-            if (matches) {
-                console.log(`Row 5: Match found - Course: ${itemCourse} (${itemCourseCode}), Teacher: ${item.teacher}, Students: ${item.students}`);
-            }
-            
-            return matches;
+        const sectionValue = sectionSelect ? (sectionSelect.value || 'Full') : 'Full';
+        const matchingItem = findStatementItem(globalRemunerationStatementData.sessional_assessment, {
+            course: select.value,
+            section: sectionValue,
+            teacher: currentTeacherName
         });
         
-        // Sum up students from all matching items for this course
-        matchingItems.forEach(matchingItem => {
-            if (matchingItem.students) {
-                const students = parseInt(matchingItem.students) || 0;
-                totalStudents += students;
-                console.log(`✅ Row 5: Adding ${students} students for course ${courseValue}, teacher ${currentTeacherName}`);
-            }
-        });
-        
-        if (matchingItems.length === 0) {
-            console.log(`❌ Row 5: No matching data found for course ${courseValue}, teacher ${currentTeacherName}`);
+        if (matchingItem && matchingItem.students) {
+            totalStudents += parseInt(matchingItem.students) || 0;
         }
     });
     
@@ -3612,60 +3433,23 @@ function loadDataForRow6(container) {
     console.log('Row 6: Matching for teacher:', currentTeacherName);
     console.log('Row 6: Available sessional_viva data:', globalRemunerationStatementData.sessional_viva);
     
-    const allCourseSelects = container.querySelectorAll('.course-select');
+    const courseSectionItems = container.querySelectorAll('.course-section-item');
     let totalStudents = 0;
     
-    allCourseSelects.forEach(select => {
-        const courseValue = select.value;
-        if (!courseValue) return;
+    courseSectionItems.forEach(item => {
+        const select = item.querySelector('.course-select');
+        const sectionSelect = item.querySelector('.section-select');
+        if (!select || !select.value) return;
         
-        const courseCode = courseValue.split(' - ')[0].trim();
-        
-        console.log(`Row 6: Looking for course: ${courseValue} (code: ${courseCode})`);
-        
-        // Find ALL matching items (not just first) to sum them up
-        const matchingItems = globalRemunerationStatementData.sessional_viva.filter(item => {
-            const itemCourse = (item.course_code || item.course || '').toString();
-            const itemCourseCode = itemCourse.split(' - ')[0].trim();
-            
-            // Strict course matching - must match course code exactly
-            const courseMatches = itemCourseCode === courseCode || 
-                                 itemCourseCode === courseValue ||
-                                 (itemCourse && itemCourse.includes(courseCode));
-            
-            // Teacher matching - more flexible
-            let teacherMatches = false;
-            if (item.teacher) {
-                const itemTeacher = item.teacher.toString().trim();
-                const currentTeacher = currentTeacherName.trim();
-                
-                if (itemTeacher === currentTeacher ||
-                    itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-                    itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-                    currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase())) {
-                    teacherMatches = true;
-                }
-            }
-            
-            const matches = courseMatches && teacherMatches;
-            if (matches) {
-                console.log(`Row 6: Match found - Course: ${itemCourse} (${itemCourseCode}), Teacher: ${item.teacher}, Students: ${item.students}`);
-            }
-            
-            return matches;
+        const sectionValue = sectionSelect ? (sectionSelect.value || 'Full') : 'Full';
+        const matchingItem = findStatementItem(globalRemunerationStatementData.sessional_viva, {
+            course: select.value,
+            section: sectionValue,
+            teacher: currentTeacherName
         });
         
-        // Sum up students from all matching items for this course
-        matchingItems.forEach(matchingItem => {
-            if (matchingItem.students) {
-                const students = parseInt(matchingItem.students) || 0;
-                totalStudents += students;
-                console.log(`✅ Row 6: Adding ${students} students for course ${courseValue}, teacher ${currentTeacherName}`);
-            }
-        });
-        
-        if (matchingItems.length === 0) {
-            console.log(`❌ Row 6: No matching data found for course ${courseValue}, teacher ${currentTeacherName}`);
+        if (matchingItem && matchingItem.students) {
+            totalStudents += parseInt(matchingItem.students) || 0;
         }
     });
     
@@ -3713,45 +3497,24 @@ function loadDataForRow7(container) {
     
     console.log('Row 7: Matching for teacher:', currentTeacherName);
     
-    const allCourseSelects = container.querySelectorAll('.course-select');
+    const courseSectionItems = container.querySelectorAll('.course-section-item');
     let totalCount = 0;
     
-    allCourseSelects.forEach(select => {
-        const courseValue = select.value;
-        if (!courseValue) return;
+    courseSectionItems.forEach(item => {
+        const select = item.querySelector('.course-select');
+        const sectionSelect = item.querySelector('.section-select');
+        if (!select || !select.value) return;
         
-        const courseCode = courseValue.split(' - ')[0].trim();
-        
-        const matchingItem = globalRemunerationStatementData.professional_attachment.find(item => {
-            const itemCourse = (item.course_code || item.course || '').toString();
-            const itemCourseCode = itemCourse.split(' - ')[0].trim();
-            
-            const courseMatches = itemCourseCode === courseCode || 
-                                 itemCourse === courseValue ||
-                                 itemCourse.includes(courseCode) ||
-                                 courseCode.includes(itemCourseCode);
-            
-            let teacherMatches = false;
-            if (item.teacher) {
-                const itemTeacher = item.teacher.toString().trim();
-                const currentTeacher = currentTeacherName.trim();
-                
-                if (itemTeacher === currentTeacher ||
-                    itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-                    itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-                    currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase())) {
-                    teacherMatches = true;
-                }
-            }
-            
-            return courseMatches && teacherMatches;
+        const sectionValue = sectionSelect ? (sectionSelect.value || 'Full') : 'Full';
+        const matchingItem = findStatementItem(globalRemunerationStatementData.professional_attachment, {
+            course: select.value,
+            section: sectionValue,
+            teacher: currentTeacherName
         });
         
         if (matchingItem) {
-            // Try different possible fields: students, count, quantity
             const count = parseInt(matchingItem.students || matchingItem.count || matchingItem.quantity || 0) || 0;
             totalCount += count;
-            console.log(`✅ Row 7: Found ${count} for course ${courseValue}`);
         }
     });
     
@@ -4797,119 +4560,50 @@ function getCurrentTeacherName() {
     return null;
 }
 
-// Load question count for Row 1 (প্রশ্নপত্র প্রণয়ন) - handles multiple courses with teacher matching
+// Load question count for Row 1 (প্রশ্নপত্র প্রণয়ন) - handles multiple courses with teacher/section matching
 function loadQuestionCountForRow1(courseSelect) {
     if (!globalRemunerationStatementData || !globalRemunerationStatementData.question_preparation) {
-        console.log('Row 1: No Remuneration Statement data or question_preparation array');
         return;
     }
     
     const container1 = document.getElementById('container_1');
     if (!container1) return;
     
-    // Get current teacher name
     const currentTeacherName = getCurrentTeacherName();
-    if (!currentTeacherName) {
-        console.log('Row 1: No teacher name found in Bill Form');
-        return;
-    }
+    if (!currentTeacherName) return;
     
-    console.log('Row 1: Matching for teacher:', currentTeacherName);
-    console.log('Row 1: Available question_preparation data:', globalRemunerationStatementData.question_preparation);
-    
-    // Get all course selects in Row 1
-    const allCourseSelects = container1.querySelectorAll('.course-select');
+    const courseSectionItems = container1.querySelectorAll('.course-section-item');
     let totalQuestions = 0;
     
-    // Process each course select
-    allCourseSelects.forEach(select => {
-        const courseValue = select.value;
-        if (!courseValue) return;
+    courseSectionItems.forEach(item => {
+        const select = item.querySelector('.course-select');
+        const sectionSelect = item.querySelector('.section-select');
+        if (!select || !select.value) return;
         
-        // Extract course code from the selected value (format might be "CODE - Name" or just "CODE")
-        const courseCode = courseValue.split(' - ')[0].trim();
-        
-        console.log(`Row 1: Looking for course: ${courseValue} (code: ${courseCode})`);
-        
-        // Find matching item in question_preparation array - must match both course AND teacher
-        const matchingItem = globalRemunerationStatementData.question_preparation.find(item => {
-            // Check if item has course data
-            if (!item.course_code && !item.course) {
-                return false;
-            }
-            
-            // Extract course code from item
-            const itemCourse = (item.course_code || item.course || '').toString();
-            const itemCourseCode = itemCourse.split(' - ')[0].trim();
-            
-            // Match course - try multiple formats
-            const courseMatches = itemCourseCode === courseCode || 
-                                 itemCourse === courseValue ||
-                                 itemCourse.includes(courseCode) ||
-                                 courseCode.includes(itemCourseCode);
-            
-            // Match teacher - more flexible matching
-            let teacherMatches = false;
-            if (item.teacher) {
-                const itemTeacher = item.teacher.toString().trim();
-                const currentTeacher = currentTeacherName.trim();
-                
-                // Exact match
-                if (itemTeacher === currentTeacher) {
-                    teacherMatches = true;
-                }
-                // Case-insensitive match
-                else if (itemTeacher.toLowerCase() === currentTeacher.toLowerCase()) {
-                    teacherMatches = true;
-                }
-                // Partial match (in case of name variations like "Md. Yamin Rahman" vs "Yamin Rahman")
-                else if (itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-                         currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase())) {
-                    teacherMatches = true;
-                }
-            }
-            
-            if (courseMatches && teacherMatches) {
-                console.log(`Row 1: Found match - Course: ${itemCourse}, Teacher: ${item.teacher}, Questions: ${item.questions}`);
-            }
-            
-            return courseMatches && teacherMatches;
+        const sectionValue = sectionSelect ? (sectionSelect.value || 'Full') : 'Full';
+        const matchingItem = findStatementItem(globalRemunerationStatementData.question_preparation, {
+            course: select.value,
+            section: sectionValue,
+            teacher: currentTeacherName
         });
         
         if (matchingItem && matchingItem.questions) {
-            const questions = parseInt(matchingItem.questions) || 0;
-            totalQuestions += questions;
-            console.log(`✅ Row 1: Found ${questions} questions for course ${courseValue}, teacher ${currentTeacherName}`);
-        } else {
-            console.log(`❌ Row 1: No matching data found for course ${courseValue}, teacher ${currentTeacherName}`);
-            // Log all available items for debugging
-            console.log('Available items in question_preparation:', 
-                globalRemunerationStatementData.question_preparation.map(item => ({
-                    course: item.course_code || item.course,
-                    teacher: item.teacher,
-                    questions: item.questions
-                }))
-            );
+            totalQuestions += parseInt(matchingItem.questions) || 0;
         }
     });
     
-    // Update the quantity input with total
     const quantityInput = document.querySelector('input[name="quantity_1"]');
     if (quantityInput) {
         quantityInput.value = totalQuestions;
-        console.log(`✅ Row 1: Total questions loaded: ${totalQuestions}`);
-        // Trigger calculation to update amount
         setTimeout(() => {
-            // Trigger change event to ensure calculation runs
             quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
             quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
-            // Also explicitly call calculateRow
             calculateRow(1);
         }, 100);
     }
 }
 
-// Load script count for Row 3 (উত্তরপত্র পরীক্ষণ) - handles multiple courses with teacher matching
+// Load script count for Row 3 (উত্তরপত্র পরীক্ষণ) - handles multiple courses with teacher/section matching
 function loadScriptCountForRow3(container) {
     if (!globalRemunerationStatementData || !globalRemunerationStatementData.script_examination) {
         return;
@@ -4917,72 +4611,34 @@ function loadScriptCountForRow3(container) {
     
     if (!container) return;
     
-    // Get current teacher name
     const currentTeacherName = getCurrentTeacherName();
-    if (!currentTeacherName) {
-        console.log('Row 3: No teacher name found in Bill Form');
-        return;
-    }
+    if (!currentTeacherName) return;
     
-    console.log('Row 3: Matching for teacher:', currentTeacherName);
-    
-    // Get all course-section pairs in Row 3
     const courseSectionItems = container.querySelectorAll('.course-section-item');
     let totalScripts = 0;
     
-    // Process each course-section pair
     courseSectionItems.forEach(item => {
         const courseSelect = item.querySelector('.course-select');
         const sectionSelect = item.querySelector('.section-select');
         
-        if (!courseSelect || !courseSelect.value || !sectionSelect || !sectionSelect.value) {
-            return;
-        }
+        if (!courseSelect || !courseSelect.value) return;
         
-        const courseValue = courseSelect.value;
-        const sectionValue = sectionSelect.value.toUpperCase(); // A, B, or Full
-        
-        // Extract course code
-        const courseCode = courseValue.split(' - ')[0].trim();
-        
-        // Find matching item in script_examination array - must match course, section AND teacher
-        const matchingItem = globalRemunerationStatementData.script_examination.find(item => {
-            if (!item.course_code && !item.course) return false;
-            const itemCourseCode = (item.course_code || item.course).split(' - ')[0].trim();
-            const itemSection = (item.section || '').toUpperCase();
-            
-            // Match course
-            const courseMatches = itemCourseCode === courseCode || 
-                                 (item.course_code || item.course) === courseValue ||
-                                 (item.course_code || item.course).includes(courseCode);
-            
-            // Match section (A, B, or Full/empty)
-            const sectionMatches = sectionValue === 'FULL' || sectionValue === '' || 
-                                   itemSection === sectionValue ||
-                                   (sectionValue === '' && (itemSection === '' || itemSection === 'FULL'));
-            
-            // Match teacher - must match exactly
-            const teacherMatches = item.teacher && 
-                                  (item.teacher.trim() === currentTeacherName.trim() ||
-                                   item.teacher.trim().toLowerCase() === currentTeacherName.trim().toLowerCase());
-            
-            return courseMatches && sectionMatches && teacherMatches;
+        const sectionValue = sectionSelect ? (sectionSelect.value || 'Full') : 'Full';
+        const matchingItem = findStatementItem(globalRemunerationStatementData.script_examination, {
+            course: courseSelect.value,
+            section: sectionValue,
+            teacher: currentTeacherName
         });
         
         if (matchingItem && matchingItem.scripts) {
-            const scripts = parseInt(matchingItem.scripts) || 0;
-            totalScripts += scripts;
-            console.log(`Found ${scripts} scripts for course ${courseValue}, section ${sectionValue}, teacher ${currentTeacherName} in Row 3`);
-        } else {
-            console.log(`No matching data found for course ${courseValue}, section ${sectionValue}, teacher ${currentTeacherName} in Row 3`);
+            totalScripts += parseInt(matchingItem.scripts) || 0;
         }
     });
     
-    // Update the quantity input with total
     const quantityInput = document.querySelector('input[name="quantity_3"]');
     if (quantityInput) {
         quantityInput.value = totalScripts;
-        console.log(`Total scripts loaded for Row 3: ${totalScripts}`);
+        calculateRow3WithMinimumPerCourse(document.querySelector('input[name="amount_3"]'));
     }
 }
 
@@ -5044,81 +4700,26 @@ function loadStudentCountForRow4(container) {
         
         hasAnySelection = true;
         const courseValue = courseSelect.value;
-        const sectionValue = (sectionSelect?.value || '').toUpperCase(); // A, B, or Full/empty
+        const sectionValue = sectionSelect ? (sectionSelect.value || 'Full') : 'Full';
         
         console.log(`Row 4: Processing course ${index + 1}:`, courseValue, 'section:', sectionValue);
         
-        // Extract course code
-        const courseCode = courseValue.split(' - ')[0].trim();
-        
-        // Get current teacher name
         const currentTeacherName = getCurrentTeacherName();
-        if (!currentTeacherName) {
-            console.log('Row 4: No teacher name found in Bill Form');
-            // Continue with API fetch if teacher not found
-        }
         
-        // First, try to get from Remuneration Statement if available
-        // Row 4 should use class_test array, not script_examination
         let studentCount = null;
-        if (globalRemunerationStatementData && currentTeacherName) {
-            // Try class_test array first (correct data source for Row 4)
-            let matchingItem = null;
-            if (globalRemunerationStatementData.class_test) {
-                matchingItem = globalRemunerationStatementData.class_test.find(item => {
-                    if (!item.course_code && !item.course) return false;
-                    const itemCourseCode = (item.course_code || item.course || '').toString().split(' - ')[0].trim();
-                    const itemSection = (item.section || '').toUpperCase();
-                    
-                    // Match course
-                    const courseMatches = itemCourseCode === courseCode || 
-                                         (item.course_code || item.course || '').toString() === courseValue ||
-                                         (item.course_code || item.course || '').toString().includes(courseCode);
-                    
-                    // Match section (A, B, or Full/empty)
-                    const sectionMatches = sectionValue === 'FULL' || sectionValue === '' || 
-                                           itemSection === sectionValue ||
-                                           (sectionValue === '' && (itemSection === '' || itemSection === 'FULL'));
-                    
-                    // Match teacher - flexible matching
-                    let teacherMatches = false;
-                    const itemTeacher = (item.teacher || item.teacher_name || '').toString().trim();
-                    const currentTeacher = currentTeacherName.trim();
-                    
-                    if (itemTeacher) {
-                        if (itemTeacher === currentTeacher ||
-                            itemTeacher.toLowerCase() === currentTeacher.toLowerCase() ||
-                            itemTeacher.toLowerCase().includes(currentTeacher.toLowerCase()) ||
-                            currentTeacher.toLowerCase().includes(itemTeacher.toLowerCase())) {
-                            teacherMatches = true;
-                        }
-                    }
-                    
-                    return courseMatches && sectionMatches && teacherMatches;
-                });
-                
-                if (matchingItem) {
-                    // Try to get from students field if it exists
-                    if (matchingItem.students !== undefined && matchingItem.students !== null) {
-                        studentCount = parseInt(matchingItem.students) || 0;
-                        console.log(`Row 4: Found ${studentCount} students in class_test for course ${courseValue}, section ${sectionValue}, teacher ${currentTeacherName}`);
-                    } else if (matchingItem.student_count !== undefined && matchingItem.student_count !== null) {
-                        studentCount = parseInt(matchingItem.student_count) || 0;
-                        console.log(`Row 4: Found ${studentCount} student_count in class_test for course ${courseValue}`);
-                    }
-                }
-            }
+        if (globalRemunerationStatementData && currentTeacherName && globalRemunerationStatementData.class_test) {
+            const matchingItem = findStatementItem(globalRemunerationStatementData.class_test, {
+                course: courseValue,
+                section: sectionValue,
+                teacher: currentTeacherName
+            });
             
-            // If not found in class_test, log available data for debugging
-            if (!matchingItem && globalRemunerationStatementData.class_test) {
-                console.log(`Row 4: No matching class_test data found. Available class_test items:`, 
-                    globalRemunerationStatementData.class_test.map(item => ({
-                        course: item.course_code || item.course,
-                        section: item.section,
-                        teacher: item.teacher || item.teacher_name,
-                        students: item.students || item.student_count
-                    }))
-                );
+            if (matchingItem) {
+                if (matchingItem.students !== undefined && matchingItem.students !== null) {
+                    studentCount = parseInt(matchingItem.students) || 0;
+                } else if (matchingItem.student_count !== undefined && matchingItem.student_count !== null) {
+                    studentCount = parseInt(matchingItem.student_count) || 0;
+                }
             }
         }
         
@@ -5843,12 +5444,16 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                         } else {
                             // Restore previous value if it exists for other rows
-                        if (currentValue) {
-                            select.value = currentValue;
+                            if (currentValue) {
+                                setCourseSelectValue(select, currentValue);
                             }
                         }
                     });
                     console.log('Courses loaded successfully');
+                    // Re-run calculations after course dropdowns are rebuilt
+                    if (globalRemunerationStatementData) {
+                        setTimeout(() => populateExistingSelections(), 300);
+                    }
                 } else {
                     console.error('API returned success=false:', data.message);
                     // Show error or empty state
@@ -6368,8 +5973,8 @@ function populateFormData(data) {
             if (firstItem && pairs[0]) {
                 const courseSelect = firstItem.querySelector('.course-select');
                 const sectionSelect = firstItem.querySelector('.section-select');
-                if (courseSelect) courseSelect.value = pairs[0].course || '';
-                if (sectionSelect) sectionSelect.value = pairs[0].section || '';
+                if (courseSelect) setCourseSelectValue(courseSelect, pairs[0].course || '');
+                if (sectionSelect) setSectionSelectValue(sectionSelect, pairs[0].section || '');
             }
             
             // Add additional items
@@ -6379,8 +5984,8 @@ function populateFormData(data) {
                 const newItem = newItems[newItems.length - 1];
                 const courseSelect = newItem.querySelector('.course-select');
                 const sectionSelect = newItem.querySelector('.section-select');
-                if (courseSelect) courseSelect.value = pairs[i].course || '';
-                if (sectionSelect) sectionSelect.value = pairs[i].section || '';
+                if (courseSelect) setCourseSelectValue(courseSelect, pairs[i].course || '');
+                if (sectionSelect) setSectionSelectValue(sectionSelect, pairs[i].section || '');
             }
         });
         
@@ -6408,10 +6013,10 @@ function populateFormData(data) {
                                         const courseSelect = item.querySelector('.course-select');
                                         const sectionSelect = item.querySelector('.section-select');
                                         if (courseSelect) {
-                                            courseSelect.value = pairs[idx].course || '';
-                                            courseSelect.disabled = false; // Ensure enabled
+                                            setCourseSelectValue(courseSelect, pairs[idx].course || '');
+                                            courseSelect.disabled = false;
                                         }
-                                        if (sectionSelect) sectionSelect.value = pairs[idx].section || '';
+                                        if (sectionSelect) setSectionSelectValue(sectionSelect, pairs[idx].section || '');
                                     }
                                 });
                             }
@@ -6884,9 +6489,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 designationInput.value = '';
             }
             
-            // Re-evaluate moderation eligibility for Row 2
+            // Re-populate all course rows for the newly selected teacher
             setTimeout(() => {
-                autoPopulateRow2();
+                if (globalRemunerationStatementData && this.value) {
+                    autoPopulateCoursesAndRates();
+                } else {
+                    autoPopulateRow2();
+                }
             }, 200);
         });
         

@@ -115,7 +115,7 @@
                         {% if selected_subject.subject_type in ['Theory', 'Theory (PG)', 'Theory (UG)'] %}
                             <td>
                                 <div class="d-flex align-items-center gap-1">
-                                    <input type="number" step="0.1" class="form-control marks-input attendance-input" name="attendance_{{ student.id }}" value="{{ mark.attendance if mark and mark.attendance is not none else '' }}" data-student-id="{{ student.id }}">
+                                    <input type="number" step="1" class="form-control marks-input attendance-input" name="attendance_{{ student.id }}" value="{{ (mark.attendance|round(0)|int) if mark and mark.attendance is not none else '' }}" data-student-id="{{ student.id }}">
                                     {% if mark and mark.attendance_manual %}
                                         <span class="badge bg-info manual-badge" id="manual-badge-{{ student.id }}">Manual</span>
                                     {% else %}
@@ -123,9 +123,9 @@
                                     {% endif %}
                                 </div>
                             </td>
-                            <td><input type="number" step="0.1" class="form-control marks-input" name="continuous_assessment_{{ student.id }}" value="{{ mark.continuous_assessment if mark and mark.continuous_assessment is not none else '' }}"></td>
-                            <td><input type="number" step="0.1" class="form-control marks-input" name="part_a_{{ student.id }}" value="{{ mark.part_a if mark and mark.part_a is not none else '' }}"></td>
-                            <td><input type="number" step="0.1" class="form-control marks-input" name="part_b_{{ student.id }}" value="{{ mark.part_b if mark and mark.part_b is not none else '' }}"></td>
+                            <td><input type="number" step="1" class="form-control marks-input" name="continuous_assessment_{{ student.id }}" value="{{ (mark.continuous_assessment|round(0)|int) if mark and mark.continuous_assessment is not none else '' }}"></td>
+                            <td><input type="number" step="1" class="form-control marks-input" name="part_a_{{ student.id }}" value="{{ (mark.part_a|round(0)|int) if mark and mark.part_a is not none else '' }}"></td>
+                            <td><input type="number" step="1" class="form-control marks-input" name="part_b_{{ student.id }}" value="{{ (mark.part_b|round(0)|int) if mark and mark.part_b is not none else '' }}"></td>
                         {% elif selected_subject.subject_type == 'Sessional' %}
                             <td>
                                 <div class="d-flex align-items-center gap-1">
@@ -215,6 +215,17 @@ document.addEventListener('DOMContentLoaded', function() {
         return { grade_point, grade_letter };
     }
 
+    function roundMarkValue(value) {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        const parsed = parseFloat(value);
+        if (isNaN(parsed)) {
+            return '';
+        }
+        return String(Math.round(parsed));
+    }
+
     function updateRow(row) {
         try {
             if (!row) {
@@ -232,7 +243,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (input && input.value !== null && input.value !== undefined && input.value !== '') {
                     const value = parseFloat(input.value);
                     if (!isNaN(value) && value >= 0) {
-                        total += value;
+                        total += Math.round(value);
                     }
                 }
             });
@@ -273,6 +284,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function roundTheoryInput(input) {
+        const name = input.name || '';
+        if (
+            name.startsWith('attendance_') ||
+            name.startsWith('continuous_assessment_') ||
+            name.startsWith('part_a_') ||
+            name.startsWith('part_b_')
+        ) {
+            const rounded = roundMarkValue(input.value);
+            if (rounded !== '' && input.value !== rounded) {
+                input.value = rounded;
+            }
+        }
+    }
+
     function initializeMarksCalculation() {
         const rows = document.querySelectorAll('tr[data-student-id]');
         
@@ -307,6 +333,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
                 
                 input.addEventListener('change', function() {
+                    roundTheoryInput(input);
+                    updateRow(row);
+                });
+
+                input.addEventListener('blur', function() {
+                    roundTheoryInput(input);
                     updateRow(row);
                 });
                 
@@ -414,14 +446,15 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get all mark inputs for this student
             row.querySelectorAll('.marks-input').forEach(input => {
                 const name = input.name;
+                const rawValue = input.value || null;
                 if (name.startsWith('attendance_')) {
-                    marks.attendance = input.value || null;
+                    marks.attendance = rawValue ? roundMarkValue(rawValue) : null;
                 } else if (name.startsWith('continuous_assessment_')) {
-                    marks.continuous_assessment = input.value || null;
+                    marks.continuous_assessment = rawValue ? roundMarkValue(rawValue) : null;
                 } else if (name.startsWith('part_a_')) {
-                    marks.part_a = input.value || null;
+                    marks.part_a = rawValue ? roundMarkValue(rawValue) : null;
                 } else if (name.startsWith('part_b_')) {
-                    marks.part_b = input.value || null;
+                    marks.part_b = rawValue ? roundMarkValue(rawValue) : null;
                 } else if (name.startsWith('sessional_report_')) {
                     marks.sessional_report = input.value || null;
                 } else if (name.startsWith('sessional_viva_')) {

@@ -141,13 +141,8 @@
                                     </div>
                                     {% endif %}
 
-                                    <a href="{{ url_for('exam_committee_chief_dashboard', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-outline-primary w-100 mb-1 action-btn">
+                                    <a href="{{ url_for('exam_committee_chief_dashboard', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-outline-primary w-100 action-btn">
                                         <i class="fas fa-cogs me-1"></i>Manage Dashboard
-                                    </a>
-
-                                    <a href="{{ url_for('exam_committee_member_remuneration', session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-primary w-100 action-btn">
-                                        <i class="fas fa-file-invoice-dollar me-1"></i>
-                                        {% if forms %}Create New{% else %}Create{% endif %} Remuneration
                                     </a>
                                 </div>
                             </div>

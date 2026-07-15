@@ -377,6 +377,7 @@
                                         <th>Term</th>
                                         <th>Batch</th>
                                         <th>Course</th>
+                                        <th>Part</th>
                                         <th>Remarks</th>
                                         <th>Assigned On</th>
                                         <th>Action</th>
@@ -392,6 +393,7 @@
                                         <td>{{ scr.term or '-' }}</td>
                                         <td>{{ scr.batch or '-' }}</td>
                                         <td>{{ scr.course_code or '-' }}</td>
+                                        <td>{{ scrutinizer_part_labels.get(scr.id, '-') }}</td>
                                         <td>{{ scr.remarks or '-' }}</td>
                                         <td>{{ scr.created_at.strftime('%Y-%m-%d') if scr.created_at else '-' }}</td>
                                         <td>
@@ -460,9 +462,18 @@
                     <div class="mb-0">
                         <!-- Create Remuneration Statement Button -->
                         <div class="mb-3">
+                            {% if saved_remuneration_forms %}
+                            <button class="btn btn-success" disabled title="A remuneration form already exists for this committee. Delete the saved form below to create a new one.">
+                                <i class="fas fa-file-invoice-dollar me-2"></i>Create Remuneration Statement
+                            </button>
+                            <div class="form-text text-muted mt-1">
+                                <i class="fas fa-info-circle me-1"></i>A saved remuneration form already exists. Delete it below to create a new one.
+                            </div>
+                            {% else %}
                             <a href="{{ url_for('exam_committee_chief_custom_remuneration', session=current_session, year=current_year, term=current_term) if current_session and current_year and current_term else url_for('exam_committee_chief_custom_remuneration') }}" class="btn btn-success">
                                 <i class="fas fa-file-invoice-dollar me-2"></i>Create Remuneration Statement
                             </a>
+                            {% endif %}
                         </div>
                         <h5 class="mb-3"><i class="fas fa-file-invoice-dollar me-2"></i>Saved Remuneration Forms</h5>
                         {% if saved_remuneration_forms %}
@@ -538,6 +549,13 @@
 const dutyTypeSelect = document.getElementById('duty_type');
 const teacherSelect = document.getElementById('teacher');
 const entrySelect = document.getElementById('exam_entries');
+const committeeTeachers = {{ committee_teacher_options|tojson }};
+const allTeacherOptions = [];
+Array.from(teacherSelect.options).forEach(opt => {
+    if (opt.value) {
+        allTeacherOptions.push({ id: opt.value, name: opt.textContent.trim() });
+    }
+});
 
 const fieldWrappers = {
     entry: document.getElementById('entryField')
@@ -557,9 +575,37 @@ function setRequired(input, isRequired) {
     input.required = isRequired;
 }
 
+function populateTeacherSelect(teachers) {
+    const currentValue = teacherSelect.value;
+    teacherSelect.innerHTML = '<option value="">Select Teacher</option>';
+    teachers.forEach(teacher => {
+        teacherSelect.add(new Option(teacher.name, String(teacher.id)));
+    });
+    if (currentValue && [...teacherSelect.options].some(option => option.value === currentValue)) {
+        teacherSelect.value = currentValue;
+    }
+}
+
+function updateTeacherOptionsForDutyType() {
+    const dutyType = dutyTypeSelect.value;
+    if (dutyType === 'scrutinizer' || dutyType === 'tabulator') {
+        if (!committeeTeachers.length) {
+            teacherSelect.innerHTML = '<option value="">No committee members found</option>';
+            teacherSelect.disabled = true;
+        } else {
+            populateTeacherSelect(committeeTeachers);
+            teacherSelect.disabled = false;
+        }
+    } else {
+        populateTeacherSelect(allTeacherOptions);
+        teacherSelect.disabled = false;
+    }
+}
+
 function updateDutyFieldVisibility() {
     const dutyType = dutyTypeSelect.value;
     toggleField(fieldWrappers.entry, false);
+    updateTeacherOptionsForDutyType();
     
     // Session, Year, Term are now hidden and auto-filled from chief assignment
     // Only show entry field for scrutinizer

@@ -31,6 +31,48 @@
         color: #333;
         border-bottom: 2px solid #007bff;
         padding-bottom: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+    }
+    .section-title .section-title-text {
+        flex: 1;
+    }
+    .section-title-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 auto;
+    }
+    .section-disable-btn {
+        flex: 0 0 auto;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+    .section-disabled-note {
+        display: none;
+        font-size: 12px;
+        font-weight: 500;
+        color: #dc3545;
+        margin-left: 8px;
+    }
+    /* Disabled section: grayed out, non-editable, excluded from PDF */
+    .section-container.section-disabled {
+        background: #f7f7f7;
+    }
+    .section-container.section-disabled table,
+    .section-container.section-disabled .btn-add-row {
+        opacity: 0.45;
+        filter: grayscale(1);
+        pointer-events: none;
+    }
+    .section-container.section-disabled .section-title {
+        border-bottom-color: #dc3545;
+        color: #888;
+    }
+    .section-container.section-disabled .section-disabled-note {
+        display: inline;
     }
     table {
         width: 100%;
@@ -1312,6 +1354,48 @@ function markAllSavedAutoPopulatedFields() {
     console.log('✅ All saved auto-populated fields marked');
 }
 
+// After loading a saved form, make sure each teacher's Designation is shown.
+// Older saved statements (and rows populated before a designation was picked)
+// may not have stored the designation rank, so the "Designation" dropdown loads
+// empty even though the teacher is known. Since the designation always follows
+// the teacher, derive it from teachersData whenever the dropdown is still empty.
+function restoreDesignationsFromTeachers() {
+    const knownRanks = ['Professor', 'Associate Professor', 'Assistant Professor', 'Lecturer'];
+    const rows = document.querySelectorAll(
+        '#table_question_preparation tbody tr, #table_script_examination tbody tr'
+    );
+    rows.forEach(row => {
+        const desigSelect = row.querySelector('select[class*="designation-select"]');
+        if (!desigSelect) return;
+        // Only fill when no designation rank is currently selected.
+        if (desigSelect.value && desigSelect.value.trim() !== '') return;
+
+        // Resolve the selected teacher (dropdown value or custom name input).
+        const teacherSelect = row.querySelector('select[name$="_teacher_select[]"]');
+        const customName = row.querySelector('input[name$="_teacher[]"]');
+        let teacherName = '';
+        if (teacherSelect && teacherSelect.value && teacherSelect.value !== '__CUSTOM__') {
+            teacherName = teacherSelect.value.trim();
+        } else if (customName && customName.value) {
+            teacherName = customName.value.trim();
+        }
+        if (!teacherName) return;
+
+        const teacher = (typeof teachersData !== 'undefined' ? teachersData : [])
+            .find(t => t.name === teacherName);
+        if (!teacher || !teacher.designation) return;
+
+        const rank = teacher.designation;
+        const institute = teacher.institute || 'Law Discipline, KU';
+        const desigInput = row.querySelector('input[class*="custom-designation"]');
+
+        desigSelect.value = knownRanks.includes(rank) ? rank : '__CUSTOM__';
+        if (desigInput) {
+            desigInput.value = `${rank}, ${institute}`;
+        }
+    });
+}
+
 // ========================================
 // End of auto-populated field management
 // ========================================
@@ -1356,6 +1440,24 @@ function addRow(tableId, columnTypes) {
     tbody.appendChild(newRow);
 }
 
+// Remove duplicate courses (same code + name) so a subject configured in
+// multiple curricula does not create duplicate rows in the tables.
+function dedupeCourses(courses) {
+    if (!Array.isArray(courses)) return [];
+    const seen = new Set();
+    const result = [];
+    courses.forEach(course => {
+        if (!course) return;
+        const codeKey = String(course.course_code || '').replace(/\s+/g, '').toLowerCase();
+        const nameKey = String(course.course_name || '').trim().toLowerCase();
+        const key = `${codeKey}|||${nameKey}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        result.push(course);
+    });
+    return result;
+}
+
 // Fetch courses based on session, year, term
 async function fetchCourses() {
     // Try hidden fields first, then visible dropdowns
@@ -1391,8 +1493,9 @@ async function fetchCourses() {
         
         const data = await response.json();
         if (data.success) {
-            console.log(`✅ Fetched ${data.courses?.length || 0} courses`);
-            return data.courses || [];
+            const deduped = dedupeCourses(data.courses || []);
+            console.log(`✅ Fetched ${data.courses?.length || 0} courses (${deduped.length} after dedupe)`);
+            return deduped;
         }
         console.warn('⚠️ API returned success=false:', data.message);
         return [];
@@ -1433,12 +1536,12 @@ async function fetchSessionalCourses() {
         const data = await response.json();
         if (data.success) {
             // Filter for sessional courses (course_type contains 'Sessional' or category is 'Sessional')
-            const sessionalCourses = (data.courses || []).filter(c => {
+            const sessionalCourses = dedupeCourses((data.courses || []).filter(c => {
                 const courseType = (c.course_type || '').toLowerCase();
                 const category = (c.category || '').toLowerCase();
                 return courseType.includes('sessional') || category.includes('sessional');
-            });
-            console.log(`✅ Fetched ${sessionalCourses.length} sessional courses`);
+            }));
+            console.log(`✅ Fetched ${sessionalCourses.length} sessional courses (deduped)`);
             return sessionalCourses;
         }
         console.warn('⚠️ API returned success=false for sessional courses:', data.message);
@@ -1616,6 +1719,88 @@ async function loadExaminationCommittee(session, year, term) {
     }
 }
 
+// Auto-load the Examination Committee members (internal + external) into the
+// Moderation Committee table (Section 5). The Moderation Committee always
+// mirrors the same people as the Examination Committee, so we reuse the same
+// get-committee data source.
+async function loadModerationCommittee(session, year, term) {
+    if (!session || !year || !term) {
+        console.log('⚠️ Cannot load moderation committee: session/year/term not all set');
+        return;
+    }
+
+    try {
+        console.log(`🔄 Loading moderation committee for: ${session} - ${year} - ${term}`);
+        const response = await fetch(`/exam-committee-chief/custom-remuneration/get-committee?session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        const data = await response.json();
+
+        if (!data.success || !Array.isArray(data.committee)) {
+            console.warn('⚠️ Failed to load moderation committee:', data.message);
+            return;
+        }
+
+        const tbody = document.querySelector('#table_moderation_committee tbody');
+        if (!tbody) return;
+
+        // Replace existing rows with the current committee members.
+        tbody.querySelectorAll('tr').forEach(row => row.remove());
+
+        const teacherNames = (typeof teachersData !== 'undefined' ? teachersData : []).map(t => t.name);
+
+        data.committee.forEach(member => {
+            const isKnown = teacherNames.includes(member.name);
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>
+                    <select class="form-select form-select-sm teacher-name-select" name="moderation_committee_name_select[]" onchange="onModerationNameChange(this)">
+                        <option value="">Select Name</option>
+                        <option value="__CUSTOM__">Custom...</option>
+                        ${teachersData.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
+                    </select>
+                    <input type="text" class="form-control form-control-sm mt-1 moderation-custom-name" name="moderation_committee_name[]" placeholder="Enter custom name" value="${isKnown ? '' : (member.name || '')}" style="display: ${isKnown ? 'none' : 'block'};">
+                </td>
+                <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" value="${member.designation || 'Law Discipline, KU'}" placeholder="Law Discipline, KU"></td>
+                <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]" value="${member.position || ''}"></td>
+                <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
+            `;
+
+            const sel = row.querySelector('select[name="moderation_committee_name_select[]"]');
+            if (sel) sel.value = isKnown ? member.name : '__CUSTOM__';
+
+            tbody.appendChild(row);
+        });
+
+        console.log(`✅ Loaded ${data.committee.length} moderation committee members`);
+    } catch (error) {
+        console.error('❌ Error loading moderation committee:', error);
+    }
+}
+
+// In edit mode we keep saved Moderation Committee data, but older saved forms may
+// not have any members. In that case still auto-load from the examination
+// committee so the Moderation Committee is never left empty.
+function ensureModerationCommitteeLoaded() {
+    const tbody = document.querySelector('#table_moderation_committee tbody');
+    if (!tbody) return;
+
+    const hasData = Array.from(tbody.querySelectorAll('tr')).some(row => {
+        const sel = row.querySelector('select[name="moderation_committee_name_select[]"]');
+        const custom = row.querySelector('input.moderation-custom-name');
+        const selVal = sel && sel.value && sel.value !== '__CUSTOM__' ? sel.value.trim() : '';
+        const customVal = custom ? custom.value.trim() : '';
+        return selVal || customVal;
+    });
+
+    if (hasData) return;
+
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    if (session && year && term) {
+        loadModerationCommittee(session, year, term);
+    }
+}
+
 // Session/Year/Term change handlers - Auto-load theory courses
 async function handleSessionYearTermChange() {
     const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
@@ -1649,6 +1834,8 @@ async function handleSessionYearTermChange() {
         if (!isEditMode) {
             console.log('🔄 Reloading examination committee for new session/year/term');
             await loadExaminationCommittee(session, year, term);
+            // Moderation Committee always mirrors the examination committee members.
+            await loadModerationCommittee(session, year, term);
         }
     }
     
@@ -1824,7 +2011,7 @@ async function autoLoadCoursesForTables() {
 
 // Auto-load Theory courses for Table 2, 3, 4 - Only Course and Section columns
 // Preserves existing teacher, designation, and other data
-async function autoLoadTheoryCoursesForTables(theoryCourses) {
+async function autoLoadTheoryCoursesForTables(theoryCourses, skipCascade) {
     // Skip auto-load if in edit mode
     if (isEditMode) {
         console.log('⏭️ Edit mode active, skipping theory courses auto-load');
@@ -1843,22 +2030,27 @@ async function autoLoadTheoryCoursesForTables(theoryCourses) {
         await loadEvaluatorAssignments();
     }
     
-    // Auto-load Table 4 with course assignments (teacher and section info)
-    await autoLoadClassTestTableWithAssignments();
-    
-    // Auto-load Table 6 and 7 with sessional course assignments (teacher and section info)
-    await autoLoadSessionalTablesWithAssignments();
-    
-    // Auto-load Table 8 with assigned scrutinizers (non-blocking)
-    autoLoadScrutinizers().catch(err => {
-        console.error('❌ Error in autoLoadScrutinizers (non-blocking):', err);
-    });
-    
-    // Auto-load Table 9 with assigned tabulators
-    await autoLoadTabulators();
-    
-    // Auto-load Table 11 and 12 with all teachers
-    autoLoadAllTeachersForTables();
+    // The cascade populates the other sections (4, 6, 7, 8, 9, 11, 12). When
+    // called from a single-section Autofetch button we skip it so only Tables 2
+    // and 3 are touched.
+    if (!skipCascade) {
+        // Auto-load Table 4 with course assignments (teacher and section info)
+        await autoLoadClassTestTableWithAssignments();
+        
+        // Auto-load Table 6 and 7 with sessional course assignments (teacher and section info)
+        await autoLoadSessionalTablesWithAssignments();
+        
+        // Auto-load Table 8 with assigned scrutinizers (non-blocking)
+        autoLoadScrutinizers().catch(err => {
+            console.error('❌ Error in autoLoadScrutinizers (non-blocking):', err);
+        });
+        
+        // Auto-load Table 9 with assigned tabulators
+        await autoLoadTabulators();
+        
+        // Auto-load Table 11 and 12 with all teachers
+        autoLoadAllTeachersForTables();
+    }
     
     // Table 2: Question Preparation
     const table2Tbody = document.querySelector('#table_question_preparation tbody');
@@ -2424,6 +2616,19 @@ async function autoLoadScrutinizers() {
     }
 }
 
+// Read the committee context used for all auto-fetch API calls.
+// Always prefer the hidden fields — they hold the saved form's true
+// session/year/term and are not affected by dropdown rebuilds.
+function getCommitteeContext() {
+    const session = document.getElementById('session_hidden')?.value?.trim()
+        || document.getElementById('session')?.value?.trim() || '';
+    const year = document.getElementById('year_hidden')?.value?.trim()
+        || document.getElementById('year')?.value?.trim() || '';
+    const term = document.getElementById('term_hidden')?.value?.trim()
+        || document.getElementById('term')?.value?.trim() || '';
+    return { session, year, term };
+}
+
 // Auto-load Table 9 (Tabulation) with assigned tabulators
 async function autoLoadTabulators() {
     // Skip auto-load if in edit mode
@@ -2432,9 +2637,7 @@ async function autoLoadTabulators() {
         return;
     }
     
-    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
-    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
-    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    const { session, year, term } = getCommitteeContext();
     
     if (!session || !year || !term) {
         console.log('⚠️ Session/Year/Term not selected for tabulators auto-load');
@@ -3258,7 +3461,7 @@ function updateTableCounts() {
         const courseCount = courseSet.size;
         const titleElement = document.getElementById('table2_title');
         if (titleElement) {
-            titleElement.textContent = `2. Question Preparation (${courseCount} Course${courseCount !== 1 ? 's' : ''}, ${totalQuestions} Question${totalQuestions !== 1 ? 's' : ''})`;
+            setSectionTitle(titleElement, `2. Question Preparation (${courseCount} Course${courseCount !== 1 ? 's' : ''}, ${totalQuestions} Question${totalQuestions !== 1 ? 's' : ''})`);
         }
     }
     
@@ -3290,7 +3493,7 @@ function updateTableCounts() {
         const courseCount = courseSet.size;
         const titleElement = document.getElementById('table3_title');
         if (titleElement) {
-            titleElement.textContent = `3. Answer Script Examination (${courseCount} Course${courseCount !== 1 ? 's' : ''}, ${totalScripts} Script${totalScripts !== 1 ? 's' : ''})`;
+            setSectionTitle(titleElement, `3. Answer Script Examination (${courseCount} Course${courseCount !== 1 ? 's' : ''}, ${totalScripts} Script${totalScripts !== 1 ? 's' : ''})`);
         }
     }
     
@@ -3316,7 +3519,7 @@ function updateTableCounts() {
         const courseCount = courseSet.size;
         const titleElement = document.getElementById('table4_title');
         if (titleElement) {
-            titleElement.textContent = `4. Class Test (${courseCount} Course${courseCount !== 1 ? 's' : ''})`;
+            setSectionTitle(titleElement, `4. Class Test (${courseCount} Course${courseCount !== 1 ? 's' : ''})`);
         }
     }
     
@@ -3339,7 +3542,7 @@ function updateTableCounts() {
         const courseCount = courseSet.size;
         const titleElement = document.getElementById('table6_title');
         if (titleElement) {
-            titleElement.textContent = `6. Sessional Assessment (${courseCount} Course${courseCount !== 1 ? 's' : ''})`;
+            setSectionTitle(titleElement, `6. Sessional Assessment (${courseCount} Course${courseCount !== 1 ? 's' : ''})`);
         }
     }
     
@@ -3362,7 +3565,7 @@ function updateTableCounts() {
         const courseCount = courseSet.size;
         const titleElement = document.getElementById('table7_title');
         if (titleElement) {
-            titleElement.textContent = `7. Sessional Viva (${courseCount} Course${courseCount !== 1 ? 's' : ''})`;
+            setSectionTitle(titleElement, `7. Sessional Viva (${courseCount} Course${courseCount !== 1 ? 's' : ''})`);
         }
     }
 }
@@ -3422,7 +3625,8 @@ async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryC
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
         // Build URL with batch parameter (use chief-specific endpoint)
-        let url = `/exam-committee-chief/get-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        // Class Test uses its own endpoint so retake+carry-on exclusion never affects other modules.
+        let url = `/exam-committee-chief/get-class-test-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
         if (batch) {
             url += `&batch=${encodeURIComponent(batch)}`;
         }
@@ -3521,8 +3725,8 @@ async function onSessionalCourseChange(selectElement, tableType, retryCount = 0)
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         
-        // Use chief-specific endpoint so Statement uses total batch size
-        let url = `/exam-committee-chief/get-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        // Sessional tables: direct registrations + sessional retakes (exclude theory retake leak).
+        let url = `/exam-committee-chief/get-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_scope=sessional`;
         if (batch) {
             url += `&batch=${encodeURIComponent(batch)}`;
         }
@@ -4176,6 +4380,261 @@ function addOfficialSupportRow() {
     tbody.appendChild(newRow);
 }
 
+// ---------------------------------------------------------------------------
+// Disable / Enable table sections (excluded from PDF when disabled)
+// Section 1 (Examination Committee) is intentionally NOT disableable.
+// ---------------------------------------------------------------------------
+const DISABLEABLE_SECTIONS = [
+    { tableId: 'table_question_preparation', key: 'question_preparation' },
+    { tableId: 'table_script_examination', key: 'script_examination' },
+    { tableId: 'table_class_test', key: 'class_test' },
+    { tableId: 'table_moderation_committee', key: 'moderation_committee' },
+    { tableId: 'table_sessional_assessment', key: 'sessional_assessment' },
+    { tableId: 'table_sessional_viva', key: 'sessional_viva' },
+    { tableId: 'table_script_scrutiny', key: 'script_scrutiny' },
+    { tableId: 'table_tabulation', key: 'tabulation' },
+    { tableId: 'table_coding_decoding', key: 'coding_decoding' },
+    { tableId: 'table_invigilation', key: 'invigilation' },
+    { tableId: 'table_thesis_supervision', key: 'thesis_supervision' },
+    { tableId: 'table_viva', key: 'viva' },
+    { tableId: 'table_question_typing', key: 'question_typing' },
+    { tableId: 'table_official_support', key: 'official_support' },
+];
+
+// Inject a Disable/Enable toggle button into each disableable section's title.
+function initDisableButtons() {
+    DISABLEABLE_SECTIONS.forEach(({ tableId, key }) => {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+        const container = table.closest('.section-container');
+        if (!container) return;
+        container.dataset.sectionKey = key;
+
+        const title = container.querySelector('.section-title');
+        if (!title || title.querySelector('.section-disable-btn')) return;
+
+        // Wrap the existing title text so flex layout keeps it on the left.
+        if (!title.querySelector('.section-title-text')) {
+            const textSpan = document.createElement('span');
+            textSpan.className = 'section-title-text';
+            while (title.firstChild) {
+                textSpan.appendChild(title.firstChild);
+            }
+            title.appendChild(textSpan);
+        }
+
+        const actions = document.createElement('span');
+        actions.className = 'section-title-actions';
+
+        const note = document.createElement('span');
+        note.className = 'section-disabled-note';
+        note.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Will not appear in PDF';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-danger section-disable-btn';
+        btn.innerHTML = '<i class="fas fa-ban me-1"></i>Disable';
+        btn.addEventListener('click', () => toggleSectionDisabled(key));
+
+        actions.appendChild(note);
+
+        // Autofetch button (left of Disable) — only for sections that have an
+        // auto-fetch data source.
+        if (AUTOFETCH_SECTIONS[key]) {
+            const fetchBtn = document.createElement('button');
+            fetchBtn.type = 'button';
+            fetchBtn.className = 'btn btn-sm btn-outline-primary section-autofetch-btn me-1';
+            fetchBtn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Autofetch';
+            fetchBtn.title = 'Re-fetch this table\'s data (replaces current rows)';
+            fetchBtn.addEventListener('click', () => autofetchSection(key, fetchBtn));
+            actions.appendChild(fetchBtn);
+        }
+
+        actions.appendChild(btn);
+        title.appendChild(actions);
+    });
+}
+
+// Toggle (or force) the disabled state of a section by key.
+function toggleSectionDisabled(key, forceDisabled) {
+    const container = document.querySelector(`.section-container[data-section-key="${key}"]`);
+    if (!container) return;
+
+    const willDisable = (typeof forceDisabled === 'boolean')
+        ? forceDisabled
+        : !container.classList.contains('section-disabled');
+
+    container.classList.toggle('section-disabled', willDisable);
+
+    const btn = container.querySelector('.section-disable-btn');
+    if (btn) {
+        btn.classList.toggle('btn-outline-danger', !willDisable);
+        btn.classList.toggle('btn-outline-success', willDisable);
+        btn.innerHTML = willDisable
+            ? '<i class="fas fa-check me-1"></i>Enable'
+            : '<i class="fas fa-ban me-1"></i>Disable';
+    }
+}
+
+// Return an array of section keys that are currently disabled.
+function getDisabledSections() {
+    const keys = [];
+    document.querySelectorAll('.section-container.section-disabled[data-section-key]').forEach(c => {
+        if (c.dataset.sectionKey) keys.push(c.dataset.sectionKey);
+    });
+    return keys;
+}
+
+// Update a section title's text WITHOUT wiping the injected Disable button.
+// The id lives on the .section-title element, whose text is now inside a
+// .section-title-text child; update that child when present.
+function setSectionTitle(titleElement, text) {
+    if (!titleElement) return;
+    const span = titleElement.querySelector('.section-title-text');
+    if (span) span.textContent = text;
+    else titleElement.textContent = text;
+}
+
+// ---------------------------------------------------------------------------
+// Per-table Autofetch (manual re-fetch of a single section's data)
+// Only sections that have an auto-fetch data source get an Autofetch button.
+// Clicking it REPLACES the section's current rows with freshly fetched data.
+// Because every underlying auto-load routine skips tables that already have
+// rows, we clear only the clicked section's table(s) before running it, which
+// keeps the other sections untouched even when a routine cascades.
+// ---------------------------------------------------------------------------
+// Fetch theory courses and (re)populate only Tables 2 and 3, without the
+// cascade that would touch other sections. The cleared table repopulates;
+// the sibling table is left intact because its "already has rows" guard trips.
+async function autofetchTheoryTablesOnly() {
+    const courses = await fetchCourses();
+    if (!courses || courses.length === 0) return;
+
+    // Refresh the course dropdown options first (harmless for filled rows).
+    document.querySelectorAll('.course-select').forEach(select => {
+        loadCoursesIntoSelect(select, courses, select.value);
+    });
+
+    const theoryCourses = courses.filter(c => {
+        const t = (c.course_type || '').toLowerCase();
+        return !t || t === 'theory';
+    });
+    await autoLoadTheoryCoursesForTables(theoryCourses, true /* skipCascade */);
+}
+
+const AUTOFETCH_SECTIONS = {
+    question_preparation: {
+        clearTables: ['table_question_preparation'],
+        run: () => autofetchTheoryTablesOnly()
+    },
+    script_examination: {
+        clearTables: ['table_script_examination'],
+        run: () => autofetchTheoryTablesOnly()
+    },
+    class_test: {
+        clearTables: ['table_class_test'],
+        run: () => autoLoadClassTestTableWithAssignments()
+    },
+    moderation_committee: {
+        clearTables: ['table_moderation_committee'],
+        run: () => {
+            const { session, year, term } = getCommitteeContext();
+            return loadModerationCommittee(session, year, term);
+        }
+    },
+    sessional_assessment: {
+        clearTables: ['table_sessional_assessment'],
+        run: () => autoLoadSessionalTablesWithAssignments()
+    },
+    sessional_viva: {
+        clearTables: ['table_sessional_viva'],
+        run: () => autoLoadSessionalTablesWithAssignments()
+    },
+    script_scrutiny: {
+        clearTables: ['table_script_scrutiny'],
+        run: () => autoLoadScrutinizers()
+    },
+    tabulation: {
+        clearTables: ['table_tabulation'],
+        run: () => autoLoadTabulators()
+    },
+};
+
+// Manually auto-fetch a single section, replacing its current data.
+async function autofetchSection(key, btn) {
+    const cfg = AUTOFETCH_SECTIONS[key];
+    if (!cfg) return;
+
+    // Auto-load routines normally bail out in edit mode; temporarily lift that
+    // guard so the manual button works while editing a saved statement.
+    const wasEditMode = isEditMode;
+    isEditMode = false;
+
+    let originalHtml = null;
+    if (btn) {
+        originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Fetching...';
+    }
+
+    try {
+        // Ensure hidden session/year/term reflect the form being edited so
+        // auto-fetch APIs query the correct committee (not a stale dropdown).
+        ['session', 'year', 'term'].forEach(field => {
+            const hidden = document.getElementById(`${field}_hidden`);
+            const visible = document.getElementById(field);
+            if (hidden?.value && visible) visible.value = hidden.value;
+            else if (visible?.value && hidden) hidden.value = visible.value;
+        });
+        console.log('📋 Autofetch committee context:', getCommitteeContext());
+
+        // Clear the clicked section's table(s) so the underlying routine (whose
+        // guards skip non-empty tables) will repopulate this section only.
+        cfg.clearTables.forEach(tableId => {
+            const tbody = document.querySelector(`#${tableId} tbody`);
+            if (tbody) tbody.innerHTML = '';
+        });
+
+        await cfg.run();
+    } catch (e) {
+        console.error('Autofetch failed for', key, e);
+        alert('Autofetch failed. Please try again.');
+    } finally {
+        // Restore edit mode after the routine's own setTimeout callbacks settle.
+        setTimeout(() => { isEditMode = wasEditMode; }, 1500);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+        setTimeout(() => { try { updateTableCounts(); } catch (e) {} }, 700);
+    }
+}
+
+// Re-apply disabled state from saved data.
+function applyDisabledSections(list) {
+    if (!Array.isArray(list)) return;
+    // First reset all to enabled, then disable the saved ones.
+    DISABLEABLE_SECTIONS.forEach(({ key }) => toggleSectionDisabled(key, false));
+    list.forEach(key => toggleSectionDisabled(key, true));
+}
+
+// Combine a designation dropdown rank with the institute text into the full
+// "{rank}, {institute}" string. Falls back gracefully so we never lose the rank
+// (dropdown) or a manually typed value (text field).
+function composeDesignation(rank, text) {
+    rank = (rank || '').trim();
+    text = (text || '').trim();
+    if (rank && rank !== '__CUSTOM__') {
+        // If the text already starts with the rank, it's already complete.
+        if (text && text.toLowerCase().startsWith(rank.toLowerCase())) {
+            return text;
+        }
+        const institute = text || 'Law Discipline, KU';
+        return `${rank}, ${institute}`;
+    }
+    return text;
+}
+
 // Collect form data
 function collectFormData() {
     const formData = {
@@ -4214,8 +4673,13 @@ function collectFormData() {
         const teacherSelect = row.querySelector('select[name="question_preparation_teacher_select[]"]')?.value || '';
         const teacherCustom = row.querySelector('input[name="question_preparation_teacher[]"]')?.value || '';
         const teacher = (teacherSelect === '__CUSTOM__' || !teacherSelect) ? teacherCustom : teacherSelect;
-        // Get designation from select dropdown or custom input
-        const designationInput = row.querySelector('input[name="question_preparation_designation[]"]')?.value || '';
+        // Build designation from the dropdown rank + institute text so the PDF
+        // always receives the full "{rank}, {institute}" even if the text field
+        // still holds only the institute.
+        const designationInput = composeDesignation(
+            row.querySelector('select.question-preparation-designation-select')?.value || '',
+            row.querySelector('input[name="question_preparation_designation[]"]')?.value || ''
+        );
         const questions = row.querySelector('input[name="question_preparation_questions[]"]')?.value || '1';
         if (course || teacher) {
             formData.question_preparation.push({ course, section, teacher, designation: designationInput, questions });
@@ -4231,8 +4695,11 @@ function collectFormData() {
         const teacherSelect = row.querySelector('select[name="script_examination_teacher_select[]"]')?.value || '';
         const teacherCustom = row.querySelector('input[name="script_examination_teacher[]"]')?.value || '';
         const teacher = (teacherSelect === '__CUSTOM__' || !teacherSelect) ? teacherCustom : teacherSelect;
-        // Get designation from select dropdown or custom input
-        const designationInput = row.querySelector('input[name="script_examination_designation[]"]')?.value || '';
+        // Build designation from the dropdown rank + institute text (see above).
+        const designationInput = composeDesignation(
+            row.querySelector('select.script-examination-designation-select')?.value || '',
+            row.querySelector('input[name="script_examination_designation[]"]')?.value || ''
+        );
         const scripts = row.querySelector('input[name="script_examination_scripts[]"]')?.value || '0';
         if (course || teacher) {
             formData.script_examination.push({ course, section, teacher, designation: designationInput, scripts });
@@ -4406,12 +4873,22 @@ function collectFormData() {
         }
     });
     
+    // Record which sections are disabled so they persist and are excluded from PDF
+    formData.disabled_sections = getDisabledSections();
+    
     return formData;
 }
 
 // Populate form data (for loading saved data)
 function populateFormData(data) {
     if (!data) return;
+    
+    // Restore which sections were disabled (so they stay grayed-out and out of PDF)
+    try {
+        applyDisabledSections(data.disabled_sections || []);
+    } catch (err) {
+        console.error('Error restoring disabled sections:', err);
+    }
     
     // Populate exam dates
     if (data.exam_start_date) {
@@ -4758,23 +5235,22 @@ function populateTableData(data) {
                             const designationSelect = row.querySelector('select[name="question_preparation_designation_select[]"]');
                             const designationInput = row.querySelector('input.question-preparation-custom-designation');
                             if (designationSelect) {
-                                const designationOptions = Array.from(designationSelect.options);
-                                let found = false;
-                                for (let opt of designationOptions) {
-                                    if (opt.value === item.designation || item.designation.includes(opt.value)) {
-                                        designationSelect.value = opt.value;
-                                        found = true;
-                                        break;
-                                    }
+                                // Saved designation is stored as "{rank}, {institute}"
+                                // (or sometimes just the institute). Extract the rank
+                                // (text before the first comma) and match it exactly.
+                                // Never use .includes(opt.value): the placeholder option
+                                // has value "" and "anything".includes("") is always true,
+                                // which would wrongly reset the dropdown to empty.
+                                const rankPart = String(item.designation).split(',')[0].trim();
+                                const matchOpt = Array.from(designationSelect.options)
+                                    .find(opt => opt.value && opt.value === rankPart);
+                                if (matchOpt) {
+                                    designationSelect.value = matchOpt.value;
                                 }
-                                if (!found && designationInput) {
-                                    designationSelect.value = '__CUSTOM__';
-                                    designationInput.style.display = 'block';
-                                    designationInput.value = item.designation;
-                                }
-                                if (typeof onQuestionPreparationDesignationChange === 'function') {
-                                    onQuestionPreparationDesignationChange(designationSelect);
-                                }
+                                // Preserve the full saved designation text either way.
+                                if (designationInput) designationInput.value = item.designation;
+                                // If no standard rank matched, leave the dropdown empty so
+                                // restoreDesignationsFromTeachers() can derive it later.
                             }
                         }
                     }
@@ -4863,23 +5339,19 @@ function populateTableData(data) {
                             const designationSelect = row.querySelector('select[name="script_examination_designation_select[]"]');
                             const designationInput = row.querySelector('input.script-examination-custom-designation');
                             if (designationSelect) {
-                                const designationOptions = Array.from(designationSelect.options);
-                                let found = false;
-                                for (let opt of designationOptions) {
-                                    if (opt.value === item.designation || item.designation.includes(opt.value)) {
-                                        designationSelect.value = opt.value;
-                                        found = true;
-                                        break;
-                                    }
+                                // Match the rank (text before the first comma) exactly.
+                                // Never use .includes(opt.value): the placeholder option
+                                // has value "" and "anything".includes("") is always true,
+                                // which would wrongly reset the dropdown to empty.
+                                const rankPart = String(item.designation).split(',')[0].trim();
+                                const matchOpt = Array.from(designationSelect.options)
+                                    .find(opt => opt.value && opt.value === rankPart);
+                                if (matchOpt) {
+                                    designationSelect.value = matchOpt.value;
                                 }
-                                if (!found && designationInput) {
-                                    designationSelect.value = '__CUSTOM__';
-                                    designationInput.style.display = 'block';
-                                    designationInput.value = item.designation;
-                                }
-                                if (typeof onScriptExaminationDesignationChange === 'function') {
-                                    onScriptExaminationDesignationChange(designationSelect);
-                                }
+                                if (designationInput) designationInput.value = item.designation;
+                                // If no standard rank matched, leave the dropdown empty so
+                                // restoreDesignationsFromTeachers() can derive it later.
                             }
                         }
                     }
@@ -5652,6 +6124,13 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('🔄 DOMContentLoaded - Starting form load process');
     
     try {
+        // Inject Disable/Enable toggle buttons into each disableable section
+        try {
+            initDisableButtons();
+        } catch (err) {
+            console.error('Error initializing disable buttons:', err);
+        }
+        
         // Reset isEditMode flag properly based on URL
         const urlParams = new URLSearchParams(window.location.search);
         const pathParts = window.location.pathname.split('/');
@@ -5682,8 +6161,46 @@ document.addEventListener('DOMContentLoaded', function() {
     
     console.log('🔍 Form ID from URL:', formIdFromUrl);
     
-    // If form_id in URL, load from server
+    // If form_id in URL, load the form.
     if (formIdFromUrl && /^\d+$/.test(formIdFromUrl)) {
+        {% if saved_data %}
+        // The server already embedded the committee's saved form. This is the
+        // single shared statement (the creator's data), now provided to every
+        // committee member, so we populate directly from it. This guarantees
+        // the form opens identically no matter which member edits it, instead
+        // of depending on a per-user fetch/localStorage fallback that only the
+        // original author had populated.
+        console.log('📦 Loading embedded committee saved_data for form_id:', formIdFromUrl);
+        isEditMode = true;
+
+        (function () {
+            let formIdElement = document.getElementById('form_id');
+            if (!formIdElement) {
+                formIdElement = document.createElement('input');
+                formIdElement.type = 'hidden';
+                formIdElement.id = 'form_id';
+                formIdElement.name = 'form_id';
+                const container = document.querySelector('.remuneration-form-container') || document.body;
+                container.appendChild(formIdElement);
+            }
+            formIdElement.value = formIdFromUrl;
+
+            const embeddedData = {{ saved_data|tojson }};
+            populateFormData(embeddedData);
+
+            setTimeout(() => {
+                markAllSavedAutoPopulatedFields();
+                try { restoreDesignationsFromTeachers(); } catch (e) { console.error('restoreDesignationsFromTeachers failed:', e); }
+                try { ensureModerationCommitteeLoaded(); } catch (e) { console.error('ensureModerationCommitteeLoaded failed:', e); }
+            }, 1000);
+
+            try {
+                localStorage.setItem('custom_remuneration_form_id', formIdFromUrl);
+                localStorage.setItem('custom_remuneration_saved_data', JSON.stringify(embeddedData));
+                localStorage.setItem('custom_remuneration_saved_timestamp', new Date().toISOString());
+            } catch (e) { /* ignore storage errors */ }
+        })();
+        {% else %}
         console.log('📡 Loading form data from server for form_id:', formIdFromUrl);
         
         // Use fetch with timeout
@@ -5722,6 +6239,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Mark all auto-populated fields as saved to prevent auto-fetch from overwriting
                     setTimeout(() => {
                         markAllSavedAutoPopulatedFields();
+                        // Restore any missing teacher designations from teachersData
+                        try { restoreDesignationsFromTeachers(); } catch (e) { console.error('restoreDesignationsFromTeachers failed:', e); }
+                        // Ensure Moderation Committee is populated even for older saved forms
+                        try { ensureModerationCommitteeLoaded(); } catch (e) { console.error('ensureModerationCommitteeLoaded failed:', e); }
                     }, 1000);
                     
                     // Also save to localStorage as backup
@@ -5743,6 +6264,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Try loading from localStorage backup
                 loadFromLocalStorageBackup();
             });
+        {% endif %}
     } else {
         // No form_id in URL, check for saved_data from backend
         {% if saved_data %}
@@ -5767,6 +6289,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Mark all auto-populated fields as saved to prevent auto-fetch from overwriting
         setTimeout(() => {
             markAllSavedAutoPopulatedFields();
+            try { restoreDesignationsFromTeachers(); } catch (e) { console.error('restoreDesignationsFromTeachers failed:', e); }
+            try { ensureModerationCommitteeLoaded(); } catch (e) { console.error('ensureModerationCommitteeLoaded failed:', e); }
         }, 1000);
         {% else %}
         // No saved data from backend, form is empty
@@ -5789,6 +6313,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.log('🔄 Auto-loading examination committee on initial load...');
                     loadExaminationCommittee(session, year, term).catch(err => {
                         console.error('❌ Error loading committee on initial load:', err);
+                    });
+                    // Moderation Committee always mirrors the examination committee members.
+                    console.log('🔄 Auto-loading moderation committee on initial load...');
+                    loadModerationCommittee(session, year, term).catch(err => {
+                        console.error('❌ Error loading moderation committee on initial load:', err);
                     });
                 }
             }
@@ -5813,6 +6342,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Mark all auto-populated fields as saved to prevent auto-fetch from overwriting
                 setTimeout(() => {
                     markAllSavedAutoPopulatedFields();
+                    try { restoreDesignationsFromTeachers(); } catch (e) { console.error('restoreDesignationsFromTeachers failed:', e); }
                 }, 1000);
                 
                 console.log('✅ Form data restored from localStorage backup');

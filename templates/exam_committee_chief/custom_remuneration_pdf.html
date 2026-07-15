@@ -66,10 +66,12 @@
         }
         
         /* Section styling */
+        /* Tables flow consecutively one after another. A section/table is NOT
+           forced onto a single page; a long table may span pages (its header
+           repeats via thead display:table-header-group below). */
         .section {
-            margin-bottom: 0.08in;
-            page-break-inside: avoid !important; /* Prevent section from breaking across pages */
-            break-inside: avoid;
+            margin-top: 0;
+            margin-bottom: 0.12in;
             orphans: 3;
             widows: 3;
         }
@@ -77,24 +79,6 @@
         /* Remove bottom margin from last section before signature */
         .section:last-of-type {
             margin-bottom: 0.05in;
-        }
-        
-        /* Page break after Section 5 (Moderation Committee) - only if needed */
-        .page-break-after {
-            page-break-after: always;
-            break-after: page;
-            margin-bottom: 0 !important;
-        }
-        
-        /* Remove top margin from section immediately after page break */
-        .page-break-after ~ .section:first-of-type {
-            margin-top: 0 !important;
-            padding-top: 0 !important;
-        }
-        
-        /* Ensure sections after page break start at top */
-        .section {
-            margin-top: 0;
         }
         
         .section-title {
@@ -106,17 +90,16 @@
             page-break-after: avoid;
         }
         
-        /* Table styling - prevent breaking */
+        /* Table styling - allow a long table to break across pages */
         table {
             width: 100%;
             border-collapse: collapse;
             margin-bottom: 0;
             margin-top: 0;
-            page-break-inside: avoid !important; /* Entire table on same page */
-            break-inside: avoid !important;
             table-layout: fixed;
         }
         
+        /* Repeat the header row on every page a table spans */
         table thead {
             background-color: #f0f0f0;
             display: table-header-group;
@@ -191,7 +174,7 @@
         
         <!-- Render sections dynamically with sequential numbering -->
         {% for section in sections_list %}
-        <div class="section{% if section.type == 'moderation_committee' %} page-break-after{% endif %}">
+        <div class="section">
             <div class="section-title">{{ section.number }}. {{ section.title }}</div>
             <table>
                 <thead>
