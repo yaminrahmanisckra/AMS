@@ -1,6 +1,13 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, Response, send_file, current_app
 from flask_login import login_required, current_user
-from utils.window_utils import query_for_window, stamp_window_id, get_effective_window_id, get_or_404_for_window
+from utils.window_utils import (
+    query_for_window,
+    stamp_window_id,
+    get_effective_window_id,
+    get_or_404_for_window,
+    DEFAULT_WINDOW_ID,
+)
+from sqlalchemy import or_
 from role_utils import is_admin
 from extensions import db
 from sqlalchemy import func, text
@@ -26,24 +33,455 @@ routine_management_bp = Blueprint('routine_management', __name__,
                                   static_folder='static')
 
 
-def _admin_skips_window_filter():
-    return current_user.is_authenticated and is_admin(current_user)
+def _routine_window_id():
+    """Always use the user's selected operational window in Routine Management."""
+    window_id = get_effective_window_id(admin_override=False)
+    return window_id if window_id is not None else DEFAULT_WINDOW_ID
+
+
+def _window_scope_filter(model, window_id=None):
+    window_id = _routine_window_id() if window_id is None else window_id
+    if window_id == DEFAULT_WINDOW_ID:
+        return or_(
+            model.window_id == window_id,
+            model.window_id.is_(None),
+        )
+    return model.window_id == window_id
+
+
+def _query_for_routine_window(model):
+    return query_for_window(model, admin_override=False)
+
+
+def _parse_batch_values(batch_text):
+    if not batch_text:
+        return []
+    return [
+        batch.strip()
+        for batch in str(batch_text).split(',')
+        if batch.strip() and batch.strip().lower() != 'none'
+    ]
+
+
+def _is_retake_remark(remark_value):
+    remark_normalized = str(remark_value or '').strip().lower()
+    return remark_normalized in {'retake', 're-retake', 're retake', 'reretake'}
+
+
+def _active_semesters_for_routine():
+    from utils.semester_utils import get_active_semesters
+
+    window_id = _routine_window_id()
+    semesters = get_active_semesters(window_id=window_id)
+    if semesters:
+        return semesters
+    # Selected window has no active semesters — show all so routine is not blocked.
+    return get_active_semesters(window_id=None)
+
+
+def _semester_field_matches(left_value, right_value):
+    from utils.semester_utils import _normalize_year_term
+
+    return _normalize_year_term(left_value) == _normalize_year_term(right_value)
+
+
+def _batch_values(batch_text):
+    values = _parse_batch_values(batch_text)
+    if values:
+        return values
+    cleaned = str(batch_text or '').strip()
+    return [cleaned] if cleaned else []
+
+
+def _batch_matches_value(batch_text, target_batch):
+    target = str(target_batch or '').strip()
+    if not target:
+        return False
+    return target in _batch_values(batch_text)
+
+
+def _record_matches_semester(academic_session, year, term, batch, semester):
+    session_value = str(academic_session or '').strip()
+    semester_session = str(semester.academic_session or '').strip()
+    if session_value and semester_session and session_value != semester_session:
+        return False
+    if not _semester_field_matches(year, semester.year):
+        return False
+    if not _semester_field_matches(term, semester.term):
+        return False
+    if semester.batch:
+        return _batch_matches_value(batch, semester.batch)
+    return True
+
+
+def _semester_contexts_for_routine():
+    """Active semester rows for the routine sidebar (one option per context)."""
+    from utils.semester_utils import semester_context_label
+
+    contexts = []
+    for semester in _active_semesters_for_routine():
+        label = semester_context_label(semester)
+        if semester.operational_window and semester.window_id != _routine_window_id():
+            label = f'{semester.operational_window.name} · {label}'
+        contexts.append({
+            'id': semester.id,
+            'label': label,
+            'academic_session': semester.academic_session or '',
+            'year': semester.year or '',
+            'term': semester.term or '',
+            'batch': semester.batch or '',
+            'window_id': semester.window_id,
+        })
+    return contexts
+
+
+def _get_active_semester_by_id(semester_id):
+    from blueprints.course_management.models import ActiveSemesterConfig
+
+    if not semester_id:
+        return None
+    try:
+        semester_id = int(semester_id)
+    except (TypeError, ValueError):
+        return None
+
+    return ActiveSemesterConfig.query.filter_by(
+        id=semester_id,
+        is_active=True,
+    ).first()
+
+
+def _year_term_matches_semester(year, term, semester):
+    """True when record year/term align with an active semester row."""
+    if not semester:
+        return False
+    return (
+        _semester_field_matches(year, semester.year)
+        and _semester_field_matches(term, semester.term)
+    )
+
+
+def _assignment_matches_semester_record(assignment, semester):
+    """
+    Match assignment to active semester by year/term only.
+
+    assignment.batch is often stale or empty when saved from curriculum, so
+    routine uses the semester the user selected for the batch label.
+    """
+    if not assignment or not semester:
+        return False
+    return _year_term_matches_semester(
+        getattr(assignment, 'year', None),
+        getattr(assignment, 'term', None),
+        semester,
+    )
+
+
+def _course_matches_semester(course, semester):
+    if not course or not semester:
+        return False
+    year = getattr(course, 'year', None) or getattr(course, 'display_year', None)
+    term = getattr(course, 'term', None) or getattr(course, 'display_term', None)
+    return _year_term_matches_semester(year, term, semester)
+
+
+def _collect_assignments_for_semester(semester):
+    """Gather teacher assignments for one active semester using layered fallbacks."""
+    from blueprints.course_management.models import CourseSessionAssignment
+    from blueprints.class_management.models import Session
+    from sqlalchemy.orm import joinedload
+
+    if not semester:
+        return []
+
+    load_options = (
+        joinedload(CourseSessionAssignment.course),
+        joinedload(CourseSessionAssignment.teacher),
+    )
+    matched = []
+    seen_ids = set()
+
+    def _add_assignment(assignment):
+        if not assignment or assignment.id in seen_ids:
+            return
+        if not assignment.course:
+            return
+        seen_ids.add(assignment.id)
+        matched.append(assignment)
+
+    def _scan_query(query):
+        for assignment in query.options(*load_options).all():
+            if _assignment_matches_semester_record(assignment, semester):
+                _add_assignment(assignment)
+            elif assignment.course and _course_matches_semester(assignment.course, semester):
+                _add_assignment(assignment)
+
+    _scan_query(_query_for_routine_window(CourseSessionAssignment))
+    if not matched:
+        _scan_query(CourseSessionAssignment.query)
+
+    if not matched:
+        session_rows = _query_for_routine_window(Session).filter(
+            or_(Session.archived.is_(False), Session.archived.is_(None)),
+        ).all()
+        if not session_rows:
+            session_rows = Session.query.filter(
+                or_(Session.archived.is_(False), Session.archived.is_(None)),
+            ).all()
+
+        session_ids = {
+            row.id for row in session_rows
+            if _year_term_matches_semester(row.year, row.term, semester)
+        }
+        if session_ids:
+            for assignment in CourseSessionAssignment.query.options(*load_options).filter(
+                CourseSessionAssignment.session_id.in_(session_ids),
+            ).all():
+                _add_assignment(assignment)
+
+    current_app.logger.info(
+        'Routine semester %s (%s/%s session=%s batch=%s window=%s) -> %s assignment(s)',
+        semester.id,
+        semester.year,
+        semester.term,
+        semester.academic_session,
+        semester.batch,
+        _routine_window_id(),
+        len(matched),
+    )
+    return matched
+
+
+def _assignments_for_semester(semester):
+    return _collect_assignments_for_semester(semester)
+
+
+def _assignments_for_routine_batch(batch):
+    """Legacy batch-only lookup: merge assignments from all active semesters with this batch."""
+    assignments = []
+    seen_ids = set()
+    for semester in _active_semesters_for_routine():
+        if semester.batch and not _batch_matches_value(semester.batch, batch):
+            continue
+        for assignment in _assignments_for_semester(semester):
+            if assignment.id in seen_ids:
+                continue
+            seen_ids.add(assignment.id)
+            assignments.append(assignment)
+    return assignments
+
+
+def _matches_any_active_semester(academic_session, year, term, batch=None):
+    for semester in _active_semesters_for_routine():
+        if _record_matches_semester(academic_session, year, term, batch, semester):
+            return True
+    return False
+
+
+def _registration_matches_semester(registration, semester, student_batch=None):
+    if student_batch is None:
+        student_batch = str(getattr(getattr(registration, 'student', None), 'batch', '') or '').strip()
+        if not student_batch and hasattr(registration, 'student_id'):
+            from blueprints.student_management.models import Student
+            student = Student.query.get(registration.student_id)
+            student_batch = str(getattr(student, 'batch', '') or '').strip()
+    if not _semester_field_matches(registration.year, semester.year):
+        return False
+    if not _semester_field_matches(registration.term, semester.term):
+        return False
+    semester_batch = str(semester.batch or '').strip()
+    if semester_batch:
+        return _batch_matches_value(student_batch, semester.batch)
+    return True
+
+
+def _is_non_merged_retake_registration(registration):
+    return (
+        _is_retake_remark(getattr(registration, 'remark', None))
+        and not getattr(registration, 'use_relevant_for_committee', True)
+    )
+
+
+def _batches_for_active_semesters():
+    """Batch numbers derived from active semester contexts (legacy helper)."""
+    batches = set()
+    for context in _semester_contexts_for_routine():
+        batch_value = str(context.get('batch') or '').strip()
+        if batch_value:
+            batches.add(batch_value)
+    return {batch for batch in batches if batch and batch.lower() != 'none'}
+
+
+def _build_routine_course_entry(assignment, batch):
+    from blueprints.class_management.models import Teacher
+
+    if not assignment or not assignment.course:
+        return None
+
+    course = assignment.course
+    teacher = assignment.teacher
+    if not teacher and assignment.teacher_id:
+        teacher = Teacher.query.get(assignment.teacher_id)
+
+    display_batch = str(batch or assignment.batch or '').strip()
+    credit = float(course.credit or 0)
+    course_type = course.course_type or 'Theory'
+    section = assignment.section or 'Full'
+
+    if course_type == 'Sessional':
+        total_classes = int(credit * 2)
+    else:
+        total_classes = int(credit)
+
+    if section in ['A', 'B']:
+        classes_per_week = total_classes // 2
+    else:
+        classes_per_week = total_classes
+
+    return {
+        'assigned_id': str(assignment.id),
+        'course_code': course.course_code or '',
+        'course_name': course.course_name or '',
+        'course_type': course_type,
+        'credit': credit,
+        'part': f'Part {section}' if section in ['A', 'B'] else 'Full',
+        'classes_per_week': classes_per_week,
+        'is_shared_slot': False,
+        'teacher_id': teacher.id if teacher else None,
+        'year': assignment.year or '',
+        'term': assignment.term or '',
+        'batch': display_batch,
+        'teachers': [{
+            'id': teacher.id,
+            'name': teacher.name,
+            'short_name': teacher.call_sign or getattr(teacher, 'short_name', ''),
+        }] if teacher else [],
+    }
+
+
+def _find_assignment_for_registration(registration, batch, semester=None):
+    from blueprints.course_management.models import CourseSessionAssignment
+
+    assignments = (
+        _assignments_for_semester(semester)
+        if semester is not None
+        else _assignments_for_routine_batch(batch)
+    )
+    for assignment in assignments:
+        if registration.course_id and assignment.course_id != registration.course_id:
+            continue
+        if not registration.course_id:
+            course_code = str(registration.course_code or '').strip()
+            if course_code and assignment.course and (assignment.course.course_code or '').strip() != course_code:
+                continue
+        if _semester_field_matches(assignment.year, registration.year) and _semester_field_matches(
+            assignment.term, registration.term
+        ):
+            session_value = str(assignment.academic_session or '').strip()
+            reg_session = str(registration.academic_session or '').strip()
+            if not session_value or not reg_session or session_value == reg_session:
+                return assignment
+    return None
+
+
+def _teacher_ids_linked_to_routine_window():
+    """Teachers referenced by window-scoped routine assignments."""
+    from blueprints.course_management.models import CourseSessionAssignment
+
+    teacher_ids = set()
+    for row in _query_for_routine_window(AssignedCourse).with_entities(AssignedCourse.teacher_id).distinct():
+        if row[0]:
+            teacher_ids.add(row[0])
+    for row in _query_for_routine_window(CourseSessionAssignment).with_entities(
+        CourseSessionAssignment.teacher_id,
+    ).distinct():
+        if row[0]:
+            teacher_ids.add(row[0])
+    for row in _query_for_routine_window(Routine).with_entities(Routine.teacher_id).filter(
+        Routine.teacher_id.isnot(None),
+    ).distinct():
+        if row[0]:
+            teacher_ids.add(row[0])
+    return teacher_ids
+
+
+def get_teachers_for_routine_window():
+    """Teachers scoped to the current operational window."""
+    from role_utils import get_teachers_excluding_head
+
+    scoped_ids = {
+        row[0] for row in _query_for_routine_window(Teacher).with_entities(Teacher.id)
+    }
+    allowed_ids = scoped_ids | _teacher_ids_linked_to_routine_window()
+    return [t for t in get_teachers_excluding_head() if t.id in allowed_ids]
+
+
+def get_rooms_for_routine_window():
+    return _query_for_routine_window(Room).order_by(Room.room_number).all()
+
+
+def _course_ids_for_routine_window():
+    from blueprints.course_management.models import CourseSessionAssignment, CourseWindowOffered
+
+    window_id = _routine_window_id()
+    course_ids = set()
+
+    for row in _query_for_routine_window(CourseSessionAssignment).with_entities(
+        CourseSessionAssignment.course_id,
+    ).distinct():
+        if row[0]:
+            course_ids.add(row[0])
+    for row in _query_for_routine_window(AssignedCourse).with_entities(AssignedCourse.course_id).distinct():
+        if row[0]:
+            course_ids.add(row[0])
+    for row in db.session.query(CourseWindowOffered.course_id).filter_by(
+        window_id=window_id,
+        offered=True,
+    ):
+        if row[0]:
+            course_ids.add(row[0])
+
+    for course in Course.query.all():
+        if course.is_offered(window_id):
+            course_ids.add(course.id)
+
+    return course_ids
+
+
+def get_courses_for_routine_window():
+    course_ids = _course_ids_for_routine_window()
+    if not course_ids:
+        return []
+    return Course.query.filter(Course.id.in_(course_ids)).order_by(Course.course_code).all()
+
+
+def _get_teacher_for_routine_or_404(teacher_id):
+    teacher = Teacher.query.get_or_404(teacher_id)
+    allowed_ids = {t.id for t in get_teachers_for_routine_window()}
+    if teacher.id not in allowed_ids:
+        from flask import abort
+        abort(404)
+    return teacher
+
+
+def _get_room_for_routine_or_404(room_id):
+    return get_or_404_for_window(Room, room_id, admin_override=False)
 
 
 def _window_sql_clause(column='window_id'):
     """Append to raw SQL WHERE clauses for saved_routine / routine tables."""
-    if _admin_skips_window_filter():
-        return '', {}
-    window_id = get_effective_window_id()
-    return f' AND ({column} = :_window_id OR {column} IS NULL)', {'_window_id': window_id}
+    window_id = _routine_window_id()
+    if window_id == DEFAULT_WINDOW_ID:
+        return f' AND ({column} = :_window_id OR {column} IS NULL)', {'_window_id': window_id}
+    return f' AND {column} = :_window_id', {'_window_id': window_id}
 
 
 def _get_saved_routine_or_404(saved_routine_id):
-    return get_or_404_for_window(SavedRoutine, saved_routine_id)
+    return get_or_404_for_window(SavedRoutine, saved_routine_id, admin_override=False)
 
 
 def _current_window_id():
-    return get_effective_window_id()
+    return _routine_window_id()
 
 
 # Main dashboard for routine management
@@ -176,20 +614,20 @@ def manage_teachers():
     form = TeacherForm()
     if form.validate_on_submit():
         new_teacher = Teacher(name=form.name.data, short_name=form.short_name.data)
+        stamp_window_id(new_teacher)
         db.session.add(new_teacher)
         db.session.commit()
         flash('Teacher added successfully!', 'success')
         return redirect(url_for('routine_management.manage_teachers'))
     # Get teachers excluding Head, Teaching Assistants, and Admin users
-    from role_utils import get_teachers_excluding_head
-    teachers = get_teachers_excluding_head()
+    teachers = get_teachers_for_routine_window()
     return render_template('routine_management/teachers.html', form=form, teachers=teachers)
 
 @routine_management_bp.route('/teacher/edit/<int:id>', methods=['POST'])
 def edit_teacher(id):
     from user_models import User
     
-    teacher = Teacher.query.get_or_404(id)
+    teacher = _get_teacher_for_routine_or_404(id)
     old_name = teacher.name  # Store old name for User lookup
     
     # Manually get data from the modal form
@@ -234,7 +672,7 @@ def edit_teacher(id):
 @login_required
 def delete_teacher(id):
     """Delete a teacher and all related data"""
-    teacher = Teacher.query.get_or_404(id)
+    teacher = _get_teacher_for_routine_or_404(id)
     
     try:
         # Import necessary models
@@ -315,11 +753,12 @@ def manage_rooms():
     form = RoomForm()
     if form.validate_on_submit():
         new_room = Room(room_number=form.room_number.data)
+        stamp_window_id(new_room)
         db.session.add(new_room)
         db.session.commit()
         flash('Room added successfully!', 'success')
         return redirect(url_for('routine_management.manage_rooms'))
-    rooms = Room.query.order_by('room_number').all()
+    rooms = get_rooms_for_routine_window()
     return render_template('routine_management/rooms.html', form=form, rooms=rooms)
 
 @routine_management_bp.route('/room/delete/<int:id>', methods=['POST'])
@@ -327,7 +766,7 @@ def manage_rooms():
 def delete_room(id):
     """Delete a room"""
     try:
-        room = Room.query.get_or_404(id)
+        room = _get_room_for_routine_or_404(id)
         room_number = room.room_number
         db.session.delete(room)
         db.session.commit()
@@ -342,11 +781,10 @@ def delete_room(id):
 @routine_management_bp.route('/assign_course', methods=['GET', 'POST'])
 def assign_course():
     form = AssignCourseForm()
-    from role_utils import get_teachers_excluding_head
-    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_excluding_head()]
+    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_for_routine_window()]
 
     # Centralized logic to get available courses
-    all_assignments = query_for_window(AssignedCourse).all()
+    all_assignments = _query_for_routine_window(AssignedCourse).all()
     assigned_parts_by_course = defaultdict(set)
     for a in all_assignments:
         assigned_parts_by_course[a.course_id].add(a.part)
@@ -356,7 +794,10 @@ def assign_course():
         if 'Full' in parts or {'Part A', 'Part B'}.issubset(parts)
     }
     
-    available_courses = Course.query.filter(Course.id.notin_(fully_assigned_course_ids)).order_by('course_code').all()
+    available_courses = [
+        c for c in get_courses_for_routine_window()
+        if c.id not in fully_assigned_course_ids
+    ]
     form.course.choices = [(c.id, f"{c.course_code} - {c.course_name}") for c in available_courses]
     form.part.choices = [('Full', 'Full Course'), ('Part A', 'Part A'), ('Part B', 'Part B')]
 
@@ -395,7 +836,7 @@ def assign_course():
 
     # Logic to display existing assignments
     assignments_by_teacher = defaultdict(lambda: {'assignments': [], 'total_credit': 0.0})
-    all_assignments_sorted = query_for_window(AssignedCourse).join(Teacher).order_by(Teacher.name, AssignedCourse.id.desc()).all()
+    all_assignments_sorted = _query_for_routine_window(AssignedCourse).join(Teacher).order_by(Teacher.name, AssignedCourse.id.desc()).all()
 
     for assignment in all_assignments_sorted:
         teacher_id = assignment.teacher.id
@@ -418,13 +859,12 @@ def assign_course():
 
 @routine_management_bp.route('/assignment/edit/<int:id>', methods=['GET', 'POST'])
 def edit_assignment(id):
-    assignment = get_or_404_for_window(AssignedCourse, id)
+    assignment = get_or_404_for_window(AssignedCourse, id, admin_override=False)
     form = AssignCourseForm(obj=assignment)
-    from role_utils import get_teachers_excluding_head
-    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_excluding_head()]
+    form.teacher.choices = [(t.id, f"{t.name} ({t.short_name})") for t in get_teachers_for_routine_window()]
     form.course.choices = [(assignment.course.id, f"{assignment.course.course_code} - {assignment.course.course_name}")]
 
-    other_assignments = query_for_window(AssignedCourse).filter(
+    other_assignments = _query_for_routine_window(AssignedCourse).filter(
         AssignedCourse.course_id == assignment.course_id,
         AssignedCourse.id != assignment.id
     ).all()
@@ -465,7 +905,7 @@ def edit_assignment(id):
 def delete_assignment(id):
     """Delete a course assignment"""
     try:
-        assignment = get_or_404_for_window(AssignedCourse, id)
+        assignment = get_or_404_for_window(AssignedCourse, id, admin_override=False)
         course_code = assignment.course.course_code if assignment.course else 'Unknown'
         teacher_name = assignment.teacher.name if assignment.teacher else 'Unknown'
         db.session.delete(assignment)
@@ -486,7 +926,7 @@ def can_edit_routine():
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if teacher:
         from blueprints.course_management.models import DutyAssignment
-        routine_maker = query_for_window(DutyAssignment).filter_by(
+        routine_maker = _query_for_routine_window(DutyAssignment).filter_by(
             assigned_teacher_id=teacher.id,
             duty_type='routine_maker',
             status='active'
@@ -533,7 +973,7 @@ def check_edit_permission():
             result['teacher_name'] = teacher.name
             
             # Check routine_maker assignment
-            routine_maker = query_for_window(DutyAssignment).filter(
+            routine_maker = _query_for_routine_window(DutyAssignment).filter(
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.duty_type == 'routine_maker',
                 DutyAssignment.status == 'active'
@@ -548,7 +988,7 @@ def check_edit_permission():
                 }
             
             # Check discipline head assignment
-            discipline_head = query_for_window(DutyAssignment).filter(
+            discipline_head = _query_for_routine_window(DutyAssignment).filter(
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.status == 'active',
                 DutyAssignment.assigned_by_id.isnot(None)
@@ -571,8 +1011,7 @@ def check_edit_permission():
 @login_required
 def view_routine():
     """View routine - accessible to all users, but only routine makers can edit"""
-    from role_utils import get_teachers_excluding_head
-    from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    from blueprints.course_management.models import Curriculum
     from sqlalchemy import text, inspect
     
     can_edit = can_edit_routine()
@@ -601,13 +1040,13 @@ def view_routine():
             return redirect(url_for('routine_management.public_routines'))
     
     # Get all teachers (for display purposes)
-    teachers_list = get_teachers_excluding_head()
+    teachers_list = get_teachers_for_routine_window()
     teachers = [{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list]
     
     # Get all curricula for selection
     curricula = Curriculum.query.order_by(Curriculum.name.desc()).all()
     
-    rooms = Room.query.order_by('room_number').all()
+    rooms = get_rooms_for_routine_window()
     days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
     time_slots = [
         "09:10 AM - 10:00 AM", "10:10 AM - 11:00 AM", "11:10 AM - 12:00 PM",
@@ -662,8 +1101,7 @@ def view_routine():
 @routine_management_bp.route('/generate_routine')
 @login_required
 def generate_routine():
-    from role_utils import get_teachers_excluding_head
-    from blueprints.course_management.models import CourseSessionAssignment, Curriculum
+    from blueprints.course_management.models import Curriculum
     from sqlalchemy import text, inspect
     
     # Only routine makers can access this route
@@ -684,13 +1122,13 @@ def generate_routine():
             return redirect(url_for('routine_management.index'))
     
     # Get all teachers
-    teachers_list = get_teachers_excluding_head()
+    teachers_list = get_teachers_for_routine_window()
     teachers = [{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list]
     
     # Get all curricula for selection
     curricula = Curriculum.query.order_by(Curriculum.name.desc()).all()
     
-    rooms = Room.query.order_by('room_number').all()
+    rooms = get_rooms_for_routine_window()
     days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
     time_slots = [
         "09:10 AM - 10:00 AM", "10:10 AM - 11:00 AM", "11:10 AM - 12:00 PM",
@@ -752,12 +1190,12 @@ def teacher_courses(teacher_id):
 
     try:
         # Verify teacher exists
-        teacher = Teacher.query.get(teacher_id)
+        teacher = _get_teacher_for_routine_or_404(teacher_id)
         if not teacher:
             return jsonify([])
         
         # Get all CourseSessionAssignment for this teacher (no filters for now)
-        assignments = CourseSessionAssignment.query.filter_by(teacher_id=teacher_id).all()
+        assignments = _query_for_routine_window(CourseSessionAssignment).filter_by(teacher_id=teacher_id).all()
         
         for assignment in assignments:
             # Skip if assignment or course is missing
@@ -826,7 +1264,7 @@ def teacher_courses(teacher_id):
             # Handle shared courses (odd-credit courses with Part A and Part B)
             if total_classes % 2 == 1 and section == 'A':
                 # Check if there's a Part B assignment for the same course
-                other_assignment = CourseSessionAssignment.query.filter(
+                other_assignment = _query_for_routine_window(CourseSessionAssignment).filter(
                     CourseSessionAssignment.course_id == assignment.course_id,
                     CourseSessionAssignment.section == 'B',
                     CourseSessionAssignment.curriculum_id == assignment.curriculum_id,
@@ -885,185 +1323,132 @@ def teacher_courses(teacher_id):
 
 @routine_management_bp.route('/api/get_teachers')
 def get_teachers():
-    from role_utils import get_teachers_excluding_head
-    teachers_list = get_teachers_excluding_head()
+    teachers_list = get_teachers_for_routine_window()
     return jsonify([{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in teachers_list])
 
 @routine_management_bp.route('/api/batches')
 @login_required
 def get_batches():
-    """Get all unique batches (years like 2021, 2022, 2023)"""
+    """Active semester contexts for the routine course sidebar."""
     try:
-        from blueprints.course_management.models import CourseSessionAssignment, Curriculum, CurriculumYearTerm
-        from sqlalchemy import distinct
-        
-        batches = set()
-        
-        # Method 1: Get from CourseSessionAssignment.batch field
-        try:
-            results = db.session.query(distinct(CourseSessionAssignment.batch)).filter(
-                CourseSessionAssignment.batch.isnot(None),
-                CourseSessionAssignment.batch != ''
-            ).all()
-            for r in results:
-                if r[0] and r[0].strip():
-                    batches.add(r[0].strip())
-        except Exception as e:
-            current_app.logger.warning(f'Error getting batches from CourseSessionAssignment: {e}')
-        
-        # Method 2: Get from CurriculumYearTerm.batch field
-        try:
-            results = query_for_window(CurriculumYearTerm).with_entities(
-                distinct(CurriculumYearTerm.batch)
-            ).filter(
-                CurriculumYearTerm.batch.isnot(None),
-                CurriculumYearTerm.batch != ''
-            ).all()
-            for r in results:
-                if r[0] and r[0].strip():
-                    batches.add(r[0].strip())
-        except Exception as e:
-            current_app.logger.warning(f'Error getting batches from CurriculumYearTerm: {e}')
-        
-        # Method 3: Get from Curriculum.applicable_batches
-        try:
-            window_id = get_effective_window_id() or 1
-            curricula = Curriculum.query.all()
-            for curriculum in curricula:
-                batch_list = curriculum.get_batches_list(window_id)
-                for b in batch_list:
-                    if b and b.strip():
-                        batches.add(b.strip())
-        except Exception as e:
-            current_app.logger.warning(f'Error getting batches from Curriculum: {e}')
-        
-        # Filter out "None" and empty values
-        batches = {b for b in batches if b and b.strip() and b.lower() != 'none'}
-        
-        # If still no batches, generate default years
-        if not batches:
-            current_year = datetime.now().year
-            batches = {str(y) for y in range(current_year, current_year - 6, -1)}
-        
-        # Sort batches (descending - newest first)
-        sorted_batches = sorted(list(batches), reverse=True)
-        
-        current_app.logger.info(f'Loaded batches: {sorted_batches}')
-        
+        window_id = _routine_window_id()
+        contexts = _semester_contexts_for_routine()
+        batches = sorted(_batches_for_active_semesters(), reverse=True)
+        current_app.logger.info(
+            f'Loaded {len(contexts)} active-semester context(s) for window {window_id}'
+        )
+
         return jsonify({
             'success': True,
-            'batches': sorted_batches
+            'contexts': contexts,
+            'batches': batches,
+            'window_id': window_id,
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f'Error getting batches: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': f'Error getting batches: {str(e)}',
+            'contexts': [],
             'batches': []
         }), 500
 
 @routine_management_bp.route('/api/courses/batch-wise')
 @login_required
 def get_courses_batch_wise():
-    """Get courses grouped by batch (year like 2021, 2022)"""
+    """Courses for one active semester context (preferred) or legacy batch number."""
     try:
-        from blueprints.course_management.models import CourseSessionAssignment, Course
-        from blueprints.class_management.models import Teacher
-        
-        batch = request.args.get('batch', '')
-        
-        if not batch:
+        from blueprints.course_management.models import StudentCourseRegistration
+        from blueprints.student_management.models import Student
+
+        semester_id = request.args.get('semester_id', type=int)
+        batch = request.args.get('batch', '').strip()
+        semester = _get_active_semester_by_id(semester_id)
+
+        if semester:
+            batch = str(semester.batch or batch).strip()
+        elif not batch:
             return jsonify({
                 'success': False,
-                'message': 'Batch parameter is required'
+                'message': 'semester_id or batch parameter is required'
             }), 400
-        
-        # Get courses for this batch (filter by batch field, not academic_session)
-        assignments = CourseSessionAssignment.query.filter_by(batch=batch).all()
-        
-        current_app.logger.info(f'Found {len(assignments)} assignments for batch {batch}')
-        
-        courses_by_batch = {batch: []}
-        
-        # Track Part A assignments for shared course creation
+
+        response_key = batch or (str(semester.id) if semester else batch or 'all')
+
+        if semester:
+            if semester.window_id and semester.window_id != _routine_window_id():
+                current_app.logger.warning(
+                    'Routine window %s loading semester %s from window %s',
+                    _routine_window_id(),
+                    semester.id,
+                    semester.window_id,
+                )
+            assignments = _assignments_for_semester(semester)
+        else:
+            allowed_batches = _batches_for_active_semesters()
+            if batch and batch not in allowed_batches:
+                return jsonify({
+                    'success': True,
+                    'courses': [],
+                    'courses_by_batch': {response_key: []},
+                }), 200
+            assignments = _assignments_for_routine_batch(batch)
+
+        current_app.logger.info(
+            f'Found {len(assignments)} assignment(s) for '
+            f'semester_id={semester_id} batch={batch} window={_routine_window_id()}'
+        )
+
+        courses_by_batch = {response_key: []}
+        courses_list = []
+        seen_keys = set()
         part_a_assignments = {}
-        
+
+        def _append_course_entry(course_data):
+            if not course_data:
+                return
+            dedupe_key = (
+                course_data.get('course_code'),
+                course_data.get('part'),
+                course_data.get('teacher_id'),
+            )
+            if dedupe_key in seen_keys:
+                return
+            seen_keys.add(dedupe_key)
+            courses_by_batch[response_key].append(course_data)
+            courses_list.append(course_data)
+
         for assignment in assignments:
-            if not assignment.course:
+            course_data = _build_routine_course_entry(assignment, batch)
+            if not course_data:
                 continue
-            
-            course = assignment.course
-            teacher = assignment.teacher
-            
-            # Calculate classes per week based on credit and type
-            credit = float(course.credit or 0)
-            course_type = course.course_type or 'Theory'
+            _append_course_entry(course_data)
+
             section = assignment.section or 'Full'
-            
-            if course_type == 'Sessional':
-                total_classes = int(credit * 2)
-            else:
-                total_classes = int(credit)
-            
-            # Adjust for part A/B - Use floor division for individual parts
-            if section in ['A', 'B']:
-                # For odd credit courses, individual parts get floor(total/2) classes
-                # The remaining class goes to shared slot
-                classes_per_week = total_classes // 2
-            else:
-                classes_per_week = total_classes
-            
-            course_data = {
-                'assigned_id': str(assignment.id),
-                'course_code': course.course_code or '',
-                'course_name': course.course_name or '',
-                'course_type': course_type,
-                'credit': credit,
-                'part': f'Part {section}' if section in ['A', 'B'] else 'Full',
-                'classes_per_week': classes_per_week,
-                'is_shared_slot': False,
-                'teacher_id': teacher.id if teacher else None,
-                'year': assignment.year or '',
-                'term': assignment.term or '',
-                'batch': batch,
-                'teachers': [{
-                    'id': teacher.id,
-                    'name': teacher.name,
-                    'short_name': teacher.call_sign or getattr(teacher, 'short_name', '')
-                }] if teacher else []
-            }
-            
-            courses_by_batch[batch].append(course_data)
-            
-            # Track Part A for shared course creation
-            if section == 'A' and total_classes % 2 == 1:  # Odd credit course
+            credit = float(assignment.course.credit or 0)
+            course_type = assignment.course.course_type or 'Theory'
+            total_classes = int(credit * 2) if course_type == 'Sessional' else int(credit)
+            if section == 'A' and total_classes % 2 == 1:
                 part_a_assignments[assignment.course_id] = {
                     'assignment': assignment,
-                    'course': course,
-                    'teacher': teacher,
-                    'course_data': course_data
+                    'course': assignment.course,
+                    'teacher': assignment.teacher,
+                    'course_data': course_data,
                 }
-        
-        # Create shared entries for odd-credit courses with Part A and Part B
+
         for assignment in assignments:
-            if not assignment.course:
-                continue
-            
             section = assignment.section or 'Full'
             if section != 'B':
                 continue
-            
             course_id = assignment.course_id
             if course_id not in part_a_assignments:
                 continue
-            
+
             part_a_data = part_a_assignments[course_id]
             course = part_a_data['course']
             teacher_a = part_a_data['teacher']
             teacher_b = assignment.teacher
-            
-            # Create shared course entry
             shared_entry = {
                 'assigned_id': f"shared_{part_a_data['assignment'].id}_{assignment.id}",
                 'course_code': course.course_code or '',
@@ -1077,31 +1462,66 @@ def get_courses_batch_wise():
                 'year': assignment.year or '',
                 'term': assignment.term or '',
                 'batch': batch,
-                'teachers': []
+                'teachers': [],
             }
-            
             if teacher_a:
                 shared_entry['teachers'].append({
                     'id': teacher_a.id,
                     'name': teacher_a.name,
-                    'short_name': teacher_a.call_sign or getattr(teacher_a, 'short_name', '')
+                    'short_name': teacher_a.call_sign or getattr(teacher_a, 'short_name', ''),
                 })
             if teacher_b:
                 shared_entry['teachers'].append({
                     'id': teacher_b.id,
                     'name': teacher_b.name,
-                    'short_name': teacher_b.call_sign or getattr(teacher_b, 'short_name', '')
+                    'short_name': teacher_b.call_sign or getattr(teacher_b, 'short_name', ''),
                 })
-            
-            courses_by_batch[batch].append(shared_entry)
-        
-        current_app.logger.info(f'Returning {len(courses_by_batch[batch])} courses for batch {batch}')
-        
+            _append_course_entry(shared_entry)
+
+        registration_query = (
+            db.session.query(StudentCourseRegistration, Student.batch)
+            .join(Student, Student.id == StudentCourseRegistration.student_id)
+            .filter(
+                StudentCourseRegistration.status != 'archived',
+                _window_scope_filter(StudentCourseRegistration, _routine_window_id()),
+            )
+        )
+        if batch:
+            registration_query = registration_query.filter(Student.batch == batch)
+
+        for registration, student_batch in registration_query.all():
+            if not _is_non_merged_retake_registration(registration):
+                continue
+            if semester and not _registration_matches_semester(registration, semester, student_batch):
+                continue
+            if not semester and not _matches_any_active_semester(
+                registration.academic_session,
+                registration.year,
+                registration.term,
+                student_batch,
+            ):
+                continue
+            assignment = _find_assignment_for_registration(registration, batch, semester=semester)
+            if not assignment:
+                continue
+            course_data = _build_routine_course_entry(assignment, batch)
+            if course_data:
+                course_data['course_name'] = f"{course_data['course_name']} (Retake)"
+            _append_course_entry(course_data)
+
+        current_app.logger.info(
+            f'Returning {len(courses_list)} courses for semester_id={semester_id} batch={batch}'
+        )
+
         return jsonify({
             'success': True,
-            'courses_by_batch': courses_by_batch
+            'courses': courses_list,
+            'courses_by_batch': courses_by_batch,
+            'semester_id': semester.id if semester else None,
+            'batch': batch,
+            'window_id': _routine_window_id(),
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f'Error getting batch courses: {e}', exc_info=True)
         return jsonify({
@@ -1197,7 +1617,7 @@ def save_routine():
             
             # Validate room exists
             try:
-                room = Room.query.get(int(room_id))
+                room = _get_room_for_routine_or_404(int(room_id))
                 if not room:
                     validation_errors.append(f'Entry {idx+1}: Room ID {room_id} not found')
                     continue
@@ -1434,7 +1854,7 @@ def clear_routine():
         return jsonify({'message': 'You do not have permission to clear routine.'}), 403
     
     try:
-        query_for_window(Routine).delete()
+        _query_for_routine_window(Routine).delete()
         db.session.commit()
         return jsonify({'message': 'Routine cleared successfully!'}), 200
     except Exception as e:
@@ -1615,7 +2035,7 @@ def get_saved_routine(saved_routine_id):
             current_app.logger.warning(f'Could not load routine_time_slot for {saved_routine_id}: {e}')
         
         # Get all rooms
-        all_rooms = {r.room_number: r.id for r in Room.query.all()}
+        all_rooms = {r.room_number: r.id for r in get_rooms_for_routine_window()}
         
         # Check if saved_routine_id column exists in routine table
         routine_columns = [col['name'] for col in inspector.get_columns('routine')]
@@ -2073,8 +2493,10 @@ def save_time_slots():
 
 @routine_management_bp.route('/api/routine/load')
 def load_routine():
-    routine_entries = query_for_window(Routine).all()
-    all_rooms = {r.room_number: r.id for r in Room.query.all()}
+    routine_entries = _query_for_routine_window(Routine).all()
+    all_rooms = {r.room_number: r.id for r in get_rooms_for_routine_window()}
+    allowed_teacher_ids = {t.id for t in get_teachers_for_routine_window()}
+    window_courses_by_code = {c.course_code: c for c in get_courses_for_routine_window()}
 
     routine_data = []
     scheduled_courses = set()
@@ -2085,9 +2507,15 @@ def load_routine():
         teachers_info = []
         if entry.is_shared and entry.shared_with:
             short_names = [name.strip() for name in entry.shared_with.split('/')]
-            all_involved_teachers = Teacher.query.filter(Teacher.short_name.in_(short_names)).all()
+            if allowed_teacher_ids:
+                all_involved_teachers = Teacher.query.filter(
+                    Teacher.short_name.in_(short_names),
+                    Teacher.id.in_(allowed_teacher_ids),
+                ).all()
+            else:
+                all_involved_teachers = []
             teachers_info = [{'id': t.id, 'name': t.name, 'short_name': t.call_sign or t.short_name} for t in all_involved_teachers]
-        elif entry.teacher_id:
+        elif entry.teacher_id and entry.teacher_id in allowed_teacher_ids:
             teacher = Teacher.query.get(entry.teacher_id)
             if teacher:
                 teachers_info = [{'id': teacher.id, 'name': teacher.name, 'short_name': teacher.call_sign or teacher.short_name}]
@@ -2104,12 +2532,11 @@ def load_routine():
         if not year or not term:
             if entry.teacher_id and entry.course_code:
                 try:
-                    from blueprints.course_management.models import CourseSessionAssignment, Course
-                    # First find the course by course_code
-                    course = Course.query.filter_by(course_code=entry.course_code).first()
+                    from blueprints.course_management.models import CourseSessionAssignment
+                    course = window_courses_by_code.get(entry.course_code)
                     if course:
                         # Then find the assignment for this teacher and course
-                        assignment = CourseSessionAssignment.query.filter_by(
+                        assignment = _query_for_routine_window(CourseSessionAssignment).filter_by(
                             teacher_id=entry.teacher_id,
                             course_id=course.id
                         ).first()
@@ -2212,7 +2639,7 @@ def download_pdf():
                 "04:00 PM - 04:50 PM"
             ]
         
-        rooms_db = Room.query.order_by('room_number').all()
+        rooms_db = get_rooms_for_routine_window()
         
         # Get lunch position, break time and break type from frontend (default: after 4th slot, index 3)
         lunch_after_slot = request.args.get('lunch_after_slot', 3, type=int)
@@ -2468,8 +2895,12 @@ def download_pdf():
         # Resolve course names in one query
         all_codes = {k[2] for k in summary_map.keys() if k[2]}
         if all_codes:
-            courses = Course.query.filter(Course.course_code.in_(all_codes)).all()
-            code_to_name = {c.course_code: (c.course_name or '') for c in courses}
+            window_courses = {c.course_code: c for c in get_courses_for_routine_window()}
+            code_to_name = {
+                code: (window_courses[code].course_name or '')
+                for code in all_codes
+                if code in window_courses
+            }
             for key, info in summary_map.items():
                 if not info['course_name']:
                     info['course_name'] = code_to_name.get(info['course_code'], '')
@@ -2607,10 +3038,9 @@ def download_teacher_wise_pdf():
     elements = []
     elements.append(Paragraph('Teacher-wise Course Assignment', style_title))
     elements.append(Spacer(1, 0.2*inch))
-    from role_utils import get_teachers_excluding_head
-    teachers = get_teachers_excluding_head()
+    teachers = get_teachers_for_routine_window()
     for teacher in teachers:
-        assignments = query_for_window(AssignedCourse).filter_by(teacher_id=teacher.id).all()
+        assignments = _query_for_routine_window(AssignedCourse).filter_by(teacher_id=teacher.id).all()
         if not assignments:
             continue
         elements.append(Paragraph(f"<b>{teacher.name} ({teacher.call_sign or teacher.short_name})</b>", styles['Heading2']))
@@ -2671,9 +3101,9 @@ def download_course_wise_pdf():
     elements.append(Paragraph('Course-wise Teacher Assignment', style_title))
     elements.append(Spacer(1, 0.2*inch))
     data = [["Course Name", "Teacher Names", "Call Signs"]]
-    courses = Course.query.order_by(Course.course_code).all()
+    courses = get_courses_for_routine_window()
     for course in courses:
-        assignments = query_for_window(AssignedCourse).filter_by(course_id=course.id).all()
+        assignments = _query_for_routine_window(AssignedCourse).filter_by(course_id=course.id).all()
         if not assignments:
             continue
         teacher_names = ', '.join([a.teacher.name for a in assignments])

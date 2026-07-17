@@ -112,7 +112,11 @@
                         <select class="form-select" id="window_id" name="window_id" required>
                             <option value="">Select Window</option>
                             {% for w in operational_windows %}
-                                <option value="{{ w.id }}">
+                                <option value="{{ w.id }}"
+                                        data-academic-session="{{ w.academic_session or '' }}"
+                                        data-year="{{ w.year or '' }}"
+                                        data-term="{{ w.term or '' }}"
+                                        data-batch="{{ w.batch or '' }}">
                                     {{ w.name }}{% if not w.is_active %} (inactive){% endif %}
                                     {% if w.academic_session %} — {{ w.academic_session }}{% endif %}
                                 </option>
@@ -332,11 +336,196 @@
 </div>
 
 <script>
+const windowSessionsMap = {{ window_sessions_map | tojson }};
+const windowDefaultsMap = {{ window_defaults_map | tojson }};
+
 document.addEventListener('DOMContentLoaded', function() {
+    const windowSelect = document.getElementById('window_id');
     const sessionSelect = document.getElementById('academic_session');
     const yearSelect = document.getElementById('year');
     const termSelect = document.getElementById('term');
     const batchSelect = document.getElementById('batch');
+    const windowDetailsUrlTemplate = '{{ url_for("admin_active_semester_window_details", window_id=0) }}';
+
+    function uniqueAcademicSessionsFrom(sessions) {
+        return Array.from(new Set(
+            (sessions || [])
+                .map(sessionData => sessionData.academic_session)
+                .filter(Boolean)
+        )).sort().reverse();
+    }
+
+    function optionExists(selectEl, value, dataset) {
+        if (!value) {
+            return true;
+        }
+        return Array.from(selectEl.options).some(option => {
+            if (option.value !== value) {
+                return false;
+            }
+            if (!dataset) {
+                return true;
+            }
+            return Object.entries(dataset).every(([key, val]) => option.dataset[key] === val);
+        });
+    }
+
+    function appendSelectOption(selectEl, value, label, dataset, cascadeHidden = true) {
+        if (!value || optionExists(selectEl, value, dataset)) {
+            return;
+        }
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label || value;
+        if (cascadeHidden) {
+            option.style.display = 'none';
+        }
+        if (dataset) {
+            Object.entries(dataset).forEach(([key, val]) => {
+                option.dataset[key] = val;
+            });
+        }
+        selectEl.appendChild(option);
+    }
+
+    function rebuildSetActiveDropdowns(sessions, uniqueAcademicSessions) {
+        sessionSelect.innerHTML = '<option value="">Select Session</option>';
+        yearSelect.innerHTML = '<option value="">Select Year</option>';
+        termSelect.innerHTML = '<option value="">Select Term</option>';
+        batchSelect.innerHTML = '<option value="">All Batches</option>';
+
+        const sessionNames = uniqueAcademicSessions || uniqueAcademicSessionsFrom(sessions);
+        sessionNames.forEach(sessionName => {
+            appendSelectOption(sessionSelect, sessionName, sessionName, null, false);
+        });
+
+        (sessions || []).forEach(sessionData => {
+            appendSelectOption(
+                yearSelect,
+                sessionData.year,
+                sessionData.year,
+                { session: sessionData.academic_session }
+            );
+            appendSelectOption(
+                termSelect,
+                sessionData.term,
+                sessionData.term,
+                { session: sessionData.academic_session, year: sessionData.year }
+            );
+            (sessionData.batches || []).forEach(batchName => {
+                appendSelectOption(
+                    batchSelect,
+                    batchName,
+                    batchName,
+                    {
+                        session: sessionData.academic_session,
+                        year: sessionData.year,
+                        term: sessionData.term,
+                    }
+                );
+            });
+        });
+    }
+
+    function applySetActiveDefaults(defaults) {
+        const academicSession = defaults.academic_session || '';
+        const year = defaults.year || '';
+        const term = defaults.term || '';
+        const batch = defaults.batch || '';
+
+        appendSelectOption(sessionSelect, academicSession, academicSession, null, false);
+        sessionSelect.value = academicSession;
+
+        const yearOptions = yearSelect.querySelectorAll('option');
+        yearOptions.forEach(option => {
+            if (option.value === '') {
+                option.style.display = 'block';
+            } else {
+                option.style.display = option.dataset.session === academicSession ? 'block' : 'none';
+            }
+        });
+
+        appendSelectOption(yearSelect, year, year, { session: academicSession });
+        yearSelect.value = year;
+        filterTerms();
+
+        appendSelectOption(termSelect, term, term, { session: academicSession, year: year });
+        termSelect.value = term;
+        filterBatches();
+
+        if (batch) {
+            appendSelectOption(batchSelect, batch, batch, {
+                session: academicSession,
+                year: year,
+                term: term,
+            });
+            batchSelect.value = batch;
+        } else {
+            batchSelect.value = '';
+        }
+    }
+
+    function applyWindowDefaultsFromOption(option) {
+        if (!option) {
+            return;
+        }
+        applySetActiveDefaults({
+            academic_session: option.dataset.academicSession || '',
+            year: option.dataset.year || '',
+            term: option.dataset.term || '',
+            batch: option.dataset.batch || '',
+        });
+    }
+
+    function applyWindowSemesterDetails(windowId, data) {
+        const sessions = data.sessions || windowSessionsMap[String(windowId)] || [];
+        const defaults = data.defaults || windowDefaultsMap[String(windowId)] || {};
+        const uniqueSessions = data.unique_academic_sessions || uniqueAcademicSessionsFrom(sessions);
+        rebuildSetActiveDropdowns(sessions, uniqueSessions);
+        applySetActiveDefaults(defaults);
+    }
+
+    function loadWindowSemesterDetails(windowId) {
+        if (!windowId) {
+            sessionSelect.value = '';
+            yearSelect.value = '';
+            termSelect.value = '';
+            batchSelect.value = '';
+            return;
+        }
+
+        const selectedOption = windowSelect.options[windowSelect.selectedIndex];
+        const embeddedSessions = windowSessionsMap[String(windowId)] || [];
+        if (embeddedSessions.length) {
+            applyWindowSemesterDetails(windowId, {
+                sessions: embeddedSessions,
+                defaults: windowDefaultsMap[String(windowId)] || {},
+                unique_academic_sessions: uniqueAcademicSessionsFrom(embeddedSessions),
+            });
+        } else {
+            applyWindowDefaultsFromOption(selectedOption);
+        }
+
+        const detailsUrl = windowDetailsUrlTemplate.replace('/0/', `/${windowId}/`);
+        fetch(detailsUrl)
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    throw new Error(data.message || 'Failed to load window details');
+                }
+                applyWindowSemesterDetails(windowId, data);
+            })
+            .catch(error => {
+                console.error('Window details load failed:', error);
+                if (!embeddedSessions.length) {
+                    applyWindowDefaultsFromOption(selectedOption);
+                }
+            });
+    }
+
+    windowSelect.addEventListener('change', function() {
+        loadWindowSemesterDetails(this.value);
+    });
 
     // Filter years based on selected session
     sessionSelect.addEventListener('change', function() {

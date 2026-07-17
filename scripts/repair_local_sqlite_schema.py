@@ -77,6 +77,8 @@ PATCHES = {
     'curriculum_year_term': [
         ('window_id', 'window_id INTEGER REFERENCES operational_window(id)'),
     ],
+    'room': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
+    'teacher': [('window_id', 'window_id INTEGER REFERENCES operational_window(id)')],
 }
 
 WINDOW_BACKFILL_TABLES = [
@@ -85,7 +87,7 @@ WINDOW_BACKFILL_TABLES = [
     'saved_routine', 'routine', 'routine_time_slot', 'assigned_course',
     'course_registration_invite', 'academic_calendar_event', 'psac_committee', 'survey_link',
     'course_session_assignment', 'class_session', 'student_course_registration', 'active_semester_config',
-    'curriculum_year_term',
+    'curriculum_year_term', 'room', 'teacher',
 ]
 
 

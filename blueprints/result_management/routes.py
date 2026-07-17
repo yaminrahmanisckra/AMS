@@ -423,6 +423,510 @@ def _build_original_course_registration_filters(student_profile_ids, subject_cod
             filters.append(StudentCourseRegistration.term.in_(term_variants))
     return filters
 
+
+_RETACKE_REMARKS = {'retake', 're-retake', 're retake', 'reretake'}
+
+
+def _is_retake_remark(remark):
+    return (remark or '').strip().lower() in _RETACKE_REMARKS
+
+
+def _build_rstudent_profile_id_map(rstudents):
+    """Return (profile_id -> rstudent_id, rstudent_id -> profile_id) maps."""
+    if not rstudents:
+        return {}, {}
+    student_number_to_rstudent_id = {
+        rs.student_id: rs.id for rs in rstudents if rs.student_id
+    }
+    if not student_number_to_rstudent_id:
+        return {}, {}
+    profiles = StudentProfile.query.filter(
+        StudentProfile.student_id.in_(student_number_to_rstudent_id.keys())
+    ).all()
+    profile_id_to_rstudent_id = {
+        profile.id: student_number_to_rstudent_id.get(profile.student_id)
+        for profile in profiles
+        if profile.student_id in student_number_to_rstudent_id
+    }
+    rstudent_id_to_profile_id = {
+        rstudent_id: profile_id
+        for profile_id, rstudent_id in profile_id_to_rstudent_id.items()
+        if rstudent_id
+    }
+    return profile_id_to_rstudent_id, rstudent_id_to_profile_id
+
+
+def _load_course_management_retake_lookup(session, subject_codes, rstudents):
+    """Map (subject_code, rstudent_id) -> is_retake from Course Management remarks."""
+    subject_codes = [code for code in (subject_codes or []) if code]
+    if not subject_codes or not rstudents:
+        return {}
+
+    profile_id_to_rstudent_id, _ = _build_rstudent_profile_id_map(rstudents)
+    if not profile_id_to_rstudent_id:
+        return {}
+
+    filters = [
+        StudentCourseRegistration.student_id.in_(profile_id_to_rstudent_id.keys()),
+        StudentCourseRegistration.course_code.in_(subject_codes),
+        StudentCourseRegistration.status == 'finalized',
+    ]
+    if session.name:
+        filters.append(StudentCourseRegistration.academic_session == session.name)
+    if session.year:
+        year_variants = _year_registration_variants(session.year)
+        if len(year_variants) == 1:
+            filters.append(StudentCourseRegistration.year == year_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.year.in_(year_variants))
+    if session.term:
+        term_variants = _term_registration_variants(session.term)
+        if len(term_variants) == 1:
+            filters.append(StudentCourseRegistration.term == term_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.term.in_(term_variants))
+
+    lookup = {}
+    for reg in StudentCourseRegistration.query.filter(*filters).all():
+        rstudent_id = profile_id_to_rstudent_id.get(reg.student_id)
+        if rstudent_id is None:
+            continue
+        lookup[(reg.course_code, rstudent_id)] = _is_retake_remark(reg.remark)
+    return lookup
+
+
+def _load_course_management_retake_map(session, subject_code, rstudents):
+    """Map rstudent_id -> is_retake for one subject."""
+    lookup = _load_course_management_retake_lookup(session, [subject_code], rstudents)
+    return {
+        rstudent_id: lookup[(subject_code, rstudent_id)]
+        for rstudent_id in {rs.id for rs in rstudents}
+        if (subject_code, rstudent_id) in lookup
+    }
+
+
+def _load_course_management_remark_lookup(session, subject_codes, rstudents):
+    """Map (subject_code, rstudent_id) -> registration remark from Course Management."""
+    subject_codes = [code for code in (subject_codes or []) if code]
+    if not subject_codes or not rstudents:
+        return {}
+
+    profile_id_to_rstudent_id, _ = _build_rstudent_profile_id_map(rstudents)
+    if not profile_id_to_rstudent_id:
+        return {}
+
+    filters = [
+        StudentCourseRegistration.student_id.in_(profile_id_to_rstudent_id.keys()),
+        StudentCourseRegistration.course_code.in_(subject_codes),
+        StudentCourseRegistration.status == 'finalized',
+    ]
+    if session.name:
+        filters.append(StudentCourseRegistration.academic_session == session.name)
+    if session.year:
+        year_variants = _year_registration_variants(session.year)
+        if len(year_variants) == 1:
+            filters.append(StudentCourseRegistration.year == year_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.year.in_(year_variants))
+    if session.term:
+        term_variants = _term_registration_variants(session.term)
+        if len(term_variants) == 1:
+            filters.append(StudentCourseRegistration.term == term_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.term.in_(term_variants))
+
+    lookup = {}
+    for reg in StudentCourseRegistration.query.filter(*filters).all():
+        rstudent_id = profile_id_to_rstudent_id.get(reg.student_id)
+        if rstudent_id is None:
+            continue
+        lookup[(reg.course_code, rstudent_id)] = (reg.remark or 'Regular').strip()
+    return lookup
+
+
+def _pdf_remark_from_registration(remark=None, is_retake=False):
+    """Format remark text for PDF output without affecting grade logic."""
+    normalized = (remark or '').strip()
+    if not normalized or normalized.lower() == 'regular':
+        return 'Retake' if is_retake else ''
+    return normalized
+
+
+def _student_pdf_remark(subject_code, rstudent_id, remark_lookup, is_retake=False):
+    remark = remark_lookup.get((subject_code, rstudent_id)) if remark_lookup else None
+    return _pdf_remark_from_registration(remark, is_retake=is_retake)
+
+
+def _remark_map_for_course_pdf(session, subject):
+    rstudents = RStudent.query.filter_by(session_id=subject.session_id).all()
+    lookup = _load_course_management_remark_lookup(session, [subject.code], rstudents)
+    return {
+        rs.student_id: lookup.get((subject.code, rs.id))
+        for rs in rstudents
+        if rs.student_id
+    }
+
+
+def _resolve_is_retake(session, subject, rstudent_id, course_mgmt_retake_map=None):
+    """Resolve retake status using Course Management first, then Result registration."""
+    if course_mgmt_retake_map is not None and rstudent_id in course_mgmt_retake_map:
+        return bool(course_mgmt_retake_map[rstudent_id])
+    rc_reg = RCourseRegistration.query.filter_by(
+        student_id=rstudent_id, subject_id=subject.id
+    ).first()
+    if rc_reg is not None:
+        return bool(rc_reg.is_retake)
+    return False
+
+
+def _subject_component_fields(subject):
+    if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+        return ['attendance', 'continuous_assessment', 'part_a', 'part_b']
+    if subject.subject_type == 'Sessional':
+        return ['attendance', 'sessional_report', 'sessional_viva']
+    if subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+        return ['attendance', 'thesis_evaluation', 'presentation']
+    if subject.subject_type == 'Dissertation':
+        if subject.dissertation_type == 'Type1':
+            return ['supervisor_assessment', 'proposal_presentation']
+        if subject.dissertation_type == 'Type2':
+            return ['supervisor_assessment', 'project_report', 'defense']
+        return ['supervisor_assessment', 'proposal_presentation', 'project_report', 'defense']
+    if subject.subject_type == 'Viva':
+        return ['viva']
+    return []
+
+
+def _has_any_component_marks(mark, subject):
+    return any(getattr(mark, field, None) is not None for field in _subject_component_fields(subject))
+
+
+def _calculate_total_marks_for_subject(mark, subject):
+    if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
+        return sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
+    if subject.subject_type == 'Sessional':
+        return sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
+    if subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
+        return sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
+    if subject.subject_type == 'Dissertation':
+        if subject.dissertation_type == 'Type1':
+            return sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
+        if subject.dissertation_type == 'Type2':
+            return sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
+        return sum(filter(None, [
+            mark.supervisor_assessment, mark.proposal_presentation,
+            mark.project_report, mark.defense
+        ]))
+    if subject.subject_type == 'Viva':
+        return mark.viva or 0
+    return mark.total_marks
+
+
+def _resolve_mark_total_marks(mark, subject):
+    if _has_any_component_marks(mark, subject):
+        return _calculate_total_marks_for_subject(mark, subject)
+    return mark.total_marks
+
+
+def _apply_retake_grade_to_mark(mark, subject, is_retake):
+    """Sync retake flag and recalculate grade from stored/component marks."""
+    changed = False
+    if mark.is_retake != is_retake:
+        mark.is_retake = is_retake
+        changed = True
+
+    total_marks = _resolve_mark_total_marks(mark, subject)
+    if total_marks is not None and mark.total_marks != total_marks:
+        mark.total_marks = total_marks
+        changed = True
+
+    if total_marks is not None:
+        grade_point, grade_letter = calculate_grade(total_marks, is_retake=is_retake)
+        if mark.grade_point != grade_point or mark.grade_letter != grade_letter:
+            mark.grade_point = grade_point
+            mark.grade_letter = grade_letter
+            changed = True
+    return changed
+
+
+def _sync_subject_marks_retake_grades(session, subject):
+    """Ensure all marks for a subject use Course Management retake rules."""
+    rstudents = RStudent.query.filter_by(session_id=session.id).all()
+    retake_map = _load_course_management_retake_map(session, subject.code, rstudents)
+    marks = RMark.query.filter_by(subject_id=subject.id).all()
+    changed = False
+    for mark in marks:
+        is_retake = _resolve_is_retake(session, subject, mark.student_id, retake_map)
+        if _apply_retake_grade_to_mark(mark, subject, is_retake):
+            changed = True
+    if changed:
+        db.session.commit()
+
+
+def _sync_student_marks_retake_grades(session, rstudent):
+    """Ensure all marks for one student use Course Management retake rules."""
+    subjects = RSubject.query.filter_by(session_id=session.id).all()
+    if not subjects:
+        return
+    retake_lookup = _load_course_management_retake_lookup(
+        session, [subject.code for subject in subjects], [rstudent]
+    )
+    subject_by_id = {subject.id: subject for subject in subjects}
+    marks = RMark.query.filter_by(student_id=rstudent.id).all()
+    changed = False
+    for mark in marks:
+        subject = subject_by_id.get(mark.subject_id)
+        if not subject:
+            continue
+        if (subject.code, rstudent.id) in retake_lookup:
+            is_retake = bool(retake_lookup[(subject.code, rstudent.id)])
+        else:
+            is_retake = _resolve_is_retake(session, subject, rstudent.id)
+        if _apply_retake_grade_to_mark(mark, subject, is_retake):
+            changed = True
+    if changed:
+        db.session.commit()
+
+
+def _session_subject_codes(session_id):
+    return [
+        code for (code,) in db.session.query(RSubject.code).filter(
+            RSubject.session_id == session_id,
+            RSubject.code.isnot(None),
+            RSubject.code != ''
+        ).all()
+        if code
+    ]
+
+
+def _course_management_session_registration_filters(session, profile_ids, subject_codes):
+    """Filters for Course Management registrations relevant to a result session."""
+    from sqlalchemy import or_, and_, func
+
+    subject_codes = [code for code in (subject_codes or []) if code]
+    profile_ids = list(profile_ids or [])
+    if not subject_codes or not profile_ids:
+        return None
+
+    remark_lower = func.lower(func.trim(StudentCourseRegistration.remark))
+    retake_remarks = ['retake', 're-retake', 're retake', 'reretake']
+    course_match = or_(
+        StudentCourseRegistration.course_code.in_(subject_codes),
+        and_(
+            StudentCourseRegistration.relevant_course_code.in_(subject_codes),
+            remark_lower.in_(retake_remarks)
+        )
+    )
+
+    filters = [
+        StudentCourseRegistration.student_id.in_(profile_ids),
+        StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived']),
+        course_match,
+    ]
+    if session.name:
+        filters.append(StudentCourseRegistration.academic_session == session.name)
+    if session.year:
+        year_variants = _year_registration_variants(session.year)
+        if len(year_variants) == 1:
+            filters.append(StudentCourseRegistration.year == year_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.year.in_(year_variants))
+    if session.term:
+        term_variants = _term_registration_variants(session.term)
+        if len(term_variants) == 1:
+            filters.append(StudentCourseRegistration.term == term_variants[0])
+        else:
+            filters.append(StudentCourseRegistration.term.in_(term_variants))
+    return filters
+
+
+def _rstudent_ids_from_course_management(session, rstudents, subject_codes):
+    profile_id_to_rstudent_id, _ = _build_rstudent_profile_id_map(rstudents)
+    filters = _course_management_session_registration_filters(
+        session, profile_id_to_rstudent_id.keys(), subject_codes
+    )
+    if not filters:
+        return set()
+
+    registered_ids = set()
+    for reg in StudentCourseRegistration.query.filter(*filters).all():
+        rstudent_id = profile_id_to_rstudent_id.get(reg.student_id)
+        if rstudent_id:
+            registered_ids.add(rstudent_id)
+    return registered_ids
+
+
+def _subject_codes_for_student_in_session(session, student, subject_codes):
+    """Subject codes this student is registered for in the running result session."""
+    codes = set()
+
+    result_regs = db.session.query(RSubject.code).join(
+        RCourseRegistration,
+        RCourseRegistration.subject_id == RSubject.id
+    ).filter(
+        RCourseRegistration.student_id == student.id,
+        RSubject.session_id == session.id
+    ).all()
+    codes.update(code for (code,) in result_regs if code)
+
+    _, rstudent_id_to_profile_id = _build_rstudent_profile_id_map([student])
+    profile_id = rstudent_id_to_profile_id.get(student.id)
+    if profile_id and subject_codes:
+        filters = _course_management_session_registration_filters(
+            session, [profile_id], subject_codes
+        )
+        if filters:
+            for reg in StudentCourseRegistration.query.filter(*filters).all():
+                registered_code = (reg.course_code or '').strip()
+                relevant_code = (reg.relevant_course_code or '').strip()
+                remark_text = (reg.remark or '').strip().lower()
+                if registered_code in subject_codes:
+                    codes.add(registered_code)
+                if (
+                    relevant_code in subject_codes
+                    and remark_text in {'retake', 're-retake', 're retake', 'reretake'}
+                ):
+                    codes.add(relevant_code)
+
+    if not codes:
+        mark_codes = db.session.query(RSubject.code).join(
+            RMark, RMark.subject_id == RSubject.id
+        ).filter(
+            RMark.student_id == student.id,
+            RSubject.session_id == session.id
+        ).all()
+        codes.update(code for (code,) in mark_codes if code)
+
+    return sorted(codes)
+
+
+def _get_registered_students_for_session(session_id):
+    """Students registered for at least one subject in this result session."""
+    session = RSession.query.get(session_id)
+    if not session:
+        return []
+
+    subject_codes = _session_subject_codes(session_id)
+    rstudents = RStudent.query.filter_by(session_id=session_id).order_by(RStudent.student_id).all()
+    if not rstudents:
+        return []
+
+    registered_ids = set()
+
+    if subject_codes:
+        registered_ids.update(
+            _rstudent_ids_from_course_management(session, rstudents, subject_codes)
+        )
+
+    result_reg_ids = db.session.query(RCourseRegistration.student_id).join(
+        RSubject, RSubject.id == RCourseRegistration.subject_id
+    ).filter(
+        RSubject.session_id == session_id
+    ).distinct().all()
+    registered_ids.update(row[0] for row in result_reg_ids)
+
+    mark_student_ids = db.session.query(RMark.student_id).join(
+        RSubject, RSubject.id == RMark.subject_id
+    ).filter(
+        RSubject.session_id == session_id
+    ).distinct().all()
+    registered_ids.update(row[0] for row in mark_student_ids)
+
+    if not registered_ids:
+        return []
+
+    id_order = {student.id: index for index, student in enumerate(rstudents)}
+    registered_students = [student for student in rstudents if student.id in registered_ids]
+    registered_students.sort(key=lambda student: id_order.get(student.id, 10**9))
+    return registered_students
+
+
+def _student_has_course_registrations(session_id, student_id):
+    session = RSession.query.get(session_id)
+    student = RStudent.query.get(student_id)
+    if not session or not student or student.session_id != session_id:
+        return False
+    subject_codes = _session_subject_codes(session_id)
+    return bool(_subject_codes_for_student_in_session(session, student, subject_codes))
+
+
+def _query_student_result_rows(session_id, student_id):
+    """Fetch registered courses (with optional marks) for one student."""
+    session = RSession.query.get(session_id)
+    student = RStudent.query.get(student_id)
+    if not session or not student:
+        return []
+
+    subject_codes = _subject_codes_for_student_in_session(
+        session, student, _session_subject_codes(session_id)
+    )
+    if not subject_codes:
+        return []
+
+    return db.session.query(
+        RSubject.code.label('subject_code'),
+        RSubject.name.label('subject_name'),
+        RSubject.credit.label('registered_credits'),
+        RMark.grade_letter,
+        RMark.grade_point,
+        RMark.is_retake,
+        RSubject.subject_type
+    ).select_from(RSubject)\
+     .outerjoin(RMark, (RMark.student_id == student_id) & (RMark.subject_id == RSubject.id))\
+     .filter(RSubject.session_id == session_id)\
+     .filter(RSubject.code.in_(subject_codes))\
+     .order_by(RSubject.code).all()
+
+
+def _process_student_result_rows(session, student, results):
+    """Build student-wise tabulation rows and term assessment totals."""
+    remark_lookup = _load_course_management_remark_lookup(
+        session,
+        list({res.subject_code for res in results}),
+        [student]
+    )
+    processed_results = []
+    total_registered_credits = 0.0
+    total_earned_credits = 0.0
+    total_earned_credit_points = 0.0
+
+    for res in results:
+        registered_credits = float(res.registered_credits or 0)
+        grade_point = float(res.grade_point or 0)
+        earned_credits = registered_credits if grade_point >= 2.0 else 0.0
+        earned_credit_points = grade_point * registered_credits
+        processed_results.append({
+            'subject_code': res.subject_code,
+            'subject_name': res.subject_name,
+            'registered_credits': registered_credits,
+            'grade_letter': res.grade_letter,
+            'grade_point': res.grade_point,
+            'earned_credits': earned_credits,
+            'earned_credit_points': earned_credit_points,
+            'remarks': _student_pdf_remark(
+                res.subject_code, student.id, remark_lookup, res.is_retake
+            )
+        })
+        total_registered_credits += registered_credits
+        total_earned_credits += earned_credits
+        total_earned_credit_points += earned_credit_points
+
+    tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
+    term_assessment = {
+        'total_registered_credits': total_registered_credits,
+        'total_earned_credits': total_earned_credits,
+        'total_earned_credit_points': total_earned_credit_points,
+        'tgpa': tgpa
+    }
+    return processed_results, term_assessment
+
+
+def _student_result_zip_entry_name(student):
+    """Unique, filesystem-safe ZIP entry name per student."""
+    roll = _sanitize_zip_entry_name(student.student_id or 'unknown')
+    return f'Student_{student.id}_{roll}_Tabulation.pdf'
+
+
 def _can_access_session(session):
     """Check if current user can access a specific result session"""
     if is_admin(current_user):
@@ -1724,9 +2228,9 @@ def refresh_marks(session_id):
                     if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
                         _round_theory_component_marks(mark)
 
-                    # Get is_retake status
-                    registration = RCourseRegistration.query.filter_by(student_id=student.id, subject_id=subject_id).first()
-                    is_retake = registration.is_retake if registration else False
+                    # Get is_retake status from Course Management registration remarks.
+                    retake_map = _load_course_management_retake_map(session, selected_subject.code, [student])
+                    is_retake = _resolve_is_retake(session, selected_subject, student.id, retake_map)
                     mark.is_retake = is_retake
                     
                     total_marks = 0
@@ -3012,15 +3516,16 @@ def add_marks(session_id):
 
         subject = _get_rsubject_or_404(subject_id)
 
+        retake_map = _load_course_management_retake_map(session, subject.code, students)
+
         for student in students:
             existing_mark = RMark.query.filter_by(student_id=student.id, subject_id=subject.id).first()
             if existing_mark is None:
                 existing_mark = RMark(student_id=student.id, subject_id=subject.id)
                 db.session.add(existing_mark)
             
-            # Check if the student is registered for this course as a retake
-            registration = RCourseRegistration.query.filter_by(student_id=student.id, subject_id=subject.id).first()
-            is_retake = registration.is_retake if registration else False
+            # Match Marks UI: retake comes from Course Management registration remarks.
+            is_retake = _resolve_is_retake(session, subject, student.id, retake_map)
             existing_mark.is_retake = is_retake
 
             total_marks = 0
@@ -3196,6 +3701,7 @@ def auto_save_marks(session_id):
         
         students = RStudent.query.filter(RStudent.id.in_(registered_rstudent_ids)).all()
         student_id_map = {s.id: s for s in students}
+        retake_map = _load_course_management_retake_map(session, subject.code, students)
         
         # Process marks from request
         marks_data = data.get('marks', {})
@@ -3213,9 +3719,7 @@ def auto_save_marks(session_id):
                     existing_mark = RMark(student_id=student.id, subject_id=subject.id)
                     db.session.add(existing_mark)
                 
-                # Check if the student is registered for this course as a retake
-                registration = RCourseRegistration.query.filter_by(student_id=student.id, subject_id=subject.id).first()
-                is_retake = registration.is_retake if registration else False
+                is_retake = _resolve_is_retake(session, subject, student.id, retake_map)
                 existing_mark.is_retake = is_retake
                 
                 total_marks = 0
@@ -3363,6 +3867,8 @@ def course_wise_result(session_id):
         all_columns = base_columns + extra_columns
         
         try:
+            _sync_subject_marks_retake_grades(session, selected_subject)
+
             # If registrations exist, use them. Otherwise, query marks directly (for backward compatibility)
             if registrations_count > 0:
                 # Use outerjoin to include students who are registered even if they don't have marks yet
@@ -3379,58 +3885,6 @@ def course_wise_result(session_id):
                     .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
                     .filter(RStudent.session_id == session_id)\
                     .order_by(RStudent.student_id).all()
-            
-            # Calculate missing total_marks, grade_point, grade_letter on-the-fly
-            # Fetch all marks for this subject to update missing calculations
-            marks_to_update = RMark.query.filter_by(subject_id=selected_subject_id).all()
-            needs_update = False
-            for mark in marks_to_update:
-                if mark.total_marks is None:
-                    # Calculate total_marks, grade_point, grade_letter
-                    try:
-                        registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=selected_subject_id).first()
-                        is_retake = registration.is_retake if registration else False
-                        mark.is_retake = is_retake
-                        
-                        total_marks = 0
-                        if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
-                        elif selected_subject.subject_type == 'Sessional':
-                            total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
-                        elif selected_subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
-                            total_marks = sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
-                        elif selected_subject.subject_type == 'Dissertation':
-                            if selected_subject.dissertation_type == 'Type1':
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
-                            elif selected_subject.dissertation_type == 'Type2':
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
-                            else:
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation, mark.project_report, mark.defense]))
-                        elif selected_subject.subject_type == 'Viva':
-                            total_marks = mark.viva or 0
-                        
-                        mark.total_marks = total_marks
-                        mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
-                        needs_update = True
-                    except Exception as e:
-                        current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
-            
-            if needs_update:
-                db.session.commit()
-                # Re-query results with updated values
-                if registrations_count > 0:
-                    results = db.session.query(*all_columns)\
-                        .select_from(RStudent)\
-                        .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == selected_subject_id))\
-                        .outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
-                        .filter(RStudent.session_id == session_id)\
-                        .order_by(RStudent.student_id).all()
-                else:
-                    results = db.session.query(*all_columns)\
-                        .select_from(RStudent)\
-                        .join(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == selected_subject_id))\
-                        .filter(RStudent.session_id == session_id)\
-                        .order_by(RStudent.student_id).all()
         except Exception as e:
             current_app.logger.error(f'Error fetching course-wise results: {e}', exc_info=True)
             flash('Error loading results. Please try again.', 'danger')
@@ -3449,7 +3903,7 @@ def student_wise_result(session_id):
     if not _can_access_session(session):
         flash('You do not have access to this session.', 'danger')
         return redirect(url_for('result_management.index'))
-    students = RStudent.query.filter_by(session_id=session_id).order_by(RStudent.student_id).all()
+    students = _get_registered_students_for_session(session_id)
 
     selected_student_id = request.args.get('student_id', type=int)
     selected_student = None
@@ -3461,160 +3915,20 @@ def student_wise_result(session_id):
         if not selected_student or selected_student.session_id != session_id:
             flash('Invalid student selected.', 'danger')
             return redirect(url_for('result_management.student_wise_result', session_id=session_id))
-        
-        # Check if marks exist for this student
-        marks_count = RMark.query.filter_by(student_id=selected_student_id).count()
-        registrations_count = RCourseRegistration.query.filter_by(student_id=selected_student_id).count()
+        if not _student_has_course_registrations(session_id, selected_student_id):
+            flash('This student is not registered for any course in this session.', 'warning')
+            return redirect(url_for('result_management.student_wise_result', session_id=session_id))
         
         try:
-            # If registrations exist, use them. Otherwise, query marks directly (for backward compatibility)
-            if registrations_count > 0:
-                # Fetch results for the selected student (ONLY registered courses)
-                # Use outerjoin to show registered courses even if marks haven't been entered yet
-                results = db.session.query(
-                    RSubject.code.label('subject_code'),
-                    RSubject.name.label('subject_name'),
-                    RSubject.credit.label('registered_credits'),
-                    RMark.grade_letter,
-                    RMark.grade_point,
-                    RMark.is_retake,
-                    RSubject.subject_type
-                ).select_from(RStudent)\
-                 .join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)\
-                 .join(RSubject, RSubject.id == RCourseRegistration.subject_id)\
-                 .outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id))\
-                 .filter(RStudent.id == selected_student_id)\
-                 .filter(RSubject.session_id == session_id)\
-                 .order_by(RSubject.code).all()
-            else:
-                # No registrations found - query marks directly (marks exist but registrations don't)
-                results = db.session.query(
-                    RSubject.code.label('subject_code'),
-                    RSubject.name.label('subject_name'),
-                    RSubject.credit.label('registered_credits'),
-                    RMark.grade_letter,
-                    RMark.grade_point,
-                    RMark.is_retake,
-                    RSubject.subject_type
-                ).select_from(RStudent)\
-                 .join(RMark, RMark.student_id == RStudent.id)\
-                 .join(RSubject, RSubject.id == RMark.subject_id)\
-                 .filter(RStudent.id == selected_student_id)\
-                 .filter(RSubject.session_id == session_id)\
-                 .order_by(RSubject.code).all()
-            
-            # Calculate missing total_marks, grade_point, grade_letter on-the-fly
-            # Fetch all marks for this student to update missing calculations
-            marks_to_update = RMark.query.filter_by(student_id=selected_student_id).all()
-            needs_update = False
-            for mark in marks_to_update:
-                if mark.total_marks is None:
-                    # Get subject to determine calculation method
-                    subject = RSubject.query.get(mark.subject_id)
-                    if not subject:
-                        continue
-                    
-                    # Calculate total_marks, grade_point, grade_letter
-                    try:
-                        registration = RCourseRegistration.query.filter_by(student_id=mark.student_id, subject_id=mark.subject_id).first()
-                        is_retake = registration.is_retake if registration else False
-                        mark.is_retake = is_retake
-                        
-                        total_marks = 0
-                        if subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
-                            total_marks = sum(filter(None, [mark.attendance, mark.continuous_assessment, mark.part_a, mark.part_b]))
-                        elif subject.subject_type == 'Sessional':
-                            total_marks = sum(filter(None, [mark.attendance, mark.sessional_report, mark.sessional_viva]))
-                        elif subject.subject_type in ('Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'):
-                            total_marks = sum(filter(None, [mark.attendance, mark.thesis_evaluation, mark.presentation]))
-                        elif subject.subject_type == 'Dissertation':
-                            if subject.dissertation_type == 'Type1':
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation]))
-                            elif subject.dissertation_type == 'Type2':
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.project_report, mark.defense]))
-                            else:
-                                total_marks = sum(filter(None, [mark.supervisor_assessment, mark.proposal_presentation, mark.project_report, mark.defense]))
-                        elif subject.subject_type == 'Viva':
-                            total_marks = mark.viva or 0
-                        
-                        mark.total_marks = total_marks
-                        mark.grade_point, mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
-                        needs_update = True
-                    except Exception as e:
-                        current_app.logger.error(f"Error calculating grades for mark {mark.id}: {e}", exc_info=True)
-            
-            if needs_update:
-                db.session.commit()
-                # Re-query results with updated values
-                if registrations_count > 0:
-                    results = db.session.query(
-                        RSubject.code.label('subject_code'),
-                        RSubject.name.label('subject_name'),
-                        RSubject.credit.label('registered_credits'),
-                        RMark.grade_letter,
-                        RMark.grade_point,
-                        RMark.is_retake,
-                        RSubject.subject_type
-                    ).select_from(RStudent)\
-                     .join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)\
-                     .join(RSubject, RSubject.id == RCourseRegistration.subject_id)\
-                     .outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id))\
-                     .filter(RStudent.id == selected_student_id)\
-                     .filter(RSubject.session_id == session_id)\
-                     .order_by(RSubject.code).all()
-                else:
-                    results = db.session.query(
-                        RSubject.code.label('subject_code'),
-                        RSubject.name.label('subject_name'),
-                        RSubject.credit.label('registered_credits'),
-                        RMark.grade_letter,
-                        RMark.grade_point,
-                        RMark.is_retake,
-                        RSubject.subject_type
-                    ).select_from(RStudent)\
-                     .join(RMark, RMark.student_id == RStudent.id)\
-                     .join(RSubject, RSubject.id == RMark.subject_id)\
-                     .filter(RStudent.id == selected_student_id)\
-                     .filter(RSubject.session_id == session_id)\
-                     .order_by(RSubject.code).all()
+            _sync_student_marks_retake_grades(session, selected_student)
+            results = _query_student_result_rows(session_id, selected_student_id)
         except Exception as e:
             current_app.logger.error(f'Error fetching student-wise results: {e}', exc_info=True)
             flash('Error loading results. Please try again.', 'danger')
             results = []
 
-        total_registered_credits = 0
-        total_earned_credits = 0
-        total_earned_credit_points = 0
-        
-        processed_results = []
-        for res in results:
-            earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
-            earned_credit_points = (res.grade_point or 0) * res.registered_credits
-            
-            processed_results.append({
-                'subject_code': res.subject_code,
-                'subject_name': res.subject_name,
-                'registered_credits': res.registered_credits,
-                'grade_letter': res.grade_letter,
-                'grade_point': res.grade_point,
-                'earned_credits': earned_credits,
-                'earned_credit_points': earned_credit_points,
-                'remarks': 'Retake' if res.is_retake else ''
-            })
-
-            total_registered_credits += res.registered_credits
-            total_earned_credits += earned_credits
-            total_earned_credit_points += earned_credit_points
-
-        tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
-        
-        term_assessment = {
-            'total_registered_credits': total_registered_credits,
-            'total_earned_credits': total_earned_credits,
-            'total_earned_credit_points': total_earned_credit_points,
-            'tgpa': tgpa
-        }
-        results = processed_results
+        if results:
+            results, term_assessment = _process_student_result_rows(session, selected_student, results)
         
     return render_template('rm_student_wise_result.html',
                            session=session,
@@ -3858,9 +4172,9 @@ def _resolve_course_result_display(res, marks_data):
     return total_marks, grade_point, grade_letter
 
 
-def _build_course_result_pdf_bytes(subject, session, results):
+def _build_course_result_pdf_bytes(subject, session, results, remark_by_roll=None):
     buffer = BytesIO()
-    pdf = CourseTabulationPDF(buffer, subject, session)
+    pdf = CourseTabulationPDF(buffer, subject, session, remark_by_roll=remark_by_roll)
     elements = pdf.generate_elements(results)
     return _build_pdf_document(pdf, elements)
 
@@ -3912,11 +4226,12 @@ class PDFGenerator:
         self.doc.build(elements)
 
 class CourseTabulationPDF(PDFGenerator):
-    def __init__(self, buffer, subject, session):
+    def __init__(self, buffer, subject, session, remark_by_roll=None):
         from reportlab.lib.pagesizes import A4
         super().__init__(buffer, pagesize=A4)
         self.subject = subject
         self.session = session
+        self.remark_by_roll = remark_by_roll or {}
         self.doc.title = f"Course_Result_{subject.code}"
 
     def generate_elements(self, results):
@@ -3981,7 +4296,7 @@ class CourseTabulationPDF(PDFGenerator):
                 Paragraph(_format_result_mark_for_display(total_marks_rounded), styles['TableCellCompact']),
                 Paragraph(f"{grade_point:.2f}" if grade_point is not None else '', styles['TableCellCompact']),
                 Paragraph(grade_letter or '', styles['TableCellCompact']),
-                Paragraph('Retake' if res.is_retake else '', styles['TableCellCompact'])
+                Paragraph(_pdf_remark_from_registration(self.remark_by_roll.get(res.student_id), res.is_retake), styles['TableCellCompact'])
             ])
             data.append(row_data)
         # Dynamic column widths, reduce by 10%
@@ -4235,8 +4550,10 @@ def download_course_result(session_id, subject_id):
         
         subject = _get_rsubject_or_404(subject_id)
         session = _get_rsession_or_404(session_id)
+        _sync_subject_marks_retake_grades(session, subject)
         results = _query_course_result_rows(session_id, subject)
-        pdf_data = _build_course_result_pdf_bytes(subject, session, results)
+        remark_by_roll = _remark_map_for_course_pdf(session, subject)
+        pdf_data = _build_course_result_pdf_bytes(subject, session, results, remark_by_roll=remark_by_roll)
         
         current_app.logger.info(f"Course result PDF generated successfully for session {session_id}, subject {subject_id}")
         
@@ -4283,73 +4600,17 @@ def download_student_result(session_id, student_id):
         
         student = _get_rstudent_or_404(student_id)
         session = _get_rsession_or_404(session_id)
+        if not _student_has_course_registrations(session_id, student_id):
+            flash('This student is not registered for any course in this session.', 'warning')
+            return redirect(url_for('result_management.student_wise_result', session_id=session_id))
 
-        # Check if registrations exist for this student
-        registrations_count = RCourseRegistration.query.filter_by(student_id=student_id).count()
-        
-        # If registrations exist, use them. Otherwise, query marks directly (for backward compatibility)
-        if registrations_count > 0:
-            # Use outerjoin to show registered courses even if marks haven't been entered yet
-            results_query = db.session.query(
-                RSubject.code.label('subject_code'),
-                RSubject.name.label('subject_name'),
-                RSubject.credit.label('registered_credits'),
-                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type,
-                RMark.total_marks,
-                RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b,
-                RMark.sessional_report, RMark.sessional_viva,
-                RMark.viva,
-                RMark.supervisor_assessment, RMark.proposal_presentation, RMark.project_report, RMark.defense
-            ).select_from(RStudent)
-            results_query = results_query.join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)
-            results_query = results_query.join(RSubject, RSubject.id == RCourseRegistration.subject_id)
-            results_query = results_query.outerjoin(RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id))
-            results_query = results_query.filter(RStudent.id == student_id)
-            results_query = results_query.filter(RSubject.session_id == session_id)
-            results_query = results_query.order_by(RSubject.code)
-        else:
-            # No registrations found - query marks directly (marks exist but registrations don't)
-            results_query = db.session.query(
-                RSubject.code.label('subject_code'),
-                RSubject.name.label('subject_name'),
-                RSubject.credit.label('registered_credits'),
-                RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type,
-                RMark.total_marks,
-                RMark.attendance, RMark.continuous_assessment, RMark.part_a, RMark.part_b,
-                RMark.sessional_report, RMark.sessional_viva,
-                RMark.viva,
-                RMark.supervisor_assessment, RMark.proposal_presentation, RMark.project_report, RMark.defense
-            ).select_from(RStudent)
-            results_query = results_query.join(RMark, RMark.student_id == RStudent.id)
-            results_query = results_query.join(RSubject, RSubject.id == RMark.subject_id)
-            results_query = results_query.filter(RStudent.id == student_id)
-            results_query = results_query.filter(RSubject.session_id == session_id)
-            results_query = results_query.order_by(RSubject.code)
-        
-        results = results_query.all()
+        _sync_student_marks_retake_grades(session, student)
+        results = _query_student_result_rows(session_id, student_id)
+        if not results:
+            flash('No results found for this student.', 'warning')
+            return redirect(url_for('result_management.student_wise_result', session_id=session_id))
 
-        total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
-        processed_results = []
-        for res in results:
-            earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
-            earned_credit_points = (res.grade_point or 0) * res.registered_credits
-            processed_results.append({
-                'subject_code': res.subject_code, 'subject_name': res.subject_name,
-                'registered_credits': res.registered_credits, 'grade_letter': res.grade_letter,
-                'grade_point': res.grade_point, 'earned_credits': earned_credits,
-                'earned_credit_points': earned_credit_points,
-                'remarks': 'Retake' if res.is_retake else ''
-            })
-            total_registered_credits += res.registered_credits
-            total_earned_credits += earned_credits
-            total_earned_credit_points += earned_credit_points
-
-        tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
-        term_assessment = {
-            'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
-            'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
-        }
-
+        processed_results, term_assessment = _process_student_result_rows(session, student, results)
         pdf_data = _build_student_result_pdf_bytes(student, session, processed_results, term_assessment)
         
         current_app.logger.info(f"Student result PDF generated successfully for session {session_id}, student {student_id}")
@@ -4385,41 +4646,17 @@ def download_student_result(session_id, student_id):
 def download_student_result_docx(session_id, student_id):
     student = _get_rstudent_or_404(student_id)
     session = _get_rsession_or_404(session_id)
+    if not _student_has_course_registrations(session_id, student_id):
+        flash('This student is not registered for any course in this session.', 'warning')
+        return redirect(url_for('result_management.student_wise_result', session_id=session_id))
 
-    # Only include subjects where the student is registered
-    results_query = db.session.query(
-        RSubject.code.label('subject_code'),
-        RSubject.name.label('subject_name'),
-        RSubject.credit.label('registered_credits'),
-        RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-    ).select_from(RMark)\
-     .join(RStudent, RStudent.id == RMark.student_id)\
-     .join(RSubject, RSubject.id == RMark.subject_id)\
-     .join(RCourseRegistration, (RCourseRegistration.student_id == RStudent.id) & (RCourseRegistration.subject_id == RSubject.id))\
-     .filter(RStudent.id == student_id)\
-     .order_by(RSubject.code).all()
+    _sync_student_marks_retake_grades(session, student)
+    results = _query_student_result_rows(session_id, student_id)
+    if not results:
+        flash('No results found for this student.', 'warning')
+        return redirect(url_for('result_management.student_wise_result', session_id=session_id))
 
-    total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
-    processed_results = []
-    for res in results_query:
-        earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
-        earned_credit_points = (res.grade_point or 0) * res.registered_credits
-        processed_results.append({
-            'subject_code': res.subject_code, 'subject_name': res.subject_name,
-            'registered_credits': res.registered_credits, 'grade_letter': res.grade_letter,
-            'grade_point': res.grade_point, 'earned_credits': earned_credits,
-            'earned_credit_points': earned_credit_points,
-            'remarks': 'Retake' if res.is_retake else ''
-        })
-        total_registered_credits += res.registered_credits
-        total_earned_credits += earned_credits
-        total_earned_credit_points += earned_credit_points
-
-    tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
-    term_assessment = {
-        'total_registered_credits': total_registered_credits, 'total_earned_credits': total_earned_credits,
-        'total_earned_credit_points': total_earned_credit_points, 'tgpa': tgpa
-    }
+    processed_results, term_assessment = _process_student_result_rows(session, student, results)
 
     # Lazy import docx to prevent startup hang
     from docx import Document
@@ -4537,83 +4774,44 @@ def download_student_result_docx(session_id, student_id):
 @login_required
 def download_all_student_results(session_id):
     session = _get_rsession_or_404(session_id)
-    students = RStudent.query.filter_by(session_id=session_id).all()
+    students = _get_registered_students_for_session(session_id)
     
     if not students:
-        flash('No students in this session to generate results for.', 'warning')
+        flash('No registered students in this session to generate results for.', 'warning')
         return redirect(url_for('result_management.view_results', session_id=session_id))
 
     zip_buffer = BytesIO()
     files_added = 0
+    failed_students = []
+    used_entry_names = set()
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for student in students:
             try:
-                registrations_count = RCourseRegistration.query.filter_by(student_id=student.id).count()
-                if registrations_count > 0:
-                    results_query = db.session.query(
-                        RSubject.code.label('subject_code'),
-                        RSubject.name.label('subject_name'),
-                        RSubject.credit.label('registered_credits'),
-                        RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-                    ).select_from(RStudent)
-                    results_query = results_query.join(RCourseRegistration, RCourseRegistration.student_id == RStudent.id)
-                    results_query = results_query.join(RSubject, RSubject.id == RCourseRegistration.subject_id)
-                    results_query = results_query.outerjoin(
-                        RMark, (RMark.student_id == RStudent.id) & (RMark.subject_id == RSubject.id)
-                    )
-                    results_query = results_query.filter(RStudent.id == student.id)
-                    results_query = results_query.filter(RSubject.session_id == session_id)
-                    results_query = results_query.order_by(RSubject.code)
-                    results = results_query.all()
-                else:
-                    results = db.session.query(
-                        RSubject.code.label('subject_code'),
-                        RSubject.name.label('subject_name'),
-                        RSubject.credit.label('registered_credits'),
-                        RMark.grade_letter, RMark.grade_point, RMark.is_retake, RSubject.subject_type
-                    ).select_from(RStudent)
-                    results = results.join(RMark, RMark.student_id == RStudent.id)
-                    results = results.join(RSubject, RSubject.id == RMark.subject_id)
-                    results = results.filter(RStudent.id == student.id)
-                    results = results.filter(RSubject.session_id == session_id)
-                    results = results.order_by(RSubject.code).all()
-
+                _sync_student_marks_retake_grades(session, student)
+                results = _query_student_result_rows(session_id, student.id)
                 if not results:
+                    failed_students.append(student.student_id or str(student.id))
                     continue
 
-                total_registered_credits, total_earned_credits, total_earned_credit_points = 0, 0, 0
-                processed_results = []
-                for res in results:
-                    earned_credits = res.registered_credits if (res.grade_point or 0) >= 2.0 else 0
-                    earned_credit_points = (res.grade_point or 0) * res.registered_credits
-                    processed_results.append({
-                        'subject_code': res.subject_code, 'subject_name': res.subject_name,
-                        'registered_credits': res.registered_credits,
-                        'grade_letter': res.grade_letter, 'grade_point': res.grade_point,
-                        'earned_credits': earned_credits,
-                        'earned_credit_points': earned_credit_points,
-                        'remarks': 'Retake' if res.is_retake else ''
-                    })
-                    total_registered_credits += res.registered_credits
-                    total_earned_credits += earned_credits
-                    total_earned_credit_points += earned_credit_points
-
-                tgpa = total_earned_credit_points / total_earned_credits if total_earned_credits > 0 else 0
-                term_assessment = {
-                    'total_registered_credits': total_registered_credits,
-                    'total_earned_credits': total_earned_credits,
-                    'total_earned_credit_points': total_earned_credit_points,
-                    'tgpa': tgpa
-                }
-
-                pdf_data = _build_student_result_pdf_bytes(student, session, processed_results, term_assessment)
-                if not pdf_data.startswith(b'%PDF'):
+                processed_results, term_assessment = _process_student_result_rows(
+                    session, student, results
+                )
+                pdf_data = _build_student_result_pdf_bytes(
+                    student, session, processed_results, term_assessment
+                )
+                if not pdf_data or not pdf_data.startswith(b'%PDF'):
                     current_app.logger.warning(
                         f'Skipping invalid student PDF for {student.student_id}: missing PDF header'
                     )
+                    failed_students.append(student.student_id or str(student.id))
                     continue
 
-                entry_name = _sanitize_zip_entry_name(f'Student_{student.student_id}_Tabulation.pdf')
+                entry_name = _student_result_zip_entry_name(student)
+                if entry_name in used_entry_names:
+                    entry_name = _sanitize_zip_entry_name(
+                        f'Student_{student.id}_Tabulation.pdf'
+                    )
+                used_entry_names.add(entry_name)
                 zf.writestr(entry_name, pdf_data)
                 files_added += 1
             except Exception as exc:
@@ -4621,10 +4819,18 @@ def download_all_student_results(session_id):
                     f'Failed to generate bulk student PDF for {student.student_id}: {exc}',
                     exc_info=True
                 )
+                failed_students.append(student.student_id or str(student.id))
 
     if files_added == 0:
         flash('No student result PDFs could be generated for this session.', 'warning')
         return redirect(url_for('result_management.view_results', session_id=session_id))
+
+    if failed_students:
+        current_app.logger.warning(
+            'Bulk student ZIP missing %s student(s): %s',
+            len(failed_students),
+            ', '.join(failed_students)
+        )
 
     zip_buffer.seek(0)
     zip_data = zip_buffer.getvalue()
@@ -4661,11 +4867,15 @@ def download_all_course_results(session_id):
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for subject in subjects:
             try:
+                _sync_subject_marks_retake_grades(session, subject)
                 results = _query_course_result_rows(session_id, subject)
                 if not results:
                     continue
 
-                pdf_data = _build_course_result_pdf_bytes(subject, session, results)
+                remark_by_roll = _remark_map_for_course_pdf(session, subject)
+                pdf_data = _build_course_result_pdf_bytes(
+                    subject, session, results, remark_by_roll=remark_by_roll
+                )
                 if not pdf_data.startswith(b'%PDF'):
                     current_app.logger.warning(
                         f'Skipping invalid course PDF for {subject.code}: missing PDF header'

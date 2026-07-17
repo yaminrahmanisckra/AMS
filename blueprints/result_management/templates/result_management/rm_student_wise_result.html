@@ -79,6 +79,9 @@
                 <div class="input-group">
                     <select class="form-select" name="student_id" onchange="document.getElementById('student-select-form').submit();">
                         <option value="">-- Select a Student --</option>
+                        {% if not students %}
+                        <option value="" disabled>No students with course registrations in this session</option>
+                        {% endif %}
                         {% for student in students %}
                         <option value="{{ student.id }}" {% if selected_student_id == student.id %}selected{% endif %}>
                             {{ student.name }} ({{ student.student_id }})

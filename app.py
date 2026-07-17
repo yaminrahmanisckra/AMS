@@ -2914,12 +2914,60 @@ def create_app():
         # Get all operational windows for the set-semester form
         operational_windows = OperationalWindow.query.order_by(OperationalWindow.id.asc()).all()
 
+        from utils.semester_utils import (
+            build_available_sessions_for_window,
+            get_window_semester_defaults,
+        )
+        window_sessions_map = {
+            str(window.id): build_available_sessions_for_window(window.id)
+            for window in operational_windows
+        }
+        window_defaults_map = {
+            str(window.id): get_window_semester_defaults(window)
+            for window in operational_windows
+        }
+
         return render_template('admin/active_semester.html',
                              active_semesters=active_semesters,
                              available_sessions=available_sessions,
                              unique_academic_sessions=unique_academic_sessions,
                              history=all_configs,
-                             operational_windows=operational_windows)
+                             operational_windows=operational_windows,
+                             window_sessions_map=window_sessions_map,
+                             window_defaults_map=window_defaults_map)
+
+    @app.route('/admin/active-semester/window/<int:window_id>/details', methods=['GET'])
+    @login_required
+    def admin_active_semester_window_details(window_id):
+        """Return window-scoped semester options and default field values."""
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        window = OperationalWindow.query.get(window_id)
+        if not window:
+            return jsonify({'success': False, 'message': 'Selected window not found'}), 404
+
+        from utils.semester_utils import (
+            build_available_sessions_for_window,
+            get_window_semester_defaults,
+        )
+
+        sessions = build_available_sessions_for_window(window_id)
+        defaults = get_window_semester_defaults(window)
+        unique_academic_sessions = sorted({
+            s['academic_session'] for s in sessions if s.get('academic_session')
+        }, reverse=True)
+
+        return jsonify({
+            'success': True,
+            'window': {
+                'id': window.id,
+                'name': window.name,
+            },
+            'defaults': defaults,
+            'sessions': sessions,
+            'unique_academic_sessions': unique_academic_sessions,
+        })
 
     @app.route('/admin/active-semester/set', methods=['POST'])
     @login_required

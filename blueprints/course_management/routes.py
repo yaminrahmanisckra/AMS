@@ -4458,9 +4458,7 @@ def assign_teacher_session():
         # Log final batch value before creating session
         current_app.logger.info(f'Final batch value before session creation: "{batch}"')
 
-        window_id = None
-        if get_effective_window_id:
-            window_id = get_effective_window_id(admin_override=is_admin(current_user))
+        window_id = _active_window_id()
         
         # Check if assignment already exists (scoped to operational window)
         existing_assignment_query = _csa_query().filter_by(

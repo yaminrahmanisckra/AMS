@@ -339,7 +339,7 @@ function renderStudentsTable(students) {
             : '<input type="checkbox" class="form-check-input student-cb" data-id="' + s.id + '" data-sid="' + safeSidAttr + '" data-name="' + safeNameAttr + '" data-batch="' + safeBatchAttr + '" data-remark="Regular" data-carry-on="false" data-use-relevant-for-committee="false">';
         const remarkCell = reg
             ? '<span class="text-muted">-</span>'
-            : '<select class="form-select form-select-sm remark-select"><option value="Regular" selected>Regular</option><option value="Retake">Retake</option><option value="Re-retake">Re-retake</option></select>';
+            : '<select class="form-select form-select-sm remark-select"><option value="Regular" selected>Regular</option><option value="Retake">Retake</option><option value="Re-retake">Re-retake</option><option value="Improvement">Improvement</option></select>';
         const carryOnCell = reg
             ? '<span class="text-muted">-</span>'
             : '<div class="form-check form-switch"><input class="form-check-input carry-on-cb" type="checkbox" style="display:none;"><label class="form-check-label small text-muted">-</label></div>';

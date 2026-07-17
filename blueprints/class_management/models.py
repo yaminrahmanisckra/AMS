@@ -13,6 +13,12 @@ class Teacher(db.Model):
     call_sign = db.Column(db.String(50), nullable=True)  # Call Sign for teacher
     bank_account_no = db.Column(db.String(100), nullable=True)  # Bank Account Number for teacher
     is_external = db.Column(db.Boolean, default=False, nullable=False)  # True = External Teacher (other department)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
+
+    operational_window = db.relationship(
+        'OperationalWindow',
+        backref=db.backref('teachers', lazy='dynamic'),
+    )
 
     # Define the back-population for the relationship
     class_sessions = db.relationship('Session', back_populates='teacher')

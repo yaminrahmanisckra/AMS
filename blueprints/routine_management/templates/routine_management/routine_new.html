@@ -1166,16 +1166,13 @@ body.fullscreen-active .routine-table {
                 <button type="button" class="r-courses-close course-panel-toggle" id="course-panel-close" title="Close"><i class="fas fa-times"></i></button>
             </div>
             <div class="r-courses-inner">
-                <label for="batch-select" class="r-label">Batch</label>
+                <label for="batch-select" class="r-label">Active Semester</label>
                 <select id="batch-select" class="r-select">
-                    <option value="">Select batch</option>
-                    <option value="2026">2026</option>
-                    <option value="2025">2025</option>
-                    <option value="2024">2024</option>
+                    <option value="">Select semester</option>
                 </select>
                 <input type="text" id="course-search-input" class="r-search" placeholder="Search courses">
                 <div class="r-courselist" id="courses-list">
-                    <div class="course-list-empty"><span class="course-list-empty-msg">Select a batch to see courses.</span></div>
+                    <div class="course-list-empty"><span class="course-list-empty-msg">Select a semester to see courses.</span></div>
                 </div>
             </div>
         </aside>
@@ -1393,6 +1390,7 @@ const RoutineManager = {
         conflicts: [],
         hasUnsavedChanges: false,
         batchColorMap: {},  // Cache for batch colors
+        semesterContexts: [],
         lunchAfterSlotIndex: {{ lunch_after_slot | default(3, true) }},  // Default: break after slot index
         breakType: {{ break_type | default('lunch', true) | tojson }},     // 'lunch' | 'prayer' - label for the break
         breakTimeLabel: {{ break_time_label | default('01:00 PM - 02:00 PM', true) | tojson }},  // Editable break time (Prayer/Lunch)
@@ -1804,9 +1802,9 @@ const RoutineManager = {
                 }
             });
             this.elements.batchSelect.addEventListener('change', () => {
-                const batch = this.elements.batchSelect.value;
-                if (batch) {
-                    this.loadBatchCourses(batch);
+                const semesterId = this.elements.batchSelect.value;
+                if (semesterId) {
+                    this.loadBatchCourses(semesterId);
                 } else {
                     this.showEmptyState();
                 }
@@ -1884,7 +1882,7 @@ const RoutineManager = {
         }
     },
     
-    // Load batches (always ensure dropdown has options so click works)
+    // Load active semester contexts for the course sidebar
     loadBatches: function(retryCount) {
         if (!this.elements.batchSelect) return;
         retryCount = retryCount || 0;
@@ -1892,18 +1890,11 @@ const RoutineManager = {
         this.elements.batchSelect.disabled = true;
         
         var self = this;
-        function setDefaultBatches() {
-            var y = new Date().getFullYear();
-            var opts = ['', y + '', (y-1) + '', (y-2) + ''];
-            self.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
-            opts.shift();
-            opts.forEach(function(b) {
-                var opt = document.createElement('option');
-                opt.value = b;
-                opt.textContent = b;
-                self.elements.batchSelect.appendChild(opt);
-            });
+        function showNoSemesters() {
+            self.state.semesterContexts = [];
+            self.elements.batchSelect.innerHTML = '<option value="">No active semester</option>';
             self.elements.batchSelect.disabled = false;
+            self.showEmptyState('No active semester configured for this window.');
         }
         
         var base = (this.config.apiBase || '').replace(/\/$/, '') || '/routine-management';
@@ -1911,43 +1902,99 @@ const RoutineManager = {
         
         fetch(url, { credentials: 'same-origin' })
             .then(function(response) {
-                if (!response.ok) throw new Error('Could not load batches');
+                if (!response.ok) throw new Error('Could not load semesters');
                 return response.json();
             })
             .then(function(data) {
-                if (data.success && data.batches && data.batches.length > 0) {
+                var contexts = (data && data.success && Array.isArray(data.contexts)) ? data.contexts : [];
+                self.state.semesterContexts = contexts;
+                if (contexts.length > 0) {
+                    self.elements.batchSelect.innerHTML = '<option value="">-- Select Semester --</option>';
+                    contexts.forEach(function(ctx) {
+                        var option = document.createElement('option');
+                        option.value = String(ctx.id);
+                        option.textContent = ctx.label || (
+                            [ctx.year, ctx.term, ctx.academic_session, ctx.batch ? ('Batch ' + ctx.batch) : '']
+                                .filter(Boolean)
+                                .join(' · ')
+                        );
+                        option.dataset.batch = ctx.batch || '';
+                        option.dataset.session = ctx.academic_session || '';
+                        option.dataset.year = ctx.year || '';
+                        option.dataset.term = ctx.term || '';
+                        self.elements.batchSelect.appendChild(option);
+                    });
+                } else if (data && data.success && data.batches && data.batches.length > 0) {
                     self.elements.batchSelect.innerHTML = '<option value="">-- Select Batch --</option>';
                     data.batches.forEach(function(b) {
                         var option = document.createElement('option');
                         option.value = b;
                         option.textContent = b;
+                        option.dataset.batch = b;
                         self.elements.batchSelect.appendChild(option);
                     });
                 } else {
-                    setDefaultBatches();
+                    showNoSemesters();
+                    return;
                 }
                 self.elements.batchSelect.disabled = false;
             })
             .catch(function(error) {
-                console.error('Error loading batches:', error);
-                setDefaultBatches();
+                console.error('Error loading semesters:', error);
+                showNoSemesters();
                 if (retryCount === 0) {
                     setTimeout(function() { self.loadBatches(1); }, 1500);
                 }
             });
     },
 
-    // Load batch courses
-    loadBatchCourses: function(batch) {
+    _selectedSemesterContext: function(semesterId) {
+        const selectedId = String(semesterId || '').trim();
+        if (!selectedId) return null;
+
+        const fromState = (this.state.semesterContexts || []).find(function(ctx) {
+            return String(ctx.id) === selectedId;
+        });
+        if (fromState) return fromState;
+
+        const selectedOption = this.elements.batchSelect
+            ? this.elements.batchSelect.selectedOptions[0]
+            : null;
+        if (!selectedOption) return null;
+
+        return {
+            id: selectedId,
+            batch: selectedOption.dataset.batch || selectedId,
+            academic_session: selectedOption.dataset.session || '',
+            year: selectedOption.dataset.year || '',
+            term: selectedOption.dataset.term || '',
+            label: selectedOption.textContent || selectedId,
+        };
+    },
+
+    // Load courses for the selected active semester context
+    loadBatchCourses: function(semesterId) {
         if (!this.elements.coursesList) return;
-        if (!batch || String(batch).trim() === '') {
+        if (!semesterId || String(semesterId).trim() === '') {
             this.showEmptyState();
             return;
         }
+
+        const context = this._selectedSemesterContext(semesterId);
+        const batchKey = (context && context.batch) ? context.batch : String(semesterId);
         this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">Loading...</span></div>';
         
         const base = (this.config.apiBase || '').replace(/\/$/, '') || '/routine-management';
-        const url = base + '/api/courses/batch-wise?batch=' + encodeURIComponent(batch);
+        const params = new URLSearchParams();
+        if (context && context.id && String(context.id) === String(semesterId)) {
+            params.set('semester_id', String(semesterId));
+        }
+        if (context && context.batch) {
+            params.set('batch', context.batch);
+        } else {
+            params.set('batch', String(semesterId));
+        }
+        const url = base + '/api/courses/batch-wise?' + params.toString();
         
         fetch(url, { credentials: 'same-origin' })
             .then(response => {
@@ -1963,8 +2010,15 @@ const RoutineManager = {
                     this.displayCourses([]);
                     return;
                 }
-                if (data.success && data.courses_by_batch && batch in data.courses_by_batch) {
-                    const list = data.courses_by_batch[batch];
+                if (data.success && Array.isArray(data.courses)) {
+                    this.displayCourses(data.courses);
+                    return;
+                }
+                if (data.success && data.courses_by_batch) {
+                    const list = data.courses_by_batch[batchKey]
+                        || data.courses_by_batch[String(semesterId)]
+                        || Object.values(data.courses_by_batch)[0]
+                        || [];
                     this.displayCourses(Array.isArray(list) ? list : []);
                     return;
                 }
@@ -1972,28 +2026,33 @@ const RoutineManager = {
                     this.displayCourses(data.courses);
                     return;
                 }
-                if (data.success && (!data.courses_by_batch || !(batch in data.courses_by_batch))) {
+                if (data.success) {
                     this.displayCourses([]);
                     return;
                 }
-                return this.fetchFallbackCourses(batch);
+                return this.fetchFallbackCourses(batchKey, semesterId);
             })
             .catch(error => {
                 console.error('Error loading courses:', error);
-                this.fetchFallbackCourses(batch).catch(() => {
+                this.fetchFallbackCourses(batchKey, semesterId).catch(() => {
                     this.showError(error.message || 'Error loading courses');
                 });
             });
     },
 
-    fetchFallbackCourses: function(batch) {
+    fetchFallbackCourses: function(batch, semesterId) {
         if (!this.elements.coursesList) return Promise.resolve();
         const base = (this.config.apiBase || '').replace(/\/$/, '') || '/routine-management';
-        const url = base + '/api/courses-by-batch?batch=' + encodeURIComponent(batch);
+        const params = new URLSearchParams();
+        if (semesterId) params.set('semester_id', String(semesterId));
+        params.set('batch', batch);
+        const url = base + '/api/courses-by-batch?' + params.toString();
         return fetch(url, { credentials: 'same-origin' })
             .then(response => response.json())
             .then(data => {
-                if (data && data.success && data.courses_by_batch && batch in data.courses_by_batch) {
+                if (data && data.success && Array.isArray(data.courses)) {
+                    this.displayCourses(data.courses);
+                } else if (data && data.success && data.courses_by_batch && batch in data.courses_by_batch) {
                     const list = data.courses_by_batch[batch];
                     this.displayCourses(Array.isArray(list) ? list : []);
                 } else if (data && data.success && Array.isArray(data.courses)) {
@@ -2015,7 +2074,7 @@ const RoutineManager = {
     displayCourses: function(courses) {
         if (!this.elements.coursesList) return;
         if (!courses || courses.length === 0) {
-            this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">No courses for this batch.</span></div>';
+            this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">No courses for this semester.</span></div>';
             return;
         }
 
@@ -2177,9 +2236,10 @@ const RoutineManager = {
     },
 
     // Show empty state
-    showEmptyState: function() {
+    showEmptyState: function(message) {
         if (!this.elements.coursesList) return;
-        this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">Select a batch above to see courses.</span></div>';
+        const text = message || 'Select a semester above to see courses.';
+        this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">' + text + '</span></div>';
     },
 
     // Show error

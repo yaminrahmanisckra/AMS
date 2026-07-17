@@ -6,7 +6,17 @@ from blueprints.course_management.models import Course
 class Room(db.Model):
     __tablename__ = 'room'
     id = db.Column(db.Integer, primary_key=True)
-    room_number = db.Column(db.String(20), nullable=False, unique=True)
+    room_number = db.Column(db.String(20), nullable=False)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
+
+    operational_window = db.relationship(
+        'OperationalWindow',
+        backref=db.backref('rooms', lazy='dynamic'),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('window_id', 'room_number', name='uq_room_window_number'),
+    )
 
     def __repr__(self):
         return f'<Room {self.room_number}>'

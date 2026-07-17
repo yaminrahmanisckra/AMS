@@ -250,6 +250,46 @@ EXECUTE alterIfNotExists;
 DEALLOCATE PREPARE alterIfNotExists;
 
 -- ============================================
+-- 7. ROOM TABLE - Window-scoped rooms for Routine Management
+-- ============================================
+SET @tablename = 'room';
+SET @columnname = 'window_id';
+SET @preparedStatement = (SELECT IF(
+  (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE
+      (TABLE_SCHEMA = @dbname)
+      AND (TABLE_NAME = @tablename)
+      AND (COLUMN_NAME = @columnname)
+  ) > 0,
+  'SELECT 1',
+  CONCAT('ALTER TABLE ', @tablename, ' ADD COLUMN ', @columnname, ' INT NULL, ADD INDEX idx_room_window_id (', @columnname, '), ADD CONSTRAINT fk_room_window FOREIGN KEY (', @columnname, ') REFERENCES operational_window(id) ON DELETE SET NULL')
+));
+PREPARE alterIfNotExists FROM @preparedStatement;
+EXECUTE alterIfNotExists;
+DEALLOCATE PREPARE alterIfNotExists;
+
+-- ============================================
+-- 8. TEACHER TABLE - Window-scoped teachers for Routine Management
+-- ============================================
+SET @tablename = 'teacher';
+SET @columnname = 'window_id';
+SET @preparedStatement = (SELECT IF(
+  (
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE
+      (TABLE_SCHEMA = @dbname)
+      AND (TABLE_NAME = @tablename)
+      AND (COLUMN_NAME = @columnname)
+  ) > 0,
+  'SELECT 1',
+  CONCAT('ALTER TABLE ', @tablename, ' ADD COLUMN ', @columnname, ' INT NULL, ADD INDEX idx_teacher_window_id (', @columnname, '), ADD CONSTRAINT fk_teacher_window FOREIGN KEY (', @columnname, ') REFERENCES operational_window(id) ON DELETE SET NULL')
+));
+PREPARE alterIfNotExists FROM @preparedStatement;
+EXECUTE alterIfNotExists;
+DEALLOCATE PREPARE alterIfNotExists;
+
+-- ============================================
 -- SUCCESS MESSAGE
 -- ============================================
 SELECT 'Migration completed successfully! All missing columns have been added without affecting existing data.' AS Status;
