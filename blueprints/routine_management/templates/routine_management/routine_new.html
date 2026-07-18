@@ -3879,6 +3879,7 @@ const RoutineManager = {
         });
 
         // Re-cache and re-render
+        this.config.timeSlots = Array.isArray(newSlots) ? newSlots.slice() : [];
         this.elements.slotCells = document.querySelectorAll('.slot-cell');
         this.setupEditableHeaders();
         this.setupDragAndDrop();
@@ -3886,17 +3887,57 @@ const RoutineManager = {
         this.updateRoutineDisplay();
     },
 
+    getCurrentTimeSlots: function() {
+        const fromTable = [];
+        if (this.elements.routineTable) {
+            this.elements.routineTable.querySelectorAll('thead th.time-col').forEach(function(th) {
+                const slot = (th.dataset.slot || th.textContent || '').trim();
+                if (slot) fromTable.push(slot);
+            });
+        }
+        if (fromTable.length) return fromTable;
+        if (Array.isArray(this.config.timeSlots) && this.config.timeSlots.length) {
+            return this.config.timeSlots.slice();
+        }
+        return [];
+    },
+
     // Show custom entry modal
     showCustomEntryModal: function() {
         const modal = this.elements.customEntryModal;
         if (!modal) return;
+
+        // Sync Time Slot options with the slots currently shown in the routine table
+        // (saved routines often differ from the page-load defaults).
+        const slotSelect = document.getElementById('custom-time-slot');
+        if (slotSelect) {
+            const slots = this.getCurrentTimeSlots();
+            slotSelect.innerHTML = '';
+            if (!slots.length) {
+                const emptyOpt = document.createElement('option');
+                emptyOpt.value = '';
+                emptyOpt.textContent = 'No time slots available';
+                slotSelect.appendChild(emptyOpt);
+            } else {
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = '-- Select Time Slot --';
+                slotSelect.appendChild(placeholder);
+                slots.forEach(function(slot) {
+                    const opt = document.createElement('option');
+                    opt.value = slot;
+                    opt.textContent = slot;
+                    slotSelect.appendChild(opt);
+                });
+            }
+        }
 
         // Reset form
         document.getElementById('custom-course-code').value = '';
         document.getElementById('custom-teacher-select').value = '';
         document.getElementById('custom-batch').value = '';
         document.getElementById('custom-day').value = 'Sunday';
-        document.getElementById('custom-time-slot').value = '';
+        if (slotSelect) slotSelect.value = '';
         document.getElementById('custom-room').value = '';
 
         modal.classList.add('active');

@@ -290,6 +290,29 @@ EXECUTE alterIfNotExists;
 DEALLOCATE PREPARE alterIfNotExists;
 
 -- ============================================
+-- STUDENT DASHBOARD CARD SETTINGS
+-- ============================================
+CREATE TABLE IF NOT EXISTS student_dashboard_card (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    card_key VARCHAR(50) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    description VARCHAR(255) NULL,
+    is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    updated_at DATETIME NULL,
+    UNIQUE KEY uq_student_dashboard_card_key (card_key),
+    KEY idx_student_dashboard_card_key (card_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO student_dashboard_card (card_key, label, description, is_enabled, sort_order, updated_at) VALUES
+('course_files', 'Course Files', 'Download course outlines and files uploaded by teachers.', 1, 1, UTC_TIMESTAMP()),
+('question_bank', 'Question Bank', 'Download previous years'' question papers in PDF.', 1, 2, UTC_TIMESTAMP()),
+('class_routine', 'Class Routine', 'View and download your class routine.', 1, 3, UTC_TIMESTAMP()),
+('academic_calendar', 'Academic Calendar', 'View holidays, events, and important academic dates.', 1, 4, UTC_TIMESTAMP()),
+('my_scores', 'My Scores', 'View your assessment and attendance scores.', 1, 5, UTC_TIMESTAMP()),
+('course_registration', 'Course Registration', 'Select session, year, term and download your registration form.', 1, 6, UTC_TIMESTAMP());
+
+-- ============================================
 -- SUCCESS MESSAGE
 -- ============================================
 SELECT 'Migration completed successfully! All missing columns have been added without affecting existing data.' AS Status;

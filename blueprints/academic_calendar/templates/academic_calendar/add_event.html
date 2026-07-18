@@ -9,8 +9,11 @@
     <div class="row justify-content-center">
         <div class="col-md-8">
             <div class="card shadow">
-                <div class="card-header bg-primary text-white">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="fas fa-plus me-2"></i>Add Calendar Event</h5>
+                    {% if active_window_id %}
+                    <span class="badge bg-light text-primary" title="Operational window">W{{ active_window_id }}</span>
+                    {% endif %}
                 </div>
                 <div class="card-body">
                     <form method="POST">
@@ -52,7 +55,9 @@
                         <div id="semester_fields" style="display: none;">
                             <div class="alert alert-info mb-3">
                                 <i class="fas fa-info-circle me-2"></i>
-                                <strong>Select Academic Sessions first:</strong> After selecting Academic Session(s), available Years and Terms will be filtered automatically. Select one or multiple options. Events will be created for each combination.
+                                <strong>Select Academic Sessions first:</strong> Options are limited to the current operational window
+                                {% if active_window_id %}(W{{ active_window_id }}){% endif %}.
+                                After selecting Academic Session(s), available Years and Terms will be filtered automatically.
                             </div>
                             
                             <div class="row">

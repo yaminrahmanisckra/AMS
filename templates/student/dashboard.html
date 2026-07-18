@@ -9,7 +9,17 @@
         <p class="text-muted mb-0" style="font-size: 0.9rem;">Please complete your course registration to proceed with academic activities.</p>
     </div>
 
+    {% set card_map = cards if cards is defined else {} %}
+    {% set any_card = card_map.course_files or card_map.question_bank or card_map.class_routine or card_map.academic_calendar or card_map.my_scores or card_map.course_registration %}
+
+    {% if not any_card %}
+    <div class="alert alert-light border text-center py-5">
+        <i class="fas fa-info-circle fa-2x text-muted mb-3"></i>
+        <p class="mb-0 text-muted">No dashboard features are available right now. Please contact your administrator.</p>
+    </div>
+    {% else %}
     <div class="row justify-content-center g-3">
+        {% if card_map.course_files %}
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
             <a href="{{ url_for('class_management.student_course_files') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
@@ -23,6 +33,8 @@
                 </div>
             </a>
         </div>
+        {% endif %}
+        {% if card_map.question_bank %}
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
             <a href="/class-management/question-bank" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
@@ -36,6 +48,8 @@
                 </div>
             </a>
         </div>
+        {% endif %}
+        {% if card_map.class_routine %}
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
             <a href="{{ url_for('routine_management.view_routine') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
@@ -49,6 +63,8 @@
                 </div>
             </a>
         </div>
+        {% endif %}
+        {% if card_map.academic_calendar %}
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
             <a href="{{ url_for('academic_calendar.index') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
@@ -62,6 +78,8 @@
                 </div>
             </a>
         </div>
+        {% endif %}
+        {% if card_map.my_scores %}
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
             <a href="{{ url_for('class_management.student_view_scores') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
@@ -75,6 +93,8 @@
                 </div>
             </a>
         </div>
+        {% endif %}
+        {% if card_map.course_registration %}
         <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
             <a href="{{ url_for('course_management.student_course_registration') }}" class="text-decoration-none">
                 <div class="card shadow-sm text-center course-card h-100">
@@ -88,7 +108,9 @@
                 </div>
             </a>
         </div>
+        {% endif %}
     </div>
+    {% endif %}
 </div>
 
 <style>
@@ -150,6 +172,4 @@
     }
 }
 </style>
-
 {% endblock %}
-

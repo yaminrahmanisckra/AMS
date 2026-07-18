@@ -7512,6 +7512,10 @@ def auto_save_assessment(session_id):
 @login_required
 def student_view_scores():
     """Student view for revealed assessment and attendance scores"""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('my_scores')
+    if blocked:
+        return blocked
     try:
         import json
         from flask_login import current_user
@@ -10543,6 +10547,10 @@ def student_feedback_responses_docx(session_id):
 @login_required
 def student_course_files():
     """Student view for course files - course outlines and teacher-uploaded files"""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('course_files')
+    if blocked:
+        return blocked
     try:
         # Get student ID from current user (assuming username is student_id)
         student_id = current_user.username if hasattr(current_user, 'username') else None
@@ -10709,6 +10717,10 @@ def student_download_uploaded_file(file_id):
 @login_required
 def question_bank():
     """Past question bank page grouped by folder name."""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('question_bank')
+    if blocked:
+        return blocked
     # Optional filters via querystring (GET)
     folder_filter = (request.args.get('folder_name') or '').strip()
     year_filter = (request.args.get('question_year') or '').strip()

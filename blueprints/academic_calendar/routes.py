@@ -9,7 +9,7 @@ from user_models import User
 from role_utils import parse_roles, has_teacher_privileges
 from utils.window_utils import (
     query_for_window, stamp_window_id, filter_by_window_sessions,
-    get_or_404_for_window,
+    get_or_404_for_window, get_effective_window_id, DEFAULT_WINDOW_ID,
 )
 from blueprints.class_management.models import Session, Teacher, ClassStudent
 from blueprints.student_management.models import Student
@@ -23,6 +23,35 @@ def _batch_events_query():
 
 def _get_batch_event_or_404(event_id):
     return _batch_events_query().filter_by(id=event_id).first_or_404()
+
+
+def _calendar_window_id():
+    """Selected operational window for calendar edits (always honor session window)."""
+    window_id = get_effective_window_id(admin_override=False)
+    return window_id if window_id is not None else DEFAULT_WINDOW_ID
+
+
+def _scoped_class_sessions():
+    """Class sessions belonging to the selected operational window."""
+    return query_for_window(Session, admin_override=False)
+
+
+def _window_session_options():
+    """Distinct year / term / academic_session values for Add Calendar Event."""
+    scoped = _scoped_class_sessions()
+    unique_years = scoped.with_entities(Session.year).distinct().order_by(Session.year.desc()).all()
+    years_list = [y[0] for y in unique_years if y[0]]
+
+    unique_terms = scoped.with_entities(Session.term).distinct().order_by(Session.term).all()
+    terms_list = [t[0] for t in unique_terms if t[0]]
+
+    unique_sessions = scoped.with_entities(Session.academic_session).distinct().filter(
+        Session.academic_session.isnot(None),
+    ).order_by(Session.academic_session.desc()).all()
+    academic_sessions_list = [s[0] for s in unique_sessions if s[0]]
+
+    return years_list, terms_list, academic_sessions_list
+
 
 def can_edit_calendar():
     """Check if current user can edit calendar (Head or Teaching Assistant)"""
@@ -188,6 +217,10 @@ def _merge_upcoming_semester_events(upcoming_events):
 @login_required
 def index():
     """Display academic calendar with events and holidays"""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('academic_calendar')
+    if blocked:
+        return blocked
     try:
         # Ensure table exists - try to create if it doesn't
         try:
@@ -491,23 +524,16 @@ def add_event():
         flash('You do not have permission to edit the calendar.', 'danger')
         return redirect(url_for('academic_calendar.index'))
     
-    # Get unique years, terms, and academic sessions from Session table for dropdowns
+    # Window-scoped years / terms / academic sessions for dropdowns
     try:
-        unique_years = db.session.query(Session.year).distinct().order_by(Session.year.desc()).all()
-        years_list = [y[0] for y in unique_years if y[0]]
-        
-        unique_terms = db.session.query(Session.term).distinct().order_by(Session.term).all()
-        terms_list = [t[0] for t in unique_terms if t[0]]
-        
-        unique_sessions = db.session.query(Session.academic_session).distinct().filter(
-            Session.academic_session.isnot(None)
-        ).order_by(Session.academic_session.desc()).all()
-        academic_sessions_list = [s[0] for s in unique_sessions if s[0]]
+        years_list, terms_list, academic_sessions_list = _window_session_options()
     except Exception as e:
         current_app.logger.warning(f"Error fetching session data: {e}")
         years_list = []
         terms_list = []
         academic_sessions_list = []
+
+    calendar_window_id = _calendar_window_id()
     
     if request.method == 'POST':
         try:
@@ -544,6 +570,13 @@ def add_event():
                 selected_years = request.form.getlist('selected_years')
                 selected_terms = request.form.getlist('selected_terms')
                 selected_academic_sessions = request.form.getlist('selected_academic_sessions')
+
+                # Only allow values that exist in this window
+                selected_years = [y for y in selected_years if y in years_list]
+                selected_terms = [t for t in selected_terms if t in terms_list]
+                selected_academic_sessions = [
+                    s for s in selected_academic_sessions if s in academic_sessions_list
+                ]
                 
                 # If no selections, create a single event
                 if not selected_years and not selected_terms and not selected_academic_sessions:
@@ -555,13 +588,13 @@ def add_event():
                         event_type=event_type,
                         created_by_id=current_user.id
                     )
-                    stamp_window_id(event)
+                    stamp_window_id(event, window_id=calendar_window_id)
                     db.session.add(event)
                 else:
                     # Create events for each combination
                     events_created = 0
                     
-                    # If no specific selections, use all combinations
+                    # If no specific selections, use all combinations from this window
                     if not selected_years:
                         selected_years = years_list
                     if not selected_terms:
@@ -609,7 +642,7 @@ def add_event():
                                     event_type=event_type,
                                     created_by_id=current_user.id
                                 )
-                                stamp_window_id(event)
+                                stamp_window_id(event, window_id=calendar_window_id)
                                 db.session.add(event)
                                 events_created += 1
                     
@@ -627,7 +660,7 @@ def add_event():
                     event_type=event_type,
                     created_by_id=current_user.id
                 )
-                stamp_window_id(event)
+                stamp_window_id(event, window_id=calendar_window_id)
                 db.session.add(event)
             
             try:
@@ -662,29 +695,33 @@ def add_event():
     return render_template('academic_calendar/add_event.html',
                          years_list=years_list,
                          terms_list=terms_list,
-                         academic_sessions_list=academic_sessions_list)
+                         academic_sessions_list=academic_sessions_list,
+                         active_window_id=calendar_window_id)
+
 
 @academic_calendar_bp.route('/api/sessions-years-terms', methods=['POST'])
 @login_required
 def api_sessions_years_terms():
     """API endpoint to get available years and terms for selected academic sessions"""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         selected_sessions = data.get('sessions', [])
-        
+        scoped = _scoped_class_sessions()
+
         if not selected_sessions:
-            # If no sessions selected, return all years and terms
+            # If no sessions selected, return window-scoped years and terms
             try:
-                unique_years = db.session.query(Session.year).distinct().order_by(Session.year.desc()).all()
+                unique_years = scoped.with_entities(Session.year).distinct().order_by(Session.year.desc()).all()
                 years_list = [y[0] for y in unique_years if y[0]]
-                
-                unique_terms = db.session.query(Session.term).distinct().order_by(Session.term).all()
+
+                unique_terms = scoped.with_entities(Session.term).distinct().order_by(Session.term).all()
                 terms_list = [t[0] for t in unique_terms if t[0]]
-                
+
                 return jsonify({
                     'success': True,
                     'years': years_list,
-                    'terms': terms_list
+                    'terms': terms_list,
+                    'window_id': _calendar_window_id(),
                 })
             except Exception as e:
                 current_app.logger.error(f"Error fetching all years/terms: {e}")
@@ -693,27 +730,22 @@ def api_sessions_years_terms():
                     'years': [],
                     'terms': []
                 })
-        
-        # Get years and terms for selected sessions
+
+        # Get years and terms for selected sessions within this window
         try:
-            sessions_query = query_for_window(Session).filter(
-                Session.academic_session.in_(selected_sessions)
-            )
-            
-            unique_years = db.session.query(Session.year).filter(
-                Session.academic_session.in_(selected_sessions)
-            ).distinct().order_by(Session.year.desc()).all()
+            filtered = scoped.filter(Session.academic_session.in_(selected_sessions))
+
+            unique_years = filtered.with_entities(Session.year).distinct().order_by(Session.year.desc()).all()
             years_list = [y[0] for y in unique_years if y[0]]
-            
-            unique_terms = db.session.query(Session.term).filter(
-                Session.academic_session.in_(selected_sessions)
-            ).distinct().order_by(Session.term).all()
+
+            unique_terms = filtered.with_entities(Session.term).distinct().order_by(Session.term).all()
             terms_list = [t[0] for t in unique_terms if t[0]]
-            
+
             return jsonify({
                 'success': True,
                 'years': years_list,
-                'terms': terms_list
+                'terms': terms_list,
+                'window_id': _calendar_window_id(),
             })
         except Exception as e:
             current_app.logger.error(f"Error fetching years/terms for sessions: {e}", exc_info=True)
@@ -723,7 +755,7 @@ def api_sessions_years_terms():
                 'years': [],
                 'terms': []
             }), 500
-            
+
     except Exception as e:
         current_app.logger.error(f"Error in api_sessions_years_terms: {e}", exc_info=True)
         return jsonify({
@@ -883,21 +915,93 @@ def export_event_ics(event_id):
         flash('Error exporting event.', 'error')
         return redirect(url_for('academic_calendar.index'))
 
+def _is_weekend_holiday_entry(event_or_title):
+    """True for Friday/Saturday weekly holiday rows (everyone already knows weekends are off)."""
+    if isinstance(event_or_title, str):
+        title = event_or_title.strip()
+    else:
+        title = (getattr(event_or_title, 'title', None) or '').strip()
+    if not title:
+        return False
+    exact = {
+        'শুক্রবার (ছুটি)',
+        'শনিবার (ছুটি)',
+        'Weekly Holiday - Friday',
+        'Weekly Holiday - Saturday',
+    }
+    if title in exact:
+        return True
+    if 'শুক্রবার' in title and 'ছুটি' in title:
+        return True
+    if 'শনিবার' in title and 'ছুটি' in title:
+        return True
+    return False
+
+
+def _event_overlaps_date_range(event, range_start, range_end):
+    """True if event (or its end_date span) overlaps [range_start, range_end]."""
+    start = getattr(event, 'event_date', None)
+    if not start:
+        return False
+    end = getattr(event, 'end_date', None) or start
+    return start <= range_end and end >= range_start
+
+
+def _parse_export_date_range():
+    """Parse optional from_date/to_date (YYYY-MM-DD). Returns (start, end), (None, None), or ('invalid', None)."""
+    from_raw = (request.args.get('from_date') or '').strip()
+    to_raw = (request.args.get('to_date') or '').strip()
+
+    if not from_raw and not to_raw:
+        return None, None
+    if not from_raw or not to_raw:
+        return 'invalid', None
+
+    try:
+        range_start = datetime.strptime(from_raw, '%Y-%m-%d').date()
+        range_end = datetime.strptime(to_raw, '%Y-%m-%d').date()
+    except ValueError:
+        return 'invalid', None
+
+    if range_start.year < 1900 or range_end.year > 2100:
+        return 'invalid', None
+    if range_start > range_end:
+        return 'invalid', None
+    return range_start, range_end
+
+
 @academic_calendar_bp.route('/export/all.ics')
 @login_required
 def export_all_ics():
-    """Export all events as ICS file (calendar feed)"""
+    """Export calendar events as ICS (optional date range; excludes Fri/Sat weekly holidays)."""
     try:
-        # Get all events
-        events = query_for_window(AcademicCalendarEvent).order_by(AcademicCalendarEvent.event_date.asc()).all()
-        
-        # Generate ICS content for all events
+        range_start, range_end = _parse_export_date_range()
+        if range_start == 'invalid':
+            flash('Invalid date range: choose a valid From and To date (From ≤ To).', 'error')
+            return redirect(url_for('academic_calendar.index'))
+
+        events = query_for_window(AcademicCalendarEvent).order_by(
+            AcademicCalendarEvent.event_date.asc()
+        ).all()
+
+        if range_start and range_end:
+            events = [e for e in events if _event_overlaps_date_range(e, range_start, range_end)]
+
+        # Never include Friday/Saturday weekly holiday entries in ICS downloads
+        events = [e for e in events if not _is_weekend_holiday_entry(e)]
+
         ics_content = generate_ics_calendar(events, include_weekly_holidays=False)
-        
-        # Return as downloadable file or calendar feed
+
+        if range_start and range_end:
+            filename = (
+                f'academic_calendar_{range_start.strftime("%Y-%m-%d")}'
+                f'_to_{range_end.strftime("%Y-%m-%d")}.ics'
+            )
+        else:
+            filename = 'academic_calendar.ics'
+
         response = Response(ics_content, mimetype='text/calendar')
-        response.headers['Content-Disposition'] = 'attachment; filename="academic_calendar.ics"'
-        # Also allow subscription
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
         response.headers['Content-Type'] = 'text/calendar; charset=utf-8'
         return response
     except Exception as e:
@@ -1057,7 +1161,7 @@ def generate_ics_calendar(events, include_weekly_holidays=False):
         key=lambda e: e['event_date'] if isinstance(e, dict) else e.event_date
     )
 
-    # Add regular and grouped events
+    # Add regular and grouped events (skip Fri/Sat weekly holiday titles unless explicitly requested)
     for event in normalized_events:
         if isinstance(event, dict):
             event_date = event.get('event_date')
@@ -1075,6 +1179,9 @@ def generate_ics_calendar(events, include_weekly_holidays=False):
             uid = f"academic-event-{event.id}@khulna-university"
             created_at = event.created_at
             updated_at = event.updated_at
+
+        if not include_weekly_holidays and _is_weekend_holiday_entry(title_raw or ''):
+            continue
 
         dtstart = event_date.strftime('%Y%m%d')
         if end_date and end_date > event_date:

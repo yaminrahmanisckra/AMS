@@ -550,6 +550,10 @@ def index():
 @login_required
 def public_routines():
     """View public (revealed) routines - accessible to all users"""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('class_routine')
+    if blocked:
+        return blocked
     from sqlalchemy import text
     
     can_edit = can_edit_routine()
@@ -1011,6 +1015,10 @@ def check_edit_permission():
 @login_required
 def view_routine():
     """View routine - accessible to all users, but only routine makers can edit"""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('class_routine')
+    if blocked:
+        return blocked
     from blueprints.course_management.models import Curriculum
     from sqlalchemy import text, inspect
     

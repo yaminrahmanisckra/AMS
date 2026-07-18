@@ -37,6 +37,7 @@ from blueprints.class_management.models import (
 from blueprints.student_management.models import Student
 from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig, CourseSessionAssignment, OperationalWindow
 from utils.ai.models import AIProviderSetting, AIOutlineGenerationJob, AIOutlineGenerationLog, AIOutlineBatchJob  # noqa: F401
+from utils.dashboard_settings import StudentDashboardCard  # noqa: F401
 from blueprints.remuneration_management.models import RemunerationForm
 from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window, filter_offered_courses
 
@@ -3468,6 +3469,30 @@ def create_app():
         flash('AI provider deleted.', 'success')
         return redirect(url_for('admin_ai_settings'))
 
+    @app.route('/admin/student-dashboard-settings', methods=['GET', 'POST'])
+    @login_required
+    def admin_student_dashboard_settings():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from utils.dashboard_settings import ensure_student_dashboard_cards
+
+        cards = ensure_student_dashboard_cards()
+
+        if request.method == 'POST':
+            enabled_keys = set(request.form.getlist('enabled_cards'))
+            for card in cards:
+                card.is_enabled = card.card_key in enabled_keys
+            db.session.commit()
+            flash('Student dashboard card settings saved.', 'success')
+            return redirect(url_for('admin_student_dashboard_settings'))
+
+        return render_template(
+            'admin/student_dashboard_settings.html',
+            cards=cards,
+        )
+
     @app.route('/admin/active-semester/preview-deletion', methods=['POST'])
     @login_required
     def admin_preview_deletion():
@@ -4011,7 +4036,9 @@ def create_app():
         if 'student' not in roles and 'teaching_assistant' not in roles:
             flash('Student dashboard is available only for student accounts.', 'danger')
             return redirect(url_for('index'))
-        response = make_response(render_template('student/dashboard.html'))
+        from utils.dashboard_settings import get_student_dashboard_card_map
+        cards = get_student_dashboard_card_map()
+        response = make_response(render_template('student/dashboard.html', cards=cards))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
         response.headers['Pragma'] = 'no-cache'

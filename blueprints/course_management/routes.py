@@ -19,6 +19,7 @@ try:
         query_for_window,
         stamp_window_id,
         get_for_window,
+        DEFAULT_WINDOW_ID,
     )
 except ImportError:
     filter_by_active_window = None
@@ -27,6 +28,7 @@ except ImportError:
     query_for_window = None
     stamp_window_id = None
     get_for_window = None
+    DEFAULT_WINDOW_ID = 1
 from user_models import User
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.exc import IntegrityError
@@ -51,11 +53,25 @@ def _csa_query():
 def _active_window_id():
     """Resolved operational window id for curriculum UI and writes."""
     if not get_effective_window_id:
-        return 1
-    window_id = get_effective_window_id(admin_override=is_admin(current_user))
+        return DEFAULT_WINDOW_ID
+    # Always honor the user's selected window (including Head/Admin with W2).
+    window_id = get_effective_window_id(admin_override=False)
     if window_id is None:
-        return 1
+        return DEFAULT_WINDOW_ID
     return window_id
+
+
+def _window_rows_filter(model, window_id=None):
+    """Filter rows belonging to the selected operational window."""
+    window_id = _active_window_id() if window_id is None else window_id
+    if not hasattr(model, 'window_id'):
+        return True
+    if window_id == DEFAULT_WINDOW_ID:
+        return or_(
+            model.window_id == window_id,
+            model.window_id.is_(None),
+        )
+    return model.window_id == window_id
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -1448,6 +1464,10 @@ def toggle_offered(course_id):
 @login_required
 def student_course_registration():
     """Student course registration page"""
+    from utils.dashboard_settings import require_student_dashboard_card
+    blocked = require_student_dashboard_card('course_registration')
+    if blocked:
+        return blocked
     roles = parse_roles(current_user.role)
     if 'student' not in roles and 'teaching_assistant' not in roles:
         flash('Course registration is available only for student accounts.', 'danger')
@@ -1654,9 +1674,11 @@ def get_year_term_by_session():
         return jsonify({'success': False, 'message': 'Session is required'}), 400
     
     try:
+        window_id = _active_window_id()
         # Get distinct Year and Term combinations from Session table for this academic session
-        sessions = Session.query.filter_by(
-            academic_session=session_name
+        sessions = Session.query.filter(
+            Session.academic_session == session_name,
+            _window_rows_filter(Session, window_id),
         ).distinct().all()
         
         # Extract unique Year-Term combinations
@@ -1687,7 +1709,8 @@ def get_year_term_by_session():
         
         return jsonify({
             'success': True,
-            'year_term_options': year_term_list
+            'year_term_options': year_term_list,
+            'window_id': window_id,
         })
     except Exception as e:
         current_app.logger.error(f'Error getting year-term options: {e}', exc_info=True)
@@ -2672,11 +2695,24 @@ def coordinator_registrations():
             if invite.id not in entry['invite_ids']:
                 entry['invite_ids'].append(invite.id)
 
-    # Get distinct sessions and batches for filters
+    # Get distinct sessions and batches for filters (window-scoped)
+    window_id = _active_window_id()
     sessions = db.session.query(Session.academic_session).distinct().filter(
-        Session.academic_session.isnot(None)
+        Session.academic_session.isnot(None),
+        _window_rows_filter(Session, window_id),
     ).order_by(Session.academic_session.desc()).all()
     academic_sessions = [s[0] for s in sessions if s[0]]
+
+    # Also include sessions from registrations in this window (covers edge cases)
+    reg_sessions = db.session.query(StudentCourseRegistration.academic_session).distinct().filter(
+        StudentCourseRegistration.academic_session.isnot(None),
+        StudentCourseRegistration.status != 'archived',
+        _window_rows_filter(StudentCourseRegistration, window_id),
+    ).all()
+    for row in reg_sessions:
+        if row[0] and row[0] not in academic_sessions:
+            academic_sessions.append(row[0])
+    academic_sessions = sorted(academic_sessions, reverse=True)
     
     batches = []
     if Student:
@@ -2705,7 +2741,8 @@ def coordinator_registrations():
                          selected_session=session_filter,
                          selected_batch=batch_filter,
                          selected_student_id=student_id_filter,
-                         can_course_wise_review=can_course_wise_review)
+                         can_course_wise_review=can_course_wise_review,
+                         active_window_id=window_id)
 
 
 @course_management_bp.route('/coordinator/registrations/api/course-subjects', methods=['GET'])
@@ -2724,6 +2761,7 @@ def get_course_subjects_for_registration_review():
         return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
 
     try:
+        window_id = _active_window_id()
         rows = db.session.query(
             StudentCourseRegistration.student_id,
             StudentCourseRegistration.course_code,
@@ -2737,7 +2775,8 @@ def get_course_subjects_for_registration_review():
             StudentCourseRegistration.academic_session == session_name,
             StudentCourseRegistration.year == year,
             StudentCourseRegistration.term == term,
-            StudentCourseRegistration.status != 'archived'
+            StudentCourseRegistration.status != 'archived',
+            _window_rows_filter(StudentCourseRegistration, window_id),
         ).all()
 
         subjects_map = {}
@@ -2805,7 +2844,11 @@ def get_course_subjects_for_registration_review():
         } for entry in subjects_map.values()]
         subjects.sort(key=lambda item: item['course_code'])
 
-        return jsonify({'success': True, 'subjects': subjects})
+        return jsonify({
+            'success': True,
+            'subjects': subjects,
+            'window_id': window_id,
+        })
     except Exception as exc:
         current_app.logger.error(f'Error fetching course subjects for review: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': 'Error fetching subjects'}), 500
@@ -2828,6 +2871,7 @@ def get_course_wise_registrations():
         return jsonify({'success': False, 'message': 'Session, Year, Term, and Course are required'}), 400
 
     try:
+        window_id = _active_window_id()
         scope_filter, course_code_key = _registration_course_filter(
             course_code, session_name, year, term
         )
@@ -2839,7 +2883,8 @@ def get_course_wise_registrations():
             noload(StudentCourseRegistration.relevant_course),
             noload(StudentCourseRegistration.course),
         ).filter(
-            scope_filter
+            scope_filter,
+            _window_rows_filter(StudentCourseRegistration, window_id),
         ).order_by(
             Student.student_id.asc(),
             StudentCourseRegistration.id.asc()
@@ -2892,7 +2937,8 @@ def get_course_wise_registrations():
             'term': term,
             'course': course_info,
             'students': students,
-            'count': len(students)
+            'count': len(students),
+            'window_id': window_id,
         })
     except Exception as exc:
         current_app.logger.error(f'Error fetching course-wise registrations: {exc}', exc_info=True)
