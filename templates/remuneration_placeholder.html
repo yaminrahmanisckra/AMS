@@ -817,6 +817,9 @@
             <button class="btn btn-success print-btn" onclick="openBulkDownloadModal()">
                 <i class="fas fa-download me-2"></i>Bulk Download
             </button>
+            <button type="button" class="btn btn-primary print-btn" data-bs-toggle="modal" data-bs-target="#teacherGrandTotalModal">
+                <i class="fas fa-calculator me-2"></i>মোট পারিতোষিক
+            </button>
         </div>
     </div>
     <div class="rem-sheet shadow-sm">
@@ -898,21 +901,6 @@
                 <td colspan="2"><input type="date" name="exam_end_date" style="font-size: 0.8rem;"> পর্যন্ত</td>
             </tr>
         </table>
-
-        <div id="statementTotalBox" class="border rounded px-3 py-2 mb-3" style="background: #f8fafc;">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <div>
-                    <div class="fw-semibold">Statement অনুযায়ী মোট পারিতোষিক</div>
-                    <div class="small text-muted mb-0">
-                        বর্তমান Window · শিক্ষক + বর্ষ + টার্ম + শিক্ষাবর্ষ সিলেক্ট করুন (শুধু টাকা দেখাবে; ফর্ম অটো পূরণ হবে না)
-                    </div>
-                </div>
-                <div class="text-end">
-                    <div id="statementTotalAmount" class="fs-4 fw-bold text-success mb-0">—</div>
-                    <div id="statementTotalStatus" class="small text-muted">অপেক্ষমাণ…</div>
-                </div>
-            </div>
-        </div>
 
         <div class="section-title text-center">পরীক্ষা সংক্রান্ত কাজের বিবরণ</div>
         <table class="rem-table">
@@ -1462,6 +1450,69 @@
                 <td><input type="text" name="payment_date" placeholder="dd/mm/yyyy"></td>
             </tr>
         </table>
+    </div>
+</div>
+
+<!-- Teacher Grand Total Modal -->
+<div class="modal fade" id="teacherGrandTotalModal" tabindex="-1" aria-labelledby="teacherGrandTotalModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="teacherGrandTotalModalLabel">
+                    <i class="fas fa-calculator me-2"></i>শিক্ষকের মোট পারিতোষিক (সব সেশন)
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small text-muted">
+                    বর্তমান Window-এ Statement of Remuneration অনুযায়ী শিক্ষকের
+                    <strong>সব শিক্ষাবর্ষ / বর্ষ / টার্ম</strong>-এর বিলের যোগফল।
+                </p>
+                <div class="mb-3">
+                    <label for="grandTotalTeacher" class="form-label">শিক্ষক <span class="text-danger">*</span></label>
+                    <select class="form-select" id="grandTotalTeacher">
+                        <option value="">শিক্ষক সিলেক্ট করুন</option>
+                        {% for teacher in teachers %}
+                        <option value="{{ teacher.name }}">{{ teacher.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="d-flex gap-2 mb-3">
+                    <button type="button" class="btn btn-primary" id="grandTotalCalcBtn" onclick="loadTeacherGrandTotal()">
+                        <i class="fas fa-search me-1"></i>হিসাব দেখুন
+                    </button>
+                </div>
+                <div id="grandTotalStatus" class="alert alert-light border small mb-3">শিক্ষক সিলেক্ট করে হিসাব দেখুন।</div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered align-middle mb-2" id="grandTotalBreakdownTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>শিক্ষাবর্ষ</th>
+                                <th>বর্ষ</th>
+                                <th>টার্ম</th>
+                                <th class="text-end">কাজ</th>
+                                <th class="text-end">মোট টাকা</th>
+                            </tr>
+                        </thead>
+                        <tbody id="grandTotalBreakdownBody">
+                            <tr>
+                                <td colspan="5" class="text-muted text-center">এখনো কোনো ফলাফল নেই</td>
+                            </tr>
+                        </tbody>
+                        <tfoot>
+                            <tr class="table-success fw-semibold">
+                                <td colspan="3">সর্বমোট</td>
+                                <td class="text-end" id="grandTotalJobsCell">—</td>
+                                <td class="text-end" id="grandTotalAmountCell">—</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">বন্ধ</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -6389,9 +6440,7 @@ function exportToPdf() {
     });
 }
 
-// Statement-derived total (window-scoped) — display only, does not fill the bill form
-let _statementTotalTimer = null;
-
+// Teacher grand total across all session/year/term in current window
 function formatRemunerationTaka(amount) {
     const n = Number(amount) || 0;
     try {
@@ -6401,53 +6450,95 @@ function formatRemunerationTaka(amount) {
     }
 }
 
-function setStatementTotalDisplay(amount, statusText, isError) {
-    const amountEl = document.getElementById('statementTotalAmount');
-    const statusEl = document.getElementById('statementTotalStatus');
-    if (amountEl) {
-        amountEl.textContent = (amount === null || amount === undefined) ? '—' : formatRemunerationTaka(amount);
-        amountEl.classList.toggle('text-danger', !!isError);
-        amountEl.classList.toggle('text-success', !isError && amount !== null && amount !== undefined);
-        amountEl.classList.toggle('text-muted', amount === null || amount === undefined);
-    }
-    if (statusEl) {
-        statusEl.textContent = statusText || '';
-    }
-}
+async function loadTeacherGrandTotal() {
+    const teacher = (document.getElementById('grandTotalTeacher')?.value || '').trim();
+    const statusEl = document.getElementById('grandTotalStatus');
+    const bodyEl = document.getElementById('grandTotalBreakdownBody');
+    const jobsCell = document.getElementById('grandTotalJobsCell');
+    const amountCell = document.getElementById('grandTotalAmountCell');
+    const btn = document.getElementById('grandTotalCalcBtn');
 
-async function refreshStatementTotal() {
-    const teacher = (document.getElementById('applicant_name')?.value || '').trim();
-    const year = (document.getElementById('year')?.value || '').trim();
-    const term = (document.getElementById('term')?.value || '').trim();
-    const session = (document.getElementById('academic_year')?.value || '').trim();
-
-    if (!teacher || !year || !term || !session) {
-        setStatementTotalDisplay(null, 'শিক্ষক, বর্ষ, টার্ম ও শিক্ষাবর্ষ সিলেক্ট করুন');
+    if (!teacher) {
+        if (statusEl) statusEl.textContent = 'আগে শিক্ষক সিলেক্ট করুন।';
         return;
     }
 
-    setStatementTotalDisplay(null, 'হিসাব করা হচ্ছে…');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>হিসাব হচ্ছে…';
+    }
+    if (statusEl) statusEl.textContent = 'বর্তমান Window-এর সব Statement স্ক্যান করা হচ্ছে…';
+    if (bodyEl) {
+        bodyEl.innerHTML = '<tr><td colspan="5" class="text-muted text-center">লোড হচ্ছে…</td></tr>';
+    }
+
     try {
-        const url = `/remuneration/api/teacher-statement-total?teacher_name=${encodeURIComponent(teacher)}&session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        const url = `/remuneration/api/teacher-grand-total?teacher_name=${encodeURIComponent(teacher)}`;
         const response = await fetch(url);
         const data = await response.json();
         if (!data.success) {
-            setStatementTotalDisplay(null, data.message || 'হিসাব করা যায়নি', true);
+            if (statusEl) statusEl.textContent = data.message || 'হিসাব করা যায়নি';
+            if (bodyEl) {
+                bodyEl.innerHTML = '<tr><td colspan="5" class="text-danger text-center">ফলাফল পাওয়া যায়নি</td></tr>';
+            }
+            if (jobsCell) jobsCell.textContent = '—';
+            if (amountCell) amountCell.textContent = '—';
             return;
         }
-        const total = Number(data.total_amount) || 0;
-        const extra = data.job_count ? ` · ${data.job_count} টি কাজ` : '';
-        setStatementTotalDisplay(total, (data.message || '') + extra);
+
+        const rows = data.breakdown || [];
+        if (!rows.length) {
+            if (bodyEl) {
+                bodyEl.innerHTML = '<tr><td colspan="5" class="text-muted text-center">কোনো বিল পাওয়া যায়নি</td></tr>';
+            }
+        } else if (bodyEl) {
+            bodyEl.innerHTML = rows.map(function(row) {
+                return (
+                    '<tr>' +
+                    '<td>' + (row.academic_session || '') + '</td>' +
+                    '<td>' + (row.year || '') + '</td>' +
+                    '<td>' + (row.term || '') + '</td>' +
+                    '<td class="text-end">' + (row.job_count || 0) + '</td>' +
+                    '<td class="text-end">' + formatRemunerationTaka(row.total_amount) + '</td>' +
+                    '</tr>'
+                );
+            }).join('');
+        }
+
+        if (jobsCell) jobsCell.textContent = String(data.total_jobs || 0);
+        if (amountCell) amountCell.textContent = formatRemunerationTaka(data.grand_total || 0);
+        if (statusEl) {
+            statusEl.textContent = (data.message || '') +
+                (data.window_id != null ? ' · Window ' + data.window_id : '');
+        }
     } catch (err) {
-        console.error('Statement total error:', err);
-        setStatementTotalDisplay(null, 'নেটওয়ার্ক ত্রুটি', true);
+        console.error('Grand total error:', err);
+        if (statusEl) statusEl.textContent = 'নেটওয়ার্ক ত্রুটি';
+        if (bodyEl) {
+            bodyEl.innerHTML = '<tr><td colspan="5" class="text-danger text-center">ত্রুটি</td></tr>';
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-search me-1"></i>হিসাব দেখুন';
+        }
     }
 }
 
-function scheduleRefreshStatementTotal() {
-    if (_statementTotalTimer) clearTimeout(_statementTotalTimer);
-    _statementTotalTimer = setTimeout(refreshStatementTotal, 250);
-}
+// Prefill modal teacher from bill form when opened
+document.addEventListener('DOMContentLoaded', function() {
+    const modalEl = document.getElementById('teacherGrandTotalModal');
+    if (modalEl) {
+        modalEl.addEventListener('show.bs.modal', function() {
+            const formTeacher = (document.getElementById('applicant_name')?.value || '').trim();
+            const modalSelect = document.getElementById('grandTotalTeacher');
+            if (formTeacher && modalSelect) {
+                const opt = Array.from(modalSelect.options).find(o => o.value === formTeacher);
+                if (opt) modalSelect.value = formTeacher;
+            }
+        });
+    }
+});
 
 // Auto-load name and designation when teacher is selected
 document.addEventListener('DOMContentLoaded', function() {
@@ -6591,17 +6682,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Modal download uses inline onclick to avoid duplicate requests
     }
-
-    // Statement total preview (window-scoped; display only)
-    ['applicant_name', 'year', 'term', 'academic_year'].forEach(function(id) {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('change', scheduleRefreshStatementTotal);
-        }
-    });
-    scheduleRefreshStatementTotal();
-    // Re-check after saved form / default teacher selection settles
-    setTimeout(scheduleRefreshStatementTotal, 1600);
 });
 </script>
 {% endblock %}

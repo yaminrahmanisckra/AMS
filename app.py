@@ -14652,63 +14652,118 @@ def create_app():
                 'message': 'শিক্ষক লোড করতে সমস্যা হয়েছে'
             }), 500
 
-    @app.route('/remuneration/api/teacher-statement-total', methods=['GET'])
+    @app.route('/remuneration/api/teacher-grand-total', methods=['GET'])
     @login_required
-    def remuneration_teacher_statement_total():
-        """Return Statement-derived total remuneration for one teacher (window-scoped)."""
+    def remuneration_teacher_grand_total():
+        """
+        Sum Statement-derived remuneration for one teacher across ALL
+        session/year/term combos in the current operational window.
+        """
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
 
         teacher_name = (request.args.get('teacher_name') or '').strip()
-        session_val = (request.args.get('session') or '').strip()
-        year_val = (request.args.get('year') or '').strip()
-        term_val = (request.args.get('term') or '').strip()
-
-        if not teacher_name or not session_val or not year_val or not term_val:
+        if not teacher_name:
             return jsonify({
                 'success': False,
-                'message': 'শিক্ষক, শিক্ষাবর্ষ, বর্ষ ও টার্ম সিলেক্ট করুন',
+                'message': 'শিক্ষক সিলেক্ট করুন',
             }), 400
 
         try:
             from utils.window_utils import get_effective_window_id
+            from blueprints.remuneration_management.models import RemunerationForm
+            from blueprints.course_management.models import DutyAssignment
+            import json
 
             window_id = get_effective_window_id(admin_override=False)
-            statement_data = _get_remuneration_statement_data(session_val, year_val, term_val)
-            if not statement_data:
-                return jsonify({
-                    'success': True,
-                    'total_amount': 0,
-                    'job_count': 0,
-                    'teacher_name': teacher_name,
-                    'window_id': window_id,
-                    'message': 'এই Window / সেশন-বর্ষ-টার্মের জন্য Statement of Remuneration পাওয়া যায়নি',
-                })
+            contexts = set()
 
-            jobs_data, total_amount = _build_jobs_from_statement(
-                statement_data, teacher_name, year_val, term_val, session_val
-            )
-            total_amount = float(total_amount or 0)
+            # Committee contexts in this window
+            for duty in query_for_window(DutyAssignment).filter_by(
+                duty_type='exam_committee_chief',
+                status='active',
+            ).all():
+                if duty.academic_session and duty.year and duty.term:
+                    contexts.add((
+                        str(duty.academic_session).strip(),
+                        str(duty.year).strip(),
+                        str(duty.term).strip(),
+                    ))
+
+            # Statement forms saved in this window
+            form_entries = query_for_window(RemunerationForm).filter(
+                RemunerationForm.form_data.isnot(None),
+                RemunerationForm.academic_year.isnot(None),
+                RemunerationForm.year.isnot(None),
+                RemunerationForm.term.isnot(None),
+            ).order_by(RemunerationForm.id.desc()).limit(300).all()
+
+            for entry in form_entries:
+                try:
+                    parsed = json.loads(entry.form_data)
+                except Exception:
+                    continue
+                if not _is_statement_form_data(parsed):
+                    continue
+                contexts.add((
+                    str(entry.academic_year).strip(),
+                    str(entry.year).strip(),
+                    str(entry.term).strip(),
+                ))
+
+            breakdown = []
+            grand_total = 0.0
+            total_jobs = 0
+
+            for session_val, year_val, term_val in sorted(contexts):
+                statement_data = _get_remuneration_statement_data(
+                    session_val, year_val, term_val
+                )
+                if not statement_data:
+                    continue
+                try:
+                    jobs_data, total_amount = _build_jobs_from_statement(
+                        statement_data, teacher_name, year_val, term_val, session_val
+                    )
+                except Exception as build_err:
+                    current_app.logger.warning(
+                        f'Grand total skip {session_val}/{year_val}/{term_val} '
+                        f'for {teacher_name}: {build_err}'
+                    )
+                    continue
+
+                total_amount = float(total_amount or 0)
+                job_count = len(jobs_data or [])
+                if total_amount <= 0 and job_count <= 0:
+                    continue
+
+                grand_total += total_amount
+                total_jobs += job_count
+                breakdown.append({
+                    'academic_session': session_val,
+                    'year': year_val,
+                    'term': term_val,
+                    'total_amount': total_amount,
+                    'job_count': job_count,
+                })
 
             return jsonify({
                 'success': True,
-                'total_amount': total_amount,
-                'job_count': len(jobs_data or []),
                 'teacher_name': teacher_name,
-                'academic_session': session_val,
-                'year': year_val,
-                'term': term_val,
                 'window_id': window_id,
+                'grand_total': grand_total,
+                'total_jobs': total_jobs,
+                'breakdown': breakdown,
                 'message': (
-                    'Statement অনুযায়ী মোট পারিতোষিক'
-                    if total_amount > 0
-                    else 'এই শিক্ষকের জন্য Statement-এ কোনো বিল আইটেম পাওয়া যায়নি'
+                    f'{len(breakdown)} টি সেশন/বর্ষ/টার্মে বিল পাওয়া গেছে'
+                    if breakdown
+                    else 'বর্তমান Window-এ এই শিক্ষকের কোনো Statement বিল পাওয়া যায়নি'
                 ),
             })
         except Exception as e:
             current_app.logger.error(
-                f'Error computing teacher statement total: {e}', exc_info=True
+                f'Error computing teacher grand total: {e}', exc_info=True
             )
             return jsonify({
                 'success': False,
