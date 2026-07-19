@@ -12666,232 +12666,221 @@ def create_app():
             return jsonify({'success': False, 'message': 'Failed to fetch courses'}), 500
 
     def _normalize_remuneration_csa_section(section):
-        """Normalize CSA section: empty/'Full' => Full; A/B kept uppercased."""
+        """Normalize CSA section: empty/'Full' => ''; A/B kept uppercased."""
         value = (section or '').strip()
         if not value or value.lower() in ('full', 'full course', 'entire'):
             return ''
         return value.upper()
 
     def _remuneration_assignment_payload(course, assignment, section_label, is_split):
-        return {
-            'course_id': course.id,
-            'course_code': course.course_code,
-            'course_name': course.course_name,
-            'section': section_label,
-            'teacher_name': assignment.teacher.name,
-            'teacher_designation': assignment.teacher.designation or '',
-            'teacher_institute': assignment.teacher.institute or 'Law Discipline, KU',
-            'is_split': is_split,
-        }
-
-    def _filter_live_course_assignments(assignments):
-        """Drop CSA rows whose linked class session is archived (stale after unassign)."""
-        try:
-            from blueprints.class_management.models import Session as ClassSession
-        except Exception:
-            return list(assignments)
-
-        live = []
-        for assignment in assignments:
-            if assignment.session_id:
-                try:
-                    sess = ClassSession.query.get(assignment.session_id)
-                    if sess is not None and getattr(sess, 'archived', False):
-                        continue
-                except Exception:
-                    pass
-            live.append(assignment)
-        return live
-
-    def _group_assignments_by_course(assignments):
-        grouped = {}
-        for assignment in assignments:
-            grouped.setdefault(assignment.course_id, []).append(assignment)
-        return grouped
-
-    def _pick_full_assignment(course_assignments):
-        for assignment in course_assignments:
-            if _normalize_remuneration_csa_section(assignment.section) == '':
-                return assignment
-        return None
-
-    def _active_full_class_sessions(course_code, year, term, academic_session):
-        """Live Class Management Full sessions for this offering (window-scoped)."""
-        try:
-            from blueprints.class_management.models import Session as ClassSession
-        except Exception:
-            return []
-        try:
-            sessions = query_for_window(ClassSession).filter(
-                ClassSession.course_code == course_code,
-                ClassSession.year == year,
-                ClassSession.term == term,
-                ClassSession.archived.is_(False),
-                ClassSession.is_external_course.is_(False),
-            ).all()
-        except Exception:
-            return []
-        full_sessions = [
-            s for s in sessions
-            if (getattr(s, 'course_scope', None) or 'full') == 'full'
-        ]
-        if not full_sessions:
-            return []
-        if academic_session:
-            matched = [
-                s for s in full_sessions
-                if not s.academic_session
-                or str(s.academic_session).strip() == str(academic_session).strip()
-            ]
-            if matched:
-                return matched
-        return full_sessions
-
-    def _payload_from_class_session(course, session_obj):
-        teacher = getattr(session_obj, 'teacher', None)
+        teacher = assignment.teacher
         if not teacher:
             return None
         return {
             'course_id': course.id,
             'course_code': course.course_code,
             'course_name': course.course_name,
-            'section': 'Full',
+            'section': section_label,
             'teacher_name': teacher.name,
             'teacher_designation': teacher.designation or '',
             'teacher_institute': teacher.institute or 'Law Discipline, KU',
-            'is_split': False,
+            'is_split': is_split,
         }
 
-    @app.route('/remuneration/api/course-assignments', methods=['GET'])
-    @login_required
-    def remuneration_get_course_assignments():
-        """Get course assignments with teacher and section info for Table 4 (Class Test)"""
-        restriction = _require_teacher_privileges()
-        if restriction:
-            return restriction
-        
-        academic_session = request.args.get('academic_session')
-        year = request.args.get('year')
-        term = request.args.get('term')
-        
-        if not all([academic_session, year, term]):
-            return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
-        
-        try:
-            from blueprints.course_management.models import CourseSessionAssignment, Course, CurriculumYearTerm
-            
-            # Find curriculum year/term configs matching the criteria
-            configs = query_for_window(CurriculumYearTerm).filter_by(
-                academic_session=academic_session,
-                year=year,
-                term=term
-            ).all()
-            
-            if not configs:
-                return jsonify({'success': True, 'assignments': []})
-            
-            # Get all curriculum IDs
-            curriculum_ids = [config.curriculum_id for config in configs]
-            
-            # Window-scoped CSA (same as curriculum UI) — avoid leaking other-window A/B orphans
-            assignments = query_for_window(CourseSessionAssignment).filter(
+    def _fetch_curriculum_course_assignments(academic_session, year, term, course_kind='theory'):
+        """
+        Source of truth for remuneration autofetch = curriculum assignments in the
+        currently selected operational window (same as Course Management curriculum UI).
+        """
+        from blueprints.course_management.models import CourseSessionAssignment, Course, CurriculumYearTerm
+
+        # Always honor selected window (even for admin/head), matching curriculum W1/W2.
+        configs = query_for_window(CurriculumYearTerm, admin_override=False).filter_by(
+            academic_session=academic_session,
+            year=year,
+            term=term,
+        ).all()
+        if not configs:
+            return []
+
+        curriculum_ids = [config.curriculum_id for config in configs]
+        query = query_for_window(CourseSessionAssignment, admin_override=False).filter(
+            CourseSessionAssignment.year == year,
+            CourseSessionAssignment.term == term,
+            CourseSessionAssignment.curriculum_id.in_(curriculum_ids),
+            db.or_(
                 CourseSessionAssignment.academic_session == academic_session,
-                CourseSessionAssignment.year == year,
-                CourseSessionAssignment.term == term,
-                CourseSessionAssignment.curriculum_id.in_(curriculum_ids)
-            ).join(Course).filter(
+                CourseSessionAssignment.academic_session.is_(None),
+                CourseSessionAssignment.academic_session == '',
+            ),
+        ).join(Course, CourseSessionAssignment.course_id == Course.id)
+
+        if course_kind == 'sessional':
+            query = query.filter(
+                db.or_(
+                    Course.course_type == 'Sessional',
+                    Course.course_type == 'sessional',
+                    db.func.lower(Course.course_type).contains('sessional'),
+                )
+            )
+        else:
+            # Theory Class Test table — same filter as the previous stable implementation
+            query = query.filter(
                 db.or_(
                     Course.course_type == 'Theory',
                     Course.course_type == 'theory',
                     Course.course_type.is_(None),
-                    Course.course_type == ''
-                )  # Only theory courses (or assume theory if not specified)
-            ).all()
-            assignments = _filter_live_course_assignments(assignments)
-            
-            assignments_by_course = _group_assignments_by_course(assignments)
-            
-            assignments_data = []
-            for course_id, course_assignments in assignments_by_course.items():
-                course = course_assignments[0].course
-                
-                sections = [
-                    _normalize_remuneration_csa_section(a.section)
-                    for a in course_assignments
-                ]
-                has_a = 'A' in sections
-                has_b = 'B' in sections
-                has_full = '' in sections
-                assignment_full = _pick_full_assignment(course_assignments)
-                assignment_a = next(
-                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'A'),
-                    None,
+                    Course.course_type == '',
                 )
-                assignment_b = next(
-                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'B'),
-                    None,
-                )
+            )
 
-                # Prefer Full when present (ignore stale A/B left after reassignment)
-                if has_full and assignment_full and assignment_full.teacher:
-                    assignments_data.append(
-                        _remuneration_assignment_payload(course, assignment_full, 'Full', False)
-                    )
-                    continue
+        return query.order_by(Course.course_code.asc(), CourseSessionAssignment.id.asc()).all()
 
-                # Class Management has an active Full session — prefer that over orphan A/B CSA
-                full_sessions = _active_full_class_sessions(
-                    course.course_code, year, term, academic_session
-                )
-                if full_sessions:
-                    payload = _payload_from_class_session(course, full_sessions[0])
+    def _build_theory_class_test_rows(assignments):
+        """
+        Build Class Test rows exactly from curriculum CSA:
+        - Full present => one Full row (stale A/B for same course ignored)
+        - else A and B both present => two section rows
+        - else one row per remaining assignment
+        """
+        by_course = {}
+        for assignment in assignments:
+            if not assignment.teacher:
+                continue
+            by_course.setdefault(assignment.course_id, []).append(assignment)
+
+        rows = []
+        for course_assignments in by_course.values():
+            course = course_assignments[0].course
+            if not course:
+                continue
+
+            full_list = [
+                a for a in course_assignments
+                if _normalize_remuneration_csa_section(a.section) == ''
+            ]
+            a_list = [
+                a for a in course_assignments
+                if _normalize_remuneration_csa_section(a.section) == 'A'
+            ]
+            b_list = [
+                a for a in course_assignments
+                if _normalize_remuneration_csa_section(a.section) == 'B'
+            ]
+
+            if full_list:
+                # Curriculum Full wins — do not also emit orphan A/B
+                for assignment in full_list:
+                    payload = _remuneration_assignment_payload(course, assignment, 'Full', False)
                     if payload:
-                        assignments_data.append(payload)
-                        continue
+                        rows.append(payload)
+                continue
 
-                # Same teacher on A+B => treat as Full course
-                if (
-                    has_a and has_b
-                    and assignment_a and assignment_b
-                    and assignment_a.teacher_id
-                    and assignment_a.teacher_id == assignment_b.teacher_id
-                    and assignment_a.teacher
-                ):
-                    assignments_data.append(
-                        _remuneration_assignment_payload(course, assignment_a, 'Full', False)
+            if a_list and b_list:
+                payload_a = _remuneration_assignment_payload(course, a_list[0], 'A', True)
+                payload_b = _remuneration_assignment_payload(course, b_list[0], 'B', True)
+                if payload_a:
+                    rows.append(payload_a)
+                if payload_b:
+                    rows.append(payload_b)
+                continue
+
+            for assignment in course_assignments:
+                section_key = _normalize_remuneration_csa_section(assignment.section)
+                section_label = section_key if section_key in ('A', 'B') else 'Full'
+                payload = _remuneration_assignment_payload(
+                    course, assignment, section_label, section_label in ('A', 'B')
+                )
+                if payload:
+                    rows.append(payload)
+        return rows
+
+    def _build_sessional_assignment_rows(assignments):
+        """Sessional tables historically expect A/B rows; Full expands to A+B for same teacher."""
+        by_course = {}
+        for assignment in assignments:
+            if not assignment.teacher:
+                continue
+            by_course.setdefault(assignment.course_id, []).append(assignment)
+
+        rows = []
+        for course_assignments in by_course.values():
+            course = course_assignments[0].course
+            if not course:
+                continue
+
+            full_list = [
+                a for a in course_assignments
+                if _normalize_remuneration_csa_section(a.section) == ''
+            ]
+            a_list = [
+                a for a in course_assignments
+                if _normalize_remuneration_csa_section(a.section) == 'A'
+            ]
+            b_list = [
+                a for a in course_assignments
+                if _normalize_remuneration_csa_section(a.section) == 'B'
+            ]
+
+            if full_list:
+                for section_label in ('A', 'B'):
+                    payload = _remuneration_assignment_payload(
+                        course, full_list[0], section_label, True
                     )
-                    continue
+                    if payload:
+                        rows.append(payload)
+                continue
 
-                # Genuine split: different teachers on A and B
-                if has_a and has_b:
-                    if assignment_a and assignment_a.teacher:
-                        assignments_data.append(
-                            _remuneration_assignment_payload(course, assignment_a, 'A', True)
-                        )
-                    if assignment_b and assignment_b.teacher:
-                        assignments_data.append(
-                            _remuneration_assignment_payload(course, assignment_b, 'B', True)
-                        )
-                    continue
+            if a_list and b_list:
+                payload_a = _remuneration_assignment_payload(course, a_list[0], 'A', True)
+                payload_b = _remuneration_assignment_payload(course, b_list[0], 'B', True)
+                if payload_a:
+                    rows.append(payload_a)
+                if payload_b:
+                    rows.append(payload_b)
+                continue
 
-                # Single section (A or B only) or leftover rows
-                for assignment in course_assignments:
-                    if not assignment.teacher:
-                        continue
-                    section_label = _normalize_remuneration_csa_section(assignment.section) or 'Full'
-                    if section_label == '':
-                        section_label = 'Full'
-                    assignments_data.append(
-                        _remuneration_assignment_payload(
-                            course,
-                            assignment,
-                            section_label if section_label in ('A', 'B') else 'Full',
-                            False,
-                        )
+            if course_assignments:
+                for section_label in ('A', 'B'):
+                    payload = _remuneration_assignment_payload(
+                        course, course_assignments[0], section_label, True
                     )
-            
+                    if payload:
+                        rows.append(payload)
+        return rows
+
+    @app.route('/remuneration/api/course-assignments', methods=['GET'])
+    @login_required
+    def remuneration_get_course_assignments():
+        """Get course assignments with teacher and section info for Table 4 (Class Test).
+
+        Mirrors curriculum teacher assignments for the selected window + session/year/term.
+        """
+        restriction = _require_teacher_privileges()
+        if restriction:
+            return restriction
+
+        academic_session = request.args.get('academic_session')
+        year = request.args.get('year')
+        term = request.args.get('term')
+
+        if not all([academic_session, year, term]):
+            return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
+
+        try:
+            assignments = _fetch_curriculum_course_assignments(
+                academic_session, year, term, course_kind='theory'
+            )
+            assignments_data = _build_theory_class_test_rows(assignments)
+            current_app.logger.info(
+                'Class Test autofetch: window-scoped CSA=%s rows=%s session=%s year=%s term=%s',
+                len(assignments),
+                len(assignments_data),
+                academic_session,
+                year,
+                term,
+            )
             return jsonify({'success': True, 'assignments': assignments_data})
-            
         except Exception as e:
             current_app.logger.error(f'Error fetching course assignments: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch course assignments'}), 500
@@ -12899,101 +12888,24 @@ def create_app():
     @app.route('/remuneration/api/sessional-course-assignments', methods=['GET'])
     @login_required
     def remuneration_get_sessional_course_assignments():
-        """Get sessional course assignments with teacher and section info for Table 6 and 7"""
+        """Get sessional course assignments for Tables 6/7 from curriculum (window-scoped)."""
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        
+
         academic_session = request.args.get('academic_session')
         year = request.args.get('year')
         term = request.args.get('term')
-        
+
         if not all([academic_session, year, term]):
             return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
-        
+
         try:
-            from blueprints.course_management.models import CourseSessionAssignment, Course, CurriculumYearTerm
-            
-            # Find curriculum year/term configs matching the criteria
-            configs = query_for_window(CurriculumYearTerm).filter_by(
-                academic_session=academic_session,
-                year=year,
-                term=term
-            ).all()
-            
-            if not configs:
-                return jsonify({'success': True, 'assignments': []})
-            
-            # Get all curriculum IDs
-            curriculum_ids = [config.curriculum_id for config in configs]
-            
-            # Window-scoped CSA — same source of truth as curriculum
-            assignments = query_for_window(CourseSessionAssignment).filter(
-                CourseSessionAssignment.academic_session == academic_session,
-                CourseSessionAssignment.year == year,
-                CourseSessionAssignment.term == term,
-                CourseSessionAssignment.curriculum_id.in_(curriculum_ids)
-            ).join(Course).filter(
-                db.or_(
-                    Course.course_type == 'Sessional',
-                    Course.course_type == 'sessional',
-                    db.func.lower(Course.course_type).contains('sessional')
-                )  # Only sessional courses
-            ).all()
-            assignments = _filter_live_course_assignments(assignments)
-            
-            assignments_by_course = _group_assignments_by_course(assignments)
-            
-            assignments_data = []
-            for course_id, course_assignments in assignments_by_course.items():
-                course = course_assignments[0].course
-                
-                sections = [
-                    _normalize_remuneration_csa_section(a.section)
-                    for a in course_assignments
-                ]
-                has_a = 'A' in sections
-                has_b = 'B' in sections
-                has_full = '' in sections
-                assignment_full = _pick_full_assignment(course_assignments)
-                assignment_a = next(
-                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'A'),
-                    None,
-                )
-                assignment_b = next(
-                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'B'),
-                    None,
-                )
-
-                # Prefer Full teacher (expand to A+B for sessional tables); ignore orphan A/B
-                if has_full and assignment_full and assignment_full.teacher:
-                    for section_label in ('A', 'B'):
-                        assignments_data.append(
-                            _remuneration_assignment_payload(course, assignment_full, section_label, True)
-                        )
-                    continue
-
-                if has_a and has_b:
-                    if assignment_a and assignment_a.teacher:
-                        assignments_data.append(
-                            _remuneration_assignment_payload(course, assignment_a, 'A', True)
-                        )
-                    if assignment_b and assignment_b.teacher:
-                        assignments_data.append(
-                            _remuneration_assignment_payload(course, assignment_b, 'B', True)
-                        )
-                    continue
-
-                # Single section (A or B only) - create both A and B with same teacher
-                assignment = course_assignments[0]
-                if assignment.teacher:
-                    for section_label in ('A', 'B'):
-                        assignments_data.append(
-                            _remuneration_assignment_payload(course, assignment, section_label, True)
-                        )
-            
+            assignments = _fetch_curriculum_course_assignments(
+                academic_session, year, term, course_kind='sessional'
+            )
+            assignments_data = _build_sessional_assignment_rows(assignments)
             return jsonify({'success': True, 'assignments': assignments_data})
-            
         except Exception as e:
             current_app.logger.error(f'Error fetching sessional course assignments: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch sessional course assignments'}), 500
