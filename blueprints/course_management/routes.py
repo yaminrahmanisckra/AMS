@@ -4582,18 +4582,34 @@ def assign_teacher_session():
         reusable_session = None
         soft_reuse_candidates = []
         for existing_session in all_matching_sessions:
-            # Check course scope conflicts on active sessions.
+            # Scope conflicts only apply to ACTIVE sessions that are still curriculum-linked.
+            # Orphan full/part sessions left after unassign (or duplicates) must not block reassign.
             if not existing_session.archived:
+                linked_for_conflict = _csa_query().filter_by(session_id=existing_session.id).first()
                 if existing_session.course_scope == SCOPE_FULL and course_scope != SCOPE_FULL:
-                    return jsonify({
-                        'success': False,
-                        'message': 'A full-course session already exists for this course. Delete/unassign it first to create section-specific sessions.'
-                    }), 400
+                    if linked_for_conflict:
+                        return jsonify({
+                            'success': False,
+                            'message': 'A full-course session already exists for this course. Delete/unassign it first to create section-specific sessions.'
+                        }), 400
+                    existing_session.archived = True
+                    db.session.flush()
+                    current_app.logger.info(
+                        f'Archived orphan full session {existing_session.id} to allow section assign'
+                    )
+                    continue
                 if course_scope == SCOPE_FULL and existing_session.course_scope != SCOPE_FULL:
-                    return jsonify({
-                        'success': False,
-                        'message': 'Section-specific sessions already exist for this course. Delete/unassign them first to create a full-course session.'
-                    }), 400
+                    if linked_for_conflict:
+                        return jsonify({
+                            'success': False,
+                            'message': 'Section-specific sessions already exist for this course. Delete/unassign them first to create a full-course session.'
+                        }), 400
+                    existing_session.archived = True
+                    db.session.flush()
+                    current_app.logger.info(
+                        f'Archived orphan section session {existing_session.id} to allow full-course assign'
+                    )
+                    continue
 
             if existing_session.course_scope != course_scope:
                 continue
@@ -4820,6 +4836,22 @@ def unassign_teacher_session():
 
         # Store session_id before deletion
         session_id_to_delete = assignment.session_id
+        assignment_teacher_id = assignment.teacher_id
+        assignment_year = assignment.year
+        assignment_term = assignment.term
+        assignment_section = (assignment.section or '').strip().upper()
+        if assignment_section == 'A':
+            assignment_scope = 'part_a'
+        elif assignment_section == 'B':
+            assignment_scope = 'part_b'
+        else:
+            assignment_scope = 'full'
+
+        course_for_unassign = None
+        try:
+            course_for_unassign = Course.query.get(assignment.course_id) if assignment.course_id else None
+        except Exception:
+            course_for_unassign = None
 
         # Delete associated session if exists - clean up all related records
         session_obj = None
@@ -4919,6 +4951,32 @@ def unassign_teacher_session():
                 except Exception as delete_error:
                     db.session.rollback()
                     current_app.logger.error(f'Failed to delete session {session_id} as fallback: {delete_error}', exc_info=True)
+
+        # Also archive duplicate/orphan sessions for this teacher offering so reassign is not blocked
+        if course_for_unassign and assignment_teacher_id and assignment_year and assignment_term:
+            try:
+                sibling_sessions = Session.query.filter_by(
+                    course_code=course_for_unassign.course_code,
+                    year=assignment_year,
+                    term=assignment_term,
+                    teacher_id=assignment_teacher_id,
+                    archived=False,
+                ).all()
+                for sibling in sibling_sessions:
+                    # Same scope duplicates, or any session no longer linked to a CSA
+                    still_linked = _csa_query().filter_by(session_id=sibling.id).first()
+                    if sibling.course_scope == assignment_scope or not still_linked:
+                        # Don't archive if linked to a *different* remaining assignment
+                        if still_linked and still_linked.id != assignment.id:
+                            continue
+                        sibling.archived = True
+                        current_app.logger.info(
+                            f'Archived sibling/orphan session {sibling.id} on unassign '
+                            f'(scope={sibling.course_scope}, course={sibling.course_code})'
+                        )
+                db.session.flush()
+            except Exception as sibling_error:
+                current_app.logger.warning(f'Error archiving sibling sessions on unassign: {sibling_error}')
 
         # Delete the assignment (even if session cleanup had issues)
         try:
