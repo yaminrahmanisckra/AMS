@@ -14652,8 +14652,86 @@ def create_app():
                 'message': 'শিক্ষক লোড করতে সমস্যা হয়েছে'
             }), 500
 
+    @app.route('/remuneration/api/teacher-statement-total', methods=['GET'])
+    @login_required
+    def remuneration_teacher_statement_total():
+        """Return Statement-derived total remuneration for one teacher (window-scoped)."""
+        restriction = _require_teacher_privileges()
+        if restriction:
+            return restriction
+
+        teacher_name = (request.args.get('teacher_name') or '').strip()
+        session_val = (request.args.get('session') or '').strip()
+        year_val = (request.args.get('year') or '').strip()
+        term_val = (request.args.get('term') or '').strip()
+
+        if not teacher_name or not session_val or not year_val or not term_val:
+            return jsonify({
+                'success': False,
+                'message': 'শিক্ষক, শিক্ষাবর্ষ, বর্ষ ও টার্ম সিলেক্ট করুন',
+            }), 400
+
+        try:
+            from utils.window_utils import get_effective_window_id
+
+            window_id = get_effective_window_id(admin_override=False)
+            statement_data = _get_remuneration_statement_data(session_val, year_val, term_val)
+            if not statement_data:
+                return jsonify({
+                    'success': True,
+                    'total_amount': 0,
+                    'job_count': 0,
+                    'teacher_name': teacher_name,
+                    'window_id': window_id,
+                    'message': 'এই Window / সেশন-বর্ষ-টার্মের জন্য Statement of Remuneration পাওয়া যায়নি',
+                })
+
+            jobs_data, total_amount = _build_jobs_from_statement(
+                statement_data, teacher_name, year_val, term_val, session_val
+            )
+            total_amount = float(total_amount or 0)
+
+            return jsonify({
+                'success': True,
+                'total_amount': total_amount,
+                'job_count': len(jobs_data or []),
+                'teacher_name': teacher_name,
+                'academic_session': session_val,
+                'year': year_val,
+                'term': term_val,
+                'window_id': window_id,
+                'message': (
+                    'Statement অনুযায়ী মোট পারিতোষিক'
+                    if total_amount > 0
+                    else 'এই শিক্ষকের জন্য Statement-এ কোনো বিল আইটেম পাওয়া যায়নি'
+                ),
+            })
+        except Exception as e:
+            current_app.logger.error(
+                f'Error computing teacher statement total: {e}', exc_info=True
+            )
+            return jsonify({
+                'success': False,
+                'message': 'মোট পারিতোষিক হিসাব করতে সমস্যা হয়েছে',
+            }), 500
+
+    def _is_statement_form_data(data):
+        """True when form_data looks like Statement of Remuneration (not a bill form)."""
+        if not isinstance(data, dict):
+            return False
+        markers = (
+            'question_preparation',
+            'class_test',
+            'script_examination',
+            'moderation_committee',
+            'examination_committee',
+            'sessional_assessment',
+            'tabulation',
+        )
+        return any(isinstance(data.get(key), list) for key in markers)
+
     def _get_remuneration_statement_data(session, year, term):
-        """Fetch Exam Committee Chief's remuneration statement data for session/year/term."""
+        """Fetch window-scoped Statement of Remuneration for session/year/term."""
         try:
             from blueprints.remuneration_management.models import RemunerationForm
             from blueprints.course_management.models import DutyAssignment
@@ -14678,23 +14756,26 @@ def create_app():
                     ).order_by(RemunerationForm.id.desc()).first()
 
                     if form_entry and form_entry.form_data:
-                        return json.loads(form_entry.form_data)
+                        parsed = json.loads(form_entry.form_data)
+                        if _is_statement_form_data(parsed):
+                            return parsed
 
-            # Fallback: the committee's statement may have been created/saved by a
-            # member rather than the Chief, so it is stored under a different
-            # user_id. There is only ever one statement per committee for a given
-            # session/year/term, so pick the most recent saved form for this
-            # session/year/term within the active window, regardless of owner.
-            fallback_entry = query_for_window(RemunerationForm).filter_by(
+            # Fallback: most recent statement-shaped form in this window
+            fallback_entries = query_for_window(RemunerationForm).filter_by(
                 academic_year=session,
                 year=year,
                 term=term
             ).filter(
                 RemunerationForm.form_data.isnot(None)
-            ).order_by(RemunerationForm.id.desc()).first()
+            ).order_by(RemunerationForm.id.desc()).limit(20).all()
 
-            if fallback_entry and fallback_entry.form_data:
-                return json.loads(fallback_entry.form_data)
+            for fallback_entry in fallback_entries:
+                try:
+                    parsed = json.loads(fallback_entry.form_data)
+                except Exception:
+                    continue
+                if _is_statement_form_data(parsed):
+                    return parsed
         except Exception as exc:
             current_app.logger.error(f'Failed to load statement data: {exc}', exc_info=True)
         return None

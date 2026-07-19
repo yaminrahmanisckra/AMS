@@ -899,6 +899,21 @@
             </tr>
         </table>
 
+        <div id="statementTotalBox" class="border rounded px-3 py-2 mb-3" style="background: #f8fafc;">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div>
+                    <div class="fw-semibold">Statement অনুযায়ী মোট পারিতোষিক</div>
+                    <div class="small text-muted mb-0">
+                        বর্তমান Window · শিক্ষক + বর্ষ + টার্ম + শিক্ষাবর্ষ সিলেক্ট করুন (শুধু টাকা দেখাবে; ফর্ম অটো পূরণ হবে না)
+                    </div>
+                </div>
+                <div class="text-end">
+                    <div id="statementTotalAmount" class="fs-4 fw-bold text-success mb-0">—</div>
+                    <div id="statementTotalStatus" class="small text-muted">অপেক্ষমাণ…</div>
+                </div>
+            </div>
+        </div>
+
         <div class="section-title text-center">পরীক্ষা সংক্রান্ত কাজের বিবরণ</div>
         <table class="rem-table">
             <thead>
@@ -6374,6 +6389,66 @@ function exportToPdf() {
     });
 }
 
+// Statement-derived total (window-scoped) — display only, does not fill the bill form
+let _statementTotalTimer = null;
+
+function formatRemunerationTaka(amount) {
+    const n = Number(amount) || 0;
+    try {
+        return '৳ ' + n.toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    } catch (e) {
+        return '৳ ' + n.toFixed(2);
+    }
+}
+
+function setStatementTotalDisplay(amount, statusText, isError) {
+    const amountEl = document.getElementById('statementTotalAmount');
+    const statusEl = document.getElementById('statementTotalStatus');
+    if (amountEl) {
+        amountEl.textContent = (amount === null || amount === undefined) ? '—' : formatRemunerationTaka(amount);
+        amountEl.classList.toggle('text-danger', !!isError);
+        amountEl.classList.toggle('text-success', !isError && amount !== null && amount !== undefined);
+        amountEl.classList.toggle('text-muted', amount === null || amount === undefined);
+    }
+    if (statusEl) {
+        statusEl.textContent = statusText || '';
+    }
+}
+
+async function refreshStatementTotal() {
+    const teacher = (document.getElementById('applicant_name')?.value || '').trim();
+    const year = (document.getElementById('year')?.value || '').trim();
+    const term = (document.getElementById('term')?.value || '').trim();
+    const session = (document.getElementById('academic_year')?.value || '').trim();
+
+    if (!teacher || !year || !term || !session) {
+        setStatementTotalDisplay(null, 'শিক্ষক, বর্ষ, টার্ম ও শিক্ষাবর্ষ সিলেক্ট করুন');
+        return;
+    }
+
+    setStatementTotalDisplay(null, 'হিসাব করা হচ্ছে…');
+    try {
+        const url = `/remuneration/api/teacher-statement-total?teacher_name=${encodeURIComponent(teacher)}&session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (!data.success) {
+            setStatementTotalDisplay(null, data.message || 'হিসাব করা যায়নি', true);
+            return;
+        }
+        const total = Number(data.total_amount) || 0;
+        const extra = data.job_count ? ` · ${data.job_count} টি কাজ` : '';
+        setStatementTotalDisplay(total, (data.message || '') + extra);
+    } catch (err) {
+        console.error('Statement total error:', err);
+        setStatementTotalDisplay(null, 'নেটওয়ার্ক ত্রুটি', true);
+    }
+}
+
+function scheduleRefreshStatementTotal() {
+    if (_statementTotalTimer) clearTimeout(_statementTotalTimer);
+    _statementTotalTimer = setTimeout(refreshStatementTotal, 250);
+}
+
 // Auto-load name and designation when teacher is selected
 document.addEventListener('DOMContentLoaded', function() {
     const applicantNameSelect = document.getElementById('applicant_name');
@@ -6516,6 +6591,17 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Modal download uses inline onclick to avoid duplicate requests
     }
+
+    // Statement total preview (window-scoped; display only)
+    ['applicant_name', 'year', 'term', 'academic_year'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', scheduleRefreshStatementTotal);
+        }
+    });
+    scheduleRefreshStatementTotal();
+    // Re-check after saved form / default teacher selection settles
+    setTimeout(scheduleRefreshStatementTotal, 1600);
 });
 </script>
 {% endblock %}
