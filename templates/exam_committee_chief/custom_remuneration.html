@@ -2266,16 +2266,16 @@ async function autoLoadTheoryCoursesForTables(theoryCourses, skipCascade) {
 }
 
 // Auto-load Table 4 (Class Test) with course assignments (teacher and section info)
-async function autoLoadClassTestTableWithAssignments() {
-    // Skip auto-load if in edit mode
-    if (isEditMode) {
+async function autoLoadClassTestTableWithAssignments(forceReload = false) {
+    // Skip auto-load if in edit mode (manual Autofetch temporarily clears isEditMode)
+    if (isEditMode && !forceReload) {
         console.log('⏭️ Edit mode active, skipping class test table auto-load');
         return;
     }
     
-    const session = document.getElementById('session')?.value;
-    const year = document.getElementById('year')?.value;
-    const term = document.getElementById('term')?.value;
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
     
     if (!session || !year || !term) {
         console.log('⚠️ Session/Year/Term not selected for class test auto-load');
@@ -2294,23 +2294,27 @@ async function autoLoadClassTestTableWithAssignments() {
         return courseSelect && courseSelect.value && courseSelect.value.trim() !== '';
     }).length;
     
-    // Only auto-load if table is empty
-    if (rowsWithCourses > 0) {
+    // Only auto-load if table is empty (unless forced by Autofetch button)
+    if (!forceReload && rowsWithCourses > 0) {
         console.log('🔄 Table 4 has existing rows, skipping auto-load');
         return;
     }
     
     try {
-        console.log('📡 Fetching course assignments for Table 4...');
+        console.log('📡 Fetching course assignments for Table 4...', { session, year, term, forceReload });
         const response = await fetch(`/remuneration/api/course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
         const data = await response.json();
         
         if (!data.success || !data.assignments || data.assignments.length === 0) {
-            console.log('⚠️ No course assignments found for Table 4');
+            console.log('⚠️ No course assignments found for Table 4', data);
+            if (forceReload) {
+                table4Tbody.innerHTML = '';
+                alert('এই Window / সেশন-বর্ষ-টার্মে Class Test-এর জন্য কোনো teacher assignment পাওয়া যায়নি।');
+            }
             return;
         }
         
-        console.log('✅ Found', data.assignments.length, 'course assignments');
+        console.log('✅ Found', data.assignments.length, 'course assignments', 'window=', data.window_id);
         table4Tbody.innerHTML = '';
         
         // Load courses into dropdowns first
@@ -4533,7 +4537,7 @@ const AUTOFETCH_SECTIONS = {
     },
     class_test: {
         clearTables: ['table_class_test'],
-        run: () => autoLoadClassTestTableWithAssignments()
+        run: () => autoLoadClassTestTableWithAssignments(true)
     },
     moderation_committee: {
         clearTables: ['table_moderation_committee'],

@@ -12672,6 +12672,60 @@ def create_app():
             return ''
         return value.upper()
 
+    def _remuneration_label_variants(label, kind='year'):
+        """Match 'First' / 'First Year' / '1st' style labels used across curriculum & CSA."""
+        raw = str(label or '').strip()
+        if not raw:
+            return []
+        variants = {raw}
+        core = raw
+        lower = core.lower()
+        for suffix in (' year', ' term', ' yr', ' sem', ' semester'):
+            if lower.endswith(suffix):
+                core = core[: -len(suffix)].strip()
+                lower = core.lower()
+                break
+        if core:
+            variants.add(core)
+            if kind == 'year':
+                variants.add(f'{core} Year')
+            else:
+                variants.add(f'{core} Term')
+
+        aliases = {
+            '1': 'First', '1st': 'First', 'first': 'First',
+            '2': 'Second', '2nd': 'Second', 'second': 'Second',
+            '3': 'Third', '3rd': 'Third', 'third': 'Third',
+            '4': 'Fourth', '4th': 'Fourth', 'fourth': 'Fourth',
+            '5': 'Fifth', '5th': 'Fifth', 'fifth': 'Fifth', 'llm': 'LLM',
+        }
+        mapped = aliases.get(core.lower())
+        if mapped:
+            variants.add(mapped)
+            if kind == 'year':
+                variants.add(f'{mapped} Year')
+            else:
+                variants.add(f'{mapped} Term')
+            if mapped == 'LLM':
+                variants.update({'Fifth', 'Fifth Year', '5', '5th'})
+        return [v for v in variants if v]
+
+    def _remuneration_window_filter(model):
+        """
+        Same window rule as curriculum `_window_rows_filter`:
+        Window 1 includes NULL legacy rows; other windows are exact match only.
+        """
+        from utils.window_utils import get_effective_window_id, DEFAULT_WINDOW_ID
+
+        window_id = get_effective_window_id(admin_override=False)
+        if window_id is None:
+            window_id = DEFAULT_WINDOW_ID
+        if not hasattr(model, 'window_id'):
+            return True, window_id
+        if window_id == DEFAULT_WINDOW_ID:
+            return db.or_(model.window_id == window_id, model.window_id.is_(None)), window_id
+        return model.window_id == window_id, window_id
+
     def _remuneration_assignment_payload(course, assignment, section_label, is_split):
         teacher = assignment.teacher
         if not teacher:
@@ -12689,25 +12743,33 @@ def create_app():
 
     def _fetch_curriculum_course_assignments(academic_session, year, term, course_kind='theory'):
         """
-        Source of truth for remuneration autofetch = curriculum assignments in the
-        currently selected operational window (same as Course Management curriculum UI).
+        Source of truth = curriculum teacher assignments for the selected window.
+        Matches Course Management scoping + tolerant year/term labels.
         """
         from blueprints.course_management.models import CourseSessionAssignment, Course, CurriculumYearTerm
 
-        # Always honor selected window (even for admin/head), matching curriculum W1/W2.
-        configs = query_for_window(CurriculumYearTerm, admin_override=False).filter_by(
-            academic_session=academic_session,
-            year=year,
-            term=term,
-        ).all()
-        if not configs:
+        year_variants = _remuneration_label_variants(year, 'year')
+        term_variants = _remuneration_label_variants(term, 'term')
+        if not year_variants or not term_variants:
             return []
 
-        curriculum_ids = [config.curriculum_id for config in configs]
-        query = query_for_window(CourseSessionAssignment, admin_override=False).filter(
-            CourseSessionAssignment.year == year,
-            CourseSessionAssignment.term == term,
-            CourseSessionAssignment.curriculum_id.in_(curriculum_ids),
+        cyt_window_filter, window_id = _remuneration_window_filter(CurriculumYearTerm)
+        csa_window_filter, _ = _remuneration_window_filter(CourseSessionAssignment)
+
+        # CurriculumYearTerm for this window + session (year/term tolerant)
+        cyt_query = CurriculumYearTerm.query.filter(
+            cyt_window_filter,
+            CurriculumYearTerm.academic_session == academic_session,
+            CurriculumYearTerm.year.in_(year_variants),
+            CurriculumYearTerm.term.in_(term_variants),
+        )
+        configs = cyt_query.all()
+        curriculum_ids = list({c.curriculum_id for c in configs if c.curriculum_id})
+
+        query = CourseSessionAssignment.query.filter(
+            csa_window_filter,
+            CourseSessionAssignment.year.in_(year_variants),
+            CourseSessionAssignment.term.in_(term_variants),
             db.or_(
                 CourseSessionAssignment.academic_session == academic_session,
                 CourseSessionAssignment.academic_session.is_(None),
@@ -12715,26 +12777,38 @@ def create_app():
             ),
         ).join(Course, CourseSessionAssignment.course_id == Course.id)
 
+        if curriculum_ids:
+            query = query.filter(CourseSessionAssignment.curriculum_id.in_(curriculum_ids))
+
         if course_kind == 'sessional':
             query = query.filter(
                 db.or_(
                     Course.course_type == 'Sessional',
                     Course.course_type == 'sessional',
-                    db.func.lower(Course.course_type).contains('sessional'),
+                    db.func.lower(db.func.coalesce(Course.course_type, '')).contains('sessional'),
                 )
             )
         else:
-            # Theory Class Test table — same filter as the previous stable implementation
+            # Theory for Class Test — exclude explicit sessional/viva
             query = query.filter(
-                db.or_(
-                    Course.course_type == 'Theory',
-                    Course.course_type == 'theory',
-                    Course.course_type.is_(None),
-                    Course.course_type == '',
-                )
+                ~db.func.lower(db.func.coalesce(Course.course_type, '')).contains('sessional'),
+                ~db.func.lower(db.func.coalesce(Course.course_type, '')).contains('viva'),
             )
 
-        return query.order_by(Course.course_code.asc(), CourseSessionAssignment.id.asc()).all()
+        assignments = query.order_by(Course.course_code.asc(), CourseSessionAssignment.id.asc()).all()
+        current_app.logger.info(
+            'Class Test CSA fetch: window=%s session=%s year=%s term=%s '
+            'year_variants=%s term_variants=%s curriculum_ids=%s rows=%s',
+            window_id,
+            academic_session,
+            year,
+            term,
+            year_variants,
+            term_variants,
+            curriculum_ids,
+            len(assignments),
+        )
+        return assignments
 
     def _build_theory_class_test_rows(assignments):
         """
@@ -12868,19 +12942,27 @@ def create_app():
             return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
 
         try:
+            from utils.window_utils import get_effective_window_id
+
             assignments = _fetch_curriculum_course_assignments(
                 academic_session, year, term, course_kind='theory'
             )
             assignments_data = _build_theory_class_test_rows(assignments)
             current_app.logger.info(
-                'Class Test autofetch: window-scoped CSA=%s rows=%s session=%s year=%s term=%s',
+                'Class Test autofetch: CSA=%s rows=%s session=%s year=%s term=%s window=%s',
                 len(assignments),
                 len(assignments_data),
                 academic_session,
                 year,
                 term,
+                get_effective_window_id(admin_override=False),
             )
-            return jsonify({'success': True, 'assignments': assignments_data})
+            return jsonify({
+                'success': True,
+                'assignments': assignments_data,
+                'window_id': get_effective_window_id(admin_override=False),
+                'count': len(assignments_data),
+            })
         except Exception as e:
             current_app.logger.error(f'Error fetching course assignments: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch course assignments'}), 500
