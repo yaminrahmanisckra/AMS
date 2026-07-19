@@ -12665,6 +12665,103 @@ def create_app():
             current_app.logger.error(f'Error fetching courses: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch courses'}), 500
 
+    def _normalize_remuneration_csa_section(section):
+        """Normalize CSA section: empty/'Full' => Full; A/B kept uppercased."""
+        value = (section or '').strip()
+        if not value or value.lower() in ('full', 'full course', 'entire'):
+            return ''
+        return value.upper()
+
+    def _remuneration_assignment_payload(course, assignment, section_label, is_split):
+        return {
+            'course_id': course.id,
+            'course_code': course.course_code,
+            'course_name': course.course_name,
+            'section': section_label,
+            'teacher_name': assignment.teacher.name,
+            'teacher_designation': assignment.teacher.designation or '',
+            'teacher_institute': assignment.teacher.institute or 'Law Discipline, KU',
+            'is_split': is_split,
+        }
+
+    def _filter_live_course_assignments(assignments):
+        """Drop CSA rows whose linked class session is archived (stale after unassign)."""
+        try:
+            from blueprints.class_management.models import Session as ClassSession
+        except Exception:
+            return list(assignments)
+
+        live = []
+        for assignment in assignments:
+            if assignment.session_id:
+                try:
+                    sess = ClassSession.query.get(assignment.session_id)
+                    if sess is not None and getattr(sess, 'archived', False):
+                        continue
+                except Exception:
+                    pass
+            live.append(assignment)
+        return live
+
+    def _group_assignments_by_course(assignments):
+        grouped = {}
+        for assignment in assignments:
+            grouped.setdefault(assignment.course_id, []).append(assignment)
+        return grouped
+
+    def _pick_full_assignment(course_assignments):
+        for assignment in course_assignments:
+            if _normalize_remuneration_csa_section(assignment.section) == '':
+                return assignment
+        return None
+
+    def _active_full_class_sessions(course_code, year, term, academic_session):
+        """Live Class Management Full sessions for this offering (window-scoped)."""
+        try:
+            from blueprints.class_management.models import Session as ClassSession
+        except Exception:
+            return []
+        try:
+            sessions = query_for_window(ClassSession).filter(
+                ClassSession.course_code == course_code,
+                ClassSession.year == year,
+                ClassSession.term == term,
+                ClassSession.archived.is_(False),
+                ClassSession.is_external_course.is_(False),
+            ).all()
+        except Exception:
+            return []
+        full_sessions = [
+            s for s in sessions
+            if (getattr(s, 'course_scope', None) or 'full') == 'full'
+        ]
+        if not full_sessions:
+            return []
+        if academic_session:
+            matched = [
+                s for s in full_sessions
+                if not s.academic_session
+                or str(s.academic_session).strip() == str(academic_session).strip()
+            ]
+            if matched:
+                return matched
+        return full_sessions
+
+    def _payload_from_class_session(course, session_obj):
+        teacher = getattr(session_obj, 'teacher', None)
+        if not teacher:
+            return None
+        return {
+            'course_id': course.id,
+            'course_code': course.course_code,
+            'course_name': course.course_name,
+            'section': 'Full',
+            'teacher_name': teacher.name,
+            'teacher_designation': teacher.designation or '',
+            'teacher_institute': teacher.institute or 'Law Discipline, KU',
+            'is_split': False,
+        }
+
     @app.route('/remuneration/api/course-assignments', methods=['GET'])
     @login_required
     def remuneration_get_course_assignments():
@@ -12696,8 +12793,8 @@ def create_app():
             # Get all curriculum IDs
             curriculum_ids = [config.curriculum_id for config in configs]
             
-            # Get course assignments for these curricula
-            assignments = CourseSessionAssignment.query.filter(
+            # Window-scoped CSA (same as curriculum UI) — avoid leaking other-window A/B orphans
+            assignments = query_for_window(CourseSessionAssignment).filter(
                 CourseSessionAssignment.academic_session == academic_session,
                 CourseSessionAssignment.year == year,
                 CourseSessionAssignment.term == term,
@@ -12710,82 +12807,88 @@ def create_app():
                     Course.course_type == ''
                 )  # Only theory courses (or assume theory if not specified)
             ).all()
+            assignments = _filter_live_course_assignments(assignments)
             
-            # Group assignments by course to handle split courses (A and B count as 1)
-            assignments_by_course = {}
-            for assignment in assignments:
-                course_id = assignment.course_id
-                if course_id not in assignments_by_course:
-                    assignments_by_course[course_id] = []
-                assignments_by_course[course_id].append(assignment)
+            assignments_by_course = _group_assignments_by_course(assignments)
             
             assignments_data = []
             for course_id, course_assignments in assignments_by_course.items():
                 course = course_assignments[0].course
                 
-                # Check if this is a split course (has both A and B sections)
-                sections = [a.section for a in course_assignments if a.section]
+                sections = [
+                    _normalize_remuneration_csa_section(a.section)
+                    for a in course_assignments
+                ]
                 has_a = 'A' in sections
                 has_b = 'B' in sections
-                has_full = any(a.section is None or a.section == '' for a in course_assignments)
-                
-                # If split course (A and B), create one entry per section
+                has_full = '' in sections
+                assignment_full = _pick_full_assignment(course_assignments)
+                assignment_a = next(
+                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'A'),
+                    None,
+                )
+                assignment_b = next(
+                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'B'),
+                    None,
+                )
+
+                # Prefer Full when present (ignore stale A/B left after reassignment)
+                if has_full and assignment_full and assignment_full.teacher:
+                    assignments_data.append(
+                        _remuneration_assignment_payload(course, assignment_full, 'Full', False)
+                    )
+                    continue
+
+                # Class Management has an active Full session — prefer that over orphan A/B CSA
+                full_sessions = _active_full_class_sessions(
+                    course.course_code, year, term, academic_session
+                )
+                if full_sessions:
+                    payload = _payload_from_class_session(course, full_sessions[0])
+                    if payload:
+                        assignments_data.append(payload)
+                        continue
+
+                # Same teacher on A+B => treat as Full course
+                if (
+                    has_a and has_b
+                    and assignment_a and assignment_b
+                    and assignment_a.teacher_id
+                    and assignment_a.teacher_id == assignment_b.teacher_id
+                    and assignment_a.teacher
+                ):
+                    assignments_data.append(
+                        _remuneration_assignment_payload(course, assignment_a, 'Full', False)
+                    )
+                    continue
+
+                # Genuine split: different teachers on A and B
                 if has_a and has_b:
-                    # Section A
-                    assignment_a = next((a for a in course_assignments if a.section == 'A'), None)
                     if assignment_a and assignment_a.teacher:
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'A',
-                            'teacher_name': assignment_a.teacher.name,
-                            'teacher_designation': assignment_a.teacher.designation or '',
-                            'teacher_institute': assignment_a.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
-                    
-                    # Section B
-                    assignment_b = next((a for a in course_assignments if a.section == 'B'), None)
+                        assignments_data.append(
+                            _remuneration_assignment_payload(course, assignment_a, 'A', True)
+                        )
                     if assignment_b and assignment_b.teacher:
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'B',
-                            'teacher_name': assignment_b.teacher.name,
-                            'teacher_designation': assignment_b.teacher.designation or '',
-                            'teacher_institute': assignment_b.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
-                elif has_full:
-                    # Full course
-                    assignment_full = next((a for a in course_assignments if a.section is None or a.section == ''), None)
-                    if assignment_full and assignment_full.teacher:
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'Full',
-                            'teacher_name': assignment_full.teacher.name,
-                            'teacher_designation': assignment_full.teacher.designation or '',
-                            'teacher_institute': assignment_full.teacher.institute or 'Law Discipline, KU',
-                            'is_split': False
-                        })
-                else:
-                    # Single section (A or B only)
-                    for assignment in course_assignments:
-                        if assignment.teacher:
-                            assignments_data.append({
-                                'course_id': course.id,
-                                'course_code': course.course_code,
-                                'course_name': course.course_name,
-                                'section': assignment.section or 'Full',
-                                'teacher_name': assignment.teacher.name,
-                                'teacher_designation': assignment.teacher.designation or '',
-                                'teacher_institute': assignment.teacher.institute or 'Law Discipline, KU',
-                                'is_split': False
-                            })
+                        assignments_data.append(
+                            _remuneration_assignment_payload(course, assignment_b, 'B', True)
+                        )
+                    continue
+
+                # Single section (A or B only) or leftover rows
+                for assignment in course_assignments:
+                    if not assignment.teacher:
+                        continue
+                    section_label = _normalize_remuneration_csa_section(assignment.section) or 'Full'
+                    if section_label == '':
+                        section_label = 'Full'
+                    assignments_data.append(
+                        _remuneration_assignment_payload(
+                            course,
+                            assignment,
+                            section_label if section_label in ('A', 'B') else 'Full',
+                            False,
+                        )
+                    )
             
             return jsonify({'success': True, 'assignments': assignments_data})
             
@@ -12824,8 +12927,8 @@ def create_app():
             # Get all curriculum IDs
             curriculum_ids = [config.curriculum_id for config in configs]
             
-            # Get course assignments for sessional courses
-            assignments = CourseSessionAssignment.query.filter(
+            # Window-scoped CSA — same source of truth as curriculum
+            assignments = query_for_window(CourseSessionAssignment).filter(
                 CourseSessionAssignment.academic_session == academic_session,
                 CourseSessionAssignment.year == year,
                 CourseSessionAssignment.term == term,
@@ -12837,106 +12940,57 @@ def create_app():
                     db.func.lower(Course.course_type).contains('sessional')
                 )  # Only sessional courses
             ).all()
+            assignments = _filter_live_course_assignments(assignments)
             
-            # Group assignments by course to handle split courses (A and B count as 1)
-            assignments_by_course = {}
-            for assignment in assignments:
-                course_id = assignment.course_id
-                if course_id not in assignments_by_course:
-                    assignments_by_course[course_id] = []
-                assignments_by_course[course_id].append(assignment)
+            assignments_by_course = _group_assignments_by_course(assignments)
             
             assignments_data = []
             for course_id, course_assignments in assignments_by_course.items():
                 course = course_assignments[0].course
                 
-                # Check if this is a split course (has both A and B sections)
-                sections = [a.section for a in course_assignments if a.section]
+                sections = [
+                    _normalize_remuneration_csa_section(a.section)
+                    for a in course_assignments
+                ]
                 has_a = 'A' in sections
                 has_b = 'B' in sections
-                has_full = any(a.section is None or a.section == '' for a in course_assignments)
-                
-                # If split course (A and B), create one entry per section
+                has_full = '' in sections
+                assignment_full = _pick_full_assignment(course_assignments)
+                assignment_a = next(
+                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'A'),
+                    None,
+                )
+                assignment_b = next(
+                    (a for a in course_assignments if _normalize_remuneration_csa_section(a.section) == 'B'),
+                    None,
+                )
+
+                # Prefer Full teacher (expand to A+B for sessional tables); ignore orphan A/B
+                if has_full and assignment_full and assignment_full.teacher:
+                    for section_label in ('A', 'B'):
+                        assignments_data.append(
+                            _remuneration_assignment_payload(course, assignment_full, section_label, True)
+                        )
+                    continue
+
                 if has_a and has_b:
-                    # Section A
-                    assignment_a = next((a for a in course_assignments if a.section == 'A'), None)
                     if assignment_a and assignment_a.teacher:
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'A',
-                            'teacher_name': assignment_a.teacher.name,
-                            'teacher_designation': assignment_a.teacher.designation or '',
-                            'teacher_institute': assignment_a.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
-                    
-                    # Section B
-                    assignment_b = next((a for a in course_assignments if a.section == 'B'), None)
+                        assignments_data.append(
+                            _remuneration_assignment_payload(course, assignment_a, 'A', True)
+                        )
                     if assignment_b and assignment_b.teacher:
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'B',
-                            'teacher_name': assignment_b.teacher.name,
-                            'teacher_designation': assignment_b.teacher.designation or '',
-                            'teacher_institute': assignment_b.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
-                elif has_full:
-                    # Full course - create A and B entries
-                    assignment_full = next((a for a in course_assignments if a.section is None or a.section == ''), None)
-                    if assignment_full and assignment_full.teacher:
-                        # Create A section
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'A',
-                            'teacher_name': assignment_full.teacher.name,
-                            'teacher_designation': assignment_full.teacher.designation or '',
-                            'teacher_institute': assignment_full.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
-                        # Create B section
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'B',
-                            'teacher_name': assignment_full.teacher.name,
-                            'teacher_designation': assignment_full.teacher.designation or '',
-                            'teacher_institute': assignment_full.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
-                else:
-                    # Single section (A or B only) - create both A and B with same teacher
-                    assignment = course_assignments[0]
-                    if assignment.teacher:
-                        # Create A section
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'A',
-                            'teacher_name': assignment.teacher.name,
-                            'teacher_designation': assignment.teacher.designation or '',
-                            'teacher_institute': assignment.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
-                        # Create B section
-                        assignments_data.append({
-                            'course_id': course.id,
-                            'course_code': course.course_code,
-                            'course_name': course.course_name,
-                            'section': 'B',
-                            'teacher_name': assignment.teacher.name,
-                            'teacher_designation': assignment.teacher.designation or '',
-                            'teacher_institute': assignment.teacher.institute or 'Law Discipline, KU',
-                            'is_split': True
-                        })
+                        assignments_data.append(
+                            _remuneration_assignment_payload(course, assignment_b, 'B', True)
+                        )
+                    continue
+
+                # Single section (A or B only) - create both A and B with same teacher
+                assignment = course_assignments[0]
+                if assignment.teacher:
+                    for section_label in ('A', 'B'):
+                        assignments_data.append(
+                            _remuneration_assignment_payload(course, assignment, section_label, True)
+                        )
             
             return jsonify({'success': True, 'assignments': assignments_data})
             
