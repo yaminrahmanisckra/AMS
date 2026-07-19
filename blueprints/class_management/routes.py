@@ -354,6 +354,122 @@ COURSE_SCOPE_LABELS = {
     SCOPE_PART_B: 'Part B',
 }
 
+
+def _normalize_offering_text(value):
+    return (value or '').strip().lower()
+
+
+def _session_offering_key(session):
+    """
+    Identity key for one teacher offering on Active Courses.
+    Part A/B stay distinct via course_scope.
+    window_id / academic_session are intentionally omitted: reassignment often
+    creates a second row with a newer window or filled session string that still
+    represents the same offering in the current dashboard list.
+    """
+    return (
+        session.teacher_id,
+        _normalize_offering_text(session.course_code),
+        _normalize_offering_text(session.year),
+        _normalize_offering_text(session.term),
+        _normalize_offering_text(getattr(session, 'course_scope', None) or SCOPE_FULL),
+    )
+
+
+def _pick_canonical_session(candidates):
+    """Prefer CSA-linked session, then most students, then oldest id."""
+    def score(session):
+        has_csa = 0
+        if CourseSessionAssignment:
+            has_csa = 1 if CourseSessionAssignment.query.filter_by(session_id=session.id).first() else 0
+        student_count = ClassStudent.query.filter_by(session_id=session.id).count()
+        # Prefer older session when other scores tie (keeps history).
+        return (has_csa, student_count, -(session.id or 0))
+
+    return max(candidates, key=score)
+
+
+def _dedupe_active_sessions(sessions):
+    """
+    Collapse duplicate active offerings for the same teacher/course/scope.
+    Archives losers after moving students + CSA links onto the winner.
+    Always returns a deduped list for the UI even if archive commit fails.
+    """
+    if not sessions:
+        return sessions
+
+    groups = defaultdict(list)
+    for session in sessions:
+        groups[_session_offering_key(session)].append(session)
+
+    kept = []
+    changed = False
+    for key, group in groups.items():
+        if len(group) == 1:
+            kept.append(group[0])
+            continue
+
+        winner = _pick_canonical_session(group)
+        kept.append(winner)
+        current_app.logger.warning(
+            'Duplicate Active Courses detected for key=%s count=%s winner=%s losers=%s',
+            key,
+            len(group),
+            winner.id,
+            [s.id for s in group if s.id != winner.id],
+        )
+        for loser in group:
+            if loser.id == winner.id:
+                continue
+            # Heal winner fields from loser when winner is missing them
+            if not (winner.academic_session or '').strip() and (loser.academic_session or '').strip():
+                winner.academic_session = loser.academic_session
+            if winner.window_id is None and loser.window_id is not None:
+                winner.window_id = loser.window_id
+
+            # Move unique students onto the canonical session
+            for class_student in ClassStudent.query.filter_by(session_id=loser.id).all():
+                already = ClassStudent.query.filter_by(
+                    session_id=winner.id,
+                    student_id=class_student.student_id,
+                ).first()
+                if already:
+                    continue
+                class_student.session_id = winner.id
+                class_student.teacher_id = winner.teacher_id
+
+            if CourseSessionAssignment:
+                for assignment in CourseSessionAssignment.query.filter_by(session_id=loser.id).all():
+                    assignment.session_id = winner.id
+                    assignment.session_created = True
+
+            loser.archived = True
+            changed = True
+            current_app.logger.warning(
+                'Archived duplicate class session %s in favor of %s (%s / %s / %s / %s)',
+                loser.id,
+                winner.id,
+                loser.course_code,
+                loser.year,
+                loser.term,
+                getattr(loser, 'course_scope', SCOPE_FULL),
+            )
+
+    if changed:
+        try:
+            db.session.commit()
+        except Exception as dedupe_error:
+            db.session.rollback()
+            current_app.logger.error(
+                f'Error archiving duplicate sessions (UI will still hide duplicates): {dedupe_error}',
+                exc_info=True,
+            )
+
+    # Preserve newest-first ordering used by the dashboard
+    kept.sort(key=lambda s: s.created_at or datetime(1970, 1, 1), reverse=True)
+    return kept
+
+
 EXTERNAL_ASSESSMENT_MODES = {
     'best_three': 'Best three',
     'part_a_b_15': 'Best of Part A (15) + Best of Part B (15)',
@@ -1600,7 +1716,7 @@ def index():
                 db.session.commit()
                 current_app.logger.info(f'Updated {assignment_update_count} assignments with batch/academic_session from curriculum year-term config')
             
-            # Now update sessions with academic_session from assignments
+            # Now update sessions with academic_session / window_id from assignments
             updated_count = 0
             for session in sessions_before_update:
                 if getattr(session, 'is_external_course', False):
@@ -1608,7 +1724,7 @@ def index():
                 # Find CourseSessionAssignment for this session
                 assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
                 if assignment:
-                    # Update academic_session if assignment has it and session doesn't
+                    # Update academic_session if assignment has it and session doesn't / differs
                     if assignment.academic_session and not session.academic_session:
                         session.academic_session = assignment.academic_session
                         updated_count += 1
@@ -1618,6 +1734,13 @@ def index():
                         session.academic_session = assignment.academic_session
                         updated_count += 1
                         current_app.logger.info(f'Updated session {session.id} ({session.course_name}) academic_session from {session.academic_session} to {assignment.academic_session}')
+                    # Stamp window from assignment when session window is missing
+                    if assignment.window_id is not None and session.window_id is None:
+                        session.window_id = assignment.window_id
+                        updated_count += 1
+                        current_app.logger.info(
+                            f'Updated session {session.id} ({session.course_name}) window_id from assignment: {assignment.window_id}'
+                        )
             
             if updated_count > 0:
                 db.session.commit()
@@ -1676,14 +1799,27 @@ def index():
                     else:
                         course_scope = SCOPE_FULL
                     
-                    # Check if a session with similar parameters already exists
-                    existing_session = query_for_window(Session).filter_by(
+                    # Prefer an existing session with same scope (+ academic_session when set)
+                    existing_candidates = query_for_window(Session).filter_by(
                         course_code=course.course_code,
                         teacher_id=teacher.id,
                         year=assignment.year,
                         term=assignment.term,
-                        archived=False
-                    ).first()
+                        course_scope=course_scope,
+                        archived=False,
+                    ).all()
+                    existing_session = None
+                    if existing_candidates:
+                        assign_session_norm = _normalize_offering_text(assignment.academic_session)
+                        exact = [
+                            s for s in existing_candidates
+                            if _normalize_offering_text(s.academic_session) == assign_session_norm
+                        ]
+                        existing_session = exact[0] if exact else existing_candidates[0]
+                        if assignment.academic_session and not existing_session.academic_session:
+                            existing_session.academic_session = assignment.academic_session
+                        if assignment.window_id is not None and existing_session.window_id is None:
+                            existing_session.window_id = assignment.window_id
                     
                     if existing_session:
                         # Link the assignment to the existing session
@@ -1718,11 +1854,12 @@ def index():
                     current_app.logger.error(f'Error auto-creating session for assignment {assignment.id}: {create_error}', exc_info=True)
                     continue
             
-            if created_count > 0:
+            if created_count > 0 or missing_assignments:
                 db.session.commit()
-                current_app.logger.info(f'[DEBUG] Auto-created {created_count} sessions from CourseSessionAssignment for teacher {teacher.id}')
-            else:
-                current_app.logger.info(f'[DEBUG] No new sessions created for teacher {teacher.id} (all assignments already have sessions or no valid assignments)')
+                if created_count > 0:
+                    current_app.logger.info(f'[DEBUG] Auto-created {created_count} sessions from CourseSessionAssignment for teacher {teacher.id}')
+                else:
+                    current_app.logger.info(f'[DEBUG] No new sessions created for teacher {teacher.id} (all assignments already have sessions or no valid assignments)')
         except Exception as e:
             current_app.logger.error(f'[DEBUG] Error auto-creating sessions from CourseSessionAssignment: {str(e)}', exc_info=True)
             db.session.rollback()
@@ -1775,6 +1912,7 @@ def index():
             current_app.logger.error(f'[DEBUG] Error applying active window filter: {window_filter_error}', exc_info=True)
     
     sessions = query.order_by(Session.created_at.desc()).all()
+    sessions = _dedupe_active_sessions(sessions)
 
     current_app.logger.info(f'[DEBUG] Teacher {teacher.id} ({teacher.name}): Found {len(sessions)} sessions AFTER filtering (was {len(sessions_before_filter)} before filtering)')
     for s in sessions:

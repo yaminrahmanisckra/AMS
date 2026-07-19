@@ -4570,6 +4570,8 @@ def assign_teacher_session():
         
         # Reuse an existing matching session whenever possible (especially archived sessions
         # created during unassign), so attendance/history remains in a single session.
+        # IMPORTANT: do not skip an active same-scope session solely because academic_session
+        # differs (empty vs "2024-25") — that creates duplicate Active Courses rows.
         normalized_academic_session = (academic_session or '').strip()
         all_matching_sessions = Session.query.filter_by(
             course_code=course.course_code,
@@ -4578,18 +4580,8 @@ def assign_teacher_session():
         ).all()
 
         reusable_session = None
+        soft_reuse_candidates = []
         for existing_session in all_matching_sessions:
-            existing_academic_session = (existing_session.academic_session or '').strip()
-            if existing_academic_session != normalized_academic_session:
-                continue
-
-            if window_id is not None:
-                sess_win = existing_session.window_id
-                if sess_win is not None and sess_win != window_id:
-                    continue
-                if sess_win is None and window_id != 1:
-                    continue
-
             # Check course scope conflicts on active sessions.
             if not existing_session.archived:
                 if existing_session.course_scope == SCOPE_FULL and course_scope != SCOPE_FULL:
@@ -4611,17 +4603,48 @@ def assign_teacher_session():
                 continue
 
             linked_assignment = _csa_query().filter_by(session_id=existing_session.id).first()
+            existing_academic_session = (existing_session.academic_session or '').strip()
+            exact_academic_match = existing_academic_session == normalized_academic_session
+            sess_win = existing_session.window_id
+            window_compatible = (
+                window_id is None
+                or sess_win is None
+                or sess_win == window_id
+            )
+
             if linked_assignment and not existing_session.archived:
                 # Active linked session already exists for this scope.
-                return jsonify({
-                    'success': False,
-                    'message': f'A session for this course and section is already assigned to {linked_assignment.teacher.name if linked_assignment.teacher else "another teacher"}.'
-                }), 400
+                if linked_assignment.teacher_id == teacher_id:
+                    # Same teacher: always reuse (even if window/academic_session differ)
+                    reusable_session = existing_session
+                    break
+                # Other teacher — only conflict when windows overlap / are compatible
+                if window_compatible:
+                    return jsonify({
+                        'success': False,
+                        'message': f'A session for this course and section is already assigned to {linked_assignment.teacher.name if linked_assignment.teacher else "another teacher"}.'
+                    }), 400
+                continue
 
-            # Prefer reusing archived/unlinked sessions and avoid creating a fresh session.
-            reusable_session = existing_session
-            if existing_session.archived:
-                break
+            if exact_academic_match and window_compatible:
+                reusable_session = existing_session
+                if existing_session.archived:
+                    break
+                continue
+
+            # Soft reuse: same teacher or archived orphan (ignore window / academic_session drift)
+            if existing_session.teacher_id == teacher_id or existing_session.archived:
+                soft_reuse_candidates.append(existing_session)
+
+        if reusable_session is None and soft_reuse_candidates:
+            soft_reuse_candidates.sort(
+                key=lambda s: (
+                    0 if s.archived else 1,
+                    0 if s.teacher_id == teacher_id else 1,
+                    s.id,
+                )
+            )
+            reusable_session = soft_reuse_candidates[0]
 
         reused_existing_session = reusable_session is not None
         if reused_existing_session:
