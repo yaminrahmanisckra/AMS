@@ -1968,6 +1968,13 @@ def _export_docx(doc, parts, course_ids):
 def _export_pdf(doc, parts, course_ids, req):
     from weasyprint import HTML
     from markupsafe import escape
+    from utils.pdf_fonts import resolve_formal_pdf_fonts, formal_font_face_css
+
+    formal_fonts = resolve_formal_pdf_fonts()
+    if not formal_fonts:
+        raise RuntimeError(
+            'PDF fonts missing. Upload LiberationSerif-Regular.ttf and LiberationSerif-Bold.ttf to static/fonts/.'
+        )
 
     part_map = {p.part_key: p for p in doc.parts}
     part_a = part_map.get('A')
@@ -2000,9 +2007,13 @@ def _export_pdf(doc, parts, course_ids, req):
 
     chunks = []
     chunks.append('<!DOCTYPE html><html><head><meta charset="utf-8"/><style>')
-    chunks.append('body{ font-family: sans-serif; padding: 1in; } h1{ font-size: 18pt; } h2{ font-size: 14pt; margin-top: 1em; }')
+    chunks.append(formal_font_face_css(formal_fonts, 'PDFSerif'))
+    chunks.append(
+        "body{ font-family: 'PDFSerif', 'Times New Roman', Times, serif; padding: 1in; } "
+        "h1{ font-size: 18pt; } h2{ font-size: 14pt; margin-top: 1em; }"
+    )
     chunks.append('p{ margin: 0.5em 0; } table{ border-collapse: collapse; margin: 0 0 1.2em 0; display: block; width: 100%; } th,td{ border: 1px solid #333; padding: 6px 8px; text-align: left; } .table-gap{ margin: 0.6em 0; height: 0; overflow: hidden; } .section-caption{ font-weight: bold; margin: 0.8em 0 0.3em 0; } .course-page{ page-break-before: always; }')
-    chunks.append('@page{ margin: 1in; @bottom-center{ content: counter(page) " / " counter(pages); font-size: 10pt; } }')
+    chunks.append("@page{ margin: 1in; @bottom-center{ content: counter(page) \" / \" counter(pages); font-size: 10pt; font-family: 'PDFSerif', serif; } }")
     chunks.append('</style></head><body><h1>%s</h1>' % esc(doc.name))
 
     part_order = ['A', 'B', 'C', 'D']
@@ -2379,9 +2390,8 @@ def _export_pdf(doc, parts, course_ids, req):
 
     chunks.append('</body></html>')
     html = ''.join(chunks)
-    # base_url=None avoids WeasyPrint resolving URLs (can fail on cPanel); our HTML has no external resources
     try:
-        h = HTML(string=html, base_url=None)
+        h = HTML(string=html, base_url=formal_fonts['fonts_dir'].as_uri() + '/')
         buf = BytesIO()
         h.write_pdf(buf, presentational_hints=True)
         buf.seek(0)

@@ -1,3 +1,4 @@
+import hashlib
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -5,10 +6,10 @@ from user_models import User
 from extensions import db
 from itsdangerous import URLSafeTimedSerializer
 from flask import current_app
-from flask_mail import Message
-from extensions import mail
 import traceback
 import sys
+from utils.recovery_email import send_recovery_email
+from utils.login_throttle import is_locked, record_failure, clear as clear_login_throttle
 from role_utils import (
     ADMIN_ROLE,
     ROLE_CHOICES,
@@ -21,11 +22,17 @@ from role_utils import (
 
 auth_bp = Blueprint('auth', __name__, template_folder='templates')
 
+
+def _client_ip():
+    """Client IP for throttle keying (supports proxy X-Forwarded-For)."""
+    return (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip() or request.remote_addr or ''
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     default_login_role = 'teacher'
     selected_role = default_login_role
-    student_default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', 'Student@123')
+    student_default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', '')
     
     if request.method == 'POST':
         # Clear any existing session before processing new login
@@ -58,9 +65,15 @@ def login():
             flash('Please select the category you want to use for this session.', 'error')
             return render_form()
         
+        client_ip = _client_ip()
+        if is_locked(username, client_ip):
+            flash('Too many failed login attempts. Please try again in a few minutes.', 'error')
+            return render_form()
+        
         user = User.query.filter_by(username=username).first()
         
         if not user or not user.check_password(password):
+            record_failure(username, client_ip)
             flash('Invalid username or password.', 'error')
             return render_form()
         
@@ -81,6 +94,7 @@ def login():
         # Login with the new user, don't remember to prevent cookie persistence issues
         login_user(user, remember=False)
         session['active_role'] = selected_role
+        clear_login_throttle(username, client_ip)
         
         current_app.logger.info(f"Successfully logged in user: {user.username} (ID: {user.id}) with role: {selected_role}")
         flash('Login successful!', 'success')
@@ -317,88 +331,108 @@ def get_serializer():
     secret = current_app.config.get('SECRET_KEY', 'a_very_secret_default_key')
     return URLSafeTimedSerializer(secret)
 
+
+def _password_fingerprint(user):
+    """Short hash of the current password_hash, embedded in reset tokens.
+
+    Once the password changes (including via this same reset link), the
+    fingerprint no longer matches, so the old token/link can't be reused.
+    """
+    return hashlib.sha256((user.password_hash or '').encode('utf-8')).hexdigest()[:16]
+
+
+FORGOT_PASSWORD_UNIFORM_MESSAGE = (
+    'If an account exists for that email address, a password reset link has been sent.'
+)
+
+
 @auth_bp.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
-        email = request.form.get('email')
-        user = User.query.filter_by(email=email).first()
+        email = (request.form.get('email') or '').strip()
+        # Case-insensitive + trimmed match (DB email may differ in case/whitespace)
+        user = (
+            User.query.filter(db.func.lower(User.email) == email.lower()).first()
+            if email
+            else None
+        )
         if user:
             s = get_serializer()
-            token = s.dumps(user.email, salt='password-reset-salt')
+            token = s.dumps(
+                {'email': user.email, 'pf': _password_fingerprint(user)},
+                salt='password-reset-salt',
+            )
             reset_url = url_for('auth.reset_password', token=token, _external=True)
             try:
-                subject = "Password Reset Request - Academic Management System"
-                html_body = f"""
-                <html>
-                <body>
-                    <h2>Password Reset Request</h2>
-                    <p>Hello,</p>
-                    <p>You have requested to reset your password for the Academic Management System.</p>
-                    <p>Click the link below to reset your password:</p>
-                    <p><a href=\"{reset_url}\" style=\"background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;\">Reset Password</a></p>
-                    <p>Or copy and paste this URL in your browser:</p>
-                    <p>{reset_url}</p>
-                    <p>This link will expire in 1 hour.</p>
-                    <p>If you did not request this password reset, please ignore this email.</p>
-                    <br>
-                    <p>Best regards,</p>
-                    <p>Academic Management System Team</p>
-                </body>
-                </html>
-                """
-                text_body = f"""
-                Password Reset Request
-                
-                Hello,
-                
-                You have requested to reset your password for the Academic Management System.
-                
-                Click the link below to reset your password:
-                {reset_url}
-                
-                This link will expire in 1 hour.
-                
-                If you did not request this password reset, please ignore this email.
-                
-                Best regards,
-                Academic Management System Team
-                """
-                # Password recovery: always MAIL_* / recovery@ (never NOTIFICATION_MAIL_*)
-                reset_sender = (
-                    current_app.config.get('MAIL_DEFAULT_SENDER')
-                    or current_app.config.get('MAIL_USERNAME')
+                from datetime import datetime as _dt
+
+                display_name = (user.full_name or user.username or 'User').strip()
+                account_id = (user.username or user.email or '').strip()
+                requested_at = _dt.utcnow().strftime('%d %B %Y, %H:%M UTC')
+                # Keep subject/body short — hosting outbound filters flag long
+                # "password reset / click here / security" templates as spam (550).
+                subject = f"AMS account help — {account_id} — Law Discipline, KU"
+                text_body = (
+                    f"Dear {display_name},\n\n"
+                    "Law Discipline, Khulna University (Academic Management System).\n\n"
+                    f"Account: {account_id}\n"
+                    f"Email: {user.email}\n"
+                    f"Time: {requested_at}\n\n"
+                    "Open this AMS page to choose a new sign-in password "
+                    "(valid for 1 hour, one use):\n"
+                    f"{reset_url}\n\n"
+                    "If you did not ask for this, ignore this message. "
+                    "Your current password stays unchanged.\n\n"
+                    "Academic Management System\n"
+                    "Law Discipline, Khulna University\n"
                 )
-                msg = Message(
+                # Plain text only — HTML + multiple CTAs often trip cPanel spam filters
+                send_recovery_email(
                     subject=subject,
-                    recipients=[user.email],
-                    html=html_body,
-                    body=text_body,
-                    sender=reset_sender,
+                    recipient=user.email,
+                    text_body=text_body,
+                    html_body=None,
                 )
-                print("Trying to send email...", file=sys.stderr)
-                mail.send(msg)
-                print("Email sent successfully!", file=sys.stderr)
                 flash('A password reset link has been sent to your email.', 'info')
             except Exception as e:
                 print('Email send error:', e, file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
-                flash('Failed to send email. Please try again later.', 'danger')
+                current_app.logger.error(f'Password reset email failed: {e}', exc_info=True)
+                # Show SMTP reason while hosting spam-filter issues are being fixed
+                flash(f'Failed to send email: {e}', 'danger')
         else:
-            flash('No user found with that email.', 'danger')
+            # Do not reveal whether the email is registered
+            flash(FORGOT_PASSWORD_UNIFORM_MESSAGE, 'info')
     return render_template('auth/forgot_password.html')
+
 
 @auth_bp.route('/reset-password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
     s = get_serializer()
     try:
-        email = s.loads(token, salt='password-reset-salt', max_age=3600)
+        data = s.loads(token, salt='password-reset-salt', max_age=3600)
     except Exception:
         flash('The password reset link is invalid or has expired.', 'danger')
         return redirect(url_for('auth.forgot_password'))
-    user = User.query.filter_by(email=email).first()
+
+    if isinstance(data, dict):
+        email = data.get('email')
+        token_fingerprint = data.get('pf')
+    else:
+        # Backward-compat with tokens issued before the fingerprint was added.
+        email = data
+        token_fingerprint = None
+
+    user = User.query.filter_by(email=email).first() if email else None
     if not user:
         flash('Invalid user.', 'danger')
         return redirect(url_for('auth.forgot_password'))
+
+    if token_fingerprint is not None and token_fingerprint != _password_fingerprint(user):
+        # Password already changed since this link was issued (or link was reused) — dead link.
+        flash('The password reset link is invalid or has expired.', 'danger')
+        return redirect(url_for('auth.forgot_password'))
+
     if request.method == 'POST':
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
@@ -408,30 +442,8 @@ def reset_password(token):
             flash('Passwords do not match.', 'danger')
         else:
             user.set_password(password)
+            user.must_change_password = False
             db.session.commit()
             flash('Your password has been reset. Please login.', 'success')
             return redirect(url_for('auth.login'))
     return render_template('auth/reset_password.html', token=token)
-    s = get_serializer()
-    try:
-        email = s.loads(token, salt='password-reset-salt', max_age=3600)
-    except Exception:
-        flash('The password reset link is invalid or has expired.', 'danger')
-        return redirect(url_for('auth.forgot_password'))
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        flash('Invalid user.', 'danger')
-        return redirect(url_for('auth.forgot_password'))
-    if request.method == 'POST':
-        password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
-        if not password or not confirm_password:
-            flash('Please fill out all fields.', 'danger')
-        elif password != confirm_password:
-            flash('Passwords do not match.', 'danger')
-        else:
-            user.set_password(password)
-            db.session.commit()
-            flash('Your password has been reset. Please login.', 'success')
-            return redirect(url_for('auth.login'))
-    return render_template('auth/reset_password.html', token=token) 

@@ -2,17 +2,30 @@ from flask import render_template, request, redirect, url_for, flash, jsonify, c
 from flask_login import login_required
 from sqlalchemy import or_
 import pandas as pd
+import secrets
+import string
 from . import student_management_bp
 from .models import Student
 from extensions import db
 from blueprints.course_management.models import Curriculum, DutyAssignment
 from blueprints.class_management.models import ClassStudent
 from user_models import User
-from role_utils import parse_roles, serialize_roles
+from role_utils import (
+    parse_roles, serialize_roles, role_required, can_manage_students,
+    STAFF_ROLES, CORE_ROLES, ADMIN_ROLE, TEACHING_ROLES,
+)
 try:
     from utils.window_utils import get_effective_window_id
 except ImportError:
     get_effective_window_id = None
+
+
+_PRIVILEGED_ROLES = STAFF_ROLES | CORE_ROLES | {ADMIN_ROLE, 'dean', 'head', 'officer', 'teacher'}
+
+
+def _generate_student_password(length=12):
+    alphabet = string.ascii_letters + string.digits + '!@#$%^&*'
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
 def _generate_student_email(preferred_email, student_id):
@@ -31,11 +44,15 @@ def _generate_student_email(preferred_email, student_id):
 
 
 def ensure_student_user(student):
+    """Create or update a student login. Never adopt privileged accounts (C06)."""
     username = (student.student_id or '').strip()
     if not username:
-        return
+        return None
 
-    default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', 'Student@123')
+    # Prefer per-account random password; env DEFAULT_STUDENT_PASSWORD only if explicitly set
+    default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD')
+    if not default_password:
+        default_password = _generate_student_password()
     account = User.query.filter_by(username=username).first()
     if not account:
         email = _generate_student_email(student.email, username)
@@ -43,23 +60,39 @@ def ensure_student_user(student):
             username=username,
             email=email,
             full_name=student.name or username,
-            role='student'
+            role='student',
+            must_change_password=True,
         )
         account.set_password(default_password)
         db.session.add(account)
         db.session.flush()
-        return
+        return default_password
+
+    roles = parse_roles(account.role)
+    role_set = set(roles)
+    # Refuse to attach student role to privileged accounts (admin/head/teacher/…)
+    dangerous = role_set & (_PRIVILEGED_ROLES - {'teaching_assistant', 'student'})
+    if dangerous and 'student' not in role_set:
+        current_app.logger.warning(
+            'ensure_student_user refused to adopt privileged user %s (roles=%s) for student_id=%s',
+            account.username, account.role, username,
+        )
+        raise ValueError(
+            f'Username {username} already belongs to a privileged account; '
+            'choose a different student ID or resolve the collision manually.'
+        )
 
     updated = False
-    roles = parse_roles(account.role)
     if 'student' not in roles:
         roles.append('student')
         account.role = serialize_roles(roles)
         updated = True
 
     if student.name and account.full_name != student.name:
-        account.full_name = student.name
-        updated = True
+        # Do not rename privileged linked accounts' display names via student sync
+        if not (role_set & (_PRIVILEGED_ROLES - {'teaching_assistant', 'student'})):
+            account.full_name = student.name
+            updated = True
 
     new_email = (student.email or '').strip()
     if new_email and account.email != new_email:
@@ -70,6 +103,7 @@ def ensure_student_user(student):
 
     if updated:
         db.session.flush()
+    return None
 
 @student_management_bp.route('/')
 @login_required
@@ -131,6 +165,7 @@ def index():
 
 @student_management_bp.route('/add', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer', json_on_fail=True)
 def add_student():
     """Add a new student via AJAX (modal)"""
     student_id = request.form.get('student_id', '').strip()
@@ -158,13 +193,15 @@ def add_student():
             phone=phone
         )
         db.session.add(student)
-        ensure_student_user(student)
+        one_time_password = ensure_student_user(student)
         db.session.commit()
-        default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', 'Student@123')
+        msg = f'Student {name} ({student_id}) added successfully!'
+        if one_time_password:
+            msg += f' One-time password: {one_time_password} (must change on first login)'
         return jsonify({
             'success': True,
-            'message': f'Student {name} ({student_id}) added successfully! Default password: {default_password}',
-            'default_password': default_password
+            'message': msg,
+            'default_password': one_time_password,
         })
     except Exception as e:
         db.session.rollback()
@@ -172,6 +209,7 @@ def add_student():
 
 @student_management_bp.route('/edit/<int:student_id>', methods=['GET', 'POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def edit_student(student_id):
     """Edit a student"""
     student = Student.query.get_or_404(student_id)
@@ -220,6 +258,7 @@ def edit_student(student_id):
 
 @student_management_bp.route('/delete/<int:student_id>', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def delete_student(student_id):
     """Delete a student"""
     student = Student.query.get_or_404(student_id)
@@ -259,6 +298,7 @@ def delete_student(student_id):
 
 @student_management_bp.route('/bulk-upload', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer', json_on_fail=True)
 def bulk_upload():
     """Bulk upload students from Excel file"""
     if 'file' not in request.files:
@@ -365,123 +405,21 @@ def bulk_upload():
         
         db.session.commit()
         
-        default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', 'Student@123')
-        message = f'Successfully added {added_count} students.'
+        message = (
+            f'Successfully added {added_count} students. '
+            'Each new account received a unique one-time password (must change on first login).'
+        )
         if skipped_count > 0:
             message += f' Skipped {skipped_count} existing students.'
         if errors:
             message += f' {len(errors)} errors occurred.'
-        if added_count > 0:
-            message += f' Default password for new student logins: {default_password}'
         
         return jsonify({
             'success': True, 
             'message': message,
             'added': added_count,
             'skipped': skipped_count,
-            'errors': errors[:10],  # Limit errors shown
-            'default_password': default_password
-        })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': f'Error processing Excel file: {str(e)}'}), 500
-
-
-        # Find actual column names
-        actual_columns = {}
-        for key, possible_names in column_mapping.items():
-            for col in df.columns:
-                if col in possible_names:
-                    actual_columns[key] = col
-                    break
-        
-        if 'student_id' not in actual_columns or 'name' not in actual_columns:
-            return jsonify({
-                'success': False, 
-                'message': 'Excel file must have columns: Student ID and Name. Found columns: ' + ', '.join(df.columns)
-            }), 400
-        
-        added_count = 0
-        skipped_count = 0
-        errors = []
-        
-        # Get all existing student IDs in one query
-        existing_student_ids = {s.student_id for s in Student.query.with_entities(Student.student_id).all()}
-        
-        for idx, row in df.iterrows():
-            try:
-                student_id = str(row[actual_columns['student_id']]).strip()
-                name = str(row[actual_columns['name']]).strip()
-                
-                if not student_id or not name or student_id == 'nan' or name == 'nan':
-                    continue
-                
-                # Check if already exists
-                if student_id in existing_student_ids:
-                    skipped_count += 1
-                    existing_student = Student.query.filter_by(student_id=student_id).first()
-                    if existing_student:
-                        ensure_student_user(existing_student)
-                    continue
-                
-                batch = None
-                if 'batch' in actual_columns:
-                    batch_val = row[actual_columns['batch']]
-                    if pd.notna(batch_val):
-                        batch = str(batch_val).strip() or None
-                
-                hall = None
-                if 'hall' in actual_columns:
-                    hall_val = row[actual_columns['hall']]
-                    if pd.notna(hall_val):
-                        hall = str(hall_val).strip() or None
-                
-                email = None
-                if 'email' in actual_columns:
-                    email_val = row[actual_columns['email']]
-                    if pd.notna(email_val):
-                        email = str(email_val).strip() or None
-                
-                phone = None
-                if 'phone' in actual_columns:
-                    phone_val = row[actual_columns['phone']]
-                    if pd.notna(phone_val):
-                        phone = str(phone_val).strip() or None
-                
-                student = Student(
-                    student_id=student_id,
-                    name=name,
-                    batch=batch,
-                    hall=hall,
-                    email=email,
-                    phone=phone
-                )
-                db.session.add(student)
-                ensure_student_user(student)
-                existing_student_ids.add(student_id)  # Add to set to avoid duplicates in same upload
-                added_count += 1
-            except Exception as e:
-                errors.append(f'Row {idx + 2}: {str(e)}')
-                continue
-        
-        db.session.commit()
-        
-        default_password = current_app.config.get('DEFAULT_STUDENT_PASSWORD', 'Student@123')
-        message = f'Successfully added {added_count} students.'
-        if skipped_count > 0:
-            message += f' Skipped {skipped_count} existing students.'
-        if errors:
-            message += f' {len(errors)} errors occurred.'
-        if added_count > 0:
-            message += f' Default password for new student logins: {default_password}'
-        
-        return jsonify({
-            'success': True, 
-            'message': message,
-            'added': added_count,
-            'skipped': skipped_count,
-            'errors': errors[:10],  # Limit errors shown
-            'default_password': default_password
+            'errors': errors[:10],
         })
     except Exception as e:
         db.session.rollback()

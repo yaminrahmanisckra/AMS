@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attendance Sheet</title>
     <style>
+        @font-face {
+            font-family: 'PDFSans';
+            src: url('{{ pdf_font_regular }}');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'PDFSans';
+            src: url('{{ pdf_font_bold }}');
+            font-weight: bold;
+            font-style: normal;
+        }
+
         @page {
             size: legal landscape;
             margin: 0.3in 0.2in;
@@ -16,8 +29,11 @@
             box-sizing: border-box;
         }
         
+        body, table, th, td, h1, strong, div {
+            font-family: 'PDFSans', sans-serif !important;
+        }
+
         body {
-            font-family: Arial, sans-serif;
             font-size: 8px;
             line-height: 1.2;
             color: #000;

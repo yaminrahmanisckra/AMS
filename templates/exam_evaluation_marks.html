@@ -15,7 +15,7 @@
 
     <div class="alert alert-info small">
         <i class="fas fa-lightbulb me-2"></i>
-        Add questions and optional sub-parts (a, b, c…) as needed. Totals always round to whole numbers. Student ID can only be entered in Scrutinizer mode.
+        First set allocated marks in each question header (suggested: UG 10 / PG 12.5). Mark entry stays locked until allocation is set. For sub-parts (a, b, c…), allocate per part — the question header shows the total. Marks above allocation are highlighted and cannot be saved. Totals round to whole numbers. Student ID can only be entered in Scrutinizer mode.
     </div>
 
     <form id="marks-form" method="POST">
@@ -118,7 +118,7 @@
 }
 
 #marks-table thead tr:nth-child(2) th {
-    top: 42px;
+    top: 52px;
     z-index: 4;
 }
 
@@ -189,6 +189,38 @@
     justify-content: center;
     gap: 0.35rem;
     font-size: 0.9rem;
+    flex-wrap: wrap;
+}
+.allocated-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.05rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.allocated-input {
+    width: 3.4rem;
+    min-width: 3.4rem;
+    display: inline-block;
+    padding: 0.1rem 0.2rem;
+    font-size: 0.8rem;
+    text-align: center;
+}
+.allocated-input.is-unallocated {
+    border-color: #e0a800 !important;
+    background-color: #fff3cd !important;
+}
+.question-allocated-total {
+    font-weight: 600;
+    white-space: nowrap;
+}
+.mark-input.marks-exceed-allocated {
+    border-color: #dc3545 !important;
+    background-color: #f8d7da !important;
+}
+.mark-input.marks-awaiting-allocation {
+    background-color: #f1f3f5 !important;
+    cursor: not-allowed;
 }
 .field-readonly {
     background-color: #f8f9fa;
@@ -219,6 +251,7 @@
     const pageRole = {{ role|tojson }};
     const programLevel = {{ (entry.program_level or 'ug')|tojson }};
     const defaultQuestionCount = programLevel === 'pg' ? 3 : 4;
+    const defaultAllocated = programLevel === 'pg' ? 12.5 : 10;
 
     const questions = [];
     const headerMain = document.getElementById('marks-header-main');
@@ -272,6 +305,13 @@
             showSaveStatus('✗ Duplicate Code/Student ID found', false);
             return;
         }
+
+        const allocatedViolations = findAllocatedViolations();
+        if (allocatedViolations.length) {
+            validateAllMarkInputs();
+            showSaveStatus('✗ Set allocated marks / fix over-allocation', false);
+            return;
+        }
         
         try {
             const data = JSON.parse(payload);
@@ -312,12 +352,206 @@
         return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     }
 
+    function parseAllocated(value, fallback = defaultAllocated) {
+        if (value === null || value === undefined || `${value}`.trim() === '') {
+            return fallback;
+        }
+        const number = parseFloat(value);
+        return !Number.isNaN(number) && number >= 0 ? number : fallback;
+    }
+
+    function formatAllocatedDisplay(value) {
+        const number = parseFloat(value);
+        if (Number.isNaN(number)) {
+            return '';
+        }
+        return Number.isInteger(number) ? String(number) : String(number);
+    }
+
+    function isAllocatedSet(part) {
+        if (!part || part.allocated === null || part.allocated === undefined || `${part.allocated}`.trim() === '') {
+            return false;
+        }
+        return !Number.isNaN(parseFloat(part.allocated));
+    }
+
+    function normalizeAllocatedForSave(value) {
+        if (value === null || value === undefined || `${value}`.trim() === '') {
+            return null;
+        }
+        const number = parseFloat(value);
+        return Number.isNaN(number) || number < 0 ? null : number;
+    }
+
+    function questionAllocatedTotal(question) {
+        return question.parts.reduce((sum, part) => {
+            if (!isAllocatedSet(part)) {
+                return sum;
+            }
+            return sum + parseFloat(part.allocated);
+        }, 0);
+    }
+
+    function getPartAllocated(questionId, partId) {
+        const question = questions.find(q => q.id === questionId);
+        if (!question) {
+            return null;
+        }
+        const part = question.parts.find(p => p.id === partId);
+        if (!isAllocatedSet(part)) {
+            return null;
+        }
+        return parseFloat(part.allocated);
+    }
+
+    function refreshAllocatedInputStyles() {
+        document.querySelectorAll('.allocated-input').forEach(input => {
+            const empty = !`${input.value || ''}`.trim();
+            input.classList.toggle('is-unallocated', empty);
+            input.title = empty
+                ? 'Set allocated marks before entering student marks'
+                : 'Allocated marks';
+        });
+    }
+
+    function validateMarkInput(input) {
+        if (!input) {
+            return true;
+        }
+        const cell = input.closest('td');
+        if (!cell) {
+            return true;
+        }
+        const allocated = getPartAllocated(cell.dataset.questionId, cell.dataset.partId);
+        const raw = `${input.value || ''}`.trim();
+        if (allocated === null) {
+            const hasValue = raw !== '';
+            input.classList.toggle('is-invalid', hasValue);
+            input.classList.toggle('marks-exceed-allocated', hasValue);
+            input.title = 'Set allocated marks in the header first';
+            return !hasValue;
+        }
+        if (raw === '') {
+            input.classList.remove('is-invalid', 'marks-exceed-allocated');
+            input.title = '';
+            return true;
+        }
+        const value = parseFloat(raw);
+        const exceeds = !Number.isNaN(value) && value > allocated;
+        input.classList.toggle('is-invalid', exceeds);
+        input.classList.toggle('marks-exceed-allocated', exceeds);
+        input.title = exceeds ? `Exceeds allocated marks (${formatAllocatedDisplay(allocated)})` : '';
+        return !exceeds;
+    }
+
+    function validateAllMarkInputs() {
+        let allValid = true;
+        tbody.querySelectorAll('.mark-input').forEach(input => {
+            if (!validateMarkInput(input)) {
+                allValid = false;
+            }
+        });
+        return allValid;
+    }
+
+    function findAllocatedViolations() {
+        const violations = [];
+        tbody.querySelectorAll('.marks-row').forEach((row, rowIndex) => {
+            questions.forEach(question => {
+                question.parts.forEach(part => {
+                    const input = row.querySelector(`td[data-question-id="${question.id}"][data-part-id="${part.id}"] input`);
+                    if (!input) {
+                        return;
+                    }
+                    const raw = `${input.value || ''}`.trim();
+                    if (!raw) {
+                        return;
+                    }
+                    const value = parseFloat(raw);
+                    if (Number.isNaN(value)) {
+                        return;
+                    }
+                    const partSuffix = part.label && part.label !== 'Marks' ? ` (${part.label})` : '';
+                    const label = `${question.label}${partSuffix}`;
+                    if (!isAllocatedSet(part)) {
+                        violations.push({
+                            row: rowIndex + 1,
+                            label,
+                            value,
+                            allocated: null,
+                            missingAllocation: true,
+                        });
+                        return;
+                    }
+                    const allocated = parseFloat(part.allocated);
+                    if (value > allocated) {
+                        violations.push({
+                            row: rowIndex + 1,
+                            label,
+                            value,
+                            allocated,
+                            missingAllocation: false,
+                        });
+                    }
+                });
+            });
+        });
+        return violations;
+    }
+
+    function updateQuestionAllocatedTotalDisplay(question) {
+        const totalEl = document.querySelector(`.question-allocated-total[data-question-id="${question.id}"]`);
+        if (!totalEl) {
+            return;
+        }
+        const allSet = question.parts.every(isAllocatedSet);
+        if (!allSet) {
+            totalEl.textContent = '(—)';
+            totalEl.title = 'Set allocated marks for all sub-parts';
+            return;
+        }
+        totalEl.textContent = `(${formatAllocatedDisplay(questionAllocatedTotal(question))})`;
+        totalEl.title = '';
+    }
+
+    function updateMarkLocksForPart(questionId, partId) {
+        const question = questions.find(q => q.id === questionId);
+        const part = question ? question.parts.find(p => p.id === partId) : null;
+        tbody.querySelectorAll(`td[data-question-id="${questionId}"][data-part-id="${partId}"] .mark-input`).forEach(markInput => {
+            applyMarkInputLock(markInput, part);
+            validateMarkInput(markInput);
+        });
+    }
+
+    function applyMarkInputLock(markInput, part) {
+        if (!markInput) {
+            return;
+        }
+        const locked = !isAllocatedSet(part);
+        markInput.readOnly = locked;
+        markInput.classList.toggle('field-readonly', locked);
+        markInput.classList.toggle('marks-awaiting-allocation', locked);
+        markInput.tabIndex = locked ? -1 : 0;
+        if (locked) {
+            markInput.placeholder = 'Alloc first';
+            markInput.title = 'Set allocated marks in the header first';
+            markInput.removeAttribute('max');
+        } else {
+            markInput.placeholder = '';
+            const allocated = parseFloat(part.allocated);
+            if (!Number.isNaN(allocated)) {
+                markInput.max = allocated;
+            }
+        }
+    }
+
     function attachMarkInputEvents(input, row) {
         if (!input || input.dataset.eventsAttached === '1') {
             return;
         }
         input.addEventListener('input', () => {
             updateRowTotal(row);
+            validateMarkInput(input);
             debounceAutoSave(); // Trigger auto-save when marks are typed
         });
         input.addEventListener('keydown', event => handleEnterKey(event, row, input));
@@ -386,9 +620,13 @@
             codeInput.tabIndex = 0;
         }
         markInputs.forEach(input => {
-            input.readOnly = false;
-            input.classList.remove('field-readonly');
-            input.tabIndex = 0;
+            const cell = input.closest('td');
+            const question = cell ? questions.find(q => q.id === cell.dataset.questionId) : null;
+            const part = question && cell
+                ? question.parts.find(p => p.id === cell.dataset.partId)
+                : null;
+            applyMarkInputLock(input, part);
+            validateMarkInput(input);
         });
         if (studentIdInput) {
             studentIdInput.readOnly = pageRole !== 'scrutinizer';
@@ -599,12 +837,15 @@
                     cell = document.createElement('td');
                     cell.dataset.questionId = question.id;
                     cell.dataset.partId = part.id;
-                    cell.innerHTML = '<input type="number" step="0.5" class="form-control form-control-sm mark-input">';
+                    cell.innerHTML = '<input type="number" step="0.5" min="0" class="form-control form-control-sm mark-input">';
                 }
                 const bandClass = `marks-band-${(index % 2) + 1}`;
                 cell.classList.add(bandClass);
                 row.insertBefore(cell, totalCell);
-                attachMarkInputEvents(cell.querySelector('input'), row);
+                const markInput = cell.querySelector('input');
+                attachMarkInputEvents(markInput, row);
+                applyMarkInputLock(markInput, part);
+                validateMarkInput(markInput);
             });
         });
 
@@ -635,9 +876,22 @@
             th.dataset.questionId = question.id;
             th.colSpan = showSubHeader ? question.parts.length : 1;
             const bandClass = `marks-band-${(index % 2) + 1}`;
+            const isMultiPart = question.parts.length > 1;
+            const singlePart = question.parts[0];
+            let allocatedControl = '';
+            if (isMultiPart) {
+                allocatedControl = `<span class="question-allocated-total" data-question-id="${question.id}">${question.parts.every(isAllocatedSet) ? `(${formatAllocatedDisplay(questionAllocatedTotal(question))})` : '(—)'}</span>`;
+            } else if (!showSubHeader) {
+                allocatedControl = `<span class="allocated-wrap">(<input type="number" step="0.5" min="0" class="form-control form-control-sm allocated-input${!isAllocatedSet(singlePart) ? ' is-unallocated' : ''}" data-question-id="${question.id}" data-part-id="${singlePart.id}" value="${formatAllocatedDisplay(singlePart.allocated)}" placeholder="${formatAllocatedDisplay(defaultAllocated)}" title="Set allocated marks before entering student marks">)</span>`;
+            } else {
+                allocatedControl = `<span class="question-allocated-total" data-question-id="${question.id}">${question.parts.every(isAllocatedSet) ? `(${formatAllocatedDisplay(questionAllocatedTotal(question))})` : '(—)'}</span>`;
+            }
             th.innerHTML = `
                 <div class="question-header ${bandClass}" data-question-id="${question.id}">
-                    <span class="fw-semibold question-title">${question.label}</span>
+                    <span class="d-flex align-items-center gap-1 flex-wrap">
+                        <span class="fw-semibold question-title">${question.label}</span>
+                        ${allocatedControl}
+                    </span>
                     <div class="d-flex align-items-center gap-1">
                         <button type="button" class="btn btn-outline-secondary btn-sm question-toggle" data-question-id="${question.id}" title="Show question actions"><i class="fas fa-ellipsis-h"></i></button>
                         <div class="question-actions btn-group btn-group-sm">
@@ -658,6 +912,7 @@
                     subTh.innerHTML = `
                         <div class="subpart-header">
                             <span class="subpart-label" data-question-id="${question.id}" data-part-id="${part.id}" title="Click to rename">${part.label}</span>
+                            <span class="allocated-wrap">(<input type="number" step="0.5" min="0" class="form-control form-control-sm allocated-input${!isAllocatedSet(part) ? ' is-unallocated' : ''}" data-question-id="${question.id}" data-part-id="${part.id}" value="${formatAllocatedDisplay(part.allocated)}" placeholder="${formatAllocatedDisplay(defaultAllocated)}" title="Set allocated marks before entering student marks">)</span>
                             ${question.parts.length > 1 ? `<button type="button" class="btn btn-link text-danger p-0 subpart-remove" data-question-id="${question.id}" data-part-id="${part.id}" title="Remove sub-part"><i class="fas fa-times-circle"></i></button>` : ''}
                         </div>
                     `;
@@ -690,6 +945,7 @@
         headerMain.appendChild(studentTh);
 
         attachHeaderEvents();
+        refreshAllocatedInputStyles();
         tbody.querySelectorAll('.marks-row').forEach(syncRowLayout);
         attachStudentSortEvent();
         // Reset sort state when headers are re-rendered
@@ -707,9 +963,14 @@
             initialLabel,
             initialParts,
             questionId,
+            initialAllocated,
         } = options;
 
         let label = initialLabel || `Question ${questions.length + 1}`;
+        let allocated = '';
+        if (initialAllocated !== undefined && initialAllocated !== null && `${initialAllocated}`.trim() !== '') {
+            allocated = parseAllocated(initialAllocated, defaultAllocated);
+        }
         if (promptForLabel) {
             const userLabel = prompt('Question title:', label);
             if (userLabel === null) {
@@ -718,16 +979,36 @@
             if (userLabel.trim()) {
                 label = userLabel.trim();
             }
+            const suggested = allocated === '' ? defaultAllocated : allocated;
+            const userAllocated = prompt('Allocated marks (required before mark entry):', formatAllocatedDisplay(suggested));
+            if (userAllocated === null) {
+                return null;
+            }
+            if (`${userAllocated}`.trim() === '') {
+                alert('Allocated marks is required. Mark entry will stay locked until you set it in the header.');
+                allocated = '';
+            } else {
+                allocated = parseAllocated(userAllocated, defaultAllocated);
+            }
         }
 
         const id = questionId || generateId('q');
         const partsSource = Array.isArray(initialParts) && initialParts.length
             ? initialParts
-            : [{ id: `${id}-p1`, label: 'Marks' }];
-        const parts = partsSource.map((part, index) => ({
-            id: part.id || generateId(`${id}-p${index + 1}`),
-            label: part.label && part.label.trim() ? part.label.trim() : `Part ${index + 1}`,
-        }));
+            : [{ id: `${id}-p1`, label: 'Marks', allocated }];
+        const parts = partsSource.map((part, index) => {
+            let partAllocated = '';
+            if (part.allocated !== undefined && part.allocated !== null && `${part.allocated}`.trim() !== '') {
+                partAllocated = parseAllocated(part.allocated, defaultAllocated);
+            } else if (allocated !== '') {
+                partAllocated = allocated;
+            }
+            return {
+                id: part.id || generateId(`${id}-p${index + 1}`),
+                label: part.label && part.label.trim() ? part.label.trim() : `Part ${index + 1}`,
+                allocated: partAllocated,
+            };
+        });
 
         questions.push({ id, label, parts });
         renderHeaders();
@@ -844,8 +1125,26 @@
                     question.parts[0].label = 'a';
                 }
                 const defaultLabel = String.fromCharCode(97 + question.parts.length);
-                const label = prompt('Sub-part label (a, b, c …):', defaultLabel) || defaultLabel;
-                question.parts.push({ id: generateId(`${question.id}-p`), label: label.trim() });
+                const label = prompt('Sub-part label (a, b, c …):', defaultLabel);
+                if (label === null) {
+                    return;
+                }
+                const finalLabel = label.trim() || defaultLabel;
+                const userAllocated = prompt('Allocated marks for this sub-part (required):', formatAllocatedDisplay(defaultAllocated));
+                if (userAllocated === null) {
+                    return;
+                }
+                let partAllocated = '';
+                if (`${userAllocated}`.trim() === '') {
+                    alert('Allocated marks is required. Mark entry will stay locked until you set it.');
+                } else {
+                    partAllocated = parseAllocated(userAllocated, defaultAllocated);
+                }
+                question.parts.push({
+                    id: generateId(`${question.id}-p`),
+                    label: finalLabel,
+                    allocated: partAllocated,
+                });
                 renderHeaders();
             });
         });
@@ -896,6 +1195,38 @@
                 }
             });
         });
+
+        document.querySelectorAll('.allocated-input').forEach(input => {
+            input.addEventListener('click', event => event.stopPropagation());
+            input.addEventListener('keydown', event => event.stopPropagation());
+            input.addEventListener('input', () => {
+                const question = questions.find(q => q.id === input.dataset.questionId);
+                if (!question) {
+                    return;
+                }
+                const part = question.parts.find(p => p.id === input.dataset.partId);
+                if (!part) {
+                    return;
+                }
+                const raw = `${input.value || ''}`.trim();
+                if (raw === '') {
+                    part.allocated = '';
+                } else {
+                    const number = parseFloat(raw);
+                    part.allocated = Number.isNaN(number) || number < 0 ? '' : number;
+                }
+                input.classList.toggle('is-unallocated', !isAllocatedSet(part));
+                input.title = isAllocatedSet(part)
+                    ? 'Allocated marks'
+                    : 'Set allocated marks before entering student marks';
+                updateQuestionAllocatedTotalDisplay(question);
+                updateMarkLocksForPart(question.id, part.id);
+                debounceAutoSave();
+            });
+            input.addEventListener('blur', () => {
+                refreshAllocatedInputStyles();
+            });
+        });
     }
 
     function buildPayload() {
@@ -905,7 +1236,11 @@
             questions: questions.map(question => ({
                 id: question.id,
                 label: question.label,
-                parts: question.parts.map(part => ({ id: part.id, label: part.label })),
+                parts: question.parts.map(part => ({
+                    id: part.id,
+                    label: part.label,
+                    allocated: normalizeAllocatedForSave(part.allocated),
+                })),
             })),
             rows: [],
         };
@@ -1022,19 +1357,46 @@
 
     function validateBeforeSave() {
         const groups = checkAllDuplicates();
-        if (!hasAnyDuplicates(groups)) {
-            clearDuplicateHighlights();
-            return true;
+        if (hasAnyDuplicates(groups)) {
+            highlightDuplicates(groups);
+            let message = 'Duplicate number(s) found:\n\n';
+            formatDuplicateMessage(groups).forEach((line, idx) => {
+                message += `${idx + 1}. ${line}\n`;
+            });
+            message += '\nPlease fix duplicate Code/Student ID before saving.';
+            alert(message);
+            return false;
+        }
+        clearDuplicateHighlights();
+
+        const allocatedViolations = findAllocatedViolations();
+        if (allocatedViolations.length) {
+            validateAllMarkInputs();
+            const missing = allocatedViolations.filter(item => item.missingAllocation);
+            const exceeded = allocatedViolations.filter(item => !item.missingAllocation);
+            let message = '';
+            if (missing.length) {
+                message += 'Marks entered without allocated marks:\n\n';
+                missing.forEach((item, idx) => {
+                    message += `${idx + 1}. Row ${item.row}: ${item.label}\n`;
+                });
+                message += '\nSet allocated marks in the question header first.\n';
+            }
+            if (exceeded.length) {
+                if (message) {
+                    message += '\n';
+                }
+                message += 'Marks exceed allocated values:\n\n';
+                exceeded.forEach((item, idx) => {
+                    message += `${idx + 1}. Row ${item.row}: ${item.label} has ${item.value} (allocated ${formatAllocatedDisplay(item.allocated)})\n`;
+                });
+                message += '\nPlease reduce marks to allocated values before saving.';
+            }
+            alert(message.trim());
+            return false;
         }
 
-        highlightDuplicates(groups);
-        let message = 'Duplicate number(s) found:\n\n';
-        formatDuplicateMessage(groups).forEach((line, idx) => {
-            message += `${idx + 1}. ${line}\n`;
-        });
-        message += '\nPlease fix duplicate Code/Student ID before saving.';
-        alert(message);
-        return false;
+        return true;
     }
 
     function validateDuplicatesOnInput() {

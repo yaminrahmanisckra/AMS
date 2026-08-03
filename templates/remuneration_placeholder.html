@@ -1465,8 +1465,10 @@
             </div>
             <div class="modal-body">
                 <p class="small text-muted">
-                    বর্তমান Window-এ Statement of Remuneration অনুযায়ী শিক্ষকের
-                    <strong>সব শিক্ষাবর্ষ / বর্ষ / টার্ম</strong>-এর বিলের যোগফল।
+                    বর্তমান Window-এর <strong>সক্রিয় Exam Committee</strong>গুলোর
+                    Statement of Remuneration থেকে এই শিক্ষকের নামে থাকা কাজের যোগফল।
+                    কারিকুলামে নেই এমন সেশন বা অরফান ফর্ম থেকে কিছু আমদানি হয় না।
+                    মোট থেকে <strong>২০% VAT</strong> কেটে নীট পাওনা দেখানো হয়।
                 </p>
                 <div class="mb-3">
                     <label for="grandTotalTeacher" class="form-label">শিক্ষক <span class="text-danger">*</span></label>
@@ -1477,9 +1479,12 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="d-flex gap-2 mb-3">
+                <div class="d-flex gap-2 mb-3 flex-wrap">
                     <button type="button" class="btn btn-primary" id="grandTotalCalcBtn" onclick="loadTeacherGrandTotal()">
                         <i class="fas fa-search me-1"></i>হিসাব দেখুন
+                    </button>
+                    <button type="button" class="btn btn-outline-success" id="grandTotalPdfBtn" onclick="downloadTeacherGrandTotalPdf()" disabled>
+                        <i class="fas fa-file-pdf me-1"></i>PDF ডাউনলোড
                     </button>
                 </div>
                 <div id="grandTotalStatus" class="alert alert-light border small mb-3">শিক্ষক সিলেক্ট করে হিসাব দেখুন।</div>
@@ -1500,10 +1505,18 @@
                             </tr>
                         </tbody>
                         <tfoot>
-                            <tr class="table-success fw-semibold">
-                                <td colspan="3">সর্বমোট</td>
+                            <tr class="table-light fw-semibold">
+                                <td colspan="3">সর্বমোট (গ্রস)</td>
                                 <td class="text-end" id="grandTotalJobsCell">—</td>
                                 <td class="text-end" id="grandTotalAmountCell">—</td>
+                            </tr>
+                            <tr>
+                                <td colspan="4" class="text-end">VAT (২০%)</td>
+                                <td class="text-end text-danger" id="grandTotalVatCell">—</td>
+                            </tr>
+                            <tr class="table-success fw-semibold">
+                                <td colspan="4" class="text-end">নীট পাওনা</td>
+                                <td class="text-end" id="grandTotalNetCell">—</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -1529,7 +1542,7 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <label for="bulk_session" class="form-label">সেশন <span class="text-danger">*</span></label>
-                    <select class="form-select" id="bulk_session" required onchange="loadTeachersForBulkDownload()">
+                    <select class="form-select" id="bulk_session" required onchange="onBulkSessionChange()">
                         <option value="">সেশন সিলেক্ট করুন</option>
                         {% for sess in academic_sessions %}
                         <option value="{{ sess }}">{{ sess }}</option>
@@ -1538,20 +1551,14 @@
                 </div>
                 <div class="mb-3">
                     <label for="bulk_year" class="form-label">বর্ষ <span class="text-danger">*</span></label>
-                    <select class="form-select" id="bulk_year" required onchange="loadTeachersForBulkDownload()">
+                    <select class="form-select" id="bulk_year" required onchange="onBulkYearChange()">
                         <option value="">বর্ষ সিলেক্ট করুন</option>
-                        {% for y in all_years %}
-                        <option value="{{ y }}">{{ y }}</option>
-                        {% endfor %}
                     </select>
                 </div>
                 <div class="mb-3">
                     <label for="bulk_term" class="form-label">টার্ম <span class="text-danger">*</span></label>
-                    <select class="form-select" id="bulk_term" required onchange="loadTeachersForBulkDownload()">
+                    <select class="form-select" id="bulk_term" required onchange="onBulkTermChange()">
                         <option value="">টার্ম সিলেক্ট করুন</option>
-                        {% for t in all_terms %}
-                        <option value="{{ t }}">{{ t }}</option>
-                        {% endfor %}
                     </select>
                 </div>
                 <div class="mb-3" id="teacherSelectionSection" style="display: none;">
@@ -1624,8 +1631,78 @@
 // ========================================
 
 let bulkDownloadInProgress = false;
+const bulkSessionYearsTermsMap = {{ session_years_terms_map|default({})|tojson }};
 
-// Load teachers for bulk download
+function resetBulkYearSelect() {
+    const yearSelect = document.getElementById('bulk_year');
+    if (!yearSelect) return;
+    yearSelect.innerHTML = '<option value="">বর্ষ সিলেক্ট করুন</option>';
+}
+
+function resetBulkTermSelect() {
+    const termSelect = document.getElementById('bulk_term');
+    if (!termSelect) return;
+    termSelect.innerHTML = '<option value="">টার্ম সিলেক্ট করুন</option>';
+}
+
+function hideBulkTeacherSelection() {
+    const teacherSection = document.getElementById('teacherSelectionSection');
+    const teacherCheckboxes = document.getElementById('teacherCheckboxes');
+    if (teacherSection) teacherSection.style.display = 'none';
+    if (teacherCheckboxes) {
+        teacherCheckboxes.innerHTML = '<div class="text-muted">সেশন, বর্ষ ও টার্ম সিলেক্ট করুন</div>';
+    }
+}
+
+function onBulkSessionChange() {
+    const session = document.getElementById('bulk_session')?.value || '';
+    resetBulkYearSelect();
+    resetBulkTermSelect();
+    hideBulkTeacherSelection();
+
+    if (!session) return;
+
+    const yearsMap = bulkSessionYearsTermsMap[session] || {};
+    const yearSelect = document.getElementById('bulk_year');
+    if (!yearSelect) return;
+
+    Object.keys(yearsMap).sort().forEach((year) => {
+        const opt = document.createElement('option');
+        opt.value = year;
+        opt.textContent = year;
+        yearSelect.appendChild(opt);
+    });
+}
+
+function onBulkYearChange() {
+    const session = document.getElementById('bulk_session')?.value || '';
+    const year = document.getElementById('bulk_year')?.value || '';
+    resetBulkTermSelect();
+    hideBulkTeacherSelection();
+
+    if (!session || !year) return;
+
+    const terms = ((bulkSessionYearsTermsMap[session] || {})[year]) || [];
+    const termSelect = document.getElementById('bulk_term');
+    if (!termSelect) return;
+
+    terms.forEach((term) => {
+        const opt = document.createElement('option');
+        opt.value = term;
+        opt.textContent = term;
+        termSelect.appendChild(opt);
+    });
+}
+
+function onBulkTermChange() {
+    loadTeachersForBulkDownload();
+}
+
+window.onBulkSessionChange = onBulkSessionChange;
+window.onBulkYearChange = onBulkYearChange;
+window.onBulkTermChange = onBulkTermChange;
+
+// Load teachers for bulk download (only those with Statement bills)
 async function loadTeachersForBulkDownload() {
     const session = document.getElementById('bulk_session')?.value;
     const year = document.getElementById('bulk_year')?.value;
@@ -1634,7 +1711,7 @@ async function loadTeachersForBulkDownload() {
     const teacherCheckboxes = document.getElementById('teacherCheckboxes');
     
     if (!session || !year || !term) {
-        if (teacherSection) teacherSection.style.display = 'none';
+        hideBulkTeacherSelection();
         return;
     }
     
@@ -1647,19 +1724,23 @@ async function loadTeachersForBulkDownload() {
         
         if (data.success && data.teachers && data.teachers.length > 0) {
             let html = '';
-            data.teachers.forEach(teacher => {
+            data.teachers.forEach((teacher, idx) => {
+                const cbId = `teacher_cb_${idx}`;
+                const extLabel = teacher.is_external ? ' <span class="badge bg-secondary ms-1">External</span>' : '';
+                const value = String(teacher.id).replace(/"/g, '&quot;');
                 html += `
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" value="${teacher.id}" id="teacher_${teacher.id}" name="selected_teachers[]" checked>
-                        <label class="form-check-label" for="teacher_${teacher.id}">
-                            ${teacher.name}${teacher.designation ? ' - ' + teacher.designation : ''}
+                        <input class="form-check-input" type="checkbox" value="${value}" id="${cbId}" name="selected_teachers[]" checked>
+                        <label class="form-check-label" for="${cbId}">
+                            ${teacher.name}${teacher.designation ? ' - ' + teacher.designation : ''}${extLabel}
                         </label>
                     </div>
                 `;
             });
             teacherCheckboxes.innerHTML = html;
         } else {
-            teacherCheckboxes.innerHTML = '<div class="text-muted">কোনো শিক্ষক পাওয়া যায়নি</div>';
+            const msg = data.message || 'এই পরীক্ষা কমিটির Statement-এ কোনো শিক্ষক/External Member-এর হিসাব পাওয়া যায়নি';
+            teacherCheckboxes.innerHTML = `<div class="text-muted">${msg}</div>`;
         }
     } catch (error) {
         console.error('Error loading teachers:', error);
@@ -1699,22 +1780,23 @@ window.openBulkDownloadModal = function() {
         resultDiv.classList.add('d-none');
         downloadBtn.disabled = false;
         
-        // Reset form values
-        document.getElementById('bulk_session').value = '';
-        document.getElementById('bulk_year').value = '';
-        document.getElementById('bulk_term').value = '';
-        document.getElementById('teacherSelectionSection').style.display = 'none';
-        document.getElementById('teacherCheckboxes').innerHTML = '<div class="text-muted">সেশন, বর্ষ ও টার্ম সিলেক্ট করুন</div>';
-        
-        // Add change handlers for session and year
+        // Reset form values and cascading dropdowns
         const sessionSelect = document.getElementById('bulk_session');
-        const yearSelect = document.getElementById('bulk_year');
+        if (sessionSelect) sessionSelect.value = '';
+        resetBulkYearSelect();
+        resetBulkTermSelect();
+        hideBulkTeacherSelection();
         
         if (sessionSelect) {
-            sessionSelect.onchange = loadTeachersForBulkDownload;
+            sessionSelect.onchange = onBulkSessionChange;
         }
+        const yearSelect = document.getElementById('bulk_year');
         if (yearSelect) {
-            yearSelect.onchange = loadTeachersForBulkDownload;
+            yearSelect.onchange = onBulkYearChange;
+        }
+        const termSelect = document.getElementById('bulk_term');
+        if (termSelect) {
+            termSelect.onchange = onBulkTermChange;
         }
         
         // Open modal
@@ -2449,14 +2531,27 @@ function sectionsMatch(wanted, actual) {
     return normalizeSectionValue(wanted) === normalizeSectionValue(actual);
 }
 
+function normalizePersonName(name) {
+    if (!name) return '';
+    let text = String(name).trim().toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+    const titles = new Set(['dr', 'prof', 'professor', 'mr', 'mrs', 'ms', 'md', 'eng', 'engr', 'sir']);
+    return text.split(' ').filter(t => t && !titles.has(t)).join(' ');
+}
+
 function teacherNamesMatch(a, b) {
-    if (!a || !b) return false;
-    const ta = String(a).trim();
-    const tb = String(b).trim();
-    if (ta === tb) return true;
-    const la = ta.toLowerCase();
-    const lb = tb.toLowerCase();
-    return la === lb || la.includes(lb) || lb.includes(la);
+    // Exact normalized match only — substring matching caused false committee bills
+    const left = normalizePersonName(a);
+    const right = normalizePersonName(b);
+    if (!left || !right) return false;
+    if (left === right) return true;
+    const lt = left.split(' ');
+    const rt = right.split(' ');
+    if (lt.length >= 2 && rt.length >= 2) {
+        const ls = new Set(lt);
+        const rs = new Set(rt);
+        if (ls.size === rs.size && [...ls].every(t => rs.has(t))) return true;
+    }
+    return false;
 }
 
 function findMatchingCourseOption(select, courseRef) {
@@ -6441,6 +6536,8 @@ function exportToPdf() {
 }
 
 // Teacher grand total across all session/year/term in current window
+let lastGrandTotalTeacher = '';
+
 function formatRemunerationTaka(amount) {
     const n = Number(amount) || 0;
     try {
@@ -6450,16 +6547,111 @@ function formatRemunerationTaka(amount) {
     }
 }
 
+function setGrandTotalPdfEnabled(enabled) {
+    const pdfBtn = document.getElementById('grandTotalPdfBtn');
+    if (pdfBtn) pdfBtn.disabled = !enabled;
+}
+
+async function downloadTeacherGrandTotalPdf() {
+    const teacher = (document.getElementById('grandTotalTeacher')?.value || lastGrandTotalTeacher || '').trim();
+    const statusEl = document.getElementById('grandTotalStatus');
+    const pdfBtn = document.getElementById('grandTotalPdfBtn');
+    if (!teacher) {
+        if (statusEl) statusEl.textContent = 'আগে শিক্ষক সিলেক্ট করে হিসাব দেখুন।';
+        alert('আগে শিক্ষক সিলেক্ট করে হিসাব দেখুন।');
+        return;
+    }
+    if (pdfBtn) {
+        pdfBtn.disabled = true;
+        pdfBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>PDF তৈরি হচ্ছে…';
+    }
+    const url = `/remuneration/api/teacher-grand-total/pdf?teacher_name=${encodeURIComponent(teacher)}&_ts=${Date.now()}`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/pdf,application/json' },
+            cache: 'no-store',
+        });
+        const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+
+        if (!response.ok || contentType.includes('application/json') || contentType.includes('text/html')) {
+            let msg = 'PDF তৈরি করা যায়নি';
+            try {
+                if (contentType.includes('application/json')) {
+                    const err = await response.json();
+                    if (err.message) msg = err.message;
+                } else {
+                    msg = 'PDF তৈরি ব্যর্থ (HTTP ' + response.status + ')। সার্ভার লগ চেক করুন।';
+                }
+            } catch (e) { /* ignore */ }
+            if (statusEl) statusEl.textContent = msg;
+            alert(msg);
+            return;
+        }
+
+        const blob = await response.blob();
+        if (!blob || blob.size < 100) {
+            const msg = 'PDF ফাইল খালি বা অসম্পূর্ণ। আবার চেষ্টা করুন।';
+            if (statusEl) statusEl.textContent = msg;
+            alert(msg);
+            return;
+        }
+
+        let filename = 'teacher_remuneration_total.pdf';
+        const disp = response.headers.get('Content-Disposition') || '';
+        const match = /filename\*?=(?:UTF-8''|")?([^\";]+)/i.exec(disp);
+        if (match && match[1]) {
+            filename = decodeURIComponent(match[1].replace(/['"]/g, '').trim()) || filename;
+        }
+
+        // Prefer anchor download; fallback to new tab
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(function() {
+            link.remove();
+            URL.revokeObjectURL(objectUrl);
+        }, 1500);
+        if (statusEl) {
+            statusEl.textContent = (statusEl.textContent || 'হিসাব প্রস্তুত') + ' · PDF ডাউনলোড শুরু হয়েছে';
+        }
+    } catch (err) {
+        console.error('Grand total PDF error:', err);
+        // Last-resort: open endpoint directly (browser handles download)
+        try {
+            window.open(url, '_blank');
+        } catch (e2) {
+            if (statusEl) statusEl.textContent = 'PDF ডাউনলোডে ত্রুটি';
+            alert('PDF ডাউনলোডে ত্রুটি: ' + (err && err.message ? err.message : 'unknown'));
+        }
+    } finally {
+        if (pdfBtn) {
+            pdfBtn.disabled = !(lastGrandTotalTeacher || teacher);
+            pdfBtn.innerHTML = '<i class="fas fa-file-pdf me-1"></i>PDF ডাউনলোড';
+        }
+    }
+}
+
 async function loadTeacherGrandTotal() {
     const teacher = (document.getElementById('grandTotalTeacher')?.value || '').trim();
     const statusEl = document.getElementById('grandTotalStatus');
     const bodyEl = document.getElementById('grandTotalBreakdownBody');
     const jobsCell = document.getElementById('grandTotalJobsCell');
     const amountCell = document.getElementById('grandTotalAmountCell');
+    const vatCell = document.getElementById('grandTotalVatCell');
+    const netCell = document.getElementById('grandTotalNetCell');
     const btn = document.getElementById('grandTotalCalcBtn');
 
     if (!teacher) {
         if (statusEl) statusEl.textContent = 'আগে শিক্ষক সিলেক্ট করুন।';
+        setGrandTotalPdfEnabled(false);
+        lastGrandTotalTeacher = '';
         return;
     }
 
@@ -6467,6 +6659,7 @@ async function loadTeacherGrandTotal() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>হিসাব হচ্ছে…';
     }
+    setGrandTotalPdfEnabled(false);
     if (statusEl) statusEl.textContent = 'বর্তমান Window-এর সব Statement স্ক্যান করা হচ্ছে…';
     if (bodyEl) {
         bodyEl.innerHTML = '<tr><td colspan="5" class="text-muted text-center">লোড হচ্ছে…</td></tr>';
@@ -6483,8 +6676,14 @@ async function loadTeacherGrandTotal() {
             }
             if (jobsCell) jobsCell.textContent = '—';
             if (amountCell) amountCell.textContent = '—';
+            if (vatCell) vatCell.textContent = '—';
+            if (netCell) netCell.textContent = '—';
+            lastGrandTotalTeacher = '';
             return;
         }
+
+        lastGrandTotalTeacher = teacher;
+        setGrandTotalPdfEnabled(true);
 
         const rows = data.breakdown || [];
         if (!rows.length) {
@@ -6493,13 +6692,21 @@ async function loadTeacherGrandTotal() {
             }
         } else if (bodyEl) {
             bodyEl.innerHTML = rows.map(function(row) {
+                const jobs = row.jobs || [];
+                const jobsHtml = jobs.length
+                    ? ('<div class="small text-muted mt-1">' + jobs.map(function(j) {
+                        const courseBit = j.courses ? (' · ' + j.courses) : '';
+                        return '<div>• ' + (j.description || 'কাজ') + courseBit +
+                            ' — ' + formatRemunerationTaka(j.amount) + '</div>';
+                    }).join('') + '</div>')
+                    : '';
                 return (
                     '<tr>' +
                     '<td>' + (row.academic_session || '') + '</td>' +
                     '<td>' + (row.year || '') + '</td>' +
                     '<td>' + (row.term || '') + '</td>' +
                     '<td class="text-end">' + (row.job_count || 0) + '</td>' +
-                    '<td class="text-end">' + formatRemunerationTaka(row.total_amount) + '</td>' +
+                    '<td class="text-end">' + formatRemunerationTaka(row.total_amount) + jobsHtml + '</td>' +
                     '</tr>'
                 );
             }).join('');
@@ -6507,9 +6714,13 @@ async function loadTeacherGrandTotal() {
 
         if (jobsCell) jobsCell.textContent = String(data.total_jobs || 0);
         if (amountCell) amountCell.textContent = formatRemunerationTaka(data.grand_total || 0);
+        if (vatCell) vatCell.textContent = '− ' + formatRemunerationTaka(data.vat_amount || 0);
+        if (netCell) netCell.textContent = formatRemunerationTaka(data.net_payable || 0);
         if (statusEl) {
-            statusEl.textContent = (data.message || '') +
-                (data.window_id != null ? ' · Window ' + data.window_id : '');
+            const winLabel = data.window_name
+                ? ('Window: ' + data.window_name)
+                : (data.window_id != null ? ('Window ' + data.window_id) : '');
+            statusEl.textContent = (data.message || '') + (winLabel ? (' · ' + winLabel) : '');
         }
     } catch (err) {
         console.error('Grand total error:', err);
@@ -6517,6 +6728,8 @@ async function loadTeacherGrandTotal() {
         if (bodyEl) {
             bodyEl.innerHTML = '<tr><td colspan="5" class="text-danger text-center">ত্রুটি</td></tr>';
         }
+        lastGrandTotalTeacher = '';
+        setGrandTotalPdfEnabled(false);
     } finally {
         if (btn) {
             btn.disabled = false;

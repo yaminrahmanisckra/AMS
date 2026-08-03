@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Cleanup unregistered students from Class Management sessions"""
+"""Cleanup unregistered students from Class Management sessions.
+
+Defaults to a dry-run (reports what would be removed, changes nothing).
+Pass --execute to actually delete the unregistered ClassStudent rows.
+"""
+
+import argparse
 
 from app import create_app
 from extensions import db
@@ -7,13 +13,18 @@ from blueprints.class_management.models import Session, ClassStudent
 from blueprints.course_management.models import StudentCourseRegistration
 from blueprints.student_management.models import Student
 
-def cleanup_unregistered_students():
-    """Remove students from Class Management sessions who are not registered for the course"""
+def cleanup_unregistered_students(execute=False):
+    """Remove students from Class Management sessions who are not registered for the course.
+
+    Args:
+        execute: If False (default), only report what would be removed — no DB writes.
+    """
     app = create_app()
     
     with app.app_context():
         print("=" * 60)
         print("Cleaning up unregistered students from Class Management")
+        print(f"Mode: {'EXECUTE (will delete rows)' if execute else 'DRY-RUN (no changes will be made)'}")
         print("=" * 60)
         
         if not StudentCourseRegistration or not Student:
@@ -63,28 +74,46 @@ def cleanup_unregistered_students():
                 ).first()
                 
                 if not registration:
-                    print(f"   ❌ Removing unregistered student: {class_student.student_id} ({class_student.name})")
-                    db.session.delete(class_student)
+                    action = "Removing" if execute else "Would remove"
+                    print(f"   ❌ {action} unregistered student: {class_student.student_id} ({class_student.name})")
+                    if execute:
+                        db.session.delete(class_student)
                     removed_from_session += 1
                     total_removed += 1
                 else:
                     print(f"   ✅ Registered: {class_student.student_id} ({class_student.name})")
             
             if removed_from_session > 0:
-                print(f"   🗑️  Removed {removed_from_session} unregistered student(s) from this session")
+                verb = "Removed" if execute else "Would remove"
+                print(f"   🗑️  {verb} {removed_from_session} unregistered student(s) from this session")
         
         if total_removed > 0:
-            db.session.commit()
-            print("\n" + "=" * 60)
-            print(f"✅ Cleanup completed!")
-            print(f"   Total students checked: {total_checked}")
-            print(f"   Total unregistered students removed: {total_removed}")
-            print("=" * 60)
+            if execute:
+                db.session.commit()
+                print("\n" + "=" * 60)
+                print(f"✅ Cleanup completed!")
+                print(f"   Total students checked: {total_checked}")
+                print(f"   Total unregistered students removed: {total_removed}")
+                print("=" * 60)
+            else:
+                db.session.rollback()
+                print("\n" + "=" * 60)
+                print(f"🔎 Dry-run completed — no changes were made.")
+                print(f"   Total students checked: {total_checked}")
+                print(f"   Total unregistered students that WOULD be removed: {total_removed}")
+                print(f"   Re-run with --execute to actually delete them.")
+                print("=" * 60)
         else:
             print("\n" + "=" * 60)
             print("✅ No unregistered students found. All students are properly registered.")
             print("=" * 60)
 
 if __name__ == '__main__':
-    cleanup_unregistered_students()
-
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--execute',
+        action='store_true',
+        help='Actually delete unregistered ClassStudent rows. Without this flag, runs as a dry-run report only.',
+    )
+    args = parser.parse_args()
+    cleanup_unregistered_students(execute=args.execute)

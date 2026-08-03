@@ -17,11 +17,13 @@ from role_utils import (
     ROLE_LABELS,
     ROLE_CHOICES,
     NON_ADMIN_ROLE_CHOICES,
+    ASSIGNABLE_ROLE_KEYS,
     DEFAULT_TEACHING_ROLE,
     has_teacher_privileges,
     parse_roles,
     get_primary_role,
     is_admin,
+    is_head,
     validate_role_selection,
     serialize_roles,
 )
@@ -202,14 +204,22 @@ def create_app():
         return value
 
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a_very_secret_default_key')
+    # Dedicated secret for AI key Fernet; set before rotating SECRET_KEY (see utils/ai/encryption.py)
+    app.config['AI_KEY_ENCRYPTION_SECRET'] = os.getenv('AI_KEY_ENCRYPTION_SECRET', '').strip() or None
     app.config['TEMPLATES_AUTO_RELOAD'] = False
     app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 31536000
+
+    # CSRF staged rollout: init always; enforcement only when CSRF_ENABLED=true
+    app.config['WTF_CSRF_CHECK_DEFAULT'] = False
+    app.config['WTF_CSRF_TIME_LIMIT'] = None  # marks auto-save pages stay open for hours
+    app.config['WTF_CSRF_ENABLED'] = True
+    app.config['CSRF_ENABLED'] = os.getenv('CSRF_ENABLED', 'false').lower() in ('1', 'true', 'yes')
     
     # Session cookie configuration for ngrok compatibility
     # Don't set domain to allow cookies to work with any domain (including ngrok)
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-    app.config['SESSION_COOKIE_SECURE'] = False  # Set to True only for HTTPS in production
+    app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() in ('1', 'true', 'yes')
     app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
 
     # Database configuration - Check environment variable first, fallback to SQLite
@@ -232,21 +242,33 @@ def create_app():
             }
         }
     else:
-        # Fallback to SQLite if DATABASE_URL not set
+        # Production (cPanel) must not silently create a SQLite DB in the document root
+        if os.getenv('CPANEL') or os.getenv('FLASK_ENV') == 'production':
+            raise RuntimeError(
+                'DATABASE_URL is not set. Refusing SQLite fallback in production '
+                '(would create an empty/wrong DB and may expose .db under the docroot).'
+            )
+        # Local development only
         db_path = os.path.join(basedir, 'instance', 'academic_management.db')
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{db_path}"
-        
+        import logging as _logging
+        _logging.getLogger(__name__).critical(
+            'DATABASE_URL unset — using local SQLite at %s (development only)', db_path
+        )
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+    app.config['MAIL_SERVER'] = (os.getenv('MAIL_SERVER') or 'smtp.gmail.com').strip()
     app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
     app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', 'True') == 'True'
     # cPanel/local relay often uses port 25 with both TLS and SSL off; honor MAIL_USE_SSL from env
     app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL', 'False') == 'True'
-    app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
-    app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
-    app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+    app.config['MAIL_USERNAME'] = (os.getenv('MAIL_USERNAME') or '').strip() or None
+    _mail_pw = os.getenv('MAIL_PASSWORD')
+    app.config['MAIL_PASSWORD'] = _mail_pw.rstrip('\r\n') if isinstance(_mail_pw, str) else _mail_pw
+    app.config['MAIL_DEFAULT_SENDER'] = (
+        (os.getenv('MAIL_DEFAULT_SENDER') or app.config['MAIL_USERNAME'] or '').strip() or None
+    )
     # Notification channel (e.g. noreply@) — separate from MAIL_* used for password recovery (recovery@)
     def _env_bool(name, fallback):
         v = os.getenv(name)
@@ -281,7 +303,9 @@ def create_app():
             app.config[k] = str(val).strip()
     # Optional: public site URL (no trailing slash) for emails when reverse-proxy hides the real host
     app.config['PUBLIC_APP_URL'] = (os.getenv('PUBLIC_APP_URL') or '').strip().rstrip('/')
-    app.config['DEFAULT_STUDENT_PASSWORD'] = os.getenv('DEFAULT_STUDENT_PASSWORD', 'Student@123')
+    # Empty by default so ensure_student_user() generates a random per-account password.
+    # Only set DEFAULT_STUDENT_PASSWORD in the environment if a fixed password is truly needed.
+    app.config['DEFAULT_STUDENT_PASSWORD'] = os.getenv('DEFAULT_STUDENT_PASSWORD', '')
     
     # OpenAI API configuration
     app.config['OPENAI_API_KEY'] = os.getenv('OPENAI_API_KEY', '')
@@ -303,7 +327,13 @@ def create_app():
 
     db.init_app(app)
     migrate.init_app(app, db)
-    
+
+    from extensions import csrf
+    csrf.init_app(app)
+    # Enforcement stays off until CSRF_ENABLED=true (Phase 11 deploy C)
+    if app.config.get('CSRF_ENABLED'):
+        app.config['WTF_CSRF_CHECK_DEFAULT'] = True
+
     login_manager = LoginManager()
     login_manager.login_view = 'auth.login' 
     login_manager.init_app(app)
@@ -355,6 +385,26 @@ def create_app():
         redirect_endpoint = ensure_valid_session_window(current_user, active_role)
         if redirect_endpoint and endpoint != redirect_endpoint:
             return redirect(url_for(redirect_endpoint))
+
+    MUST_CHANGE_PASSWORD_EXEMPT_ENDPOINTS = frozenset({
+        'static',
+        'auth.logout',
+        'profile',
+    })
+
+    @app.before_request
+    def enforce_must_change_password():
+        """Force a password change before anything else once must_change_password is set
+        (e.g. freshly-created student accounts with a random one-time password)."""
+        if not current_user.is_authenticated:
+            return
+        if not getattr(current_user, 'must_change_password', False):
+            return
+        endpoint = request.endpoint or ''
+        if endpoint in MUST_CHANGE_PASSWORD_EXEMPT_ENDPOINTS:
+            return
+        flash('For your security, please set a new password before continuing.', 'warning')
+        return redirect(url_for('profile'))
 
     @app.context_processor
     def inject_operational_window_context():
@@ -457,10 +507,10 @@ def create_app():
     # WebSocket connection handlers
     @socketio.on('connect', namespace='/')
     def handle_connect(auth):
-        """Handle client connection"""
-        # Flask-Login session is not available in WebSocket context
-        # We'll authenticate via session cookie in the request context
-        # For now, allow connection - authentication will be handled via session
+        """Reject anonymous Socket.IO clients (H31 / X01)."""
+        from flask_login import current_user
+        if not current_user.is_authenticated:
+            return False
         return True
     
     @socketio.on('disconnect', namespace='/')
@@ -472,13 +522,26 @@ def create_app():
     
     @socketio.on('join_session', namespace='/')
     def handle_join_session(data):
-        """Join a session room for live updates"""
+        """Join a session room for live updates — teaching staff / owners only (X01)."""
         from flask_login import current_user
-        if current_user.is_authenticated:
-            session_id = data.get('session_id')
-            if session_id:
-                join_room(f'session_{session_id}')
-                emit('joined_session', {'session_id': session_id})
+        from role_utils import has_teacher_privileges, is_admin
+        from utils.ownership import user_owns_class_session
+        if not current_user.is_authenticated:
+            return False
+        session_id = (data or {}).get('session_id')
+        if not session_id:
+            return False
+        try:
+            from blueprints.class_management.models import Session as ClassSession
+            sess = ClassSession.query.get(int(session_id))
+        except (TypeError, ValueError):
+            return False
+        if not sess:
+            return False
+        if not (is_admin(current_user) or user_owns_class_session(current_user, sess) or has_teacher_privileges(current_user)):
+            return False
+        join_room(f'session_{session_id}')
+        emit('joined_session', {'session_id': session_id})
     
     @socketio.on('leave_session', namespace='/')
     def handle_leave_session(data):
@@ -844,7 +907,42 @@ def create_app():
             return redirect(url_for('index'))
         return None
 
+    def _safe_next_url(next_url):
+        """Return next_url if it's a safe same-site relative path, else None.
+
+        Rejects absolute URLs, scheme-relative URLs (``//evil.com``), and
+        anything that doesn't start with a single ``/`` to prevent open
+        redirects via a user-controlled ``next`` parameter.
+        """
+        if not next_url or not isinstance(next_url, str):
+            return None
+        next_url = next_url.strip()
+        if not next_url.startswith('/') or next_url.startswith('//'):
+            return None
+        # Guard against backslash tricks some browsers treat as forward slashes.
+        if next_url.startswith('/\\') or next_url.startswith('\\'):
+            return None
+        return next_url
+
+    def _can_edit_exam_entry(entry):
+        """True if current_user may create/overwrite marks for this exam entry.
+
+        Allowed: admins, the evaluator who owns the entry, the assigned
+        scrutinizer, or an active exam committee chief/member.
+        """
+        if not entry:
+            return False
+        if is_admin(current_user):
+            return True
+        teacher = _current_teacher()
+        if teacher and teacher.id in {entry.owner_teacher_id, entry.assigned_scrutinizer_id}:
+            return True
+        if _is_exam_committee_chief() or _is_exam_committee_member():
+            return True
+        return False
+
     @app.route('/feedback/<string:code>', methods=['GET', 'POST'])
+    @csrf.exempt
     def student_feedback_form(code):
         link = StudentFeedbackLink.query.filter_by(access_code=code.upper()).first()
         status = 'active'
@@ -1871,6 +1969,64 @@ def create_app():
         parts.extend(['', 'Please fix duplicate Code/Student ID before saving.'])
         return '\n'.join(parts)
 
+    def _format_allocated_marks_value(value):
+        if value is None or value == '':
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if number == int(number):
+            return str(int(number))
+        return str(number)
+
+    def _find_allocated_marks_violations(data):
+        """Return list of marks missing allocation or exceeding allocated values."""
+        questions = data.get('questions') or []
+        allocated_map = {}
+        for question in questions:
+            q_label = question.get('label', '')
+            for part in question.get('parts') or []:
+                part_label = part.get('label', '')
+                formatted = _format_allocated_marks_value(part.get('allocated'))
+                if formatted is None:
+                    continue
+                allocated_map.setdefault(q_label, {})[part_label] = float(formatted)
+
+        violations = []
+        for index, row in enumerate(data.get('rows') or [], start=1):
+            marks_map = row.get('marks') or {}
+            for q_label, part_marks in marks_map.items():
+                if not isinstance(part_marks, dict):
+                    continue
+                for part_label, raw_value in part_marks.items():
+                    if raw_value is None or str(raw_value).strip() == '':
+                        continue
+                    try:
+                        value = float(raw_value)
+                    except (TypeError, ValueError):
+                        continue
+                    part_suffix = f' ({part_label})' if part_label and part_label != 'Marks' else ''
+                    allocated = (allocated_map.get(q_label) or {}).get(part_label)
+                    if allocated is None:
+                        violations.append(
+                            f'Row {index}: {q_label}{part_suffix} has marks but allocated marks are not set'
+                        )
+                        continue
+                    if value > allocated:
+                        violations.append(
+                            f'Row {index}: {q_label}{part_suffix} has {value} (allocated {allocated})'
+                        )
+        return violations
+
+    def _format_allocated_marks_error(violations):
+        if not violations:
+            return None
+        parts = ['Allocated marks problems found:', '']
+        parts.extend(f'{idx}. {line}' for idx, line in enumerate(violations, start=1))
+        parts.extend(['', 'Set allocated marks and keep entered marks within allocation before saving.'])
+        return '\n'.join(parts)
+
     def _flatten_marks_payload(data):
         questions = data.get('questions') or []
         headers = ['Serial', 'Code']
@@ -1885,12 +2041,17 @@ def create_app():
                 continue
             if len(parts) == 1:
                 part_label = parts[0].get('label', 'Marks')
-                headers.append(q_label)
+                allocated = _format_allocated_marks_value(parts[0].get('allocated'))
+                headers.append(f"{q_label} ({allocated})" if allocated else q_label)
                 question_keys.append((q_label, part_label))
             else:
                 for part in parts:
                     part_label = part.get('label', '')
-                    headers.append(f"{q_label} ({part_label})")
+                    allocated = _format_allocated_marks_value(part.get('allocated'))
+                    if allocated:
+                        headers.append(f"{q_label} ({part_label}={allocated})")
+                    else:
+                        headers.append(f"{q_label} ({part_label})")
                     question_keys.append((q_label, part_label))
 
         headers.append('Total')
@@ -2240,6 +2401,11 @@ def create_app():
         entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
         # Refresh to ensure we have the latest data from database
         db.session.refresh(entry)
+
+        if not _can_edit_exam_entry(entry):
+            flash('You are not authorized to access marks for this exam entry.', 'danger')
+            return redirect(url_for('exam_evaluation'))
+
         role = request.args.get('role')
 
         current_teacher = _current_teacher()
@@ -2332,6 +2498,11 @@ def create_app():
                 flash(duplicate_error, 'error')
                 return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
 
+            allocated_error = _format_allocated_marks_error(_find_allocated_marks_violations(data))
+            if allocated_error:
+                flash(allocated_error, 'error')
+                return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
+
             entry.marks_data = json.dumps(data)
             db.session.commit()
             flash(f"Marks entry saved for {len(rows)} students.", 'success')
@@ -2400,7 +2571,10 @@ def create_app():
             return jsonify({'success': False, 'message': 'Not authorized'}), 403
         try:
             entry = get_or_404_for_window(ExamPaperEvaluation, entry_id)
-            
+
+            if not _can_edit_exam_entry(entry):
+                return jsonify({'success': False, 'message': 'Not authorized to edit this exam entry'}), 403
+
             # Handle both JSON and form data
             if request.is_json:
                 json_data = request.get_json()
@@ -2431,6 +2605,10 @@ def create_app():
             duplicate_error = _format_duplicate_marks_error(code_duplicates, student_id_duplicates)
             if duplicate_error:
                 return jsonify({'success': False, 'message': duplicate_error}), 400
+
+            allocated_error = _format_allocated_marks_error(_find_allocated_marks_violations(data))
+            if allocated_error:
+                return jsonify({'success': False, 'message': allocated_error}), 400
 
             # Save to database
             entry.marks_data = json.dumps(data)
@@ -2567,7 +2745,7 @@ def create_app():
         exam_entry = invite.exam_entry if invite else None
         if exam_entry and getattr(exam_entry, 'is_external_subject', False):
             flash('External subject entries do not use scrutinizer workflow.', 'warning')
-            next_url = request.form.get('next') or request.args.get('next')
+            next_url = _safe_next_url(request.form.get('next') or request.args.get('next'))
             if next_url:
                 return redirect(next_url)
             return redirect(url_for('exam_evaluation'))
@@ -2581,7 +2759,7 @@ def create_app():
             if invite.status != 'accepted':
                 flash('Only accepted invitations can be marked as complete/incomplete.', 'warning')
                 # Redirect to next parameter or default to invitations page
-                next_url = request.form.get('next') or request.args.get('next')
+                next_url = _safe_next_url(request.form.get('next') or request.args.get('next'))
                 if next_url:
                     return redirect(next_url)
                 return redirect(url_for('class_management.my_invitations'))
@@ -2663,7 +2841,7 @@ def create_app():
                 db.session.rollback()
                 flash(f'Failed to update status: {exc}', 'danger')
             # Redirect to next parameter or default to invitations page
-            next_url = request.form.get('next') or request.args.get('next')
+            next_url = _safe_next_url(request.form.get('next') or request.args.get('next'))
             if next_url:
                 return redirect(next_url)
             return redirect(url_for('class_management.my_invitations'))
@@ -5374,6 +5552,7 @@ def create_app():
         
         # Format remarks for display (parse JSON if needed)
         import json
+        import html
         formatted_assignments = []
         for assignment in assignments:
             if assignment.remarks:
@@ -5383,23 +5562,23 @@ def create_app():
                         parsed = json.loads(assignment.remarks)
                         formatted_remarks = []
                         if parsed.get('type') == 'chief':
-                            formatted_remarks.append(f"<strong>Designation:</strong> {parsed.get('designation', 'N/A')}")
+                            formatted_remarks.append(f"<strong>Designation:</strong> {html.escape(str(parsed.get('designation', 'N/A')))}")
                             if parsed.get('institute'):
-                                formatted_remarks.append(f"<strong>Institute:</strong> {parsed.get('institute')}")
+                                formatted_remarks.append(f"<strong>Institute:</strong> {html.escape(str(parsed.get('institute')))}")
                         elif parsed.get('type') == 'external':
-                            formatted_remarks.append(f"<strong>Name:</strong> {parsed.get('name', 'N/A')}")
-                            formatted_remarks.append(f"<strong>Designation:</strong> {parsed.get('designation', 'N/A')}")
+                            formatted_remarks.append(f"<strong>Name:</strong> {html.escape(str(parsed.get('name', 'N/A')))}")
+                            formatted_remarks.append(f"<strong>Designation:</strong> {html.escape(str(parsed.get('designation', 'N/A')))}")
                             if parsed.get('institute'):
-                                formatted_remarks.append(f"<strong>Institute:</strong> {parsed.get('institute')}")
+                                formatted_remarks.append(f"<strong>Institute:</strong> {html.escape(str(parsed.get('institute')))}")
                         else:
                             for key, value in parsed.items():
-                                formatted_remarks.append(f"<strong>{key.replace('_', ' ').title()}:</strong> {value}")
+                                formatted_remarks.append(f"<strong>{html.escape(str(key).replace('_', ' ').title())}:</strong> {html.escape(str(value))}")
                         # Add formatted_remarks as a property
                         assignment.formatted_remarks = '<br>'.join(formatted_remarks)
                     else:
-                        assignment.formatted_remarks = assignment.remarks
+                        assignment.formatted_remarks = html.escape(assignment.remarks)
                 except (json.JSONDecodeError, AttributeError, ValueError):
-                    assignment.formatted_remarks = assignment.remarks
+                    assignment.formatted_remarks = html.escape(assignment.remarks)
             else:
                 assignment.formatted_remarks = None
             formatted_assignments.append(assignment)
@@ -6958,16 +7137,6 @@ def create_app():
     @login_required
     def save_committee_members():
         """Save examination committee members"""
-        # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-        if not teacher:
-            return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-
-        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
-        chief_assignment = chief_assignments[0] if chief_assignments else None
-        if not chief_assignment and not member_assignments:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
-        
         data = request.get_json() or {}
         academic_session = data.get('academic_session', '').strip()
         year = data.get('year', '').strip()
@@ -6976,10 +7145,24 @@ def create_app():
         internal_members = data.get('internal_members') or []  # [{id, name, designation, institute}]
         external_members = data.get('external_members') or []  # [{name, designation, institute}]
         remarks = data.get('remarks', '').strip()
-        
+
         if not academic_session or not year or not term:
             return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
-        
+
+        # Only admin, head, or the Exam Committee Chief for THIS specific
+        # session/year/term may modify its committee members.
+        is_authorized = is_admin(current_user) or is_head(current_user)
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not is_authorized:
+            if not teacher:
+                return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+            chief_assignments, _member_assignments = _get_exam_committee_assignments(
+                teacher, academic_session=academic_session, year=year, term=term
+            )
+            is_authorized = bool(chief_assignments)
+        if not is_authorized:
+            return jsonify({'success': False, 'message': 'Only the Exam Committee Chief (or Head/Admin) may modify committee members for this session'}), 403
+
         if not chief and (not internal_members or not isinstance(internal_members, list)) and (not external_members or not isinstance(external_members, list)):
             return jsonify({'success': False, 'message': 'Please add at least the Chief or one committee member (internal or external)'}), 400
         
@@ -7157,23 +7340,28 @@ def create_app():
     @login_required
     def archive_committee_members():
         """Archive all committee members for a session/year/term"""
-        # Check if current user is assigned as Exam Committee Chief or Member
-        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-        if not teacher:
-            return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
-
-        chief_assignments, member_assignments = _get_exam_committee_assignments(teacher)
-        if not chief_assignments and not member_assignments:
-            return jsonify({'success': False, 'message': 'You are not assigned as Exam Committee Chief or Member'}), 403
-        
         data = request.get_json() or {}
         academic_session = data.get('academic_session', '').strip()
         year = data.get('year', '').strip()
         term = data.get('term', '').strip()
-        
+
         if not academic_session or not year or not term:
             return jsonify({'success': False, 'message': 'Academic Session, Year, and Term are required'}), 400
-        
+
+        # Only admin, head, or the Exam Committee Chief for THIS specific
+        # session/year/term may archive its committee members.
+        is_authorized = is_admin(current_user) or is_head(current_user)
+        teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+        if not is_authorized:
+            if not teacher:
+                return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
+            chief_assignments, _member_assignments = _get_exam_committee_assignments(
+                teacher, academic_session=academic_session, year=year, term=term
+            )
+            is_authorized = bool(chief_assignments)
+        if not is_authorized:
+            return jsonify({'success': False, 'message': 'Only the Exam Committee Chief (or Head/Admin) may archive committee members for this session'}), 403
+
         try:
             # Find all committee members for this session/year/term (both active and inactive)
             committee_assignments = query_for_window(DutyAssignment).filter(
@@ -10443,192 +10631,199 @@ def create_app():
                 'official_support': data.get('official_support', [])
             }
             
-            # Process sessional sections to extract course_code from course field
+            # Process course fields to extract course_code
             def process_course_field(items, course_key='course'):
                 processed = []
                 for item in items or []:
                     course_full = str(item.get(course_key, '') or '')
                     course_code = ''
-                    
-                    # Try to parse as JSON first
+                    course_name = ''
                     try:
                         if course_full.strip().startswith('{'):
                             course_data = json.loads(course_full)
                             course_code = course_data.get('course_code', '') or ''
-                    except:
+                            course_name = course_data.get('course_name', '') or ''
+                    except Exception:
                         pass
-                    
-                    # If JSON parsing didn't work, try string split
                     if not course_code:
                         if ' - ' in course_full:
                             course_code = course_full.split(' - ', 1)[0].strip()
+                            course_name = course_full.split(' - ', 1)[1].strip()
                         else:
                             course_code = course_full.strip()
-                    
                     processed_item = dict(item)
                     processed_item['course_code'] = course_code
+                    if course_name and not processed_item.get('course_name'):
+                        processed_item['course_name'] = course_name
                     processed.append(processed_item)
                 return processed
-            
+
             template_data['sessional_assessment'] = process_course_field(template_data.get('sessional_assessment', []))
             template_data['sessional_viva'] = process_course_field(template_data.get('sessional_viva', []))
-            
-            # Ensure all list fields are lists (not None)
-            for key in ['examination_committee', 'moderation_committee', 'sessional_assessment', 
+            template_data['question_typing'] = process_course_field(template_data.get('question_typing', []))
+            template_data['question_photocopy'] = process_course_field(template_data.get('question_photocopy', []))
+
+            for key in ['examination_committee', 'moderation_committee', 'sessional_assessment',
                        'sessional_viva', 'script_scrutiny', 'tabulation', 'coding_decoding',
-                       'invigilation', 'thesis_supervision', 'viva', 'question_typing', 'question_photocopy', 'official_support']:
-                if template_data[key] is None:
+                       'invigilation', 'thesis_supervision', 'viva', 'question_typing',
+                       'question_photocopy', 'official_support']:
+                if template_data.get(key) is None:
                     template_data[key] = []
-            
-            # Build list of sections with data only, for sequential numbering
+
+            disabled_set = {
+                str(k).strip()
+                for k in (disabled_sections if isinstance(disabled_sections, list) else [])
+                if k and str(k).strip() and str(k).strip() != 'examination_committee'
+            }
+
+            def _nonempty_rows(rows, required_any):
+                out = []
+                for row in rows or []:
+                    if not isinstance(row, dict):
+                        continue
+                    if any(str(row.get(field) or '').strip() not in ('', '0', '-') for field in required_any):
+                        out.append(row)
+                return out
+
+            def _unique_course_count(rows):
+                codes = set()
+                for row in rows or []:
+                    code = (row.get('course_code') or row.get('course') or '').strip()
+                    if code:
+                        if ' - ' in code:
+                            code = code.split(' - ', 1)[0].strip()
+                        codes.add(code)
+                return len(codes)
+
+            # Enabled sections with data only; serial numbers are dynamic (1..N).
+            section_specs = [
+                {
+                    'key': 'examination_committee',
+                    'required_any': ('name', 'designation', 'position'),
+                    'title': lambda rows, _: 'Examination Committee',
+                },
+                {
+                    'key': 'question_preparation',
+                    'required_any': ('course_code', 'course', 'teacher'),
+                    'title': lambda rows, td: (
+                        f'Question Preparation: ({td.get("unique_qp_courses_count", _unique_course_count(rows))} '
+                        f'Courses {td.get("qp_total_questions", 0)} Questions)'
+                    ),
+                },
+                {
+                    'key': 'script_examination',
+                    'required_any': ('course_code', 'course', 'teacher'),
+                    'title': lambda rows, td: (
+                        f'Answer Script Examination: ({td.get("unique_se_courses_count", _unique_course_count(rows))} '
+                        f'Courses {td.get("total_scripts_se", 0)} Scripts)'
+                    ),
+                },
+                {
+                    'key': 'class_test',
+                    'required_any': ('course_code', 'course', 'teacher'),
+                    'title': lambda rows, td: (
+                        f'Class Test: ({td.get("unique_ct_courses_count", _unique_course_count(rows))} Courses)'
+                    ),
+                },
+                {
+                    'key': 'moderation_committee',
+                    'required_any': ('name', 'designation'),
+                    'title': lambda rows, _: 'Moderation Committee',
+                },
+                {
+                    'key': 'sessional_assessment',
+                    'required_any': ('course_code', 'course', 'teacher'),
+                    'title': lambda rows, _: (
+                        f'Sessional Assessment: ({_unique_course_count(rows)} '
+                        f'Course{"s" if _unique_course_count(rows) != 1 else ""})'
+                    ),
+                },
+                {
+                    'key': 'sessional_viva',
+                    'required_any': ('course_code', 'course', 'teacher'),
+                    'title': lambda rows, _: (
+                        f'Sessional Viva: ({_unique_course_count(rows)} '
+                        f'Course{"s" if _unique_course_count(rows) != 1 else ""})'
+                    ),
+                },
+                {
+                    'key': 'script_scrutiny',
+                    'required_any': ('name', 'designation', 'scripts'),
+                    'title': lambda rows, _: 'Answer Script Scrutiny',
+                },
+                {
+                    'key': 'tabulation',
+                    'required_any': ('name', 'designation'),
+                    'title': lambda rows, _: 'Tabulation',
+                },
+                {
+                    'key': 'coding_decoding',
+                    'required_any': ('name', 'designation', 'scripts'),
+                    'title': lambda rows, _: 'Coding & Decoding',
+                },
+                {
+                    'key': 'invigilation',
+                    'required_any': ('name', 'designation'),
+                    'title': lambda rows, _: 'Chief Invigilation/Invigilation',
+                },
+                {
+                    'key': 'thesis_supervision',
+                    'required_any': ('name', 'designation'),
+                    'title': lambda rows, _: 'Thesis Supervision',
+                },
+                {
+                    'key': 'viva',
+                    'required_any': ('teacher', 'name', 'students'),
+                    'title': lambda rows, _: 'Viva',
+                },
+                {
+                    'key': 'question_typing',
+                    'required_any': ('name', 'designation', 'questions'),
+                    'title': lambda rows, _: (
+                        f'Question Typing: ({len(rows)} Course{"s" if len(rows) != 1 else ""})'
+                    ),
+                },
+                {
+                    'key': 'question_photocopy',
+                    'required_any': ('name', 'designation', 'questions'),
+                    'title': lambda rows, _: (
+                        f'Question Photocopy: ({len(rows)} Course{"s" if len(rows) != 1 else ""})'
+                    ),
+                },
+                {
+                    'key': 'official_support',
+                    'required_any': ('name', 'designation', 'details'),
+                    'title': lambda rows, _: 'Official Support',
+                },
+            ]
+
             sections_list = []
-            
-            # Section 1: Examination Committee
-            if template_data.get('examination_committee') and len(template_data['examination_committee']) > 0:
+            for spec in section_specs:
+                key = spec['key']
+                if key in disabled_set:
+                    continue
+                rows = _nonempty_rows(template_data.get(key), spec['required_any'])
+                if not rows:
+                    continue
                 sections_list.append({
                     'number': len(sections_list) + 1,
-                    'type': 'examination_committee',
-                    'title': 'Examination Committee',
-                    'data': template_data['examination_committee']
+                    'type': key,
+                    'title': spec['title'](rows, template_data),
+                    'data': rows,
                 })
-            
-            # Section 2: Question Preparation
-            if template_data.get('question_preparation') and len(template_data['question_preparation']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'question_preparation',
-                    'title': f'Question Preparation: ({template_data["unique_qp_courses_count"]} Courses {template_data["qp_total_questions"]} Questions)',
-                    'data': template_data['question_preparation'],
-                    'unique_courses_count': template_data['unique_qp_courses_count'],
-                    'total_questions': template_data['qp_total_questions']
-                })
-            
-            # Section 3: Script Examination
-            if template_data.get('script_examination') and len(template_data['script_examination']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'script_examination',
-                    'title': f'Answer Script Examination: ({template_data["unique_se_courses_count"]} Courses {template_data["total_scripts_se"]} Scripts)',
-                    'data': template_data['script_examination'],
-                    'unique_courses_count': template_data['unique_se_courses_count'],
-                    'total_scripts': template_data['total_scripts_se']
-                })
-            
-            # Section 4: Class Test
-            if template_data.get('class_test') and len(template_data['class_test']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'class_test',
-                    'title': f'Class Test: ({template_data["unique_ct_courses_count"]} Courses)',
-                    'data': template_data['class_test'],
-                    'unique_courses_count': template_data['unique_ct_courses_count']
-                })
-            
-            # Section 5: Moderation Committee
-            if template_data.get('moderation_committee') and len(template_data['moderation_committee']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'moderation_committee',
-                    'title': 'Moderation Committee',
-                    'data': template_data['moderation_committee']
-                })
-            
-            # Section 6: Sessional Assessment
-            if template_data.get('sessional_assessment') and len(template_data['sessional_assessment']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'sessional_assessment',
-                    'title': f'Sessional Assessment: ({len(template_data["sessional_assessment"])} Course{"s" if len(template_data["sessional_assessment"]) != 1 else ""})',
-                    'data': template_data['sessional_assessment']
-                })
-            
-            # Section 7: Sessional Viva
-            if template_data.get('sessional_viva') and len(template_data['sessional_viva']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'sessional_viva',
-                    'title': f'Sessional viva: ({len(template_data["sessional_viva"])} Course{"s" if len(template_data["sessional_viva"]) != 1 else ""})',
-                    'data': template_data['sessional_viva']
-                })
-            
-            # Section 8: Script Scrutiny
-            if template_data.get('script_scrutiny') and len(template_data['script_scrutiny']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'script_scrutiny',
-                    'title': 'Answer Script Scrutiny',
-                    'data': template_data['script_scrutiny']
-                })
-            
-            # Section 9: Tabulation
-            if template_data.get('tabulation') and len(template_data['tabulation']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'tabulation',
-                    'title': 'Tabulation',
-                    'data': template_data['tabulation']
-                })
-            
-            # Section 10: Coding & Decoding
-            if template_data.get('coding_decoding') and len(template_data['coding_decoding']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'coding_decoding',
-                    'title': 'Coding & Decoding',
-                    'data': template_data['coding_decoding']
-                })
-            
-            # Section 11: Invigilation
-            if template_data.get('invigilation') and len(template_data['invigilation']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'invigilation',
-                    'title': 'Chief Invigilation/Invigilation',
-                    'data': template_data['invigilation']
-                })
-            
-            # Section 12: Thesis Supervision
-            if template_data.get('thesis_supervision') and len(template_data['thesis_supervision']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'thesis_supervision',
-                    'title': 'Thesis Supervision',
-                    'data': template_data['thesis_supervision']
-                })
-            
-            # Section 13: Viva
-            if template_data.get('viva') and len(template_data['viva']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'viva',
-                    'title': 'Viva',
-                    'data': template_data['viva']
-                })
-            
-            # Section 14: Question Typing
-            if template_data.get('question_typing') and len(template_data['question_typing']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'question_typing',
-                    'title': f'Question Typing: ({len(template_data["question_typing"])} Courses)',
-                    'data': template_data['question_typing']
-                })
-            
-            # Section 15: Question Photocopy
-            if template_data.get('question_photocopy') and len(template_data['question_photocopy']) > 0:
-                sections_list.append({
-                    'number': len(sections_list) + 1,
-                    'type': 'question_photocopy',
-                    'title': f'Question Photocopy: ({len(template_data["question_photocopy"])} Courses)',
-                    'data': template_data['question_photocopy']
-                })
-            
-            # Add sections_list to template_data
+
+            current_app.logger.info(
+                'Remuneration PDF sections: disabled=%s included=%s',
+                sorted(disabled_set),
+                [f"{s['number']}:{s['type']}({len(s['data'])})" for s in sections_list],
+            )
             template_data['sections_list'] = sections_list
-            
+
+
             # Generate PDF using WeasyPrint with HTML template
             from flask import render_template
             from weasyprint import HTML, CSS
+            from utils.pdf_fonts import resolve_formal_pdf_fonts
             
             # Convert year/term to ordinal words for display
             year_words = {
@@ -10638,12 +10833,28 @@ def create_app():
             term_words = {
                 '1': 'First', '2': 'Second', '3': 'Third', '4': 'Fourth'
             }
-            year_display = year_words.get(str(year), str(year))
-            term_display = term_words.get(str(term), str(term))
-            
-            # Update template_data with display values (template expects "First Year", "First Term" format)
-            template_data['year'] = f"{year_display} Year"
-            template_data['term'] = f"{term_display} Term"
+            year_raw = str(year or '').strip()
+            term_raw = str(term or '').strip()
+            year_display = year_words.get(year_raw, year_raw)
+            term_display = term_words.get(term_raw, term_raw)
+            if year_display and not year_display.lower().endswith('year'):
+                year_display = f'{year_display} Year'
+            if term_display and not term_display.lower().endswith('term'):
+                term_display = f'{term_display} Term'
+            template_data['year'] = year_display
+            template_data['term'] = term_display
+
+            formal_fonts = resolve_formal_pdf_fonts()
+            if not formal_fonts:
+                return jsonify({
+                    'success': False,
+                    'error': 'PDF fonts missing. Upload LiberationSerif-*.ttf to static/fonts/.',
+                    'message': 'PDF fonts missing',
+                }), 500
+            template_data['pdf_font_regular'] = formal_fonts['regular']
+            template_data['pdf_font_bold'] = formal_fonts['bold']
+            template_data['pdf_font_italic'] = formal_fonts.get('italic')
+            template_data['pdf_font_bold_italic'] = formal_fonts.get('bold_italic')
             
             # Render HTML template with data
             html_content = render_template(
@@ -10655,7 +10866,7 @@ def create_app():
             pdf_buffer = BytesIO()
             
             # Create HTML object
-            html_obj = HTML(string=html_content, base_url=request.url_root)
+            html_obj = HTML(string=html_content, base_url=formal_fonts['fonts_dir'].as_uri() + '/')
             
             # Write PDF
             html_obj.write_pdf(pdf_buffer, presentational_hints=True)
@@ -10956,308 +11167,188 @@ def create_app():
             current_app.logger.error(f'Error fetching courses with assignments: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error fetching courses: {str(e)}'}), 500
 
-    def _exam_committee_chief_student_count_response(exclude_carry_on_retake=False):
-        """Shared student-count logic for Statement of Remuneration tables.
+    def _count_direct_registered_students(
+        course_code,
+        academic_session,
+        year,
+        term,
+        exclude_carry_on_retake=True,
+        batch=None,
+        course_id=None,
+        return_meta=False,
+    ):
+        """Count students registered for one course in the active operational window.
 
-        exclude_carry_on_retake=True is used ONLY by Class Test (Table 4).
-        count_scope=direct counts only direct course_code registrations.
-        count_scope=sessional adds sessional retake rows mapped via relevant_course_code
-        but excludes theory retakes that were incorrectly inflating sessional counts.
+        Simple rule (user requirement):
+        - Same window being viewed (Window 1 also includes legacy NULL window_id)
+        - Same academic_session + year + term
+        - Exact course_code match
+        - status finalized/approved
+        - Distinct students
+
+        Never uses ClassStudent / class roster. No course_id merge, no suffix OR,
+        no session-only fallback (those inflated counts to ~75).
         """
+        import re
+        from blueprints.course_management.models import StudentCourseRegistration
+        from sqlalchemy import func, or_
+        from utils.window_utils import get_effective_window_id
+
+        meta = {
+            'match': None,
+            'course_code': None,
+            'window_id': None,
+            'stages': {},
+        }
+
+        if not academic_session or not year or not term or not course_code:
+            return (0, meta) if return_meta else 0
+
+        raw_code = str(course_code).strip()
+        if ' - ' in raw_code:
+            raw_code = raw_code.split(' - ', 1)[0].strip()
+        meta['course_code'] = raw_code or None
+        if not raw_code:
+            return (0, meta) if return_meta else 0
+
+        year_variants = _remuneration_label_variants(year, 'year')
+        term_variants = _remuneration_label_variants(term, 'term')
+        if not year_variants or not term_variants:
+            return (0, meta) if return_meta else 0
+
+        window_filter, window_id = _remuneration_window_filter(StudentCourseRegistration)
+        meta['window_id'] = window_id
+
+        course_code_key = re.sub(r'[\s\-]+', '', raw_code).lower()
+
+        def collapsed(col):
+            return func.replace(func.replace(func.lower(col), ' ', ''), '-', '')
+
+        status_norm = func.lower(func.trim(StudentCourseRegistration.status))
+        query = db.session.query(
+            func.count(func.distinct(StudentCourseRegistration.student_id))
+        ).filter(
+            window_filter,
+            status_norm.in_(['finalized', 'approved']),
+            StudentCourseRegistration.academic_session == academic_session,
+            StudentCourseRegistration.year.in_(year_variants),
+            StudentCourseRegistration.term.in_(term_variants),
+            collapsed(StudentCourseRegistration.course_code) == course_code_key,
+        )
+
+        # Class Test only: exclude retake/re-retake with Carry on
+        if exclude_carry_on_retake:
+            remark_lower = func.lower(func.trim(StudentCourseRegistration.remark))
+            query = query.filter(or_(
+                StudentCourseRegistration.carry_on.isnot(True),
+                ~remark_lower.in_(['retake', 're-retake', 're retake', 'reretake'])
+            ))
+
+        total = int(query.scalar() or 0)
+        meta['match'] = 'exact_code_window' if total else None
+        meta['stages']['exact_code_window'] = total
+        current_app.logger.info(
+            '[remuneration-count] window=%s session=%s year=%s term=%s code=%s count=%s',
+            window_id, academic_session, year, term, raw_code, total,
+        )
+        return (total, meta) if return_meta else total
+
+    def _exam_committee_chief_student_count_response(exclude_carry_on_retake=False):
+        """Deprecated wrapper — always uses registration-only helper."""
         course_code = request.args.get('course_code')
         academic_session = request.args.get('academic_session')
-        year = request.args.get('year')
-        term = request.args.get('term')
-        batch = request.args.get('batch')
-        count_scope = (request.args.get('count_scope') or '').strip().lower()
-
-        if not course_code or not academic_session:
-            return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
-
-        try:
-            from blueprints.course_management.models import StudentCourseRegistration, Course
-            from blueprints.student_management.models import Student
-            from sqlalchemy import func, or_, and_
-
-            # Extract bare course code (e.g. "0421 28 Law 3201 - ..." -> "0421 28 Law 3201")
-            course_name = None
-            if ' - ' in course_code:
-                parts = course_code.split(' - ', 1)
-                course_code = parts[0].strip()
-                if len(parts) > 1:
-                    course_name = parts[1].strip()
-            course_code = (course_code or '').strip()
-
-            def normalize_label(label):
-                if not label:
-                    return ''
-                label = str(label).strip()
-                for suffix in [' Year', ' Term', 'Year', 'Term']:
-                    if label.lower().endswith(suffix.lower()):
-                        label = label[:-len(suffix)].strip()
-                return label
-
-            normalized_year = normalize_label(year) if year else None
-            normalized_term = normalize_label(term) if term else None
-
-            # `batch` may arrive as a CSV of multiple batches (e.g. "2021, 2022")
-            # because CurriculumYearTerm.batch stores comma-separated values.
-            # Compare against Student.batch with IN(...) instead of equality.
-            batch_list = [b.strip() for b in str(batch or '').split(',') if b.strip() and b.strip() != 'None']
-
-            # Whitespace/case-insensitive course-code comparison so genuine
-            # registrations are not missed when the stored code string differs
-            # only by spacing/case (e.g. "0421 28 Law 3207" vs "0421  28 law 3207").
-            course_code_key = course_code.replace(' ', '').lower()
-
-            def collapsed(col):
-                return func.replace(func.lower(col), ' ', '')
-
-            # Resolve Course.id(s) for this code so registrations that point to the
-            # same course record are counted even if their code string was edited.
-            course_id_matches = []
-            matched_course_types = []
-            try:
-                candidate_courses = Course.query.filter(
-                    collapsed(Course.course_code) == course_code_key
-                ).all()
-                course_id_matches = [c.id for c in candidate_courses if c.id]
-                matched_course_types = [
-                    str(c.course_type or '').strip().lower()
-                    for c in candidate_courses if c.course_type
-                ]
-            except Exception:
-                course_id_matches = []
-                matched_course_types = []
-
-            is_sessional_course = any('sessional' in ct for ct in matched_course_types)
-            include_theory_relevant = (
-                count_scope not in ('direct', 'sessional')
-                and not is_sessional_course
-            )
-            include_sessional_retake_relevant = (
-                count_scope == 'sessional'
-                or (count_scope != 'direct' and is_sessional_course)
-            )
-
-            def count_registered_students(include_year_term=True, match_by_name=False, apply_batch=True):
-                # Registrations are stamped with the window active at creation time,
-                # which can differ from the exam committee chief's current window.
-                #
-                # NOTE 2: intentionally NOT filtered by Student.batch. The count must
-                # reflect ACTUAL registrations for the course in this session/year/term.
-                # A batch filter silently dropped legitimately-registered students
-                # whose Student.batch label didn't match the form's batch value
-                # (e.g. NULL/blank batch, or a differently-labelled batch), which made
-                # sessional courses and split subjects like Law of Evidence show 1-2
-                # instead of the real 37-38. `apply_batch` is kept only for call-site
-                # compatibility and is now a no-op.
-                query = db.session.query(
-                    func.count(func.distinct(StudentCourseRegistration.student_id))
-                ).filter(StudentCourseRegistration.status == 'finalized')
-
-                if match_by_name and course_name:
-                    direct_clause = and_(
-                        StudentCourseRegistration.course_name.like(f'%{course_name}%'),
-                        StudentCourseRegistration.academic_session == academic_session
-                    )
-                    relevant_clause = None
-                else:
-                    # Match strictly by the course CODE (whitespace/case-insensitive).
-                    # We deliberately do NOT match by course_id: registrations for a
-                    # different code (e.g. old-curriculum "04213207") can point to the
-                    # same course_id and would then be wrongly merged into this row.
-                    direct_clause = and_(
-                        collapsed(StudentCourseRegistration.course_code) == course_code_key,
-                        StudentCourseRegistration.academic_session == academic_session
-                    )
-
-                    relevant_clause = None
-                    if include_theory_relevant:
-                        relevant_clause = and_(
-                            collapsed(StudentCourseRegistration.relevant_course_code) == course_code_key,
-                            StudentCourseRegistration.relevant_academic_session == academic_session,
-                            StudentCourseRegistration.use_relevant_for_committee.is_(True)
-                        )
-
-                remark_lower = func.lower(func.trim(StudentCourseRegistration.remark))
-                retake_remarks = ['retake', 're-retake', 're retake', 'reretake']
-                # Include sessional/viva retakes mapped via relevant_course_code, but exclude
-                # theory retakes registered on a different theory code that were inflating
-                # sessional counts (the prior 37 vs 38 issue).
-                course_type_lower = func.lower(func.coalesce(StudentCourseRegistration.course_type, ''))
-                allow_sessional_retake_relevant = or_(
-                    course_type_lower.contains('sessional'),
-                    course_type_lower.contains('viva'),
-                    collapsed(StudentCourseRegistration.course_code) == course_code_key,
-                    ~course_type_lower.contains('theory'),
-                )
-
-                retake_relevant_via_context = None
-                retake_relevant_via_running = None
-                if include_sessional_retake_relevant and not match_by_name:
-                    retake_relevant_via_context = and_(
-                        collapsed(StudentCourseRegistration.relevant_course_code) == course_code_key,
-                        StudentCourseRegistration.relevant_academic_session == academic_session,
-                        remark_lower.in_(retake_remarks),
-                        allow_sessional_retake_relevant,
-                    )
-                    retake_relevant_via_running = and_(
-                        collapsed(StudentCourseRegistration.relevant_course_code) == course_code_key,
-                        StudentCourseRegistration.academic_session == academic_session,
-                        remark_lower.in_(retake_remarks),
-                        allow_sessional_retake_relevant,
-                    )
-
-                if include_year_term:
-                    if normalized_year:
-                        direct_clause = and_(direct_clause, StudentCourseRegistration.year == normalized_year)
-                        if relevant_clause is not None:
-                            relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_year == normalized_year)
-                        if retake_relevant_via_context is not None:
-                            retake_relevant_via_context = and_(
-                                retake_relevant_via_context,
-                                StudentCourseRegistration.relevant_year == normalized_year
-                            )
-                        if retake_relevant_via_running is not None:
-                            retake_relevant_via_running = and_(
-                                retake_relevant_via_running,
-                                StudentCourseRegistration.year == normalized_year
-                            )
-                    if normalized_term:
-                        direct_clause = and_(direct_clause, StudentCourseRegistration.term == normalized_term)
-                        if relevant_clause is not None:
-                            relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_term == normalized_term)
-                        if retake_relevant_via_context is not None:
-                            retake_relevant_via_context = and_(
-                                retake_relevant_via_context,
-                                StudentCourseRegistration.relevant_term == normalized_term
-                            )
-                        if retake_relevant_via_running is not None:
-                            retake_relevant_via_running = and_(
-                                retake_relevant_via_running,
-                                StudentCourseRegistration.term == normalized_term
-                            )
-
-                clauses = [direct_clause]
-                if relevant_clause is not None:
-                    clauses.append(relevant_clause)
-                if retake_relevant_via_context is not None:
-                    clauses.append(retake_relevant_via_context)
-                if retake_relevant_via_running is not None:
-                    clauses.append(retake_relevant_via_running)
-
-                query = query.filter(or_(*clauses))
-
-                # Class Test (Table 4): exclude Retake/Re-retake students with Carry on enabled.
-                if exclude_carry_on_retake:
-                    remark_lower = func.lower(func.trim(StudentCourseRegistration.remark))
-                    query = query.filter(or_(
-                        StudentCourseRegistration.carry_on.isnot(True),
-                        ~remark_lower.in_(['retake', 're-retake', 're retake', 'reretake'])
-                    ))
-
-                return query.scalar() or 0
-
-            # Diagnostic mode: open this endpoint in the browser with &debug=1 to see
-            # exactly how registrations for this course are actually stored, so we can
-            # tell whether a low count is a matching bug or a data mismatch.
-            if request.args.get('debug'):
-                digits = ''.join(ch for ch in course_code if ch.isdigit())
-                last4 = digits[-4:] if len(digits) >= 4 else digits
-
-                def _group_rows(base_filter):
-                    rows = db.session.query(
-                        StudentCourseRegistration.course_code,
-                        StudentCourseRegistration.course_id,
-                        StudentCourseRegistration.academic_session,
-                        StudentCourseRegistration.year,
-                        StudentCourseRegistration.term,
-                        StudentCourseRegistration.status,
-                        func.count(func.distinct(StudentCourseRegistration.student_id))
-                    ).filter(base_filter).group_by(
-                        StudentCourseRegistration.course_code,
-                        StudentCourseRegistration.course_id,
-                        StudentCourseRegistration.academic_session,
-                        StudentCourseRegistration.year,
-                        StudentCourseRegistration.term,
-                        StudentCourseRegistration.status,
-                    ).all()
-                    return [{
-                        'course_code': r[0], 'course_id': r[1], 'academic_session': r[2],
-                        'year': r[3], 'term': r[4], 'status': r[5], 'students': r[6]
-                    } for r in rows]
-
-                debug_info = {
-                    'inputs': {
-                        'course_code': course_code, 'course_code_key': course_code_key,
-                        'academic_session': academic_session,
-                        'year_raw': year, 'term_raw': term,
-                        'normalized_year': normalized_year, 'normalized_term': normalized_term,
-                        'batch': batch, 'batch_list': batch_list,
-                        'digits': digits, 'last4': last4,
-                    },
-                    'course_id_matches': course_id_matches,
-                    'by_exact_collapsed_code': _group_rows(
-                        collapsed(StudentCourseRegistration.course_code) == course_code_key
-                    ),
-                    'by_digits_in_code': _group_rows(
-                        StudentCourseRegistration.course_code.like(f'%{last4}%')
-                    ) if last4 else [],
-                    'by_relevant_collapsed_code': _group_rows(
-                        collapsed(StudentCourseRegistration.relevant_course_code) == course_code_key
-                    ),
-                    'counts_by_stage': {
-                        'exact': count_registered_students(include_year_term=True),
-                        'session_only': count_registered_students(include_year_term=False),
-                        'no_batch_exact': count_registered_students(include_year_term=True, apply_batch=False),
-                        'no_batch_session_only': count_registered_students(include_year_term=False, apply_batch=False),
-                    },
-                }
-                return jsonify({'success': True, 'debug': debug_info})
-
-            total_registered = count_registered_students(include_year_term=True)
-            match_source = 'exact'
-
-            if total_registered == 0 and course_name:
-                total_registered = count_registered_students(include_year_term=True, match_by_name=True)
-                match_source = 'course_name'
-
-            if total_registered == 0:
-                total_registered = count_registered_students(include_year_term=False)
-                match_source = 'session_only'
-
-            current_app.logger.info(
-                f'[Chief student-count] course={course_code}, session={academic_session}, '
-                f'year={normalized_year}, term={normalized_term}, batch={batch}, '
-                f'batch_list={batch_list}, course_id_matches={course_id_matches}, '
-                f'count_scope={count_scope}, is_sessional_course={is_sessional_course}, '
-                f'include_theory_relevant={include_theory_relevant}, '
-                f'include_sessional_retake_relevant={include_sessional_retake_relevant}, '
-                f'exclude_carry_on_retake={exclude_carry_on_retake}, '
-                f'total_registered={total_registered}, match_source={match_source} (all windows)'
-            )
-
-            return jsonify({'success': True, 'student_count': total_registered})
-
-        except Exception as e:
-            current_app.logger.error(f'Error fetching student count (chief): {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error fetching student count: {str(e)}'}), 500
+        year = (request.args.get('year') or '').strip()
+        term = (request.args.get('term') or '').strip()
+        if not course_code or not academic_session or not year or not term:
+            return jsonify({
+                'success': False,
+                'message': 'course_code, academic_session, year and term are required',
+            }), 400
+        total, meta = _count_direct_registered_students(
+            course_code, academic_session, year, term,
+            exclude_carry_on_retake=exclude_carry_on_retake,
+            course_id=request.args.get('course_id'),
+            return_meta=True,
+        )
+        resp = jsonify({
+            'success': True,
+            'student_count': total,
+            'match_source': 'registration',
+            'count_match': meta.get('match'),
+            'count_stages': meta.get('stages'),
+        })
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        return resp
 
     @app.route('/exam-committee-chief/get-student-count', methods=['GET'])
     @login_required
     def exam_committee_chief_get_student_count():
-        """Get total registered students for sessional / general remuneration tables."""
-        return _exam_committee_chief_student_count_response(exclude_carry_on_retake=False)
+        """Get registered students for sessional / general tables (registration only)."""
+        course_code = request.args.get('course_code')
+        academic_session = request.args.get('academic_session')
+        year = (request.args.get('year') or '').strip()
+        term = (request.args.get('term') or '').strip()
+        if not course_code or not academic_session or not year or not term:
+            resp = jsonify({
+                'success': False,
+                'message': 'course_code, academic_session, year and term are required',
+            })
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            return resp, 400
+        try:
+            total, meta = _count_direct_registered_students(
+                course_code, academic_session, year, term,
+                exclude_carry_on_retake=False,
+                course_id=request.args.get('course_id'),
+                return_meta=True,
+            )
+            resp = jsonify({
+                'success': True,
+                'student_count': total,
+                'match_source': 'registration',
+                'count_match': meta.get('match'),
+                'count_stages': meta.get('stages'),
+            })
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            return resp
+        except Exception as e:
+            current_app.logger.error(f'Student-count helper failed: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': str(e)}), 500
 
     @app.route('/exam-committee-chief/get-class-test-student-count', methods=['GET'])
     @login_required
     def exam_committee_chief_get_class_test_student_count():
-        """Get registered students for Class Test (Table 4) only.
-
-        Retake/Re-retake students with Carry on enabled are excluded here only.
-        """
-        return _exam_committee_chief_student_count_response(exclude_carry_on_retake=True)
+        """Get registered students for Class Test (Table 4) — registration only."""
+        course_code = request.args.get('course_code')
+        academic_session = request.args.get('academic_session')
+        year = (request.args.get('year') or '').strip()
+        term = (request.args.get('term') or '').strip()
+        if not course_code or not academic_session or not year or not term:
+            resp = jsonify({
+                'success': False,
+                'message': 'course_code, academic_session, year and term are required',
+            })
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            return resp, 400
+        try:
+            total, meta = _count_direct_registered_students(
+                course_code, academic_session, year, term,
+                exclude_carry_on_retake=True,
+                course_id=request.args.get('course_id'),
+                return_meta=True,
+            )
+            resp = jsonify({
+                'success': True,
+                'student_count': total,
+                'match_source': 'registration',
+                'count_match': meta.get('match'),
+                'count_stages': meta.get('stages'),
+            })
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            return resp
+        except Exception as e:
+            current_app.logger.error(f'Class Test student-count helper failed: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': str(e)}), 500
 
     @app.route('/exam-committee-chief/debug-registrations', methods=['GET'])
     @login_required
@@ -11851,6 +11942,7 @@ def create_app():
         all_years = []
         all_terms = []
         years_terms_map = {}
+        session_years_terms_map = {}
         saved_data = None
         has_warning = False
         
@@ -11922,6 +12014,14 @@ def create_app():
                 current_app.logger.error(f'Error building year-term mapping: {e}', exc_info=True)
                 years_terms_map = {}
                 has_warning = True
+
+            # Session → years → terms for bulk download (exam committees + curriculum)
+            try:
+                session_years_terms_map = _build_bulk_session_years_terms_map(all_configs)
+            except Exception as e:
+                current_app.logger.error(f'Error building session years/terms map: {e}', exc_info=True)
+                session_years_terms_map = {}
+                has_warning = True
             
             # Load saved form data from session if exists
             try:
@@ -11935,6 +12035,7 @@ def create_app():
             # Catch any unexpected errors
             current_app.logger.error(f'Unexpected error in remuneration_portal: {e}', exc_info=True)
             has_warning = True
+            session_years_terms_map = {}
         
         # Show warning if any errors occurred
         if has_warning:
@@ -12063,6 +12164,7 @@ def create_app():
                              all_years=all_years,
                              all_terms=all_terms,
                              years_terms_map=years_terms_map,
+                             session_years_terms_map=session_years_terms_map,
                              saved_data=saved_data,
                              remuneration_rates=remuneration_rates,
                              logo_filename=logo_filename,
@@ -12390,6 +12492,8 @@ def create_app():
             # Sort terms for each year
             for year in years_terms_map:
                 years_terms_map[year] = sorted(years_terms_map[year])
+
+            session_years_terms_map = _build_bulk_session_years_terms_map(all_configs)
             
             # Define remuneration rates (same as in main portal)
             remuneration_rates = {
@@ -12428,6 +12532,7 @@ def create_app():
                                  all_years=all_years,
                                  all_terms=all_terms,
                                  years_terms_map=years_terms_map,
+                                 session_years_terms_map=session_years_terms_map,
                                  saved_data=saved_data,
                                  remuneration_rates=remuneration_rates,
                                  logo_filename=logo_filename,
@@ -12739,6 +12844,8 @@ def create_app():
             'teacher_designation': teacher.designation or '',
             'teacher_institute': teacher.institute or 'Law Discipline, KU',
             'is_split': is_split,
+            'session_id': assignment.session_id,
+            'assignment_id': assignment.id,
         }
 
     def _fetch_curriculum_course_assignments(academic_session, year, term, course_kind='theory'):
@@ -12843,25 +12950,35 @@ def create_app():
             ]
 
             if full_list:
-                # Curriculum Full wins — do not also emit orphan A/B
-                for assignment in full_list:
-                    payload = _remuneration_assignment_payload(course, assignment, 'Full', False)
-                    if payload:
-                        rows.append(payload)
+                # Curriculum Full wins — ignore orphan A/B for the same course.
+                # If duplicate Full CSA rows remain, keep only the latest (highest id).
+                latest_full = max(full_list, key=lambda a: a.id or 0)
+                payload = _remuneration_assignment_payload(course, latest_full, 'Full', False)
+                if payload:
+                    rows.append(payload)
                 continue
 
             if a_list and b_list:
-                payload_a = _remuneration_assignment_payload(course, a_list[0], 'A', True)
-                payload_b = _remuneration_assignment_payload(course, b_list[0], 'B', True)
+                # One teacher per section (latest CSA row if duplicates)
+                latest_a = max(a_list, key=lambda a: a.id or 0)
+                latest_b = max(b_list, key=lambda a: a.id or 0)
+                payload_a = _remuneration_assignment_payload(course, latest_a, 'A', True)
+                payload_b = _remuneration_assignment_payload(course, latest_b, 'B', True)
                 if payload_a:
                     rows.append(payload_a)
                 if payload_b:
                     rows.append(payload_b)
                 continue
 
+            # Only A or only B (or odd section labels): one row per distinct section, latest CSA
+            by_section = {}
             for assignment in course_assignments:
                 section_key = _normalize_remuneration_csa_section(assignment.section)
                 section_label = section_key if section_key in ('A', 'B') else 'Full'
+                prev = by_section.get(section_label)
+                if prev is None or (assignment.id or 0) >= (prev.id or 0):
+                    by_section[section_label] = assignment
+            for section_label, assignment in by_section.items():
                 payload = _remuneration_assignment_payload(
                     course, assignment, section_label, section_label in ('A', 'B')
                 )
@@ -12923,6 +13040,48 @@ def create_app():
                         rows.append(payload)
         return rows
 
+    def _attach_remuneration_student_counts(assignments_data, academic_session, year, term, batch=None, exclude_carry_on_retake=True):
+        """Attach student_count from StudentCourseRegistration only.
+
+        CRITICAL: Do NOT use ClassStudent / class_session rosters here.
+        Class Management auto-adds every student in the committee batch into
+        ClassStudent when a Session is created, so roster counts ≈ cohort size
+        (e.g. 75) even when only ~40 students registered for that course.
+
+        Statement of Remuneration must follow course registration
+        (রেজিস্ট্রেশন অনুযায়ী), same as the working Third-Year committees.
+        """
+        count_cache = {}
+        count_debug = {}
+        for row in assignments_data or []:
+            code = row.get('course_code') or ''
+            section = (row.get('section') or '').strip().upper() or 'Full'
+            course_id = row.get('course_id')
+            cache_key = (code, course_id, bool(exclude_carry_on_retake))
+            if cache_key not in count_cache:
+                total, meta = _count_direct_registered_students(
+                    code, academic_session, year, term,
+                    exclude_carry_on_retake=exclude_carry_on_retake,
+                    course_id=course_id,
+                    return_meta=True,
+                )
+                count_cache[cache_key] = (total, meta)
+            student_count, meta = count_cache[cache_key]
+            row['student_count'] = student_count
+            row['count_source'] = 'registration'
+            row['count_match'] = meta.get('match')
+            row['count_window_id'] = meta.get('window_id')
+            # Same registration total for A/B/Full of the same course (by design).
+            count_debug[f'{code}|{section}'] = {
+                'count': student_count,
+                'source': 'registration',
+                'match': meta.get('match'),
+                'window_id': meta.get('window_id'),
+                'stages': meta.get('stages'),
+                'session_id': row.get('session_id'),
+            }
+        return count_debug
+
     @app.route('/remuneration/api/course-assignments', methods=['GET'])
     @login_required
     def remuneration_get_course_assignments():
@@ -12937,6 +13096,7 @@ def create_app():
         academic_session = request.args.get('academic_session')
         year = request.args.get('year')
         term = request.args.get('term')
+        batch = request.args.get('batch')
 
         if not all([academic_session, year, term]):
             return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
@@ -12948,20 +13108,28 @@ def create_app():
                 academic_session, year, term, course_kind='theory'
             )
             assignments_data = _build_theory_class_test_rows(assignments)
+            count_debug = _attach_remuneration_student_counts(
+                assignments_data, academic_session, year, term,
+                batch=batch, exclude_carry_on_retake=True,
+            )
             current_app.logger.info(
-                'Class Test autofetch: CSA=%s rows=%s session=%s year=%s term=%s window=%s',
+                'Class Test autofetch: CSA=%s rows=%s session=%s year=%s term=%s '
+                'batch=%s window=%s counts=%s',
                 len(assignments),
                 len(assignments_data),
                 academic_session,
                 year,
                 term,
+                batch,
                 get_effective_window_id(admin_override=False),
+                count_debug,
             )
             return jsonify({
                 'success': True,
                 'assignments': assignments_data,
                 'window_id': get_effective_window_id(admin_override=False),
                 'count': len(assignments_data),
+                'count_mode': 'registration',
             })
         except Exception as e:
             current_app.logger.error(f'Error fetching course assignments: {str(e)}', exc_info=True)
@@ -12978,16 +13146,32 @@ def create_app():
         academic_session = request.args.get('academic_session')
         year = request.args.get('year')
         term = request.args.get('term')
+        batch = request.args.get('batch')
 
         if not all([academic_session, year, term]):
             return jsonify({'success': False, 'message': 'Academic session, year, and term are required'}), 400
 
         try:
+            from utils.window_utils import get_effective_window_id
             assignments = _fetch_curriculum_course_assignments(
                 academic_session, year, term, course_kind='sessional'
             )
             assignments_data = _build_sessional_assignment_rows(assignments)
-            return jsonify({'success': True, 'assignments': assignments_data})
+            count_debug = _attach_remuneration_student_counts(
+                assignments_data, academic_session, year, term,
+                batch=batch, exclude_carry_on_retake=False,
+            )
+            current_app.logger.info(
+                'Sessional autofetch: CSA=%s rows=%s session=%s year=%s term=%s batch=%s counts=%s',
+                len(assignments), len(assignments_data), academic_session, year, term, batch, count_debug,
+            )
+            return jsonify({
+                'success': True,
+                'assignments': assignments_data,
+                'count': len(assignments_data),
+                'count_mode': 'registration',
+                'window_id': get_effective_window_id(admin_override=False),
+            })
         except Exception as e:
             current_app.logger.error(f'Error fetching sessional course assignments: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch sessional course assignments'}), 500
@@ -13108,253 +13292,42 @@ def create_app():
     @app.route('/remuneration/api/student-count', methods=['GET'])
     @login_required
     def remuneration_get_student_count():
-        """Get total number of students for a course assigned to current teacher's account"""
+        """Registration-only student count (same helper as Statement of Remuneration).
+
+        Never uses ClassStudent / class_session roster. A/B/Full all receive the
+        same course registration total.
+        """
         restriction = _require_teacher_privileges()
         if restriction:
             return restriction
-        
+
         course_code = request.args.get('course_code')
         academic_session = request.args.get('academic_session')
-        year = request.args.get('year')
-        term = request.args.get('term')
-        batch = request.args.get('batch')  # Optional: restrict to specific batch
-        section = request.args.get('section', '').strip().upper()  # A, B, Full, or empty
-        
-        if not course_code or not academic_session:
-            return jsonify({'success': False, 'message': 'Course code and academic session are required'}), 400
-        
-        # Map section to course_scope for Session filtering
-        course_scope = None
-        if section == 'A':
-            course_scope = 'part_a'
-        elif section == 'B':
-            course_scope = 'part_b'
-        elif section == 'FULL' or section == '':
-            course_scope = 'full'
-        # If section is something else, treat as 'full'
-        if course_scope is None:
-            course_scope = 'full'
-        
-        try:
-            # Import models
-            from blueprints.course_management.models import StudentCourseRegistration
-            from blueprints.student_management.models import Student
-            from blueprints.class_management.models import Teacher, Session, ClassStudent
-            from sqlalchemy import func, or_, and_
-            import re
-            
-            # Extract course code only (remove course name if present in format "CODE - Name")
-            original_course_code = course_code
-            course_name = None
-            if ' - ' in course_code:
-                parts = course_code.split(' - ', 1)
-                course_code = parts[0].strip()
-                if len(parts) > 1:
-                    course_name = parts[1].strip()
-            
-            # Clean course code
-            course_code = course_code.strip()
-            
-            # Normalize year/term labels
-            def normalize_label(label):
-                if not label:
-                    return ''
-                label = str(label).strip()
-                for suffix in [' Year', ' Term', 'Year', 'Term']:
-                    if label.lower().endswith(suffix.lower()):
-                        label = label[:-len(suffix)].strip()
-                return label
-            
-            normalized_year = normalize_label(year) if year else None
-            normalized_term = normalize_label(term) if term else None
-            
-            # PRIMARY: Count registered students from StudentCourseRegistration
-            # Filter by direct original-course context OR relevant-course mapping context.
-            # and (optionally) student.batch when batch is provided.
-            base_query = db.session.query(
-                func.count(func.distinct(StudentCourseRegistration.student_id))
-            ).filter(
-                StudentCourseRegistration.status == 'finalized'
-            )
+        year = (request.args.get('year') or '').strip()
+        term = (request.args.get('term') or '').strip()
 
-            direct_clause = and_(
-                StudentCourseRegistration.course_code == course_code,
-                StudentCourseRegistration.academic_session == academic_session
-            )
-            relevant_clause = and_(
-                StudentCourseRegistration.relevant_course_code == course_code,
-                StudentCourseRegistration.relevant_academic_session == academic_session,
-                StudentCourseRegistration.use_relevant_for_committee.is_(True)
-            )
-
-            if batch:
-                base_query = base_query.join(
-                    Student,
-                    Student.id == StudentCourseRegistration.student_id
-                ).filter(Student.batch == batch)
-            
-            # Add year filter if provided
-            if normalized_year:
-                direct_clause = and_(direct_clause, StudentCourseRegistration.year == normalized_year)
-                relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_year == normalized_year)
-            
-            # Add term filter if provided
-            if normalized_term:
-                direct_clause = and_(direct_clause, StudentCourseRegistration.term == normalized_term)
-                relevant_clause = and_(relevant_clause, StudentCourseRegistration.relevant_term == normalized_term)
-
-            base_query = base_query.filter(or_(direct_clause, relevant_clause))
-            
-            # Get total registered count
-            total_registered_count = base_query.scalar() or 0
-            
-            current_app.logger.info(
-                f'Registered students for course_code={course_code}, session={academic_session}, '
-                f'year={normalized_year}, term={normalized_term}, total={total_registered_count}'
-            )
-            
-            # If section is specified (A or B), try to filter by Session course_scope
-            if section in ['A', 'B'] and total_registered_count > 0:
-                # Find Sessions matching this course and section
-                session_query = Session.query.filter(
-                    Session.course_code == course_code,
-                    Session.academic_session == academic_session,
-                    Session.course_scope == course_scope
-                )
-                
-                if normalized_year:
-                    session_query = session_query.filter(Session.year == normalized_year)
-                if normalized_term:
-                    session_query = session_query.filter(Session.term == normalized_term)
-                
-                matched_sessions = session_query.all()
-                
-                if matched_sessions:
-                    # Count students in these specific sessions
-                    session_ids = [s.id for s in matched_sessions]
-                    section_count = db.session.query(
-                        func.count(func.distinct(ClassStudent.student_id))
-                    ).filter(
-                        ClassStudent.session_id.in_(session_ids)
-                    ).scalar() or 0
-                    
-                    current_app.logger.info(
-                        f'Section {section} (course_scope={course_scope}): Found {len(matched_sessions)} sessions, '
-                        f'{section_count} students in sessions'
-                    )
-                    
-                    # Use section count if available, otherwise use total registered count
-                    if section_count > 0:
-                        effective_count = max(section_count, total_registered_count)
-                        return jsonify({
-                            'success': True,
-                            'student_count': effective_count
-                        })
-                    else:
-                        # If no students in sessions but we have registered students,
-                        # return total registered (sessions might not be set up yet)
-                        current_app.logger.info(
-                            f'No students in sessions for section {section}, using total registered count'
-                        )
-                        return jsonify({
-                            'success': True,
-                            'student_count': total_registered_count
-                        })
-                else:
-                    # No sessions found for this section, return total registered
-                    current_app.logger.info(
-                        f'No sessions found for section {section}, using total registered count'
-                    )
-                    return jsonify({
-                        'success': True,
-                        'student_count': total_registered_count
-                    })
-            
-            # For Full section or no section specified, return total registered count
-            if total_registered_count > 0:
-                return jsonify({
-                    'success': True,
-                    'student_count': total_registered_count
-                })
-            
-            # Fallback: Try flexible matching if exact match didn't work
-            # Try partial course code match
-            if total_registered_count == 0:
-                current_app.logger.info(
-                    f'No exact match found. Trying flexible matching...'
-                )
-                
-                # Try matching by course name if available
-                if course_name:
-                    name_query = db.session.query(
-                        func.count(func.distinct(StudentCourseRegistration.student_id))
-                    ).filter(
-                        StudentCourseRegistration.course_name.like(f'%{course_name}%'),
-                        StudentCourseRegistration.academic_session == academic_session,
-                        StudentCourseRegistration.status == 'finalized'
-                    )
-
-                    if batch:
-                        name_query = name_query.join(
-                            Student,
-                            Student.id == StudentCourseRegistration.student_id
-                        ).filter(Student.batch == batch)
-                    
-                    if normalized_year:
-                        name_query = name_query.filter(StudentCourseRegistration.year == normalized_year)
-                    if normalized_term:
-                        name_query = name_query.filter(StudentCourseRegistration.term == normalized_term)
-                    
-                    count = name_query.scalar() or 0
-                    
-                    if count > 0:
-                        current_app.logger.info(
-                            f'Found {count} students by course name match'
-                        )
-                        return jsonify({
-                            'success': True,
-                            'student_count': count
-                        })
-                
-                # Try without year/term filters (just session and course code)
-                fallback_query = db.session.query(
-                    func.count(func.distinct(StudentCourseRegistration.student_id))
-                ).filter(
-                    StudentCourseRegistration.course_code == course_code,
-                    StudentCourseRegistration.academic_session == academic_session,
-                    StudentCourseRegistration.status == 'finalized'
-                )
-
-                if batch:
-                    fallback_query = fallback_query.join(
-                        Student,
-                        Student.id == StudentCourseRegistration.student_id
-                    ).filter(Student.batch == batch)
-                
-                count = fallback_query.scalar() or 0
-                
-                if count > 0:
-                    current_app.logger.info(
-                        f'Found {count} students without year/term filter'
-                    )
-                    return jsonify({
-                        'success': True,
-                        'student_count': count
-                    })
-            
-            # Final log
-            current_app.logger.info(
-                f'FINAL: code="{course_code}", name="{course_name}", '
-                f'session="{academic_session}", year="{normalized_year}", term="{normalized_term}", '
-                f'section="{section}", FINAL COUNT={total_registered_count}'
-            )
-            
-            # Return count (even if 0, to indicate no registered students found)
+        if not course_code or not academic_session or not year or not term:
             return jsonify({
+                'success': False,
+                'message': 'Course code, academic session, year and term are required',
+            }), 400
+
+        try:
+            total, meta = _count_direct_registered_students(
+                course_code, academic_session, year, term,
+                exclude_carry_on_retake=False,
+                course_id=request.args.get('course_id'),
+                return_meta=True,
+            )
+            resp = jsonify({
                 'success': True,
-                'student_count': total_registered_count
+                'student_count': total,
+                'match_source': 'registration',
+                'count_match': meta.get('match'),
+                'count_stages': meta.get('stages'),
             })
-            
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            return resp
         except Exception as e:
             current_app.logger.error(f'Error fetching student count: {str(e)}', exc_info=True)
             return jsonify({'success': False, 'message': 'Failed to fetch student count'}), 500
@@ -13751,7 +13724,7 @@ def create_app():
             font-family: 'Kalpurush', sans-serif !important;
         }
         .english-text {
-            font-family: 'Tahoma', 'Arial', sans-serif !important;
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif !important;
         }
         """
 
@@ -13766,6 +13739,12 @@ def create_app():
         def px(val):
             return f'{max(1, int(round(val * scale)))}px'
 
+        def sig_px(val):
+            return f'{max(14, int(round(val * scale)))}px'
+
+        def box_px(val):
+            return f'{max(54, int(round(val * scale)))}px'
+
         def mm(val):
             return f'{(val * scale):.2f}mm'
 
@@ -13775,9 +13754,21 @@ def create_app():
                 margin: {inch(0.18)} {inch(0.28)};
             }}
             * {{
-                page-break-inside: avoid !important;
                 page-break-after: avoid !important;
                 page-break-before: avoid !important;
+            }}
+            .pdf-container,
+            .approval-footer-block,
+            .audit-block,
+            .signature-section,
+            .controller-signature-section,
+            .finance-signature-section,
+            .audit-approval-section,
+            .signature-box,
+            .controller-signature-box,
+            .finance-signature-box,
+            .audit-signature-box-single {{
+                page-break-inside: avoid !important;
             }}
             body {{
                 margin: 0 !important;
@@ -13900,50 +13891,159 @@ def create_app():
                 font-weight: 700 !important;
             }}
             .section-title {{
-                margin-top: {r(0.65)} !important;
-                margin-bottom: {r(0.35)} !important;
+                margin-top: {r(0.36)} !important;
+                margin-bottom: {r(0.2)} !important;
+                padding-bottom: {r(0.05)} !important;
                 font-size: {r(0.71)} !important;
+                line-height: 1.2 !important;
+            }}
+            .section-title.finance {{
+                margin-top: {r(0.38)} !important;
+            }}
+            .approval-footer-block {{
+                margin-top: {r(0.4)} !important;
+                display: block !important;
+                clear: both !important;
+            }}
+            .approval-footer-block > .section-title {{
+                margin-top: 0 !important;
+                margin-bottom: {r(0.24)} !important;
+                padding-top: {r(0.06)} !important;
+                display: block !important;
+                clear: both !important;
+            }}
+            .approval-footer-block > .section-title.finance {{
+                margin-top: {r(0.32)} !important;
+            }}
+            .approval-footer-block .info-note,
+            .approval-footer-block .finance-release-note {{
+                display: block !important;
+                clear: both !important;
+                margin-top: {r(0.08)} !important;
+                margin-bottom: {r(0.22)} !important;
+            }}
+            .approval-footer-block .controller-signature-section,
+            .approval-footer-block .finance-signature-section {{
+                display: flex !important;
+                clear: both !important;
+                margin-top: {r(0.2)} !important;
+                margin-bottom: {r(0.24)} !important;
+            }}
+            .audit-block {{
+                display: block !important;
+                clear: both !important;
+                margin-top: {r(0.26)} !important;
+            }}
+            .approval-footer-block .audit-approval-text {{
+                display: block !important;
+                clear: both !important;
+                margin-top: 0 !important;
+                margin-bottom: {r(0.22)} !important;
+                padding: {r(0.1)} 0 !important;
+            }}
+            .approval-footer-block .audit-approval-section {{
+                display: flex !important;
+                clear: both !important;
+                margin-top: {r(0.18)} !important;
+                margin-bottom: {r(0.16)} !important;
             }}
             .signature-box {{
-                min-height: {px(38)} !important;
-                padding: {r(0.22)} !important;
+                min-height: {box_px(72)} !important;
+                padding: {px(6)} {px(8)} {px(8)} !important;
                 font-size: {r(0.56)} !important;
+                display: block !important;
             }}
-            .signature-box span {{
-                margin-top: {r(0.55)} !important;
-                padding-top: {r(0.18)} !important;
+            .signature-box-label {{
+                line-height: 1.2 !important;
+                padding-top: {px(2)} !important;
+                margin-bottom: {px(2)} !important;
+            }}
+            .signature-box-space {{
+                display: block !important;
+                min-height: {sig_px(22)} !important;
+                height: {sig_px(22)} !important;
+                margin: {px(3)} 0 {px(4)} !important;
+                line-height: {sig_px(22)} !important;
+                overflow: hidden !important;
+            }}
+            .signature-box-footer {{
+                margin-top: {px(4)} !important;
+                padding-top: {px(4)} !important;
+                font-size: {r(0.51)} !important;
+            }}
+            .signature-box-footer-caption {{
+                margin-top: {px(10)} !important;
+            }}
+            .signature-box-recipient .signature-box-space {{
+                min-height: {sig_px(28)} !important;
+                height: {sig_px(28)} !important;
+                line-height: {sig_px(28)} !important;
+                margin-bottom: {px(6)} !important;
+            }}
+            .signature-box-recipient .signature-box-footer {{
+                margin-top: {px(10)} !important;
+            }}
+            .signature-date-row {{
+                margin-top: {px(6)} !important;
+                padding-bottom: {px(3)} !important;
+                font-size: {r(0.51)} !important;
+            }}
+            .signature-date-blank {{
+                min-height: {sig_px(14)} !important;
             }}
             .controller-signature-section,
             .finance-signature-section,
             .audit-approval-section {{
-                margin-top: {r(0.25)} !important;
-                margin-bottom: {r(0.28)} !important;
-                gap: {r(0.25)} !important;
+                margin-top: {r(0.15)} !important;
+                margin-bottom: {r(0.12)} !important;
+                gap: {r(0.28)} !important;
             }}
             .controller-signature-box,
             .finance-signature-box,
             .audit-signature-box-single {{
-                min-height: {px(32)} !important;
-                padding: {r(0.17)} {r(0.16)} !important;
+                min-height: {box_px(78)} !important;
+                padding: {px(6)} {px(8)} {px(8)} !important;
+                display: block !important;
+                overflow: visible !important;
+            }}
+            .signature-signing-space {{
+                display: block !important;
+                min-height: {sig_px(26)} !important;
+                height: {sig_px(26)} !important;
+                margin: {px(4)} 0 {px(6)} !important;
+                line-height: {sig_px(26)} !important;
+                overflow: hidden !important;
             }}
             .controller-designation,
             .finance-designation,
             .audit-designation {{
                 font-size: {r(0.51)} !important;
-                margin-bottom: {r(0.27)} !important;
-                padding-bottom: {r(0.16)} !important;
+                padding: {px(2)} 0 {px(6)} !important;
+                margin-bottom: {px(6)} !important;
+                line-height: 1.2 !important;
+                display: block !important;
             }}
             .controller-signature-line,
             .finance-signature-line,
             .audit-signature-line {{
-                margin-top: {r(0.22)} !important;
+                display: block !important;
+                margin-top: {px(4)} !important;
+                padding: {px(4)} 0 {px(3)} !important;
                 font-size: {r(0.51)} !important;
             }}
+            .controller-signature-line .english-text,
+            .finance-signature-line .english-text,
+            .audit-signature-line .english-text {{
+                display: inline-block !important;
+                width: calc(100% - 2.5rem) !important;
+                min-height: {sig_px(14)} !important;
+                vertical-align: bottom !important;
+            }}
             .foot-table {{
-                margin: {r(0.25)} 0 {r(0.18)} 0 !important;
+                margin: {r(0.22)} 0 {r(0.14)} 0 !important;
             }}
             .foot-table td {{
-                padding: {r(0.18)} {r(0.32)} !important;
+                padding: {r(0.14)} {r(0.28)} !important;
                 font-size: {r(0.56)} !important;
             }}
             .foot-table input {{
@@ -13951,12 +14051,32 @@ def create_app():
                 padding: {r(0.11)} {r(0.22)} !important;
             }}
             .info-note,
-            .statement-note,
             .finance-release-note,
             .audit-approval-text {{
+                font-size: 7pt !important;
+                margin: {r(0.08)} 0 {r(0.14)} 0 !important;
+                padding: {r(0.03)} 0 !important;
+                line-height: 1.25 !important;
+            }}
+            .statement-note {{
                 font-size: {r(0.51)} !important;
-                margin: {r(0.18)} 0 !important;
-                line-height: 1.22 !important;
+                margin: {r(0.08)} 0 {r(0.14)} 0 !important;
+                padding: {r(0.03)} 0 !important;
+                line-height: 1.25 !important;
+            }}
+            .approval-footer-block .info-note,
+            .approval-footer-block .finance-release-note {{
+                margin-top: {r(0.08)} !important;
+                margin-bottom: {r(0.22)} !important;
+            }}
+            .approval-footer-block .audit-approval-text {{
+                margin-top: 0 !important;
+                margin-bottom: {r(0.22)} !important;
+                padding: {r(0.1)} 0 !important;
+            }}
+            .audit-approval-text {{
+                padding-top: {r(0.1)} !important;
+                padding-bottom: {r(0.08)} !important;
             }}
             .info-note input,
             .statement-note input {{
@@ -13964,10 +14084,14 @@ def create_app():
                 padding: {r(0.04)} {r(0.11)} !important;
             }}
             .bank-declaration {{
-                padding: {r(0.27)} !important;
-                margin-top: {r(0.25)} !important;
-                font-size: {r(0.51)} !important;
-                line-height: 1.22 !important;
+                padding: {r(0.2)} !important;
+                margin-top: {r(0.16)} !important;
+                font-size: 7pt !important;
+                line-height: 1.2 !important;
+            }}
+            .bank-declaration-note {{
+                margin-top: {r(0.16)} !important;
+                font-size: 5pt !important;
             }}
             .revenue-ticket {{
                 width: {mm(18)} !important;
@@ -13977,23 +14101,32 @@ def create_app():
             """
 
     def _inject_kalpurush_font_into_remuneration_html(html_content, font_path_absolute):
-        """Embed Kalpurush font in HTML and return (html, font_css) for PDF rendering."""
+        """Embed Liberation Serif + Kalpurush fonts in HTML and return (html, font_css)."""
         import os
+        import base64
+        from utils.pdf_fonts import resolve_formal_pdf_fonts, formal_font_face_css
 
         html_final = html_content
         font_css = _remuneration_pdf_font_css()
+        style_parts = []
 
-        if not font_path_absolute:
-            return html_final, font_css
+        formal_fonts = resolve_formal_pdf_fonts()
+        if formal_fonts:
+            style_parts.append(formal_font_face_css(formal_fonts))
+            html_final = html_final.replace(
+                "'Tahoma', 'Arial', sans-serif",
+                "'PDFSerif', 'Times New Roman', Times, serif",
+            )
+            html_final = html_final.replace(
+                'Tahoma, Arial, sans-serif',
+                "'PDFSerif', 'Times New Roman', Times, serif",
+            )
 
-        try:
-            import base64
-            with open(font_path_absolute, 'rb') as font_file:
-                font_data = font_file.read()
-                font_base64 = base64.b64encode(font_data).decode('utf-8')
-
-            font_face_rule = f"""
-        <style>
+        if font_path_absolute:
+            try:
+                with open(font_path_absolute, 'rb') as font_file:
+                    font_base64 = base64.b64encode(font_file.read()).decode('utf-8')
+                style_parts.append(f"""
         @font-face {{
             font-family: 'Kalpurush';
             src: url(data:application/font-sfnt;base64,{font_base64}) format('truetype');
@@ -14006,45 +14139,37 @@ def create_app():
             font-weight: bold;
             font-style: normal;
         }}
-        </style>
-        """
+        """)
+                current_app.logger.info('Kalpurush font embedded as base64 in HTML <head>')
+            except Exception as e:
+                current_app.logger.error(f'Failed to embed font as base64: {e}', exc_info=True)
+                if os.name == 'nt':
+                    font_url = f"file:///{font_path_absolute.replace(os.sep, '/').replace(':', '')}"
+                else:
+                    font_url = f"file://{font_path_absolute}"
+                style_parts.append(f"""
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url('{font_url}') format('truetype');
+            font-weight: normal;
+            font-style: normal;
+        }}
+        @font-face {{
+            font-family: 'Kalpurush';
+            src: url('{font_url}') format('truetype');
+            font-weight: bold;
+            font-style: normal;
+        }}
+        """)
 
+        if style_parts:
+            font_face_rule = '<style>\n' + '\n'.join(style_parts) + '\n</style>\n'
             if '</head>' in html_final:
                 html_final = html_final.replace('</head>', font_face_rule + '</head>')
             elif '<head>' in html_final:
                 html_final = html_final.replace('<head>', '<head>' + font_face_rule)
             else:
                 html_final = font_face_rule + html_final
-
-            current_app.logger.info('Kalpurush font embedded as base64 in HTML <head>')
-        except Exception as e:
-            current_app.logger.error(f'Failed to embed font as base64: {e}', exc_info=True)
-            if os.name == 'nt':
-                font_url = f"file:///{font_path_absolute.replace(os.sep, '/').replace(':', '')}"
-            else:
-                font_url = f"file://{font_path_absolute}"
-
-            font_face_rule = f"""
-        <style>
-        @font-face {{
-            font-family: 'Kalpurush';
-            src: url('{font_url}') format('truetype');
-            font-weight: normal;
-            font-style: normal;
-        }}
-        @font-face {{
-            font-family: 'Kalpurush';
-            src: url('{font_url}') format('truetype');
-            font-weight: bold;
-            font-style: normal;
-        }}
-        </style>
-        """
-
-            if '</head>' in html_final:
-                html_final = html_final.replace('</head>', font_face_rule + '</head>')
-            elif '<head>' in html_final:
-                html_final = html_final.replace('<head>', '<head>' + font_face_rule)
 
         return html_final, font_css
 
@@ -14502,13 +14627,23 @@ def create_app():
                     logo_data_uri = None
             
             # Render HTML template with data
+            applicant_name = get_val('applicant_name')
+            tin_number = ''
+            try:
+                from blueprints.class_management.models import Teacher
+                teacher_for_tin = _find_teacher_record_for_name(applicant_name)
+                if teacher_for_tin and getattr(teacher_for_tin, 'tin_number', None):
+                    tin_number = str(teacher_for_tin.tin_number).strip()
+            except Exception:
+                tin_number = ''
+
             html_content = render_template(
                 'remuneration_pdf_template.html',
                 font_path=font_path_absolute,
                 logo_data_uri=logo_data_uri,
                 voucher_no=get_val('voucher_no'),
                 voucher_date=get_val('voucher_date'),
-                applicant_name=get_val('applicant_name'),
+                applicant_name=applicant_name,
                 designation=get_val('designation'),
                 discipline=get_val('discipline') or 'Law',
                 address=get_val('address'),
@@ -14522,6 +14657,7 @@ def create_app():
                 total_amount=get_val('total_amount'),
                 total_in_words=get_val('total_in_words'),
                 bank_account=get_val('bank_account'),
+                tin_number=tin_number,
                 auditor_sign=get_val('auditor_sign'),
                 deputy_sign=get_val('deputy_sign'),
                 controller_sign=get_val('controller_sign'),
@@ -14612,9 +14748,6 @@ def create_app():
             }), 400
         
         try:
-            from blueprints.class_management.models import Teacher
-            from role_utils import get_teachers_excluding_head
-            
             # Fetch statement data
             statement_data = _get_remuneration_statement_data(session_val, year_val, term_val)
             if not statement_data:
@@ -14624,105 +14757,24 @@ def create_app():
                     'teachers': [],
                     'message': 'এই সেশন, বর্ষ ও টার্মের জন্য Statement of Remuneration পাওয়া যায়নি'
                 })
-            
-            # Collect all teacher names from statement data
-            teacher_names_in_statement = set()
-            
-            # Check all relevant statement sections
-            sections_to_check = [
-                'question_preparation',
-                'moderation_committee',  # For Row 2
-                'script_examination',
-                'class_test',
-                'sessional_assessment',
-                'sessional_viva',
-                'professional_attachment',
-                'script_scrutiny',
-                'tabulation',
-                'invigilation',
-                'question_typing',
-                'question_photocopy',
-                'examination_committee',
-                'thesis_supervision',
-                'viva',
-                'coding_decoding'  # For Row 15
-            ]
-            
-            for section in sections_to_check:
-                items = statement_data.get(section, [])
-                if not items:
-                    continue
-                
-                for item in items:
-                    # Extract teacher name from various field names
-                    teacher_name = (
-                        item.get('teacher') or
-                        item.get('name') or
-                        item.get('teacher_name') or
-                        ''
-                    )
-                    if teacher_name:
-                        teacher_names_in_statement.add(str(teacher_name).strip())
-            
-            if not teacher_names_in_statement:
+
+            teachers_list = _get_bulk_download_recipients(
+                statement_data, session_val, year_val, term_val
+            )
+
+            if not teachers_list:
                 return jsonify({
                     'success': True,
                     'teachers': [],
-                    'message': 'Statement-এ কোনো শিক্ষকের তথ্য পাওয়া যায়নি'
+                    'message': 'Statement-এ কোনো শিক্ষক/External Member-এর হিসাব পাওয়া যায়নি'
                 })
-            
-            current_app.logger.info(
-                f'Found {len(teacher_names_in_statement)} teachers in statement: {session_val}/{year_val}/{term_val}'
-            )
-            
-            # Get all teachers (excluding head)
-            all_teachers = get_teachers_excluding_head()
-            
-            # Filter teachers that appear in statement
-            teachers_list = []
-            for teacher in all_teachers:
-                teacher_name = (teacher.name or '').strip()
-                if not teacher_name:
-                    continue
-                
-                # Check if this teacher matches any name in statement (flexible matching)
-                matches = False
-                for stmt_name in teacher_names_in_statement:
-                    if _matches_teacher_name(stmt_name, teacher_name):
-                        matches = True
-                        break
-                
-                if matches:
-                    # Only keep teachers who actually have a bill (non-empty jobs)
-                    # for this session/year/term. This mirrors the bulk-download
-                    # logic that skips teachers with no statement items, so the
-                    # selection list exactly matches who will get a PDF.
-                    try:
-                        jobs_data, _total_amount = _build_jobs_from_statement(
-                            statement_data, teacher.name, year_val, term_val, session_val
-                        )
-                    except Exception as build_err:
-                        current_app.logger.error(
-                            f'Error building jobs for {teacher.name} while filtering '
-                            f'teacher list: {build_err}',
-                            exc_info=True
-                        )
-                        jobs_data = []
 
-                    if not jobs_data:
-                        continue
-
-                    teachers_list.append({
-                        'id': teacher.id,
-                        'name': teacher.name,
-                        'designation': teacher.designation or '',
-                        'institute': teacher.institute or ''
-                    })
-            
             current_app.logger.info(
-                f'Filtered to {len(teachers_list)} teachers with an actual bill'
+                f'Bulk download recipients: {len(teachers_list)} '
+                f'({sum(1 for t in teachers_list if t.get("is_external"))} external) '
+                f'for {session_val}/{year_val}/{term_val}'
             )
-            
+
             return jsonify({
                 'success': True,
                 'teachers': teachers_list
@@ -14738,8 +14790,8 @@ def create_app():
     @login_required
     def remuneration_teacher_grand_total():
         """
-        Sum Statement-derived remuneration for one teacher across ALL
-        session/year/term combos in the current operational window.
+        Accurate window-scoped teacher total from Statement of Remuneration.
+        Net = gross − 20% VAT.
         """
         restriction = _require_teacher_privileges()
         if restriction:
@@ -14753,96 +14805,8 @@ def create_app():
             }), 400
 
         try:
-            from utils.window_utils import get_effective_window_id
-            from blueprints.remuneration_management.models import RemunerationForm
-            from blueprints.course_management.models import DutyAssignment
-            import json
-
-            window_id = get_effective_window_id(admin_override=False)
-            contexts = set()
-
-            # Committee contexts in this window
-            for duty in query_for_window(DutyAssignment).filter_by(
-                duty_type='exam_committee_chief',
-                status='active',
-            ).all():
-                if duty.academic_session and duty.year and duty.term:
-                    contexts.add((
-                        str(duty.academic_session).strip(),
-                        str(duty.year).strip(),
-                        str(duty.term).strip(),
-                    ))
-
-            # Statement forms saved in this window
-            form_entries = query_for_window(RemunerationForm).filter(
-                RemunerationForm.form_data.isnot(None),
-                RemunerationForm.academic_year.isnot(None),
-                RemunerationForm.year.isnot(None),
-                RemunerationForm.term.isnot(None),
-            ).order_by(RemunerationForm.id.desc()).limit(300).all()
-
-            for entry in form_entries:
-                try:
-                    parsed = json.loads(entry.form_data)
-                except Exception:
-                    continue
-                if not _is_statement_form_data(parsed):
-                    continue
-                contexts.add((
-                    str(entry.academic_year).strip(),
-                    str(entry.year).strip(),
-                    str(entry.term).strip(),
-                ))
-
-            breakdown = []
-            grand_total = 0.0
-            total_jobs = 0
-
-            for session_val, year_val, term_val in sorted(contexts):
-                statement_data = _get_remuneration_statement_data(
-                    session_val, year_val, term_val
-                )
-                if not statement_data:
-                    continue
-                try:
-                    jobs_data, total_amount = _build_jobs_from_statement(
-                        statement_data, teacher_name, year_val, term_val, session_val
-                    )
-                except Exception as build_err:
-                    current_app.logger.warning(
-                        f'Grand total skip {session_val}/{year_val}/{term_val} '
-                        f'for {teacher_name}: {build_err}'
-                    )
-                    continue
-
-                total_amount = float(total_amount or 0)
-                job_count = len(jobs_data or [])
-                if total_amount <= 0 and job_count <= 0:
-                    continue
-
-                grand_total += total_amount
-                total_jobs += job_count
-                breakdown.append({
-                    'academic_session': session_val,
-                    'year': year_val,
-                    'term': term_val,
-                    'total_amount': total_amount,
-                    'job_count': job_count,
-                })
-
-            return jsonify({
-                'success': True,
-                'teacher_name': teacher_name,
-                'window_id': window_id,
-                'grand_total': grand_total,
-                'total_jobs': total_jobs,
-                'breakdown': breakdown,
-                'message': (
-                    f'{len(breakdown)} টি সেশন/বর্ষ/টার্মে বিল পাওয়া গেছে'
-                    if breakdown
-                    else 'বর্তমান Window-এ এই শিক্ষকের কোনো Statement বিল পাওয়া যায়নি'
-                ),
-            })
+            payload = _compute_teacher_grand_total_payload(teacher_name)
+            return jsonify(payload)
         except Exception as e:
             current_app.logger.error(
                 f'Error computing teacher grand total: {e}', exc_info=True
@@ -14851,6 +14815,363 @@ def create_app():
                 'success': False,
                 'message': 'মোট পারিতোষিক হিসাব করতে সমস্যা হয়েছে',
             }), 500
+
+    @app.route('/remuneration/api/teacher-grand-total/pdf', methods=['GET'])
+    @login_required
+    def remuneration_teacher_grand_total_pdf():
+        """Download a formatted PDF of the teacher grand-total calculation."""
+        restriction = _require_teacher_privileges()
+        if restriction:
+            return restriction
+
+        teacher_name = (request.args.get('teacher_name') or '').strip()
+        if not teacher_name:
+            return jsonify({
+                'success': False,
+                'message': 'শিক্ষক সিলেক্ট করুন',
+            }), 400
+
+        try:
+            from datetime import datetime
+            from flask import Response
+            from blueprints.class_management.models import Teacher
+
+            payload = _compute_teacher_grand_total_payload(teacher_name)
+            if not payload.get('success'):
+                return jsonify(payload), 400
+
+            def fmt_money(value):
+                try:
+                    return f'{float(value):,.2f}'
+                except (TypeError, ValueError):
+                    return '0.00'
+
+            def row_get(obj, key, default=None):
+                """Safe get for dict or object (never use attribute access on dict)."""
+                if obj is None:
+                    return default
+                if isinstance(obj, dict):
+                    return obj.get(key, default)
+                return getattr(obj, key, default)
+
+            # Pre-format rows for the template (avoid Jinja format / attr quirks)
+            pdf_breakdown = []
+            for row in payload.get('breakdown') or []:
+                jobs = []
+                for job in row_get(row, 'jobs') or []:
+                    jobs.append({
+                        'description': row_get(job, 'description') or '—',
+                        'courses': row_get(job, 'courses') or '—',
+                        'quantity': row_get(job, 'quantity') or '—',
+                        'amount': row_get(job, 'amount') or 0,
+                        'amount_fmt': fmt_money(row_get(job, 'amount')),
+                    })
+                total_amt = row_get(row, 'total_amount') or 0
+                pdf_breakdown.append({
+                    'academic_session': row_get(row, 'academic_session') or '',
+                    'year': row_get(row, 'year') or '',
+                    'term': row_get(row, 'term') or '',
+                    'job_count': row_get(row, 'job_count') or 0,
+                    'total_amount': total_amt,
+                    'total_amount_fmt': fmt_money(total_amt),
+                    'jobs': jobs,
+                })
+
+            designation = ''
+            try:
+                teacher_row = Teacher.query.filter_by(name=teacher_name).first()
+                if not teacher_row:
+                    for t in Teacher.query.limit(500).all():
+                        if _matches_teacher_name(getattr(t, 'name', None), teacher_name):
+                            teacher_row = t
+                            break
+                if teacher_row:
+                    designation = teacher_row.designation or ''
+            except Exception:
+                designation = ''
+
+            logo_data_uri = None
+            for logo_path in (
+                os.path.join(current_app.root_path, 'static', 'images', 'KU_logo.svg'),
+                os.path.join(current_app.root_path, 'static', 'Images', 'KU_logo.svg'),
+            ):
+                if os.path.exists(logo_path):
+                    try:
+                        import base64
+                        with open(logo_path, 'rb') as lf:
+                            logo_data_uri = (
+                                'data:image/svg+xml;base64,'
+                                + base64.b64encode(lf.read()).decode('ascii')
+                            )
+                    except Exception:
+                        logo_data_uri = None
+                    break
+
+            font_path_absolute = None
+            for font_path in (
+                os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf'),
+                os.path.join(current_app.root_path, 'static', 'fonts', 'kalpurush.ttf'),
+                os.path.join(current_app.root_path, 'static', 'Fonts', 'Kalpurush.ttf'),
+                os.path.join(current_app.root_path, 'static', 'fonts', 'Kalpurush.ttf'),
+            ):
+                if os.path.exists(font_path):
+                    font_path_absolute = os.path.abspath(font_path)
+                    break
+
+            generated_at = datetime.now().strftime('%d %b %Y, %I:%M %p')
+            vat_pct = int(round(float(payload.get('vat_rate') or 0.20) * 100))
+
+            html_content = render_template(
+                'teacher_grand_total_pdf.html',
+                teacher_name=payload.get('teacher_name') or teacher_name,
+                designation=designation,
+                window_name=payload.get('window_name') or '',
+                window_id=payload.get('window_id'),
+                breakdown=pdf_breakdown,
+                grand_total_fmt=fmt_money(payload.get('grand_total')),
+                vat_pct=vat_pct,
+                vat_amount_fmt=fmt_money(payload.get('vat_amount')),
+                net_payable_fmt=fmt_money(payload.get('net_payable')),
+                total_jobs=payload.get('total_jobs') or 0,
+                message=payload.get('message') or '',
+                generated_at=generated_at,
+                logo_data_uri=logo_data_uri,
+            )
+
+            html_content_final, font_css = _inject_kalpurush_font_into_remuneration_html(
+                html_content, font_path_absolute
+            )
+
+            try:
+                from weasyprint import HTML, CSS
+            except Exception as import_err:
+                current_app.logger.error(f'WeasyPrint unavailable: {import_err}', exc_info=True)
+                return jsonify({
+                    'success': False,
+                    'message': 'PDF তৈরির লাইব্রেরি পাওয়া যায়নি (WeasyPrint)',
+                }), 500
+
+            stylesheets = []
+            if font_css:
+                stylesheets.append(CSS(string=font_css))
+            stylesheets.append(CSS(string="""
+                @page { size: A4; margin: 14mm 12mm 16mm 12mm; }
+            """))
+
+            pdf_data = HTML(
+                string=html_content_final,
+                base_url=request.url_root,
+            ).write_pdf(stylesheets=stylesheets)
+
+            safe_name = ''.join(
+                c if (c.isalnum() or c in ('-', '_')) else '_'
+                for c in teacher_name
+            ).strip('_') or 'teacher'
+            filename = f'teacher_remuneration_total_{safe_name}.pdf'
+
+            resp = Response(pdf_data, mimetype='application/pdf')
+            resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+            resp.headers['Content-Length'] = str(len(pdf_data))
+            resp.headers['Cache-Control'] = 'no-store'
+            return resp
+        except Exception as e:
+            current_app.logger.error(
+                f'Error generating teacher grand total PDF: {e}', exc_info=True
+            )
+            return jsonify({
+                'success': False,
+                'message': f'PDF তৈরি করতে সমস্যা হয়েছে: {str(e)[:180]}',
+            }), 500
+
+    def _build_bulk_session_years_terms_map(all_configs=None):
+        """
+        Session → year → [terms] for bulk download cascading dropdowns.
+
+        Prefer active exam_committee_chief duties in the current window, then
+        merge CurriculumYearTerm so years/terms still appear for a session
+        even when a committee has not been assigned yet.
+        """
+        from blueprints.course_management.models import DutyAssignment, CurriculumYearTerm
+
+        duty_window_filter, _ = _remuneration_window_filter(DutyAssignment)
+        cyt_window_filter, _ = _remuneration_window_filter(CurriculumYearTerm)
+
+        session_map = {}  # session -> year -> set(terms)
+
+        for duty in DutyAssignment.query.filter(
+            duty_window_filter,
+            DutyAssignment.duty_type == 'exam_committee_chief',
+            DutyAssignment.status == 'active',
+        ).all():
+            session_val = str(duty.academic_session or '').strip()
+            year_val = str(duty.year or '').strip()
+            term_val = str(duty.term or '').strip()
+            if not session_val or not year_val or not term_val:
+                continue
+            session_map.setdefault(session_val, {}).setdefault(year_val, set()).add(term_val)
+
+        configs = all_configs
+        if configs is None:
+            configs = CurriculumYearTerm.query.filter(cyt_window_filter).all()
+
+        for config in configs or []:
+            session_val = str(getattr(config, 'academic_session', None) or '').strip()
+            year_val = str(getattr(config, 'year', None) or '').strip()
+            term_val = str(getattr(config, 'term', None) or '').strip()
+            if not session_val or not year_val:
+                continue
+            year_bucket = session_map.setdefault(session_val, {}).setdefault(year_val, set())
+            if term_val:
+                year_bucket.add(term_val)
+
+        result = {}
+        for session_val, years in session_map.items():
+            result[session_val] = {
+                year: sorted(list(terms))
+                for year, terms in sorted(years.items(), key=lambda item: item[0])
+            }
+        return result
+
+    def _compute_teacher_grand_total_payload(teacher_name):
+        """
+        Sum this teacher's bill from Exam Committee Statements that belong to
+        real exam committees in the current operational window.
+
+        Contexts come ONLY from active exam_committee_chief duties (not orphan
+        RemunerationForm rows with arbitrary academic_year values).
+        Net = gross − 20% VAT.
+        """
+        from blueprints.remuneration_management.models import RemunerationForm
+        from blueprints.course_management.models import DutyAssignment, CurriculumYearTerm
+        from blueprints.course_management.models import OperationalWindow
+
+        teacher_name = (teacher_name or '').strip()
+        if not teacher_name:
+            return {
+                'success': False,
+                'message': 'শিক্ষক সিলেক্ট করুন',
+            }
+
+        duty_window_filter, window_id = _remuneration_window_filter(DutyAssignment)
+        cyt_window_filter, _ = _remuneration_window_filter(CurriculumYearTerm)
+
+        # Real academic sessions that exist in this window's curriculum
+        valid_sessions = {
+            str(row[0]).strip()
+            for row in CurriculumYearTerm.query.filter(
+                cyt_window_filter,
+                CurriculumYearTerm.academic_session.isnot(None),
+                CurriculumYearTerm.academic_session != '',
+            ).with_entities(CurriculumYearTerm.academic_session).distinct().all()
+            if row and row[0]
+        }
+
+        # Contexts = active exam committees only (never invent sessions from loose forms)
+        contexts = set()
+        for duty in DutyAssignment.query.filter(
+            duty_window_filter,
+            DutyAssignment.duty_type == 'exam_committee_chief',
+            DutyAssignment.status == 'active',
+        ).all():
+            session_val = str(duty.academic_session or '').strip()
+            year_val = str(duty.year or '').strip()
+            term_val = str(duty.term or '').strip()
+            if not session_val or not year_val or not term_val:
+                continue
+            # Drop committees whose academic session is not in this window's curriculum
+            if valid_sessions and session_val not in valid_sessions:
+                current_app.logger.info(
+                    'Grand total skip unknown session %s (not in window curriculum)',
+                    session_val,
+                )
+                continue
+            contexts.add((session_val, year_val, term_val))
+
+        breakdown = []
+        grand_total = 0.0
+        total_jobs = 0
+        committees_scanned = len(contexts)
+        statements_found = 0
+
+        for session_val, year_val, term_val in sorted(contexts):
+            # Load the Statement saved for this exact exam committee
+            statement_data = _get_remuneration_statement_data(
+                session_val, year_val, term_val
+            )
+            if not statement_data:
+                continue
+            statements_found += 1
+
+            filtered_statement = _filter_statement_to_teacher(
+                statement_data, teacher_name
+            )
+
+            try:
+                jobs_data, _raw_total = _build_jobs_from_statement(
+                    filtered_statement, teacher_name, year_val, term_val, session_val
+                )
+            except Exception as build_err:
+                current_app.logger.warning(
+                    f'Grand total skip {session_val}/{year_val}/{term_val} '
+                    f'for {teacher_name}: {build_err}'
+                )
+                continue
+
+            positive_jobs = _positive_jobs_from_list(jobs_data)
+            if not positive_jobs:
+                continue
+
+            total_amount = round(sum(j['amount'] for j in positive_jobs), 2)
+            if total_amount <= 0:
+                continue
+
+            job_count = len(positive_jobs)
+            grand_total += total_amount
+            total_jobs += job_count
+            breakdown.append({
+                'academic_session': session_val,
+                'year': year_val,
+                'term': term_val,
+                'total_amount': total_amount,
+                'job_count': job_count,
+                'jobs': positive_jobs,
+            })
+
+        grand_total = round(grand_total, 2)
+        vat_amount = round(grand_total * 0.20, 2)
+        net_payable = round(grand_total - vat_amount, 2)
+
+        window_name = None
+        try:
+            win = OperationalWindow.query.get(window_id) if window_id else None
+            window_name = win.name if win else None
+        except Exception:
+            window_name = None
+
+        msg = (
+            f'{committees_scanned} টি Exam Committee · '
+            f'{statements_found} টি Statement · '
+            f'{len(breakdown)} টিতে এই শিক্ষকের বিল'
+            if committees_scanned
+            else 'বর্তমান Window-এ কোনো সক্রিয় Exam Committee পাওয়া যায়নি'
+        )
+
+        return {
+            'success': True,
+            'teacher_name': teacher_name,
+            'window_id': window_id,
+            'window_name': window_name,
+            'grand_total': grand_total,
+            'vat_rate': 0.20,
+            'vat_amount': vat_amount,
+            'net_payable': net_payable,
+            'total_jobs': total_jobs,
+            'breakdown': breakdown,
+            'committees_scanned': committees_scanned,
+            'statements_found': statements_found,
+            'valid_sessions': sorted(valid_sessions),
+            'message': msg,
+        }
 
     def _is_statement_form_data(data):
         """True when form_data looks like Statement of Remuneration (not a bill form)."""
@@ -14863,9 +15184,20 @@ def create_app():
             'moderation_committee',
             'examination_committee',
             'sessional_assessment',
+            'sessional_viva',
             'tabulation',
+            'invigilation',
+            'script_scrutiny',
+            'thesis_supervision',
+            'coding_decoding',
+            'question_typing',
+            'viva',
         )
-        return any(isinstance(data.get(key), list) for key in markers)
+        # Prefer statements that have at least one non-empty section list
+        return any(
+            isinstance(data.get(key), list) and len(data.get(key) or []) > 0
+            for key in markers
+        )
 
     def _get_remuneration_statement_data(session, year, term):
         """Fetch window-scoped Statement of Remuneration for session/year/term."""
@@ -14874,22 +15206,27 @@ def create_app():
             from blueprints.course_management.models import DutyAssignment
             import json
 
-            chief_assignment = query_for_window(DutyAssignment).filter_by(
-                duty_type='exam_committee_chief',
-                academic_session=session,
-                year=year,
-                term=term,
-                status='active'
+            duty_window_filter, _ = _remuneration_window_filter(DutyAssignment)
+            form_window_filter, _ = _remuneration_window_filter(RemunerationForm)
+
+            chief_assignment = DutyAssignment.query.filter(
+                duty_window_filter,
+                DutyAssignment.duty_type == 'exam_committee_chief',
+                DutyAssignment.academic_session == session,
+                DutyAssignment.year == year,
+                DutyAssignment.term == term,
+                DutyAssignment.status == 'active',
             ).first()
 
             if chief_assignment and chief_assignment.assigned_teacher:
                 chief_user = User.query.filter_by(full_name=chief_assignment.assigned_teacher.name).first()
                 if chief_user:
-                    form_entry = query_for_window(RemunerationForm).filter_by(
-                        user_id=chief_user.id,
-                        academic_year=session,
-                        year=year,
-                        term=term
+                    form_entry = RemunerationForm.query.filter(
+                        form_window_filter,
+                        RemunerationForm.user_id == chief_user.id,
+                        RemunerationForm.academic_year == session,
+                        RemunerationForm.year == year,
+                        RemunerationForm.term == term,
                     ).order_by(RemunerationForm.id.desc()).first()
 
                     if form_entry and form_entry.form_data:
@@ -14898,12 +15235,12 @@ def create_app():
                             return parsed
 
             # Fallback: most recent statement-shaped form in this window
-            fallback_entries = query_for_window(RemunerationForm).filter_by(
-                academic_year=session,
-                year=year,
-                term=term
-            ).filter(
-                RemunerationForm.form_data.isnot(None)
+            fallback_entries = RemunerationForm.query.filter(
+                form_window_filter,
+                RemunerationForm.academic_year == session,
+                RemunerationForm.year == year,
+                RemunerationForm.term == term,
+                RemunerationForm.form_data.isnot(None),
             ).order_by(RemunerationForm.id.desc()).limit(20).all()
 
             for fallback_entry in fallback_entries:
@@ -15467,18 +15804,356 @@ def create_app():
         
         return False
 
+    def _normalize_person_name(name):
+        """Normalize a person name for exact comparison (titles/punctuation stripped)."""
+        import re
+        text = str(name or '').strip().lower()
+        if not text:
+            return ''
+        text = text.replace('.', ' ').replace(',', ' ')
+        text = re.sub(r'\s+', ' ', text).strip()
+        titles = {
+            'dr', 'prof', 'professor', 'mr', 'mrs', 'ms', 'eng', 'engr', 'sir',
+        }
+        # Keep "md" as a given-name token alias (normalized below), not stripped as title
+        tokens = []
+        for t in text.split(' '):
+            if not t or t in titles:
+                continue
+            if t in ('md', 'mohd', 'mohammed', 'muhammad'):
+                t = 'mohammad'
+            tokens.append(t)
+        return ' '.join(tokens)
+
     def _matches_teacher_name(item_teacher, teacher_name):
-        """Flexible teacher name matching (mirrors JS logic)"""
-        if not item_teacher or not teacher_name:
+        """
+        Exact teacher match after normalization.
+        Substring matching caused false bills for unrelated committees.
+        """
+        left = _normalize_person_name(item_teacher)
+        right = _normalize_person_name(teacher_name)
+        if not left or not right:
             return False
-        item_teacher = str(item_teacher).strip()
-        teacher_name = str(teacher_name).strip()
-        item_lower = item_teacher.lower()
-        teacher_lower = teacher_name.lower()
-        return (item_teacher == teacher_name or
-                item_lower == teacher_lower or
-                item_lower in teacher_lower or
-                teacher_lower in item_lower)
+        if left == right:
+            return True
+        left_tokens = left.split()
+        right_tokens = right.split()
+        if len(left_tokens) >= 2 and len(right_tokens) >= 2 and set(left_tokens) == set(right_tokens):
+            return True
+        # One side may omit honorific given-name (mohammad): compare remaining tokens
+        def without_mohammad(tokens):
+            return [t for t in tokens if t != 'mohammad']
+        lt2, rt2 = without_mohammad(left_tokens), without_mohammad(right_tokens)
+        if lt2 and rt2 and set(lt2) == set(rt2) and len(lt2) >= 2:
+            return True
+        return False
+
+    def _parse_job_amount(raw):
+        if raw is None or raw == '':
+            return 0.0
+        try:
+            return float(str(raw).replace(',', '').replace('৳', '').strip() or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _positive_jobs_from_list(jobs_data):
+        """Keep only bill lines with a real payable amount (drop blank PDF template rows)."""
+        out = []
+        for job in jobs_data or []:
+            amount = _parse_job_amount(job.get('amount'))
+            if amount <= 0:
+                continue
+            out.append({
+                'description': (job.get('description') or '').strip(),
+                'courses': job.get('courses') or '',
+                'quantity': job.get('quantity') or '',
+                'rate': job.get('rate') or '',
+                'amount': round(amount, 2),
+            })
+        return out
+
+    def _is_sitting_fee_job(description):
+        """Committee/moderation presence fees (not course/exam duty work)."""
+        desc = (description or '').strip()
+        return desc in (
+            'প্রশ্নপত্র মডারেশন',
+            'পরীক্ষা কমিটির সভাপতি/সদস্য',
+        )
+
+    def _teacher_has_duty_work(positive_jobs):
+        """True when teacher has real exam/course work beyond sitting on a list."""
+        return any(not _is_sitting_fee_job(j.get('description')) for j in positive_jobs)
+
+    def _teacher_is_exam_chairman(statement_data, teacher_name):
+        for item in (statement_data or {}).get('examination_committee', []) or []:
+            if not _matches_teacher_name(item.get('name') or item.get('teacher'), teacher_name):
+                continue
+            position = (item.get('position') or '').lower()
+            if any(k in position for k in ('chief', 'chairman', 'সভাপতি', 'চীফ')):
+                return True
+        return False
+
+    def _should_include_teacher_statement_bill(statement_data, teacher_name, positive_jobs):
+        """
+        Include a session/year/term only when the teacher actually worked there:
+        - any quantity-gated duty work (courses, scripts, invigilation hours, …), or
+        - exam committee chairman/chief sitting fee (committee leadership).
+        Mere membership / moderation list presence alone is not enough.
+        """
+        if not positive_jobs:
+            return False
+        if _teacher_has_duty_work(positive_jobs):
+            return True
+        return _teacher_is_exam_chairman(statement_data, teacher_name)
+
+    def _normalize_course_code_key(course_ref):
+        """Normalize course refs like '0421 28 Law 1201 - Name (B)' → comparable key."""
+        import re
+        text = str(course_ref or '').strip()
+        if not text:
+            return ''
+        if ' - ' in text:
+            text = text.split(' - ', 1)[0].strip()
+        text = re.sub(r'\([^)]*\)\s*$', '', text).strip()
+        return re.sub(r'[^a-z0-9]', '', text.lower())
+
+    def _statement_item_teacher_fields(item):
+        if not isinstance(item, dict):
+            return []
+        return [
+            item.get('teacher'),
+            item.get('teacher_name'),
+            item.get('name'),
+        ]
+
+    def _statement_item_matches_teacher(item, teacher_name):
+        for field in _statement_item_teacher_fields(item):
+            if field and _matches_teacher_name(field, teacher_name):
+                return True
+        return False
+
+    def _statement_sections_for_participants():
+        return [
+            'question_preparation',
+            'moderation_committee',
+            'script_examination',
+            'class_test',
+            'sessional_assessment',
+            'sessional_viva',
+            'professional_attachment',
+            'script_scrutiny',
+            'tabulation',
+            'invigilation',
+            'question_typing',
+            'question_photocopy',
+            'examination_committee',
+            'thesis_supervision',
+            'viva',
+            'coding_decoding',
+        ]
+
+    def _collect_statement_participant_names(statement_data):
+        """Unique participant names across all statement sections."""
+        names = []
+        seen = set()
+        for section in _statement_sections_for_participants():
+            for item in (statement_data or {}).get(section, []) or []:
+                if not isinstance(item, dict):
+                    continue
+                for field in _statement_item_teacher_fields(item):
+                    name = str(field or '').strip()
+                    if not name:
+                        continue
+                    key = name.lower()
+                    if key in seen:
+                        break
+                    seen.add(key)
+                    names.append(name)
+                    break
+        return names
+
+    def _find_teacher_record_for_name(name):
+        from blueprints.class_management.models import Teacher
+        for teacher in Teacher.query.order_by(Teacher.name).all():
+            if _matches_teacher_name(teacher.name, name):
+                return teacher
+        return None
+
+    def _participant_meta_from_statement(statement_data, name):
+        """Designation/institute from statement rows (esp. external committee members)."""
+        for section in (
+            'examination_committee', 'moderation_committee', 'invigilation',
+            'question_preparation', 'script_examination', 'tabulation',
+        ):
+            for item in (statement_data or {}).get(section, []) or []:
+                if not isinstance(item, dict):
+                    continue
+                if not _statement_item_matches_teacher(item, name):
+                    continue
+                designation = (item.get('designation') or '').strip()
+                institute = (item.get('institute') or '').strip()
+                if designation and not institute and ', ' in designation:
+                    left, right = designation.rsplit(', ', 1)
+                    designation, institute = left.strip(), right.strip()
+                return {'designation': designation, 'institute': institute}
+        return {'designation': '', 'institute': ''}
+
+    def _participant_has_bulk_bill(statement_data, name, year, term, session):
+        """Bulk download: any payable bill line counts (incl. committee sitting fees)."""
+        try:
+            jobs_data, _total = _build_jobs_from_statement(
+                statement_data, name, year, term, session
+            )
+        except Exception:
+            return False
+        return bool(_positive_jobs_from_list(jobs_data))
+
+    def _bulk_download_recipient_id(name, teacher=None):
+        from urllib.parse import quote
+        if teacher:
+            return str(teacher.id)
+        return f"ext:{quote(name, safe='')}"
+
+    def _is_external_statement_participant(statement_data, name, teacher=None):
+        if teacher and getattr(teacher, 'is_external', False):
+            return True
+        for item in (statement_data or {}).get('examination_committee', []) or []:
+            if not _statement_item_matches_teacher(item, name):
+                continue
+            position = (item.get('position') or '').lower()
+            if 'ext' in position:
+                return True
+        return False
+
+    def _get_bulk_download_recipients(statement_data, session, year, term):
+        """Teachers + external committee members who have a bill in this statement."""
+        recipients = []
+        seen_ids = set()
+        for name in _collect_statement_participant_names(statement_data):
+            if not _participant_has_bulk_bill(statement_data, name, year, term, session):
+                continue
+            teacher = _find_teacher_record_for_name(name)
+            rid = _bulk_download_recipient_id(name, teacher)
+            if rid in seen_ids:
+                continue
+            seen_ids.add(rid)
+            meta = _participant_meta_from_statement(statement_data, name)
+            display_name = teacher.name if teacher else name
+            recipients.append({
+                'id': rid,
+                'name': display_name,
+                'designation': (teacher.designation if teacher and teacher.designation else meta.get('designation')) or '',
+                'institute': (teacher.institute if teacher and teacher.institute else meta.get('institute')) or '',
+                'is_external': _is_external_statement_participant(statement_data, name, teacher),
+            })
+        recipients.sort(key=lambda r: (r.get('is_external'), (r.get('name') or '').lower()))
+        return recipients
+
+    def _resolve_bulk_download_participant(raw_id, statement_data):
+        from urllib.parse import unquote
+        from blueprints.class_management.models import Teacher
+
+        raw = str(raw_id or '').strip()
+        if not raw:
+            return None
+
+        if raw.startswith('ext:'):
+            name = unquote(raw[4:]).strip()
+            if not name:
+                return None
+            teacher = _find_teacher_record_for_name(name)
+            meta = _participant_meta_from_statement(statement_data, name)
+            display_name = teacher.name if teacher else name
+            return {
+                'name': display_name,
+                'teacher': teacher,
+                'designation': (teacher.designation if teacher else meta.get('designation')) or '',
+                'institute': (teacher.institute if teacher else meta.get('institute')) or '',
+                'bank_account': (teacher.bank_account_no if teacher else '') or '',
+                'tin_number': (getattr(teacher, 'tin_number', None) if teacher else '') or '',
+            }
+
+        try:
+            teacher = Teacher.query.get(int(raw))
+        except (TypeError, ValueError):
+            return None
+        if not teacher:
+            return None
+        return {
+            'name': teacher.name,
+            'teacher': teacher,
+            'designation': teacher.designation or '',
+            'institute': teacher.institute or '',
+            'bank_account': teacher.bank_account_no or '',
+            'tin_number': getattr(teacher, 'tin_number', None) or '',
+        }
+
+    def _filter_statement_to_teacher(statement_data, teacher_name):
+        """
+        Keep only Statement rows that already name this teacher.
+
+        Never rewrite another teacher's row onto this teacher (that caused
+        phantom bills). Never invent work from curriculum alone.
+        Source of truth for grand total = Statement attribution + quantities.
+        """
+        import copy
+        if not isinstance(statement_data, dict):
+            return statement_data
+
+        data = copy.deepcopy(statement_data)
+        list_sections = (
+            'question_preparation',
+            'script_examination',
+            'class_test',
+            'sessional_assessment',
+            'sessional_viva',
+            'professional_attachment',
+            'viva',
+            'script_scrutiny',
+            'tabulation',
+            'coding_decoding',
+            'question_typing',
+            'question_photocopy',
+            'thesis_supervision',
+            'invigilation',
+            'moderation_committee',
+            'examination_committee',
+        )
+
+        for section in list_sections:
+            items = data.get(section)
+            if not isinstance(items, list):
+                continue
+            filtered = []
+            seen = set()
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if not _statement_item_matches_teacher(item, teacher_name):
+                    continue
+                course_ref = item.get('course') or item.get('course_code') or ''
+                section_label = str(item.get('section') or 'Full').strip().upper() or 'FULL'
+                # Dedupe identical course/section rows (keeps first)
+                dedupe_key = (
+                    section,
+                    _normalize_course_code_key(course_ref) if course_ref else '',
+                    section_label,
+                    str(item.get('position') or '').strip().lower(),
+                )
+                if course_ref or section in (
+                    'script_scrutiny', 'tabulation', 'coding_decoding',
+                    'question_typing', 'question_photocopy', 'thesis_supervision',
+                    'invigilation', 'moderation_committee', 'examination_committee',
+                ):
+                    if dedupe_key in seen and section not in (
+                        'invigilation', 'examination_committee', 'moderation_committee',
+                    ):
+                        continue
+                    seen.add(dedupe_key)
+                filtered.append(dict(item))
+            data[section] = filtered
+
+        return data
 
     def _build_jobs_from_statement(statement_data, teacher_name, year, term, session):
         """Build jobs_data list from statement data, mirroring JS auto-populate logic"""
@@ -15505,6 +16180,13 @@ def create_app():
         
         jobs_data = []
         total_amount = 0.0
+        disabled_sections = set()
+        raw_disabled = statement_data.get('disabled_sections') if isinstance(statement_data, dict) else None
+        if isinstance(raw_disabled, list):
+            disabled_sections = {str(x).strip() for x in raw_disabled if x}
+
+        def section_enabled(key):
+            return key not in disabled_sections
         
         def safe_int(value, default=0):
             """Safely convert value to int, handling None, empty strings, dashes, and various formats"""
@@ -15539,8 +16221,10 @@ def create_app():
         is_pg = is_pg_year()
         
         # Row 1: প্রশ্নপত্র প্রণয়ন (Question Preparation)
-        items = [i for i in statement_data.get('question_preparation', []) 
-                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('question_preparation'):
+            items = [i for i in statement_data.get('question_preparation', []) 
+                     if _matches_teacher_name(i.get('teacher'), teacher_name)]
         if items:
             courses = []
             qty = 0
@@ -15572,7 +16256,7 @@ def create_app():
         
         # Row 2: প্রশ্নপত্র মডারেশন (Question Moderation) - Only for moderation committee members
         # Check if teacher is in moderation committee (mirrors JS isTeacherInModerationCommittee)
-        moderation_committee = statement_data.get('moderation_committee', [])
+        moderation_committee = statement_data.get('moderation_committee', []) if section_enabled('moderation_committee') else []
         is_in_moderation_committee = any(
             _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)
             for i in moderation_committee
@@ -15593,8 +16277,10 @@ def create_app():
             })
         
         # Row 3: উত্তরপত্র পরীক্ষণ (Script Examination) - with minimum 600 per course
-        items = [i for i in statement_data.get('script_examination', []) 
-                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('script_examination'):
+            items = [i for i in statement_data.get('script_examination', []) 
+                     if _matches_teacher_name(i.get('teacher'), teacher_name)]
         if items:
             courses = []
             total_scripts = 0
@@ -15692,8 +16378,10 @@ def create_app():
         
         # Row 4: ক্লাস টেস্ট/টার্ম পেপার (Class Test)
         # Row 4 uses multiplier: Full = 4, A or B = 2
-        items = [i for i in statement_data.get('class_test', []) 
-                 if _matches_teacher_name(i.get('teacher') or i.get('teacher_name'), teacher_name)]
+        items = []
+        if section_enabled('class_test'):
+            items = [i for i in statement_data.get('class_test', []) 
+                     if _matches_teacher_name(i.get('teacher') or i.get('teacher_name'), teacher_name)]
         if items:
             courses = []
             total_quantity = 0  # This will be sum of (students × multiplier) for each course-section
@@ -15778,8 +16466,10 @@ def create_app():
                 })
         
         # Row 5: সেশনাল (Sessional Assessment)
-        items = [i for i in statement_data.get('sessional_assessment', []) 
-                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('sessional_assessment'):
+            items = [i for i in statement_data.get('sessional_assessment', []) 
+                     if _matches_teacher_name(i.get('teacher'), teacher_name)]
         if items:
             courses = []
             total_students = 0
@@ -15806,8 +16496,10 @@ def create_app():
             })
         
         # Row 6: সেশনাল মৌখিক পরীক্ষা (Sessional Viva)
-        items = [i for i in statement_data.get('sessional_viva', []) 
-                 if _matches_teacher_name(i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('sessional_viva'):
+            items = [i for i in statement_data.get('sessional_viva', []) 
+                     if _matches_teacher_name(i.get('teacher'), teacher_name)]
         if items:
             courses = []
             total_students = 0
@@ -15834,8 +16526,10 @@ def create_app():
             })
         
         # Row 7: প্রফেশনাল এ্যাটাসমেন্ট (Professional Attachment)
-        items = [i for i in statement_data.get('professional_attachment', []) 
-                 if _matches_teacher_name(i.get('teacher') or i.get('name'), teacher_name)]
+        items = []
+        if section_enabled('professional_attachment'):
+            items = [i for i in statement_data.get('professional_attachment', []) 
+                     if _matches_teacher_name(i.get('teacher') or i.get('name'), teacher_name)]
         if items:
             courses = []
             total_count = 0
@@ -15862,8 +16556,10 @@ def create_app():
             })
         
         # Row 8: উত্তরপত্র নিরীক্ষণ (Script Scrutiny)
-        items = [i for i in statement_data.get('script_scrutiny', []) 
-                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('script_scrutiny'):
+            items = [i for i in statement_data.get('script_scrutiny', []) 
+                     if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
         if items:
             total_scripts = sum(safe_int(i.get('scripts', 0)) for i in items)
             if total_scripts > 0:
@@ -15880,8 +16576,10 @@ def create_app():
                 })
         
         # Row 9: টেবুলেশন (Tabulation) - course_wise and student_wise separately
-        items = [i for i in statement_data.get('tabulation', []) 
-                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('tabulation'):
+            items = [i for i in statement_data.get('tabulation', []) 
+                     if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
         if items:
             total_course_wise = sum(safe_int(i.get('course_wise', 0)) for i in items)
             total_student_wise = sum(safe_int(i.get('student_wise', 0)) for i in items)
@@ -15914,8 +16612,10 @@ def create_app():
         
         # Row 10: প্রশ্নপত্র প্রস্তুতকরণ (Question Typing/Photocopy)
         # 10a: Drawing
-        items = [i for i in statement_data.get('question_typing', []) 
-                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('question_typing'):
+            items = [i for i in statement_data.get('question_typing', []) 
+                     if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
         total_drawing = sum(safe_int(i.get('questions', 0)) for i in items)
         if total_drawing > 0:
             rate = 250
@@ -15931,12 +16631,14 @@ def create_app():
             })
         
         # 10b: Photocopy
-        photocopy_items = statement_data.get('question_photocopy', [])
-        if not photocopy_items:
-            # If question_photocopy doesn't exist, use question_typing
-            photocopy_items = items
-        photocopy_items = [i for i in photocopy_items 
-                          if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        photocopy_items = []
+        if section_enabled('question_typing'):
+            photocopy_items = statement_data.get('question_photocopy', [])
+            if not photocopy_items:
+                # If question_photocopy doesn't exist, use question_typing
+                photocopy_items = items
+            photocopy_items = [i for i in photocopy_items 
+                              if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
         total_photocopy = sum(safe_int(i.get('questions', 0)) for i in photocopy_items)
         if total_photocopy > 0:
             rate = 7
@@ -15952,8 +16654,10 @@ def create_app():
             })
         
         # Row 11: পরীক্ষা কমিটির সভাপতি/সদস্য (Exam Committee)
-        items = [i for i in statement_data.get('examination_committee', []) 
-                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('examination_committee'):
+            items = [i for i in statement_data.get('examination_committee', []) 
+                     if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
         if items:
             # Check if teacher is chairman/chief
             position = (items[0].get('position') or '').lower()
@@ -15982,7 +16686,7 @@ def create_app():
         
         # Row 12: চীফ ইনভিজিলেশন / ইনভিজিলেশন (Invigilation)
         # Match individual download logic exactly: use 'name' or 'teacher' field, handle chief and invigilation separately
-        invigilation_data = statement_data.get('invigilation', [])
+        invigilation_data = statement_data.get('invigilation', []) if section_enabled('invigilation') else []
         
         # Debug: Log all invigilation data first
         try:
@@ -16100,8 +16804,10 @@ def create_app():
                 })
         
         # Row 13: থিসিস (Thesis Supervision)
-        items = [i for i in statement_data.get('thesis_supervision', []) 
-                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('thesis_supervision'):
+            items = [i for i in statement_data.get('thesis_supervision', []) 
+                     if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
         if items:
             total_examine = sum(safe_int(i.get('examine', 0)) for i in items)
             total_supervision = sum(safe_int(i.get('supervision', 0)) for i in items)
@@ -16165,8 +16871,10 @@ def create_app():
                 })
         
         # Row 14: ভাইভা (Viva)
-        items = [i for i in statement_data.get('viva', []) 
-                 if _matches_teacher_name(i.get('teacher') or i.get('name'), teacher_name)]
+        items = []
+        if section_enabled('viva'):
+            items = [i for i in statement_data.get('viva', []) 
+                     if _matches_teacher_name(i.get('teacher') or i.get('name'), teacher_name)]
         if items:
             total_students = sum(safe_int(i.get('students', 0)) for i in items)
             if total_students > 0:
@@ -16183,8 +16891,10 @@ def create_app():
                 })
         
         # Row 15: কোডিং/ডিকোডিং (Coding/Decoding)
-        items = [i for i in statement_data.get('coding_decoding', []) 
-                 if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
+        items = []
+        if section_enabled('coding_decoding'):
+            items = [i for i in statement_data.get('coding_decoding', []) 
+                     if _matches_teacher_name(i.get('name') or i.get('teacher'), teacher_name)]
         if items:
             total_scripts = sum(safe_int(i.get('scripts', 0)) for i in items)
             if total_scripts > 0:
@@ -16411,26 +17121,7 @@ def create_app():
                 year_val_clean = year_val.strip()
                 term_val_clean = term_val.strip()
                 
-                current_app.logger.info(f'Bulk download: session="{session_val_clean}", year="{year_val_clean}", term="{term_val_clean}", teachers={teacher_ids}')
-                
-                # Fetch selected teachers
-                try:
-                    teacher_ids_int = [int(tid) for tid in teacher_ids]
-                    teachers = Teacher.query.filter(Teacher.id.in_(teacher_ids_int)).all()
-                except (ValueError, TypeError) as e:
-                    current_app.logger.error(f'Invalid teacher IDs: {e}')
-                    return jsonify({
-                        'success': False,
-                        'message': 'অবৈধ শিক্ষক ID'
-                    }), 400
-                
-                if not teachers:
-                    return jsonify({
-                        'success': False,
-                        'message': 'নির্বাচিত শিক্ষক পাওয়া যায়নি'
-                    }), 404
-                
-                current_app.logger.info(f'Found {len(teachers)} teachers to generate forms for')
+                current_app.logger.info(f'Bulk download: session="{session_val_clean}", year="{year_val_clean}", term="{term_val_clean}", selections={teacher_ids}')
                 
                 # Fetch statement data first - required for bulk download
                 statement_data = _get_remuneration_statement_data(session_val_clean, year_val_clean, term_val_clean)
@@ -16441,6 +17132,22 @@ def create_app():
                     }), 400
                 
                 current_app.logger.info(f'Using statement data for bulk download: session={session_val_clean}, year={year_val_clean}, term={term_val_clean}')
+
+                participants = []
+                for raw_id in teacher_ids:
+                    participant = _resolve_bulk_download_participant(raw_id, statement_data)
+                    if participant:
+                        participants.append(participant)
+                    else:
+                        current_app.logger.warning(f'Bulk download: could not resolve participant id={raw_id!r}')
+
+                if not participants:
+                    return jsonify({
+                        'success': False,
+                        'message': 'নির্বাচিত শিক্ষক/External Member পাওয়া যায়নি'
+                    }), 404
+
+                current_app.logger.info(f'Generating bulk PDFs for {len(participants)} participants')
                 
                 # Check if WeasyPrint is available
                 try:
@@ -16459,36 +17166,36 @@ def create_app():
                 with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
                     successful_pdfs = 0
                     
-                    for teacher in teachers:
+                    for participant in participants:
                         try:
-                            applicant_name = teacher.name
+                            applicant_name = participant['name']
+                            teacher = participant.get('teacher')
+                            participant_designation = participant.get('designation') or ''
+                            participant_institute = participant.get('institute') or ''
                             
                             # Build jobs_data from statement (ignoring saved forms for bulk output)
                             try:
                                 jobs_data, total_amount = _build_jobs_from_statement(
-                                    statement_data, teacher.name, year_val_clean, term_val_clean, session_val_clean
+                                    statement_data, applicant_name, year_val_clean, term_val_clean, session_val_clean
                                 )
                             except Exception as build_error:
                                 current_app.logger.error(
-                                    f'Error building jobs from statement for {teacher.name}: {build_error}',
+                                    f'Error building jobs from statement for {applicant_name}: {build_error}',
                                     exc_info=True
                                 )
-                                # Skip this teacher if we can't build their data
                                 continue
                             
-                            # If no jobs data, skip this teacher
+                            # If no jobs data, skip this participant
                             if not jobs_data:
-                                current_app.logger.info(f'No statement items found for {teacher.name}, skipping')
+                                current_app.logger.info(f'No statement items found for {applicant_name}, skipping')
                                 continue
-                            
-                            # jobs_data already has serial numbers from _build_jobs_from_statement
                             
                             # Get exam dates from statement
                             exam_start_date = statement_data.get('exam_start_date', '')
                             exam_end_date = statement_data.get('exam_end_date', '')
                             
-                            # Get bank account from teacher
-                            bank_account = teacher.bank_account_no or ''
+                            bank_account = participant.get('bank_account') or ''
+                            tin_number = participant.get('tin_number') or ''
                             
                             # Convert total to words
                             total_in_words = _number_to_words_bengali(total_amount) if total_amount > 0 else ''
@@ -16541,9 +17248,9 @@ def create_app():
                                 'voucher_no': '',
                                 'voucher_date': '',
                                 'applicant_name': applicant_name,
-                                'designation': teacher.designation or '',
+                                'designation': participant_designation,
                                 'discipline': 'Law',
-                                'address': teacher.institute or 'Law Discipline, KU',
+                                'address': participant_institute or 'Law Discipline, KU',
                                 'exam_discipline': 'Law',
                                 'year': year_val_clean,
                                 'academic_year': session_val_clean,
@@ -16554,6 +17261,7 @@ def create_app():
                                 'total_amount': str(total_amount),
                                 'total_in_words': total_in_words,
                                 'bank_account': bank_account,
+                                'tin_number': tin_number,
                                 'auditor_sign': '',
                                 'deputy_sign': '',
                                 'controller_sign': '',
@@ -16720,7 +17428,9 @@ def create_app():
             old_full_name = user_to_edit.full_name
             user_to_edit.full_name = request.form['full_name']
             user_to_edit.email = request.form['email']
-            selected_roles = request.form.getlist('roles')
+            # Only roles offered on the form are assignable here — never let a crafted
+            # request grant 'admin' through this endpoint.
+            selected_roles = [r for r in request.form.getlist('roles') if r in ASSIGNABLE_ROLE_KEYS]
             is_valid, normalized_roles = validate_role_selection(selected_roles)
             if not is_valid:
                 flash(normalized_roles, 'danger')
@@ -16757,10 +17467,12 @@ def create_app():
                     institute = request.form.get('institute', '').strip()
                     call_sign = request.form.get('call_sign', '').strip()
                     bank_account_no = request.form.get('bank_account_no', '').strip()
+                    tin_number = request.form.get('tin_number', '').strip()
                     teacher.designation = designation if designation else None
                     teacher.institute = institute if institute else 'Law Discipline, KU'
                     teacher.call_sign = call_sign if call_sign else None
                     teacher.bank_account_no = bank_account_no if bank_account_no else None
+                    teacher.tin_number = tin_number if tin_number else None
                 from sqlalchemy import text
                 db.session.execute(
                     text("UPDATE teacher SET is_external = :v WHERE id = :id"),
@@ -16812,7 +17524,9 @@ def create_app():
         full_name = request.form.get('full_name', '').strip()
         password = request.form.get('password', '').strip()
         confirm_password = request.form.get('confirm_password', '').strip()
-        selected_roles = request.form.getlist('roles')
+        # Only roles offered on the form are assignable here — never let a crafted
+        # request grant 'admin' through this endpoint.
+        selected_roles = [r for r in request.form.getlist('roles') if r in ASSIGNABLE_ROLE_KEYS]
         
         # Validation
         if not all([username, email, full_name, password, confirm_password]):
@@ -16874,7 +17588,8 @@ def create_app():
                     designation=request.form.get('designation', '').strip() or None,
                     institute=request.form.get('institute', '').strip() or 'Law Discipline, KU',
                     call_sign=request.form.get('call_sign', '').strip() or None,
-                    bank_account_no=request.form.get('bank_account_no', '').strip() or None
+                    bank_account_no=request.form.get('bank_account_no', '').strip() or None,
+                    tin_number=request.form.get('tin_number', '').strip() or None
                 )
                 try:
                     if hasattr(teacher, 'is_external'):
@@ -16951,7 +17666,26 @@ def create_app():
             name_changed = False
             email_changed = False
 
+            # H06: Teaching staff names are the identity key used to link Teacher
+            # records (attendance, marks, ownership checks, etc.). Letting a
+            # non-admin rename themselves could let them "become" another
+            # teacher, so lock the name field for anyone linked to a Teacher
+            # record or holding a teaching/head/dean role.
+            profile_user_roles = parse_roles(current_user.role)
+            name_locked = (not is_admin(current_user)) and (
+                bool(getattr(current_user, 'teacher_id', None))
+                or bool({'teacher', 'head', 'dean'} & set(profile_user_roles))
+            )
+
             # Validate and update name
+            if full_name and full_name != old_full_name and name_locked:
+                flash('Your name is managed by the institution and cannot be changed here. Please contact an administrator.', 'danger')
+                db.session.rollback()
+                teacher_record = None
+                if 'teacher' in profile_user_roles or 'dean' in profile_user_roles or 'head' in profile_user_roles:
+                    teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                return render_template('profile.html', teacher_record=teacher_record)
+
             if full_name and full_name != old_full_name:
                 # Check if another user already has this full_name (if needed)
                 existing_user = User.query.filter(User.id != current_user.id, User.full_name == full_name).first()
@@ -17035,6 +17769,7 @@ def create_app():
                     return render_template('profile.html', teacher_record=teacher_record)
                 if new_password:
                     current_user.set_password(new_password)
+                    current_user.must_change_password = False
 
             # Update teacher information if user is a teacher
             # IMPORTANT: Find teacher by OLD name first, then update to new name
@@ -17068,11 +17803,13 @@ def create_app():
                     # that reference this teacher by ID will automatically adapt
                     # since they use teacher_id foreign key, not name matching
                 
-                # Update call_sign and bank_account_no
+                # Update call_sign, bank_account_no, and tin_number
                 call_sign = request.form.get('call_sign', '').strip()
                 bank_account_no = request.form.get('bank_account_no', '').strip()
+                tin_number = request.form.get('tin_number', '').strip()
                 teacher.call_sign = call_sign if call_sign else None
                 teacher.bank_account_no = bank_account_no if bank_account_no else None
+                teacher.tin_number = tin_number if tin_number else None
 
             # Update theme preference
             theme = request.form.get('theme', 'default').strip()

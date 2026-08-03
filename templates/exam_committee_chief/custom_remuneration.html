@@ -462,7 +462,7 @@
                                 <option value="">Select Course</option>
                             </select>
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="{{ item.section or '' }}" placeholder="A/B/Full"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="{{ item.section or '' }}" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                         <td>
                             <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                                 <option value="">Select Teacher</option>
@@ -475,7 +475,7 @@
                         </td>
                         <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
                         <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="{{ item.class_test or '0' }}" min="0" onfocus="this.select();"></td>
-                        <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="{{ item.students or '0' }}" min="0" onfocus="this.select();"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="{{ item.students or '' }}" min="0" onfocus="this.select();" data-class-test-students="1"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
                     {% endfor %}
@@ -486,7 +486,7 @@
                                 <option value="">Select Course</option>
                             </select>
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this); updateTableCounts();"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                         <td>
                             <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                                 <option value="">Select Teacher</option>
@@ -594,7 +594,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 sessional-assessment-custom-name" name="sessional_assessment_teacher[]" value="{% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}{{ item.teacher }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="number" class="form-control form-control-sm" name="sessional_assessment_students[]" value="{{ item.students or '0' }}" min="0" onfocus="this.select();"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="sessional_assessment_students[]" value="{{ item.students or '' }}" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
                     {% endfor %}
@@ -606,12 +606,14 @@
                             </select>
                         </td>
                         <td>
-                            <select class="form-select form-select-sm teacher-name-select" name="sessional_assessment_teacher[]" onchange="onTeacherNameChange(this, 'sessional_assessment')">
+                            <select class="form-select form-select-sm teacher-name-select" name="sessional_assessment_teacher_select[]" onchange="onTeacherNameChange(this, 'sessional_assessment')">
                                 <option value="">Select Teacher</option>
+                                <option value="__CUSTOM__">Custom...</option>
                                 {% for teacher in teachers %}
                                 <option value="{{ teacher.name }}">{{ teacher.name }}</option>
                                 {% endfor %}
                             </select>
+                            <input type="text" class="form-control form-control-sm mt-1 sessional-assessment-custom-name" name="sessional_assessment_teacher[]" placeholder="Enter custom name" style="display: none;">
                         </td>
                         <td><input type="number" class="form-control form-control-sm" name="sessional_assessment_students[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -653,7 +655,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 sessional-viva-custom-name" name="sessional_viva_teacher[]" value="{% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}{{ item.teacher }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="number" class="form-control form-control-sm" name="sessional_viva_students[]" value="{{ item.students or '0' }}" min="0" onfocus="this.select();"></td>
+                        <td><input type="number" class="form-control form-control-sm" name="sessional_viva_students[]" value="{{ item.students or '' }}" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
                     {% endfor %}
@@ -665,12 +667,14 @@
                             </select>
                         </td>
                         <td>
-                            <select class="form-select form-select-sm teacher-name-select" name="sessional_viva_teacher[]" onchange="onTeacherNameChange(this, 'sessional_viva')">
+                            <select class="form-select form-select-sm teacher-name-select" name="sessional_viva_teacher_select[]" onchange="onTeacherNameChange(this, 'sessional_viva')">
                                 <option value="">Select Teacher</option>
+                                <option value="__CUSTOM__">Custom...</option>
                                 {% for teacher in teachers %}
                                 <option value="{{ teacher.name }}">{{ teacher.name }}</option>
                                 {% endfor %}
                             </select>
+                            <input type="text" class="form-control form-control-sm mt-1 sessional-viva-custom-name" name="sessional_viva_teacher[]" placeholder="Enter custom name" style="display: none;">
                         </td>
                         <td><input type="number" class="form-control form-control-sm" name="sessional_viva_students[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -1179,8 +1183,51 @@ function setupAutoField(element, fieldId) {
 }
 
 // Set auto-fetched value for a field
-function setAutoValue(element, value, showAutoBadge = true) {
+function setAutoValue(element, value, showAutoBadge = true, options = {}) {
     if (!element) return;
+
+    const force = options.force === true;
+    const applyDisplay = options.applyDisplay !== false;
+
+    // Remuneration registration counts (Autofetch) must never be overwritten by a
+    // later API response — symptom was correct ~40 then ClassStudent ~75.
+    // Manual/saved edits are also protected (editable; Restore uses autoValue).
+    const isRemunerationStudents =
+        element.name === 'class_test_students[]' ||
+        element.name === 'sessional_assessment_students[]' ||
+        element.name === 'sessional_viva_students[]';
+
+    if (!force && hasSavedValue(element)) {
+        // Keep saved/manual display; still store fetched value for Restore badge.
+        const fieldId = element.dataset.autoFieldId || generateFieldId(element);
+        if (element.dataset.autoFieldSetup !== 'true') {
+            setupAutoField(element, fieldId);
+        }
+        autoFieldValues.set(fieldId, value);
+        element.dataset.autoValue = value;
+        if (isRemunerationStudents) {
+            element.dataset.countSource = 'registration';
+        }
+        if (String(element.value) !== String(value)) {
+            updateFieldBadge(element, 'manual');
+        }
+        return;
+    }
+
+    if (
+        !force &&
+        isRemunerationStudents &&
+        element.dataset.countSource === 'registration' &&
+        element.dataset.autoValue !== undefined &&
+        String(value) !== String(element.dataset.autoValue) &&
+        String(element.value) === String(element.dataset.autoValue)
+    ) {
+        console.warn(
+            `⛔ setAutoValue blocked for ${element.name}: ` +
+            `keep ${element.dataset.autoValue}, ignore ${value}`
+        );
+        return;
+    }
     
     const fieldId = element.dataset.autoFieldId || generateFieldId(element);
     
@@ -1192,12 +1239,18 @@ function setAutoValue(element, value, showAutoBadge = true) {
     // Store the auto value
     autoFieldValues.set(fieldId, value);
     element.dataset.autoValue = value;
-    
-    // Set the value
-    element.value = value;
-    
-    // Update badge
-    updateFieldBadge(element, showAutoBadge ? 'auto' : 'none');
+    if (isRemunerationStudents) {
+        element.dataset.countSource = 'registration';
+    }
+
+    if (applyDisplay) {
+        element.value = value;
+        updateFieldBadge(element, showAutoBadge ? 'auto' : 'none');
+    } else if (String(element.value) !== String(value)) {
+        updateFieldBadge(element, 'manual');
+    } else {
+        updateFieldBadge(element, showAutoBadge ? 'auto' : 'none');
+    }
 }
 
 // Check if value was manually changed
@@ -1211,7 +1264,12 @@ function checkManualChange(element) {
     // Compare values
     if (currentValue !== autoValue && currentValue.trim() !== '') {
         updateFieldBadge(element, 'manual');
+        // Protect against later autofetch/course-section refresh until Restore
+        element.dataset.savedValue = 'true';
+        element.dataset.savedValueData = currentValue;
+        element.dataset.hasSavedValue = 'true';
     } else if (currentValue === autoValue) {
+        clearSavedValueMarker(element);
         updateFieldBadge(element, 'auto');
     }
 }
@@ -1248,6 +1306,8 @@ function restoreAutoValue(element) {
     if (autoValue !== undefined) {
         // Clear the saved value marker so auto-fetch can work again
         clearSavedValueMarker(element);
+        element.readOnly = false;
+        delete element.dataset.countLocked;
         element.value = autoValue;
         updateFieldBadge(element, 'auto');
         // Trigger change event
@@ -1336,12 +1396,19 @@ function markAllSavedAutoPopulatedFields() {
         }
     });
     
-    // Mark class_test students inputs
-    document.querySelectorAll('input[name="class_test_students[]"]').forEach(input => {
-        if (input.value && input.value.trim() !== '' && input.value !== '0') {
-            markAsSavedValue(input, input.value);
-            console.log(`📝 Marked class test students: ${input.value}`);
-        }
+    // Class Test / Sessional student counts: mark saved values so load keeps them.
+    // Autofetch / field Restore still re-applies registration counts.
+    [
+        'class_test_students[]',
+        'sessional_assessment_students[]',
+        'sessional_viva_students[]'
+    ].forEach(name => {
+        document.querySelectorAll(`input[name="${name}"]`).forEach(input => {
+            if (input.value && input.value.trim() !== '') {
+                markAsSavedValue(input, input.value);
+                console.log(`📝 Marked saved student count (${name}): ${input.value}`);
+            }
+        });
     });
     
     // Mark script_scrutiny_scripts inputs
@@ -2301,8 +2368,11 @@ async function autoLoadClassTestTableWithAssignments(forceReload = false) {
     }
     
     try {
-        console.log('📡 Fetching course assignments for Table 4...', { session, year, term, forceReload });
-        const response = await fetch(`/remuneration/api/course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        const batch = document.getElementById('batch_hidden')?.value || document.getElementById('batch')?.value || '';
+        console.log('📡 Fetching course assignments for Table 4...', { session, year, term, batch, forceReload });
+        let assignUrl = `/remuneration/api/course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_mode=registration&_v=reg4&_ts=${Date.now()}`;
+        if (batch) assignUrl += `&batch=${encodeURIComponent(batch)}`;
+        const response = await fetch(assignUrl, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await response.json();
         
         if (!data.success || !data.assignments || data.assignments.length === 0) {
@@ -2316,6 +2386,7 @@ async function autoLoadClassTestTableWithAssignments(forceReload = false) {
         
         console.log('✅ Found', data.assignments.length, 'course assignments', 'window=', data.window_id);
         table4Tbody.innerHTML = '';
+        const loadGen = bumpClassTestStudentCountGeneration(forceReload ? 'autofetch' : 'autoload');
         
         // Load courses into dropdowns first
         const courses = await fetchCourses();
@@ -2345,7 +2416,7 @@ async function autoLoadClassTestTableWithAssignments(forceReload = false) {
                         ${courseOptions}
                     </select>
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
+                <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="${assignment.section}" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                 <td>
                     <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                         <option value="">Select Teacher</option>
@@ -2360,33 +2431,31 @@ async function autoLoadClassTestTableWithAssignments(forceReload = false) {
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
             `;
             table4Tbody.appendChild(row);
-            
-            // Trigger updateClassTestCount and fetchStudentCount after row is added
-            setTimeout(() => {
-                const sectionInput = row.querySelector('input[name="class_test_section[]"]');
-                const courseSelect = row.querySelector('select[name="class_test_course[]"]');
-                const studentsInput = row.querySelector('input[name="class_test_students[]"]');
-                
-                // Update class test count based on section
-                if (sectionInput) {
-                    updateClassTestCount(sectionInput);
-                }
-                
-                // Fetch student count if course is selected
-                if (courseSelect && courseSelect.value && studentsInput) {
-                    fetchStudentCountForClassTest(courseSelect, studentsInput);
-                }
-            }, 100);
+
+            // Student count comes embedded from course-assignments — NO second API fetch
+            // (second fetch was racing and overwriting the correct value with 75).
+            const sectionInput = row.querySelector('input[name="class_test_section[]"]');
+            const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+            if (sectionInput) {
+                updateClassTestCount(sectionInput);
+            }
+            if (studentsInput && assignment.student_count !== undefined && assignment.student_count !== null) {
+                const countVal = String(assignment.student_count);
+                clearSavedValueMarker(studentsInput);
+                setAutoValue(studentsInput, countVal, true, { force: true });
+                studentsInput.readOnly = false;
+                delete studentsInput.dataset.countLocked;
+                console.log(
+                    `✅ Class Test embedded registration count ${countVal} for ${assignment.course_code} ` +
+                    `(section ${assignment.section}, match=${assignment.count_match || 'n/a'}, gen=${loadGen})`
+                );
+            }
         });
         
         // Count unique courses (split courses A and B count as 1)
         const uniqueCourses = new Set(data.assignments.map(a => a.course_id));
         console.log(`✅ Table 4 loaded with ${data.assignments.length} rows (${uniqueCourses.size} unique courses)`);
-        
-        // Wait a bit for all async operations to complete
-        setTimeout(() => {
-            updateTableCounts();
-        }, 500);
+        updateTableCounts();
         
     } catch (error) {
         console.error('❌ Error loading course assignments for Table 4:', error);
@@ -2394,16 +2463,17 @@ async function autoLoadClassTestTableWithAssignments(forceReload = false) {
 }
 
 // Auto-load Table 6 (Sessional Assessment) and Table 7 (Sessional Viva) with sessional course assignments
-async function autoLoadSessionalTablesWithAssignments() {
-    // Skip auto-load if in edit mode
-    if (isEditMode) {
+async function autoLoadSessionalTablesWithAssignments(forceReload = false, onlyPrefix = null) {
+    // Skip auto-load if in edit mode (manual Autofetch temporarily clears isEditMode)
+    if (isEditMode && !forceReload) {
         console.log('⏭️ Edit mode active, skipping sessional tables auto-load');
         return;
     }
     
-    const session = document.getElementById('session')?.value;
-    const year = document.getElementById('year')?.value;
-    const term = document.getElementById('term')?.value;
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    const batch = document.getElementById('batch_hidden')?.value || document.getElementById('batch')?.value || '';
     
     if (!session || !year || !term) {
         console.log('⚠️ Session/Year/Term not selected for sessional tables auto-load');
@@ -2412,40 +2482,40 @@ async function autoLoadSessionalTablesWithAssignments() {
     
     // Table 6: Sessional Assessment
     const table6Tbody = document.querySelector('#table_sessional_assessment tbody');
-    if (table6Tbody) {
+    if (table6Tbody && (!onlyPrefix || onlyPrefix === 'sessional_assessment')) {
         const existingRows = Array.from(table6Tbody.querySelectorAll('tr'));
         const rowsWithCourses = existingRows.filter(row => {
             const courseSelect = row.querySelector('select[name="sessional_assessment_course[]"]');
             return courseSelect && courseSelect.value && courseSelect.value.trim() !== '';
         }).length;
         
-        // Only auto-load if table is empty
-        if (rowsWithCourses === 0) {
-            await loadSessionalAssignmentsToTable(table6Tbody, 'sessional_assessment', session, year, term);
+        if (forceReload || rowsWithCourses === 0) {
+            await loadSessionalAssignmentsToTable(table6Tbody, 'sessional_assessment', session, year, term, batch);
         }
     }
     
     // Table 7: Sessional Viva
     const table7Tbody = document.querySelector('#table_sessional_viva tbody');
-    if (table7Tbody) {
+    if (table7Tbody && (!onlyPrefix || onlyPrefix === 'sessional_viva')) {
         const existingRows = Array.from(table7Tbody.querySelectorAll('tr'));
         const rowsWithCourses = existingRows.filter(row => {
             const courseSelect = row.querySelector('select[name="sessional_viva_course[]"]');
             return courseSelect && courseSelect.value && courseSelect.value.trim() !== '';
         }).length;
         
-        // Only auto-load if table is empty
-        if (rowsWithCourses === 0) {
-            await loadSessionalAssignmentsToTable(table7Tbody, 'sessional_viva', session, year, term);
+        if (forceReload || rowsWithCourses === 0) {
+            await loadSessionalAssignmentsToTable(table7Tbody, 'sessional_viva', session, year, term, batch);
         }
     }
 }
 
 // Helper function to load sessional assignments to a table
-async function loadSessionalAssignmentsToTable(tbody, tablePrefix, session, year, term) {
+async function loadSessionalAssignmentsToTable(tbody, tablePrefix, session, year, term, batch = '') {
     try {
-        console.log(`📡 Fetching sessional course assignments for ${tablePrefix}...`);
-        const response = await fetch(`/remuneration/api/sessional-course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`);
+        console.log(`📡 Fetching sessional course assignments for ${tablePrefix}...`, { session, year, term, batch });
+        let url = `/remuneration/api/sessional-course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_mode=registration&_v=reg4&_ts=${Date.now()}`;
+        if (batch) url += `&batch=${encodeURIComponent(batch)}`;
+        const response = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
         const data = await response.json();
         
         if (!data.success || !data.assignments || data.assignments.length === 0) {
@@ -2477,6 +2547,9 @@ async function loadSessionalAssignmentsToTable(tbody, tablePrefix, session, year
             const teacherSelectValue = teacherOption ? assignment.teacher_name : '__CUSTOM__';
             const teacherInputDisplay = teacherOption ? 'none' : 'block';
             const teacherInputValue = teacherOption ? '' : assignment.teacher_name;
+            const embeddedCount = (assignment.student_count !== undefined && assignment.student_count !== null)
+                ? String(assignment.student_count)
+                : '';
             
             row.innerHTML = `
                 <td>
@@ -2492,31 +2565,30 @@ async function loadSessionalAssignmentsToTable(tbody, tablePrefix, session, year
                     </select>
                     <input type="text" class="form-control form-control-sm mt-1 ${tablePrefix === 'sessional_assessment' ? 'sessional-assessment-custom-name' : 'sessional-viva-custom-name'}" name="${tablePrefix}_teacher[]" placeholder="Enter custom name" value="${teacherInputValue}" style="display: ${teacherInputDisplay};">
                 </td>
-                <td><input type="number" class="form-control form-control-sm" name="${tablePrefix}_students[]" value="" min="0" onfocus="this.select();"></td>
+                <td><input type="number" class="form-control form-control-sm" name="${tablePrefix}_students[]" value="${embeddedCount}" min="0" onfocus="this.select();"></td>
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
             `;
             tbody.appendChild(row);
-            
-            // Trigger student count fetch after row is added
-            setTimeout(() => {
-                const courseSelect = row.querySelector(`select[name="${tablePrefix}_course[]"]`);
-                const studentsInput = row.querySelector(`input[name="${tablePrefix}_students[]"]`);
-                
-                // Fetch student count if course is selected
-                if (courseSelect && courseSelect.value && studentsInput) {
-                    onSessionalCourseChange(courseSelect, tablePrefix);
-                }
-            }, 100);
+
+            // Use embedded count only — do NOT call onSessionalCourseChange (that hit
+            // get-student-count session-only fallback and forced 75).
+            const studentsInput = row.querySelector(`input[name="${tablePrefix}_students[]"]`);
+            if (studentsInput && embeddedCount !== '') {
+                clearSavedValueMarker(studentsInput);
+                setAutoValue(studentsInput, embeddedCount, true, { force: true });
+                studentsInput.readOnly = false;
+                delete studentsInput.dataset.countLocked;
+                console.log(
+                    `✅ ${tablePrefix} embedded registration count ${embeddedCount} for ${assignment.course_code} ` +
+                    `(source=${assignment.count_source || 'n/a'}, match=${assignment.count_match || 'n/a'})`
+                );
+            }
         });
         
         // Count unique courses (split courses A and B count as 1)
         const uniqueCourses = new Set(data.assignments.map(a => a.course_id));
         console.log(`✅ ${tablePrefix} loaded with ${data.assignments.length} rows (${uniqueCourses.size} unique courses)`);
-        
-        // Wait a bit for all async operations to complete
-        setTimeout(() => {
-            updateTableCounts();
-        }, 500);
+        updateTableCounts();
         
     } catch (error) {
         console.error(`❌ Error loading sessional course assignments for ${tablePrefix}:`, error);
@@ -3160,7 +3232,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="${courseText}" selected>${courseText}</option>
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="A" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="A" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                     <td>
                         <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher[]" onchange="onTeacherNameChange(this, 'class_test')">
                             <option value="">Select Teacher</option>
@@ -3183,7 +3255,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="${courseText}" selected>${courseText}</option>
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="B" placeholder="A/B/Full" onchange="updateClassTestCount(this)"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" value="B" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
                     <td>
                         <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher[]" onchange="onTeacherNameChange(this, 'class_test')">
                             <option value="">Select Teacher</option>
@@ -3422,11 +3494,16 @@ async function onClassTestCourseChange(selectElement) {
         }
     }
     
-    // Fetch student count if course is selected
+    // Manual course change: unlock, then use the same direct helper API once.
+    // Fetched count is editable — user may override and Save; Restore uses autoValue.
     if (selectElement.value && studentsInput) {
+        clearSavedValueMarker(studentsInput);
+        delete studentsInput.dataset.countLocked;
+        studentsInput.readOnly = false;
         await fetchStudentCountForClassTest(selectElement, studentsInput);
+        studentsInput.readOnly = false;
+        delete studentsInput.dataset.countLocked;
     } else if (studentsInput) {
-        // Clear if no course selected
         if (!studentsInput.value || studentsInput.value.trim() === '') {
             studentsInput.value = '0';
         }
@@ -3435,143 +3512,115 @@ async function onClassTestCourseChange(selectElement) {
     updateTableCounts();
 }
 
-// Update table counts (courses, questions, scripts)
+// Update table counts (courses, questions, scripts) and dynamic serial numbers.
+// Serials skip disabled sections so PDF and on-screen titles stay aligned.
 function updateTableCounts() {
-    // Table 2: Question Preparation
+    const qp = { courses: 0, questions: 0 };
+    const se = { courses: 0, scripts: 0 };
+    const ct = { courses: 0 };
+    const sa = { courses: 0 };
+    const sv = { courses: 0 };
+
     const table2Tbody = document.querySelector('#table_question_preparation tbody');
     if (table2Tbody) {
-        const rows = Array.from(table2Tbody.querySelectorAll('tr'));
         const courseSet = new Set();
-        let totalQuestions = 0;
-        
-        rows.forEach(row => {
+        table2Tbody.querySelectorAll('tr').forEach(row => {
             const courseSelect = row.querySelector('select[name="question_preparation_course[]"]');
-            const sectionInput = row.querySelector('input[name="question_preparation_section[]"]');
             const questionsInput = row.querySelector('input[name="question_preparation_questions[]"]');
-            
-            if (courseSelect && courseSelect.value && courseSelect.value.trim() !== '') {
-                const courseText = courseSelect.value.trim();
-                const section = (sectionInput?.value || '').trim().toUpperCase();
-                
-                // Count courses: A and B count as 1 course together (only count course, not section)
-                courseSet.add(courseText);
-                
-                // Sum questions
-                const questions = parseInt(questionsInput?.value || '0', 10);
-                totalQuestions += questions;
+            if (courseSelect?.value?.trim()) {
+                courseSet.add(courseSelect.value.trim());
+                qp.questions += parseInt(questionsInput?.value || '0', 10) || 0;
             }
         });
-        
-        const courseCount = courseSet.size;
-        const titleElement = document.getElementById('table2_title');
-        if (titleElement) {
-            setSectionTitle(titleElement, `2. Question Preparation (${courseCount} Course${courseCount !== 1 ? 's' : ''}, ${totalQuestions} Question${totalQuestions !== 1 ? 's' : ''})`);
-        }
+        qp.courses = courseSet.size;
     }
-    
-    // Table 3: Answer Script Examination
+
     const table3Tbody = document.querySelector('#table_script_examination tbody');
     if (table3Tbody) {
-        const rows = Array.from(table3Tbody.querySelectorAll('tr'));
         const courseSet = new Set();
-        let totalScripts = 0;
-        
-        rows.forEach(row => {
+        table3Tbody.querySelectorAll('tr').forEach(row => {
             const courseSelect = row.querySelector('select[name="script_examination_course[]"]');
-            const sectionInput = row.querySelector('input[name="script_examination_section[]"]');
             const scriptsInput = row.querySelector('input[name="script_examination_scripts[]"]');
-            
-            if (courseSelect && courseSelect.value && courseSelect.value.trim() !== '') {
-                const courseText = courseSelect.value.trim();
-                const section = (sectionInput?.value || '').trim().toUpperCase();
-                
-                // Count courses: A and B count as 1 course together (only count course, not section)
-                courseSet.add(courseText);
-                
-                // Sum scripts
-                const scripts = parseInt(scriptsInput?.value || '0', 10);
-                totalScripts += scripts;
+            if (courseSelect?.value?.trim()) {
+                courseSet.add(courseSelect.value.trim());
+                se.scripts += parseInt(scriptsInput?.value || '0', 10) || 0;
             }
         });
-        
-        const courseCount = courseSet.size;
-        const titleElement = document.getElementById('table3_title');
-        if (titleElement) {
-            setSectionTitle(titleElement, `3. Answer Script Examination (${courseCount} Course${courseCount !== 1 ? 's' : ''}, ${totalScripts} Script${totalScripts !== 1 ? 's' : ''})`);
-        }
+        se.courses = courseSet.size;
     }
-    
-    // Table 4: Class Test
+
     const table4Tbody = document.querySelector('#table_class_test tbody');
     if (table4Tbody) {
-        const rows = Array.from(table4Tbody.querySelectorAll('tr'));
         const courseSet = new Set();
-        
-        rows.forEach(row => {
+        table4Tbody.querySelectorAll('tr').forEach(row => {
             const courseSelect = row.querySelector('select[name="class_test_course[]"]');
-            const sectionInput = row.querySelector('input[name="class_test_section[]"]');
-            
-            if (courseSelect && courseSelect.value && courseSelect.value.trim() !== '') {
-                const courseText = courseSelect.value.trim();
-                const section = (sectionInput?.value || '').trim().toUpperCase();
-                
-                // Count courses: A and B count as 1 course together (only count course, not section)
-                courseSet.add(courseText);
-            }
+            if (courseSelect?.value?.trim()) courseSet.add(courseSelect.value.trim());
         });
-        
-        const courseCount = courseSet.size;
-        const titleElement = document.getElementById('table4_title');
-        if (titleElement) {
-            setSectionTitle(titleElement, `4. Class Test (${courseCount} Course${courseCount !== 1 ? 's' : ''})`);
-        }
+        ct.courses = courseSet.size;
     }
-    
-    // Table 6: Sessional Assessment
+
     const table6Tbody = document.querySelector('#table_sessional_assessment tbody');
     if (table6Tbody) {
-        const rows = Array.from(table6Tbody.querySelectorAll('tr'));
         const courseSet = new Set();
-        
-        rows.forEach(row => {
+        table6Tbody.querySelectorAll('tr').forEach(row => {
             const courseSelect = row.querySelector('select[name="sessional_assessment_course[]"]');
-            
-            if (courseSelect && courseSelect.value && courseSelect.value.trim() !== '') {
-                const courseText = courseSelect.value.trim();
-                // Count courses: A and B count as 1 course together (only count course, not section)
-                courseSet.add(courseText);
-            }
+            if (courseSelect?.value?.trim()) courseSet.add(courseSelect.value.trim());
         });
-        
-        const courseCount = courseSet.size;
-        const titleElement = document.getElementById('table6_title');
-        if (titleElement) {
-            setSectionTitle(titleElement, `6. Sessional Assessment (${courseCount} Course${courseCount !== 1 ? 's' : ''})`);
-        }
+        sa.courses = courseSet.size;
     }
-    
-    // Table 7: Sessional Viva
+
     const table7Tbody = document.querySelector('#table_sessional_viva tbody');
     if (table7Tbody) {
-        const rows = Array.from(table7Tbody.querySelectorAll('tr'));
         const courseSet = new Set();
-        
-        rows.forEach(row => {
+        table7Tbody.querySelectorAll('tr').forEach(row => {
             const courseSelect = row.querySelector('select[name="sessional_viva_course[]"]');
-            
-            if (courseSelect && courseSelect.value && courseSelect.value.trim() !== '') {
-                const courseText = courseSelect.value.trim();
-                // Count courses: A and B count as 1 course together (only count course, not section)
-                courseSet.add(courseText);
-            }
+            if (courseSelect?.value?.trim()) courseSet.add(courseSelect.value.trim());
         });
-        
-        const courseCount = courseSet.size;
-        const titleElement = document.getElementById('table7_title');
-        if (titleElement) {
-            setSectionTitle(titleElement, `7. Sessional Viva (${courseCount} Course${courseCount !== 1 ? 's' : ''})`);
-        }
+        sv.courses = courseSet.size;
     }
+
+    const sectionTitleSpecs = [
+        { key: 'examination_committee', alwaysOn: true, text: () => 'Examination Committee' },
+        {
+            key: 'question_preparation',
+            text: () => `Question Preparation (${qp.courses} Course${qp.courses !== 1 ? 's' : ''}, ${qp.questions} Question${qp.questions !== 1 ? 's' : ''})`
+        },
+        {
+            key: 'script_examination',
+            text: () => `Answer Script Examination (${se.courses} Course${se.courses !== 1 ? 's' : ''}, ${se.scripts} Script${se.scripts !== 1 ? 's' : ''})`
+        },
+        { key: 'class_test', text: () => `Class Test (${ct.courses} Course${ct.courses !== 1 ? 's' : ''})` },
+        { key: 'moderation_committee', text: () => 'Moderation Committee' },
+        { key: 'sessional_assessment', text: () => `Sessional Assessment (${sa.courses} Course${sa.courses !== 1 ? 's' : ''})` },
+        { key: 'sessional_viva', text: () => `Sessional Viva (${sv.courses} Course${sv.courses !== 1 ? 's' : ''})` },
+        { key: 'script_scrutiny', text: () => 'Answer Script Scrutiny' },
+        { key: 'tabulation', text: () => 'Tabulation' },
+        { key: 'coding_decoding', text: () => 'Coding & Decoding' },
+        { key: 'invigilation', text: () => 'Chief Invigilation/Invigilation' },
+        { key: 'thesis_supervision', text: () => 'Thesis Supervision' },
+        { key: 'viva', text: () => 'Viva' },
+        { key: 'question_typing', text: () => 'Question Typing' },
+        { key: 'official_support', text: () => 'Official Support' },
+    ];
+
+    let serial = 0;
+    sectionTitleSpecs.forEach(spec => {
+        const container = document.querySelector(`.section-container[data-section-key="${spec.key}"]`)
+            || (spec.key === 'examination_committee'
+                ? document.querySelector('#table_examination_committee')?.closest('.section-container')
+                : null);
+        if (!container) return;
+        const titleEl = container.querySelector('.section-title');
+        if (!titleEl) return;
+
+        const enabled = spec.alwaysOn || !container.classList.contains('section-disabled');
+        if (enabled) {
+            serial += 1;
+            setSectionTitle(titleEl, `${serial}. ${spec.text()}`);
+        } else {
+            setSectionTitle(titleEl, spec.text());
+        }
+    });
 }
 
 // Update class test count based on section
@@ -3592,114 +3641,219 @@ function updateClassTestCount(sectionInput) {
     } else {
         classTestInput.value = '0';
     }
-    
-    // Also trigger student count fetch if course is selected
-    // Force refresh when section changes to get correct count for the section
-    const courseSelect = row.querySelector('select[name="class_test_course[]"]');
-    const studentsInput = row.querySelector('input[name="class_test_students[]"]');
-    if (courseSelect && courseSelect.value && studentsInput) {
-        // Clear existing value to force refresh with new section
-        studentsInput.value = '';
-        fetchStudentCountForClassTest(courseSelect, studentsInput);
+
+    // Student count is fetched separately (single in-flight request per input).
+    // Do NOT fetch here — a second overlapping call was overwriting the correct
+    // registration count (e.g. 40) with a later inflated value (e.g. 75).
+}
+
+function onClassTestSectionChange(sectionInput) {
+    updateClassTestCount(sectionInput);
+    const row = sectionInput.closest('tr');
+    const courseSelect = row?.querySelector('select[name="class_test_course[]"]');
+    const studentsInput = row?.querySelector('input[name="class_test_students[]"]');
+    if (courseSelect?.value && studentsInput) {
+        // Keep manual/saved overrides; otherwise refresh registration count.
+        if (!hasSavedValue(studentsInput)) {
+            fetchStudentCountForClassTest(courseSelect, studentsInput);
+        }
+    }
+    updateTableCounts();
+}
+
+// Global generation: Autofetch / full refresh bumps this so late responses are dropped.
+let classTestStudentCountGeneration = 0;
+
+function bumpClassTestStudentCountGeneration(reason) {
+    classTestStudentCountGeneration += 1;
+    console.log(`🔄 Class Test student-count generation → ${classTestStudentCountGeneration} (${reason || 'refresh'})`);
+    return classTestStudentCountGeneration;
+}
+
+function refreshAllClassTestStudentCounts(reason) {
+    console.log('refreshAllClassTestStudentCounts →', reason || 'refreshAll');
+    applyClassTestStudentCountsFromAssignments();
+}
+
+async function applyClassTestStudentCountsFromAssignments(options = {}) {
+    const force = options.force === true;
+    const applyDisplay = options.applyDisplay !== false;
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    if (!session || !year || !term) return;
+
+    try {
+        let url = `/remuneration/api/course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_mode=registration&_v=reg4&_ts=${Date.now()}`;
+        const response = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+        const data = await response.json();
+        if (!data.success || !Array.isArray(data.assignments)) {
+            console.warn('applyClassTestStudentCountsFromAssignments: no assignments', data);
+            return;
+        }
+        if (data.count_mode !== 'registration') {
+            console.warn('[reg4] course-assignments missing count_mode=registration — upload latest app.py', data.count_mode);
+        }
+
+        const countByKey = {};
+        data.assignments.forEach(a => {
+            if (a.course_code != null && a.student_count !== undefined && a.student_count !== null) {
+                const code = String(a.course_code).trim();
+                const sec = String(a.section || 'Full').trim().toUpperCase() || 'FULL';
+                countByKey[`${code}||${sec}`] = String(a.student_count);
+                if (countByKey[code] === undefined) {
+                    countByKey[code] = String(a.student_count);
+                }
+            }
+        });
+        console.log('[reg4] Embedded Class Test registration counts:', countByKey);
+
+        document.querySelectorAll('#table_class_test tbody tr').forEach(row => {
+            const courseSelect = row.querySelector('select[name="class_test_course[]"]');
+            const sectionInput = row.querySelector('input[name="class_test_section[]"]');
+            const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+            if (!courseSelect?.value || !studentsInput) return;
+
+            const code = (courseSelect.value || '').split(' - ')[0].trim();
+            const sec = (sectionInput?.value || 'Full').trim().toUpperCase() || 'FULL';
+            const countVal = countByKey[`${code}||${sec}`] ?? countByKey[code];
+            if (countVal === undefined) return;
+
+            if (force) {
+                clearSavedValueMarker(studentsInput);
+            }
+            setAutoValue(studentsInput, countVal, true, { force, applyDisplay: force ? true : applyDisplay });
+            studentsInput.readOnly = false;
+            delete studentsInput.dataset.countLocked;
+        });
+        updateTableCounts();
+    } catch (err) {
+        console.error('applyClassTestStudentCountsFromAssignments failed:', err);
     }
 }
 
-// Fetch student count for class test with retry mechanism
-async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryCount = 0) {
-    const MAX_RETRIES = 3;
-    const session = document.getElementById('session')?.value || document.getElementById('session_hidden')?.value;
-    const year = document.getElementById('year')?.value || document.getElementById('year_hidden')?.value;
-    const term = document.getElementById('term')?.value || document.getElementById('term_hidden')?.value;
-    const batch = document.getElementById('batch')?.value || document.getElementById('batch_hidden')?.value;
-    const courseCode = courseSelect.value.split(' - ')[0];
+async function applySessionalStudentCountsFromAssignments(tablePrefix, options = {}) {
+    const force = options.force === true;
+    const applyDisplay = options.applyDisplay !== false;
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    if (!session || !year || !term || !tablePrefix) return;
+
+    try {
+        let url = `/remuneration/api/sessional-course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_mode=registration&_v=reg4&_ts=${Date.now()}`;
+        const response = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+        const data = await response.json();
+        if (!data.success || !Array.isArray(data.assignments)) return;
+        if (data.count_mode !== 'registration') {
+            console.warn('[reg4] sessional-course-assignments missing count_mode=registration — upload latest app.py');
+        }
+
+        const countByCode = {};
+        data.assignments.forEach(a => {
+            if (a.course_code != null && a.student_count !== undefined && a.student_count !== null) {
+                countByCode[String(a.course_code).trim()] = String(a.student_count);
+            }
+        });
+        console.log(`[reg4] Embedded ${tablePrefix} registration counts:`, countByCode);
+
+        const tableId = tablePrefix === 'sessional_viva' ? 'table_sessional_viva' : 'table_sessional_assessment';
+        document.querySelectorAll(`#${tableId} tbody tr`).forEach(row => {
+            const courseSelect = row.querySelector(`select[name="${tablePrefix}_course[]"]`);
+            const studentsInput = row.querySelector(`input[name="${tablePrefix}_students[]"]`);
+            if (!courseSelect?.value || !studentsInput) return;
+
+            const code = (courseSelect.value || '').split(' - ')[0].trim();
+            const countVal = countByCode[code];
+            if (countVal === undefined) return;
+
+            if (force) {
+                clearSavedValueMarker(studentsInput);
+            }
+            setAutoValue(studentsInput, countVal, true, { force, applyDisplay: force ? true : applyDisplay });
+            studentsInput.readOnly = false;
+            delete studentsInput.dataset.countLocked;
+        });
+        updateTableCounts();
+    } catch (err) {
+        console.error('applySessionalStudentCountsFromAssignments failed:', err);
+    }
+}
+
+// Fetch student count for class test from course-assignments (registration only).
+async function fetchStudentCountForClassTest(courseSelect, studentsInput, retryCount = 0, generation = null) {
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    const courseCode = (courseSelect.value || '').split(' - ')[0].trim();
     const section = courseSelect.closest('tr')?.querySelector('input[name="class_test_section[]"]')?.value || '';
-    
-    if (!session || !year || !term || !courseCode) {
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
+    const gen = generation == null ? classTestStudentCountGeneration : generation;
+
+    if (!session || !year || !term || !courseCode || !studentsInput) {
+        if (studentsInput && (!studentsInput.value || studentsInput.value.trim() === '')) {
             studentsInput.value = '';
         }
         return;
     }
-    
+
+    if (hasSavedValue(studentsInput)) {
+        return;
+    }
+
     try {
-        console.log(`Fetching student count for Class Test (attempt ${retryCount + 1}/${MAX_RETRIES}):`, { courseCode, session, year, term, section });
-        
-        // Use AbortController for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
-        // Build URL with batch parameter (use chief-specific endpoint)
-        // Class Test uses its own endpoint so retake+carry-on exclusion never affects other modules.
-        let url = `/exam-committee-chief/get-class-test-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}`;
-        if (batch) {
-            url += `&batch=${encodeURIComponent(batch)}`;
-        }
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
+        console.log(`[reg4] Class Test count from assignments:`, { courseCode, session, year, term, section });
+        let url = `/remuneration/api/course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_mode=registration&_v=reg4&_ts=${Date.now()}`;
+        const response = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        if (data.success && data.student_count !== undefined) {
-            const fetchedValue = String(data.student_count || '');
-            // Check if field has a saved value from database
-            if (hasSavedValue(studentsInput)) {
-                console.log(`⏭️ Skipping auto-populate for students - saved value detected`);
-                studentsInput.dataset.autoValue = fetchedValue;
-                updateFieldBadge(studentsInput, 'manual');
-            }
-            // Check if user has manually modified - if so, don't overwrite
-            else if (studentsInput.dataset.autoValue !== undefined && 
-                studentsInput.value !== studentsInput.dataset.autoValue && 
-                studentsInput.value !== '' && 
-                studentsInput.value !== fetchedValue) {
-                console.log(`⏭️ Skipping auto-populate for students - manual value detected (current: ${studentsInput.value}, auto: ${studentsInput.dataset.autoValue})`);
-            } else {
-                setAutoValue(studentsInput, fetchedValue);
-                console.log(`✅ Class Test: Fetched ${data.student_count} students for ${courseCode} (section: ${section || 'Full'})`);
-            }
-        } else {
-            throw new Error(data.message || 'No student count returned');
+        if (gen !== classTestStudentCountGeneration) return;
+        if (!data.success || !Array.isArray(data.assignments)) {
+            throw new Error(data.message || 'No assignments');
+        }
+        if (data.count_mode !== 'registration') {
+            console.warn('[reg4] course-assignments missing count_mode=registration — upload latest app.py');
+        }
+        const sec = (section || 'Full').trim().toUpperCase() || 'FULL';
+        const codeKey = courseCode.replace(/[\s\-]/g, '').toLowerCase();
+        let match = data.assignments.find(a => {
+            const aCode = String(a.course_code || '').replace(/[\s\-]/g, '').toLowerCase();
+            const aSec = String(a.section || 'Full').trim().toUpperCase() || 'FULL';
+            return aCode === codeKey && aSec === sec;
+        });
+        if (!match) {
+            match = data.assignments.find(a => {
+                const aCode = String(a.course_code || '').replace(/[\s\-]/g, '').toLowerCase();
+                return aCode === codeKey;
+            });
+        }
+        if (match && match.student_count !== undefined && match.student_count !== null) {
+            const fetchedValue = String(match.student_count);
+            setAutoValue(studentsInput, fetchedValue);
+            studentsInput.readOnly = false;
+            delete studentsInput.dataset.countLocked;
+            console.log(
+                `✅ [reg4] Class Test registration ${fetchedValue} for ${courseCode} ` +
+                `(section: ${sec}, match=${match.count_match || 'n/a'})`
+            );
         }
     } catch (error) {
-        console.error(`Error fetching student count (attempt ${retryCount + 1}/${MAX_RETRIES}):`, error);
-        
-        // Check if it's a timeout error
-        if (error.name === 'AbortError') {
-            console.error('Request timed out after 10 seconds');
-        }
-        
-        // Retry if not exceeded max retries
-        if (retryCount < MAX_RETRIES - 1) {
-            const delay = (retryCount + 1) * 1000; // 1s, 2s, 3s
-            console.log(`Retrying in ${delay}ms...`);
-            setTimeout(() => {
-                fetchStudentCountForClassTest(courseSelect, studentsInput, retryCount + 1);
-            }, delay);
-        } else {
-            // All retries failed
-            console.error('Failed to fetch student count after all retries');
-            if (!studentsInput.value || studentsInput.value.trim() === '') {
-                studentsInput.value = '';
-            }
-        }
+        console.error(`[reg4] Class Test count failed:`, error);
     }
 }
 
-// On sessional course change with retry mechanism
+// On sessional course change — registration count via sessional-course-assignments
+// (same source as Autofetch). Never call get-student-count (that path returned 75).
 async function onSessionalCourseChange(selectElement, tableType, retryCount = 0) {
-    const MAX_RETRIES = 3;
     const row = selectElement.closest('tr');
     if (!row) return;
-    
-    const studentsInput = row.querySelector('input[type="number"]');
+
+    const studentsInput = row.querySelector(`input[name="${tableType}_students[]"]`)
+        || row.querySelector('input[type="number"]');
     if (!studentsInput) {
         updateTableCounts();
         return;
     }
-    
+
     if (!selectElement.value) {
         if (!studentsInput.value || studentsInput.value.trim() === '') {
             studentsInput.value = '';
@@ -3707,86 +3861,53 @@ async function onSessionalCourseChange(selectElement, tableType, retryCount = 0)
         updateTableCounts();
         return;
     }
-    
-    const session = document.getElementById('session')?.value || document.getElementById('session_hidden')?.value;
-    const year = document.getElementById('year')?.value || document.getElementById('year_hidden')?.value;
-    const term = document.getElementById('term')?.value || document.getElementById('term_hidden')?.value;
-    const batch = document.getElementById('batch')?.value || document.getElementById('batch_hidden')?.value;
-    const courseCode = selectElement.value.split(' - ')[0];
-    
+
+    // Course change: clear manual/saved override and fetch registration count (editable).
+    clearSavedValueMarker(studentsInput);
+    delete studentsInput.dataset.countLocked;
+    studentsInput.readOnly = false;
+
+    const session = document.getElementById('session_hidden')?.value || document.getElementById('session')?.value;
+    const year = document.getElementById('year_hidden')?.value || document.getElementById('year')?.value;
+    const term = document.getElementById('term_hidden')?.value || document.getElementById('term')?.value;
+    const courseCode = (selectElement.value || '').split(' - ')[0].trim();
+
     if (!session || !year || !term || !courseCode) {
-        if (!studentsInput.value || studentsInput.value.trim() === '') {
-            studentsInput.value = '';
-        }
         updateTableCounts();
         return;
     }
-    
+
     try {
-        console.log(`Fetching student count for ${tableType} (attempt ${retryCount + 1}/${MAX_RETRIES}):`, { courseCode, session, year, term });
-        
-        // Use AbortController for timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-        
-        // Sessional tables: direct registrations + sessional retakes (exclude theory retake leak).
-        let url = `/exam-committee-chief/get-student-count?course_code=${encodeURIComponent(courseCode)}&academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_scope=sessional`;
-        if (batch) {
-            url += `&batch=${encodeURIComponent(batch)}`;
-        }
-        const response = await fetch(url, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
+        console.log(`[reg4] Sessional count from assignments for ${tableType}:`, { courseCode, session, year, term });
+        let url = `/remuneration/api/sessional-course-assignments?academic_session=${encodeURIComponent(session)}&year=${encodeURIComponent(year)}&term=${encodeURIComponent(term)}&count_mode=registration&_v=reg4&_ts=${Date.now()}`;
+        const response = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        if (data.success && data.student_count !== undefined) {
-            const fetchedValue = String(data.student_count || '');
-            // Check if field has a saved value from database
-            if (hasSavedValue(studentsInput)) {
-                console.log(`⏭️ Skipping auto-populate for ${tableType} students - saved value detected`);
-                studentsInput.dataset.autoValue = fetchedValue;
-                updateFieldBadge(studentsInput, 'manual');
-            }
-            // Check if user has manually modified - if so, don't overwrite
-            else if (studentsInput.dataset.autoValue !== undefined && 
-                studentsInput.value !== studentsInput.dataset.autoValue && 
-                studentsInput.value !== '' && 
-                studentsInput.value !== fetchedValue) {
-                console.log(`⏭️ Skipping auto-populate for ${tableType} students - manual value detected`);
-            } else {
-                setAutoValue(studentsInput, fetchedValue);
-                console.log(`✅ ${tableType}: Fetched ${data.student_count} students for ${courseCode}`);
-            }
+        if (!data.success || data.count_mode !== 'registration') {
+            console.warn('[reg4] sessional-course-assignments missing count_mode=registration — is app.py uploaded?', data);
+        }
+        const assignments = Array.isArray(data.assignments) ? data.assignments : [];
+        const codeKey = courseCode.replace(/[\s\-]/g, '').toLowerCase();
+        const match = assignments.find(a => {
+            const aCode = String(a.course_code || '').replace(/[\s\-]/g, '').toLowerCase();
+            return aCode === codeKey || String(a.course_code || '').trim() === courseCode;
+        });
+        if (match && match.student_count !== undefined && match.student_count !== null) {
+            const fetchedValue = String(match.student_count);
+            setAutoValue(studentsInput, fetchedValue, true, { force: true });
+            studentsInput.readOnly = false;
+            delete studentsInput.dataset.countLocked;
+            console.log(
+                `✅ [reg4] ${tableType}: registration count ${fetchedValue} for ${courseCode} ` +
+                `(match=${match.count_match || 'n/a'}, mode=${data.count_mode || 'n/a'})`
+            );
         } else {
-            throw new Error(data.message || 'No student count returned');
+            console.warn(`[reg4] No assignment count for ${courseCode} in sessional-course-assignments`);
         }
     } catch (error) {
-        console.error(`Error fetching student count for ${tableType} (attempt ${retryCount + 1}/${MAX_RETRIES}):`, error);
-        
-        // Check if it's a timeout error
-        if (error.name === 'AbortError') {
-            console.error('Request timed out after 10 seconds');
-        }
-        
-        // Retry if not exceeded max retries
-        if (retryCount < MAX_RETRIES - 1) {
-            const delay = (retryCount + 1) * 1000; // 1s, 2s, 3s
-            console.log(`Retrying in ${delay}ms...`);
-            setTimeout(() => {
-                onSessionalCourseChange(selectElement, tableType, retryCount + 1);
-            }, delay);
-        } else {
-            // All retries failed
-            console.error(`Failed to fetch student count for ${tableType} after all retries`);
-            if (!studentsInput.value || studentsInput.value.trim() === '') {
-                studentsInput.value = '';
-            }
-        }
+        console.error(`[reg4] Sessional count failed for ${tableType}:`, error);
     }
-    
+
     updateTableCounts();
 }
 
@@ -4170,7 +4291,7 @@ function addClassTestRow() {
                 <option value="">Select Course</option>
             </select>
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="updateClassTestCount(this); updateTableCounts();"></td>
+        <td><input type="text" class="form-control form-control-sm" name="class_test_section[]" placeholder="A/B/Full" onchange="onClassTestSectionChange(this)"></td>
         <td>
             <select class="form-select form-select-sm teacher-name-select" name="class_test_teacher_select[]" onchange="onTeacherNameChange(this, 'class_test')">
                 <option value="">Select Teacher</option>
@@ -4478,6 +4599,8 @@ function toggleSectionDisabled(key, forceDisabled) {
             ? '<i class="fas fa-check me-1"></i>Enable'
             : '<i class="fas fa-ban me-1"></i>Disable';
     }
+
+    try { updateTableCounts(); } catch (e) { /* ignore */ }
 }
 
 // Return an array of section keys that are currently disabled.
@@ -4537,7 +4660,10 @@ const AUTOFETCH_SECTIONS = {
     },
     class_test: {
         clearTables: ['table_class_test'],
-        run: () => autoLoadClassTestTableWithAssignments(true)
+        run: () => {
+            bumpClassTestStudentCountGeneration('autofetch-button');
+            return autoLoadClassTestTableWithAssignments(true);
+        }
     },
     moderation_committee: {
         clearTables: ['table_moderation_committee'],
@@ -4548,11 +4674,11 @@ const AUTOFETCH_SECTIONS = {
     },
     sessional_assessment: {
         clearTables: ['table_sessional_assessment'],
-        run: () => autoLoadSessionalTablesWithAssignments()
+        run: () => autoLoadSessionalTablesWithAssignments(true, 'sessional_assessment')
     },
     sessional_viva: {
         clearTables: ['table_sessional_viva'],
-        run: () => autoLoadSessionalTablesWithAssignments()
+        run: () => autoLoadSessionalTablesWithAssignments(true, 'sessional_viva')
     },
     script_scrutiny: {
         clearTables: ['table_script_scrutiny'],
@@ -4741,29 +4867,37 @@ function collectFormData() {
     
     // Section 6: Sessional Assessment
     formData.sessional_assessment = [];
-    document.querySelectorAll('#table_sessional_assessment tbody tr').forEach(row => {
-        const course = row.querySelector('select[name="sessional_assessment_course[]"]')?.value || '';
-        const teacherSelect = row.querySelector('select[name="sessional_assessment_teacher_select[]"]')?.value || '';
-        const teacherCustom = row.querySelector('input.sessional-assessment-custom-name')?.value || '';
-        const teacher = (teacherSelect === '__CUSTOM__' || !teacherSelect) ? teacherCustom : teacherSelect;
-        const students = row.querySelector('input[name="sessional_assessment_students[]"]')?.value || '0';
-        if (course || teacher) {
-            formData.sessional_assessment.push({ course, teacher, students });
-        }
-    });
+    if (!document.querySelector('#table_sessional_assessment')?.closest('.section-container')?.classList.contains('section-disabled')) {
+        document.querySelectorAll('#table_sessional_assessment tbody tr').forEach(row => {
+            const course = row.querySelector('select[name="sessional_assessment_course[]"]')?.value || '';
+            const teacherSelect = row.querySelector('select[name="sessional_assessment_teacher_select[]"]')?.value
+                || row.querySelector('select[name="sessional_assessment_teacher[]"]')?.value || '';
+            const teacherCustom = row.querySelector('input.sessional-assessment-custom-name')?.value
+                || row.querySelector('input[name="sessional_assessment_teacher[]"]')?.value || '';
+            const teacher = (teacherSelect === '__CUSTOM__' || !teacherSelect) ? teacherCustom : teacherSelect;
+            const students = row.querySelector('input[name="sessional_assessment_students[]"]')?.value || '0';
+            if (course || teacher) {
+                formData.sessional_assessment.push({ course, teacher, students });
+            }
+        });
+    }
     
     // Section 7: Sessional Viva
     formData.sessional_viva = [];
-    document.querySelectorAll('#table_sessional_viva tbody tr').forEach(row => {
-        const course = row.querySelector('select[name="sessional_viva_course[]"]')?.value || '';
-        const teacherSelect = row.querySelector('select[name="sessional_viva_teacher_select[]"]')?.value || '';
-        const teacherCustom = row.querySelector('input.sessional-viva-custom-name')?.value || '';
-        const teacher = (teacherSelect === '__CUSTOM__' || !teacherSelect) ? teacherCustom : teacherSelect;
-        const students = row.querySelector('input[name="sessional_viva_students[]"]')?.value || '0';
-        if (course || teacher) {
-            formData.sessional_viva.push({ course, teacher, students });
-        }
-    });
+    if (!document.querySelector('#table_sessional_viva')?.closest('.section-container')?.classList.contains('section-disabled')) {
+        document.querySelectorAll('#table_sessional_viva tbody tr').forEach(row => {
+            const course = row.querySelector('select[name="sessional_viva_course[]"]')?.value || '';
+            const teacherSelect = row.querySelector('select[name="sessional_viva_teacher_select[]"]')?.value
+                || row.querySelector('select[name="sessional_viva_teacher[]"]')?.value || '';
+            const teacherCustom = row.querySelector('input.sessional-viva-custom-name')?.value
+                || row.querySelector('input[name="sessional_viva_teacher[]"]')?.value || '';
+            const teacher = (teacherSelect === '__CUSTOM__' || !teacherSelect) ? teacherCustom : teacherSelect;
+            const students = row.querySelector('input[name="sessional_viva_students[]"]')?.value || '0';
+            if (course || teacher) {
+                formData.sessional_viva.push({ course, teacher, students });
+            }
+        });
+    }
     
     // Section 8: Script Scrutiny
     formData.script_scrutiny = [];
@@ -5486,12 +5620,15 @@ function populateTableData(data) {
                         }
                     }
                     
-                    // Populate students
+                    // Students: restore saved value; registration autoValue loaded later for Restore.
                     const studentsInput = row.querySelector('input[name="sessional_assessment_students[]"]');
-                    if (studentsInput && item.students) {
-                        studentsInput.value = item.students;
-                        // Mark as saved value to prevent auto-fetch from overwriting
-                        markAsSavedValue(studentsInput, item.students);
+                    if (studentsInput) {
+                        studentsInput.readOnly = false;
+                        delete studentsInput.dataset.countLocked;
+                        if (item.students !== undefined && item.students !== null && String(item.students).trim() !== '') {
+                            studentsInput.value = String(item.students);
+                            markAsSavedValue(studentsInput, studentsInput.value);
+                        }
                     }
                 });
                     updateTableCounts();
@@ -5579,12 +5716,15 @@ function populateTableData(data) {
                         }
                     }
                     
-                    // Populate students
+                    // Students: restore saved value; registration autoValue loaded later for Restore.
                     const studentsInput = row.querySelector('input[name="sessional_viva_students[]"]');
-                    if (studentsInput && item.students) {
-                        studentsInput.value = item.students;
-                        // Mark as saved value to prevent auto-fetch from overwriting
-                        markAsSavedValue(studentsInput, item.students);
+                    if (studentsInput) {
+                        studentsInput.readOnly = false;
+                        delete studentsInput.dataset.countLocked;
+                        if (item.students !== undefined && item.students !== null && String(item.students).trim() !== '') {
+                            studentsInput.value = String(item.students);
+                            markAsSavedValue(studentsInput, studentsInput.value);
+                        }
                     }
                 });
                     updateTableCounts();
@@ -5655,14 +5795,14 @@ function populateTableData(data) {
                 });
             }
             
-            // Table 4: Class Test
+            // Table 4: Class Test — restore saved rows (including manual teacher edits).
+            // Curriculum refresh only happens via Autofetch; then Save locks that in.
             if (data.class_test && Array.isArray(data.class_test)) {
                 const rows = document.querySelectorAll('#table_class_test tbody tr');
                 data.class_test.forEach((item, index) => {
                     if (rows[index]) {
                         const row = rows[index];
                         
-                        // Populate course
                         if (item.course) {
                             const courseSelect = row.querySelector('select[name="class_test_course[]"]');
                             if (courseSelect) {
@@ -5677,18 +5817,14 @@ function populateTableData(data) {
                             }
                         }
                         
-                        // Populate section
                         if (item.section) {
                             const sectionInput = row.querySelector('input[name="class_test_section[]"]');
                             if (sectionInput) {
                                 sectionInput.value = item.section;
-                                // Trigger updateClassTestCount to set class test number
                                 updateClassTestCount(sectionInput);
                             }
                         }
                         
-                        // Populate other fields (teacher, designation, class_test_no)
-                        // Note: students will be refreshed based on section
                         if (item.teacher) {
                             const teacherSelect = row.querySelector('select[name="class_test_teacher_select[]"]');
                             const teacherInput = row.querySelector('input.class-test-custom-name');
@@ -5717,22 +5853,24 @@ function populateTableData(data) {
                             const classTestInput = row.querySelector('input[name="class_test_no[]"]');
                             if (classTestInput) classTestInput.value = item.class_test;
                         }
-                        
-                        // Refresh student count based on section (don't use saved value, fetch correct one)
-                        setTimeout(() => {
-                            const courseSelect = row.querySelector('select[name="class_test_course[]"]');
-                            const studentsInput = row.querySelector('input[name="class_test_students[]"]');
-                            if (courseSelect && courseSelect.value && studentsInput) {
-                                // Clear saved value and fetch correct count for section
-                                studentsInput.value = '';
-                                fetchStudentCountForClassTest(courseSelect, studentsInput);
+
+                        // Students: keep saved manual/fetched value on load.
+                        const studentsInput = row.querySelector('input[name="class_test_students[]"]');
+                        if (studentsInput) {
+                            studentsInput.readOnly = false;
+                            delete studentsInput.dataset.countLocked;
+                            if (item.students !== undefined && item.students !== null && String(item.students).trim() !== '') {
+                                studentsInput.value = String(item.students);
+                                markAsSavedValue(studentsInput, studentsInput.value);
                             }
-                        }, 200);
+                        }
                     }
                 });
+                // Keep saved student counts on screen; store registration counts for Restore.
+                applyClassTestStudentCountsFromAssignments();
             }
             
-            // Table 6: Sessional Assessment
+            // Table 6: Sessional Assessment — restore courses; keep saved student counts
             if (data.sessional_assessment && Array.isArray(data.sessional_assessment)) {
                 const tbody = document.querySelector('#table_sessional_assessment tbody');
                 if (tbody) {
@@ -5740,7 +5878,6 @@ function populateTableData(data) {
                     data.sessional_assessment.forEach((item, index) => {
                         if (rows[index] && item.course) {
                             const courseSelect = rows[index].querySelector('select[name="sessional_assessment_course[]"]');
-                            const studentsInput = rows[index].querySelector('input[name="sessional_assessment_students[]"]');
                             if (courseSelect) {
                                 const options = Array.from(courseSelect.options);
                                 for (let opt of options) {
@@ -5750,18 +5887,22 @@ function populateTableData(data) {
                                     }
                                 }
                             }
-                            // Auto-fetch and auto-populate student count like other tables
-                            if (courseSelect && courseSelect.value && studentsInput) {
-                                setTimeout(() => {
-                                    onSessionalCourseChange(courseSelect, 'sessional_assessment');
-                                }, 200);
+                            const studentsInput = rows[index].querySelector('input[name="sessional_assessment_students[]"]');
+                            if (studentsInput) {
+                                studentsInput.readOnly = false;
+                                delete studentsInput.dataset.countLocked;
+                                if (item.students !== undefined && item.students !== null && String(item.students).trim() !== '') {
+                                    studentsInput.value = String(item.students);
+                                    markAsSavedValue(studentsInput, studentsInput.value);
+                                }
                             }
                         }
                     });
+                    applySessionalStudentCountsFromAssignments('sessional_assessment');
                 }
             }
             
-            // Table 7: Sessional Viva
+            // Table 7: Sessional Viva — restore courses; keep saved student counts
             if (data.sessional_viva && Array.isArray(data.sessional_viva)) {
                 const tbody = document.querySelector('#table_sessional_viva tbody');
                 if (tbody) {
@@ -5769,7 +5910,6 @@ function populateTableData(data) {
                     data.sessional_viva.forEach((item, index) => {
                         if (rows[index] && item.course) {
                             const courseSelect = rows[index].querySelector('select[name="sessional_viva_course[]"]');
-                            const studentsInput = rows[index].querySelector('input[name="sessional_viva_students[]"]');
                             if (courseSelect) {
                                 const options = Array.from(courseSelect.options);
                                 for (let opt of options) {
@@ -5779,14 +5919,18 @@ function populateTableData(data) {
                                     }
                                 }
                             }
-                            // Auto-fetch and auto-populate student count like other tables
-                            if (courseSelect && courseSelect.value && studentsInput) {
-                                setTimeout(() => {
-                                    onSessionalCourseChange(courseSelect, 'sessional_viva');
-                                }, 200);
+                            const studentsInput = rows[index].querySelector('input[name="sessional_viva_students[]"]');
+                            if (studentsInput) {
+                                studentsInput.readOnly = false;
+                                delete studentsInput.dataset.countLocked;
+                                if (item.students !== undefined && item.students !== null && String(item.students).trim() !== '') {
+                                    studentsInput.value = String(item.students);
+                                    markAsSavedValue(studentsInput, studentsInput.value);
+                                }
                             }
                         }
                     });
+                    applySessionalStudentCountsFromAssignments('sessional_viva');
                 }
             }
             
@@ -6126,6 +6270,7 @@ function exportPDF() {
 // Auto-load from localStorage and URL on page load
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🔄 DOMContentLoaded - Starting form load process');
+    console.log('[reg4] Remuneration student counts = registration only (no ClassStudent / get-student-count)');
     
     try {
         // Inject Disable/Enable toggle buttons into each disableable section

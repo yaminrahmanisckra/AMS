@@ -266,3 +266,11 @@ instance/
 *.sqlite3
 test.pdf
 app.backup 
+# Runtime leftovers
+app.pid
+*.log
+passenger_wsgi.log
+startup_error.log
+venv_feedback/
+venv_test/
+.venv/

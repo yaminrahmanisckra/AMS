@@ -18,23 +18,38 @@ PassengerPython "/home/gronthon/virtualenv/kulawams.xyz/3.12/bin/python"
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
     Header set X-XSS-Protection "1; mode=block"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 Options -Indexes
 AddDefaultCharset UTF-8
-# Protect sensitive files
-<FilesMatch "^(\.env|\.git|requirements\.txt|\.pyc|passenger_wsgi\.py)$">
+# Protect sensitive files (Phase 2 — deploy separately from MAIL/SetEnv changes)
+<FilesMatch "(?i)^(\.env|\.git|.*\.py|.*\.pyc|.*\.sql|.*\.log|.*\.db|.*\.sqlite3?|.*\.bak|.*\.zip|requirements\.txt|passenger_wsgi\.py|.*\.md|.*\.sh)$">
+    Require all denied
+</FilesMatch>
+<IfModule mod_authz_core.c>
+    <DirectoryMatch "(?i)/(logs|instance|migrations|\.git|venv|scripts/sql)(/|$)">
+        Require all denied
+    </DirectoryMatch>
+</IfModule>
+# Fallback for older Apache authz
+<FilesMatch "(?i)\.(py|pyc|sql|log|db|sqlite|sqlite3|bak|env)$">
     Order allow,deny
     Deny from all
 </FilesMatch>
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION BEGIN
+# MAIL_* must be set in cPanel Application Environment (not committed).
+# After rotating the recovery@ mailbox password, set:
+#   MAIL_SERVER=localhost  (was mis-cased as Mail_SERVER)
+#   MAIL_USERNAME / MAIL_DEFAULT_SENDER / MAIL_PORT / MAIL_USE_TLS / MAIL_USE_SSL / MAIL_PASSWORD
+# Do not save MAIL changes in the same File Manager write as the FilesMatch block above.
 <IfModule Litespeed>
-SetEnv Mail_SERVER localhost
-SetEnv MAIL_USERNAME recovery@kulawams.xyz
-SetEnv MAIL_DEFAULT_SENDER recovery@kulawams.xyz
-SetEnv MAIL_USE_TLS False
-SetEnv MAIL_USE_SSL False
-SetEnv MAIL_PORT 25
-SetEnv MAIL_PASSWORD 24010905iI
+# SetEnv MAIL_SERVER localhost
+# SetEnv MAIL_USERNAME recovery@kulawams.xyz
+# SetEnv MAIL_DEFAULT_SENDER recovery@kulawams.xyz
+# SetEnv MAIL_USE_TLS False
+# SetEnv MAIL_USE_SSL False
+# SetEnv MAIL_PORT 25
+# SetEnv MAIL_PASSWORD <set-in-cpanel-after-rotation>
 </IfModule>
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION END
 

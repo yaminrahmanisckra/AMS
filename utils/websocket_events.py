@@ -71,7 +71,7 @@ def emit_session_created(session_data):
     if socketio:
         socketio.emit('session_created', {
             'data': session_data
-        }, namespace='/', broadcast=True)
+        }, namespace='/')
 
 
 def emit_marks_update(session_id, marks_data):
@@ -99,7 +99,7 @@ def emit_result_updated(result_data):
     if socketio:
         socketio.emit('result_updated', {
             'data': result_data
-        }, namespace='/', broadcast=True)
+        }, namespace='/')
 
 
 def emit_routine_updated(routine_data=None):
@@ -112,7 +112,7 @@ def emit_routine_updated(routine_data=None):
     if socketio:
         socketio.emit('routine_updated', {
             'data': routine_data or {}
-        }, namespace='/', broadcast=True)
+        }, namespace='/')
 
 
 def emit_course_updated(course_data):
@@ -125,7 +125,7 @@ def emit_course_updated(course_data):
     if socketio:
         socketio.emit('course_updated', {
             'data': course_data
-        }, namespace='/', broadcast=True)
+        }, namespace='/')
 
 
 def emit_student_updated(student_data):
@@ -138,5 +138,5 @@ def emit_student_updated(student_data):
     if socketio:
         socketio.emit('student_updated', {
             'data': student_data
-        }, namespace='/', broadcast=True)
+        }, namespace='/')
 

@@ -90,7 +90,7 @@ def create_app():
         else:
             app.config[k] = str(val).strip()
 
-    app.config['DEFAULT_STUDENT_PASSWORD'] = os.getenv('DEFAULT_STUDENT_PASSWORD', 'Student@123')
+    app.config['DEFAULT_STUDENT_PASSWORD'] = os.getenv('DEFAULT_STUDENT_PASSWORD') or None
 
     mail.init_app(app)
     db.init_app(app)

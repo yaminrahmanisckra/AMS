@@ -26,9 +26,14 @@
                             <input type="file" class="form-control" id="photo" name="photo" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
                             <small class="text-muted">Max size: 16MB. Allowed: PNG, JPG, JPEG, GIF, WEBP</small>
                         </div>
+                        {% set profile_user_roles = parse_roles(current_user.role) %}
+                        {% set name_locked = (not is_admin(current_user)) and (current_user.teacher_id or ('teacher' in profile_user_roles or 'head' in profile_user_roles or 'dean' in profile_user_roles)) %}
                         <div class="mb-3">
                             <label for="full_name" class="form-label">Full Name</label>
-                            <input type="text" class="form-control" id="full_name" name="full_name" value="{{ current_user.full_name }}" required>
+                            <input type="text" class="form-control" id="full_name" name="full_name" value="{{ current_user.full_name }}" {% if name_locked %}readonly{% endif %} required>
+                            {% if name_locked %}
+                            <small class="text-muted">Your name is managed by the institution. Contact an administrator to request a change.</small>
+                            {% endif %}
                         </div>
                         <div class="mb-3">
                             <label for="email" class="form-label">Email</label>
@@ -49,6 +54,11 @@
                             <input type="text" class="form-control" id="bank_account_no" name="bank_account_no" value="{% if teacher_record and teacher_record.bank_account_no %}{{ teacher_record.bank_account_no }}{% endif %}" placeholder="Enter your bank account number">
                             <small class="text-muted">Bank account number for remuneration purposes</small>
                         </div>
+                        <div class="mb-3">
+                            <label for="tin_number" class="form-label">TIN Number</label>
+                            <input type="text" class="form-control" id="tin_number" name="tin_number" value="{% if teacher_record and teacher_record.tin_number %}{{ teacher_record.tin_number }}{% endif %}" placeholder="Enter your TIN number">
+                            <small class="text-muted">Taxpayer Identification Number (TIN)</small>
+                        </div>
                         {% endif %}
                         
                         <hr>
@@ -58,12 +68,22 @@
                             <select class="form-select" id="theme" name="theme">
                                 <option value="default" {% if not current_user.theme or current_user.theme == 'default' %}selected{% endif %}>Default (Purple Gradient)</option>
                                 <option value="blue" {% if current_user.theme == 'blue' %}selected{% endif %}>Blue</option>
-                                <option value="green" {% if current_user.theme == 'green' %}selected{% endif %}>Green</option>
-                                <option value="red" {% if current_user.theme == 'red' %}selected{% endif %}>Red</option>
-                                <option value="orange" {% if current_user.theme == 'orange' %}selected{% endif %}>Orange</option>
-                                <option value="teal" {% if current_user.theme == 'teal' %}selected{% endif %}>Teal</option>
-                                <option value="pink" {% if current_user.theme == 'pink' %}selected{% endif %}>Pink</option>
+                                <option value="sky" {% if current_user.theme == 'sky' %}selected{% endif %}>Sky Blue</option>
+                                <option value="cyan" {% if current_user.theme == 'cyan' %}selected{% endif %}>Cyan</option>
+                                <option value="navy" {% if current_user.theme == 'navy' %}selected{% endif %}>Navy</option>
                                 <option value="indigo" {% if current_user.theme == 'indigo' %}selected{% endif %}>Indigo</option>
+                                <option value="violet" {% if current_user.theme == 'violet' %}selected{% endif %}>Violet</option>
+                                <option value="green" {% if current_user.theme == 'green' %}selected{% endif %}>Green</option>
+                                <option value="emerald" {% if current_user.theme == 'emerald' %}selected{% endif %}>Emerald</option>
+                                <option value="lime" {% if current_user.theme == 'lime' %}selected{% endif %}>Lime</option>
+                                <option value="teal" {% if current_user.theme == 'teal' %}selected{% endif %}>Teal</option>
+                                <option value="red" {% if current_user.theme == 'red' %}selected{% endif %}>Red</option>
+                                <option value="rose" {% if current_user.theme == 'rose' %}selected{% endif %}>Rose</option>
+                                <option value="pink" {% if current_user.theme == 'pink' %}selected{% endif %}>Pink</option>
+                                <option value="orange" {% if current_user.theme == 'orange' %}selected{% endif %}>Orange</option>
+                                <option value="amber" {% if current_user.theme == 'amber' %}selected{% endif %}>Amber</option>
+                                <option value="brown" {% if current_user.theme == 'brown' %}selected{% endif %}>Brown</option>
+                                <option value="slate" {% if current_user.theme == 'slate' %}selected{% endif %}>Slate</option>
                             </select>
                             <small class="text-muted">Select your preferred color theme for the application</small>
                         </div>
@@ -96,12 +116,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const themeGradients = {
         'default': 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
         'blue': 'linear-gradient(135deg, #3b82f6 0%, #1e40af 50%, #1e3a8a 100%)',
+        'sky': 'linear-gradient(135deg, #38bdf8 0%, #0284c7 50%, #0369a1 100%)',
+        'cyan': 'linear-gradient(135deg, #22d3ee 0%, #0891b2 50%, #0e7490 100%)',
+        'navy': 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #172554 100%)',
+        'indigo': 'linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%)',
+        'violet': 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #5b21b6 100%)',
         'green': 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
-        'red': 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)',
-        'orange': 'linear-gradient(135deg, #f97316 0%, #ea580c 50%, #c2410c 100%)',
+        'emerald': 'linear-gradient(135deg, #34d399 0%, #059669 50%, #064e3b 100%)',
+        'lime': 'linear-gradient(135deg, #84cc16 0%, #65a30d 50%, #4d7c0f 100%)',
         'teal': 'linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #0f766e 100%)',
+        'red': 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)',
+        'rose': 'linear-gradient(135deg, #fb7185 0%, #e11d48 50%, #be123c 100%)',
         'pink': 'linear-gradient(135deg, #ec4899 0%, #db2777 50%, #be185d 100%)',
-        'indigo': 'linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%)'
+        'orange': 'linear-gradient(135deg, #f97316 0%, #ea580c 50%, #c2410c 100%)',
+        'amber': 'linear-gradient(135deg, #fbbf24 0%, #d97706 50%, #b45309 100%)',
+        'brown': 'linear-gradient(135deg, #a16207 0%, #854d0e 50%, #713f12 100%)',
+        'slate': 'linear-gradient(135deg, #64748b 0%, #475569 50%, #334155 100%)'
     };
     
     // Get theme dropdown element

@@ -7,14 +7,12 @@ from utils.window_utils import (
     get_or_404_for_window,
     DEFAULT_WINDOW_ID,
 )
-from sqlalchemy import or_
-from role_utils import is_admin
+from sqlalchemy import or_, func, text, inspect
+from role_utils import is_admin, parse_roles, role_required
 from extensions import db
-from sqlalchemy import func, text
 from .models import Teacher, Room, AssignedCourse, Routine, SavedRoutine
 from blueprints.course_management.models import Course, DutyAssignment
 from .forms import TeacherForm, RoomForm, AssignCourseForm
-from role_utils import parse_roles
 from datetime import datetime
 from collections import defaultdict
 from io import BytesIO
@@ -114,25 +112,71 @@ def _record_matches_semester(academic_session, year, term, batch, semester):
     return True
 
 
-def _semester_contexts_for_routine():
-    """Active semester rows for the routine sidebar (one option per context)."""
-    from utils.semester_utils import semester_context_label
+def _semester_group_key(semester):
+    """Group key: same session + year + term (+ window) share one routine dropdown entry."""
+    return (
+        str(getattr(semester, 'academic_session', None) or '').strip(),
+        str(getattr(semester, 'year', None) or '').strip(),
+        str(getattr(semester, 'term', None) or '').strip(),
+        getattr(semester, 'window_id', None),
+    )
 
+
+def _semester_contexts_for_routine():
+    """Active semester options for the routine sidebar.
+
+    Multiple ActiveSemesterConfig rows that share the same academic session,
+    year, and term (different batches) collapse into one dropdown entry.
+    """
     contexts = []
+    seen = {}
+
     for semester in _active_semesters_for_routine():
-        label = semester_context_label(semester)
+        key = _semester_group_key(semester)
+        batch = str(semester.batch or '').strip()
+        if batch.lower() == 'none':
+            batch = ''
+
+        if key in seen:
+            existing = contexts[seen[key]]
+            existing['semester_ids'].append(semester.id)
+            if batch and batch not in existing['batches']:
+                existing['batches'].append(batch)
+            continue
+
+        # Label without batch — batches are merged under one year/term/session
+        parts = []
+        if semester.year:
+            parts.append(str(semester.year).strip())
+        if semester.term:
+            parts.append(str(semester.term).strip())
+        if semester.academic_session:
+            parts.append(str(semester.academic_session).strip())
+        label = ' · '.join(parts) if parts else f'Semester #{semester.id}'
         if semester.operational_window and semester.window_id != _routine_window_id():
             label = f'{semester.operational_window.name} · {label}'
+
+        seen[key] = len(contexts)
         contexts.append({
             'id': semester.id,
+            'semester_ids': [semester.id],
             'label': label,
-            'academic_session': semester.academic_session or '',
-            'year': semester.year or '',
-            'term': semester.term or '',
-            'batch': semester.batch or '',
+            'academic_session': str(semester.academic_session or '').strip(),
+            'year': str(semester.year or '').strip(),
+            'term': str(semester.term or '').strip(),
+            'batch': '',
+            'batches': [batch] if batch else [],
             'window_id': semester.window_id,
         })
     return contexts
+
+
+def _sibling_semesters_for(semester):
+    """All active semester rows sharing session/year/term with the given one."""
+    if not semester:
+        return []
+    key = _semester_group_key(semester)
+    return [s for s in _active_semesters_for_routine() if _semester_group_key(s) == key]
 
 
 def _get_active_semester_by_id(semester_id):
@@ -306,6 +350,10 @@ def _batches_for_active_semesters():
     """Batch numbers derived from active semester contexts (legacy helper)."""
     batches = set()
     for context in _semester_contexts_for_routine():
+        for batch_value in context.get('batches') or []:
+            batch_value = str(batch_value or '').strip()
+            if batch_value:
+                batches.add(batch_value)
         batch_value = str(context.get('batch') or '').strip()
         if batch_value:
             batches.add(batch_value)
@@ -357,6 +405,200 @@ def _build_routine_course_entry(assignment, batch):
             'short_name': teacher.call_sign or getattr(teacher, 'short_name', ''),
         }] if teacher else [],
     }
+
+
+def _assignment_part_label(section):
+    section = str(section or '').strip()
+    if section in ('A', 'B'):
+        return f'Part {section}'
+    return 'Full'
+
+
+def _sync_routine_teachers_from_assignment(assignment, new_teacher, old_teacher_id=None):
+    """Update denormalized teacher fields on matching routine rows when curriculum assignment changes."""
+    from sqlalchemy import text, inspect
+
+    if not assignment or not new_teacher:
+        return 0
+
+    course = assignment.course
+    course_code = (course.course_code if course else '') or ''
+    course_code = str(course_code).strip()
+    if not course_code:
+        return 0
+
+    call_sign = new_teacher.call_sign or getattr(new_teacher, 'short_name', '') or ''
+    year = str(assignment.year or '').strip()
+    term = str(assignment.term or '').strip()
+    batch = str(assignment.batch or '').strip()
+    part = _assignment_part_label(assignment.section)
+
+    try:
+        routine_columns = {col['name'] for col in inspect(db.engine).get_columns('routine')}
+    except Exception:
+        routine_columns = set()
+
+    where_parts = [
+        "course_code = :code",
+        "COALESCE(year, '') = :year",
+        "COALESCE(term, '') = :term",
+    ]
+    params = {
+        'new_tid': new_teacher.id,
+        'call_sign': call_sign,
+        'code': course_code,
+        'year': year,
+        'term': term,
+    }
+
+    if 'batch' in routine_columns and batch:
+        where_parts.append("COALESCE(batch, '') = :batch")
+        params['batch'] = batch
+
+    if 'part' in routine_columns and part:
+        where_parts.append("(COALESCE(part, '') = :part OR COALESCE(part, '') = '' OR :part = 'Full')")
+        params['part'] = part
+
+    if old_teacher_id:
+        where_parts.append("(teacher_id = :old_tid OR teacher_id IS NULL)")
+        params['old_tid'] = old_teacher_id
+
+    if 'is_custom' in routine_columns:
+        where_parts.append("(is_custom IS NULL OR is_custom = 0)")
+
+    sql = f"""
+        UPDATE routine
+        SET teacher_id = :new_tid, teacher_short_name = :call_sign
+        WHERE {' AND '.join(where_parts)}
+    """
+    try:
+        result = db.session.execute(text(sql), params)
+        return result.rowcount or 0
+    except Exception as e:
+        current_app.logger.warning(f'Could not sync routine teachers for assignment {getattr(assignment, "id", None)}: {e}')
+        return 0
+
+
+def _enrich_routine_entries_with_live_teachers(routine_data, persist=False, saved_routine_id=None):
+    """Overlay current curriculum teacher/callsign onto loaded routine entries.
+
+    When persist=True, also write updated teacher fields back to the routine table
+    so exports/PDFs stay in sync without requiring a manual Save.
+    """
+    from blueprints.course_management.models import CourseSessionAssignment
+    from sqlalchemy import text, inspect
+
+    if not routine_data:
+        return routine_data
+
+    try:
+        assignments = _query_for_routine_window(CourseSessionAssignment).all()
+    except Exception as e:
+        current_app.logger.warning(f'Could not load assignments to enrich routine teachers: {e}')
+        return routine_data
+
+    by_key = {}
+    by_loose = {}
+    for assignment in assignments:
+        course = assignment.course
+        if not course or not course.course_code:
+            continue
+        code = str(course.course_code).strip()
+        year = str(assignment.year or '').strip()
+        term = str(assignment.term or '').strip()
+        batch = str(assignment.batch or '').strip()
+        part = _assignment_part_label(assignment.section)
+        teacher = assignment.teacher
+        if not teacher and assignment.teacher_id:
+            teacher = Teacher.query.get(assignment.teacher_id)
+        payload = {
+            'teacher_id': teacher.id if teacher else assignment.teacher_id,
+            'teacher_short_name': (
+                (teacher.call_sign or getattr(teacher, 'short_name', '') or '') if teacher else ''
+            ),
+            'year': year,
+            'term': term,
+            'batch': batch,
+            'part': part,
+        }
+        by_key[f'{code}|{year}|{term}|{batch}|{part}'] = payload
+        by_loose[f'{code}|{batch}|{part}'] = payload
+
+    pending_writes = []
+    for entry in routine_data:
+        if entry.get('is_custom'):
+            continue
+        code = str(entry.get('course_code') or '').strip()
+        if not code:
+            continue
+        year = str(entry.get('year') or '').strip()
+        term = str(entry.get('term') or '').strip()
+        batch = str(entry.get('batch') or '').strip()
+        part = str(entry.get('part') or 'Full').strip() or 'Full'
+        day = entry.get('day') or ''
+        slot = entry.get('slot') or ''
+        room_number = entry.get('room_number') or ''
+
+        match = by_key.get(f'{code}|{year}|{term}|{batch}|{part}')
+        if not match:
+            match = by_loose.get(f'{code}|{batch}|{part}')
+        if not match:
+            continue
+
+        new_short = match.get('teacher_short_name') or ''
+        new_tid = match.get('teacher_id')
+        old_short = str(entry.get('teacher_short_name') or '')
+        old_tid = entry.get('teacher_id')
+
+        teacher_changed = (
+            (new_short and new_short != old_short) or
+            (new_tid and str(new_tid) != str(old_tid or ''))
+        )
+
+        if new_short:
+            entry['teacher_short_name'] = new_short
+        if new_tid:
+            entry['teacher_id'] = new_tid
+        if not year and match.get('year'):
+            entry['year'] = match['year']
+        if not term and match.get('term'):
+            entry['term'] = match['term']
+        if not batch and match.get('batch'):
+            entry['batch'] = match['batch']
+
+        if persist and teacher_changed and day and slot and room_number:
+            pending_writes.append({
+                'new_tid': new_tid,
+                'call_sign': new_short,
+                'day': day,
+                'slot': slot,
+                'room': room_number,
+                'code': code,
+                'saved_routine_id': saved_routine_id,
+            })
+
+    if persist and pending_writes:
+        try:
+            routine_columns = {col['name'] for col in inspect(db.engine).get_columns('routine')}
+            has_saved_id = 'saved_routine_id' in routine_columns
+            for write in pending_writes:
+                where = "day = :day AND time_slot = :slot AND room_number = :room AND course_code = :code"
+                params = dict(write)
+                if has_saved_id and saved_routine_id:
+                    where += " AND saved_routine_id = :saved_routine_id"
+                else:
+                    params.pop('saved_routine_id', None)
+                db.session.execute(
+                    text(f"UPDATE routine SET teacher_id = :new_tid, teacher_short_name = :call_sign WHERE {where}"),
+                    params,
+                )
+            db.session.commit()
+            current_app.logger.info(f'Persisted live teacher sync on {len(pending_writes)} routine row(s)')
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.warning(f'Could not persist routine teacher sync: {e}')
+
+    return routine_data
 
 
 def _find_assignment_for_registration(registration, batch, semester=None):
@@ -614,6 +856,8 @@ def public_routines():
 
 # Teacher Management
 @routine_management_bp.route('/teachers', methods=['GET', 'POST'])
+@login_required
+@role_required('admin', 'head', 'officer')
 def manage_teachers():
     form = TeacherForm()
     if form.validate_on_submit():
@@ -628,6 +872,8 @@ def manage_teachers():
     return render_template('routine_management/teachers.html', form=form, teachers=teachers)
 
 @routine_management_bp.route('/teacher/edit/<int:id>', methods=['POST'])
+@login_required
+@role_required('admin', 'head', 'officer')
 def edit_teacher(id):
     from user_models import User
     
@@ -674,6 +920,7 @@ def edit_teacher(id):
 
 @routine_management_bp.route('/teacher/delete/<int:id>', methods=['POST'])
 @login_required
+@role_required('admin', 'head')
 def delete_teacher(id):
     """Delete a teacher and all related data"""
     teacher = _get_teacher_for_routine_or_404(id)
@@ -753,6 +1000,8 @@ def delete_teacher(id):
 
 # Room Management
 @routine_management_bp.route('/rooms', methods=['GET', 'POST'])
+@login_required
+@role_required('admin', 'head', 'officer')
 def manage_rooms():
     form = RoomForm()
     if form.validate_on_submit():
@@ -767,6 +1016,7 @@ def manage_rooms():
 
 @routine_management_bp.route('/room/delete/<int:id>', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def delete_room(id):
     """Delete a room"""
     try:
@@ -1373,16 +1623,26 @@ def get_courses_batch_wise():
         semester_id = request.args.get('semester_id', type=int)
         batch = request.args.get('batch', '').strip()
         semester = _get_active_semester_by_id(semester_id)
+        sibling_semesters = _sibling_semesters_for(semester) if semester else []
+        sibling_batches = []
+        for sib in sibling_semesters:
+            sib_batch = str(sib.batch or '').strip()
+            if sib_batch and sib_batch.lower() != 'none' and sib_batch not in sibling_batches:
+                sibling_batches.append(sib_batch)
 
         if semester:
-            batch = str(semester.batch or batch).strip()
+            # Merged year/term context: do not pin courses to a single batch
+            batch = ''
         elif not batch:
             return jsonify({
                 'success': False,
                 'message': 'semester_id or batch parameter is required'
             }), 400
 
-        response_key = batch or (str(semester.id) if semester else batch or 'all')
+        response_key = (
+            f"{semester.year}_{semester.term}_{semester.academic_session or 'na'}"
+            if semester else (batch or 'all')
+        )
 
         if semester:
             if semester.window_id and semester.window_id != _routine_window_id():
@@ -1405,7 +1665,8 @@ def get_courses_batch_wise():
 
         current_app.logger.info(
             f'Found {len(assignments)} assignment(s) for '
-            f'semester_id={semester_id} batch={batch} window={_routine_window_id()}'
+            f'semester_id={semester_id} siblings={len(sibling_semesters)} '
+            f'batches={sibling_batches or [batch]} window={_routine_window_id()}'
         )
 
         courses_by_batch = {response_key: []}
@@ -1416,19 +1677,39 @@ def get_courses_batch_wise():
         def _append_course_entry(course_data):
             if not course_data:
                 return
+            # Dedupe by course identity (not teacher/batch) so multi-batch
+            # registrations for the same year/term don't duplicate cards.
             dedupe_key = (
                 course_data.get('course_code'),
                 course_data.get('part'),
-                course_data.get('teacher_id'),
+                course_data.get('year'),
+                course_data.get('term'),
             )
             if dedupe_key in seen_keys:
+                # Merge additional teachers onto the existing card
+                for existing in courses_list:
+                    if (
+                        existing.get('course_code') == course_data.get('course_code')
+                        and existing.get('part') == course_data.get('part')
+                        and existing.get('year') == course_data.get('year')
+                        and existing.get('term') == course_data.get('term')
+                    ):
+                        existing_ids = {
+                            str(t.get('id')) for t in (existing.get('teachers') or []) if t.get('id') is not None
+                        }
+                        for teacher in (course_data.get('teachers') or []):
+                            tid = teacher.get('id')
+                            if tid is not None and str(tid) not in existing_ids:
+                                existing.setdefault('teachers', []).append(teacher)
+                                existing_ids.add(str(tid))
+                        break
                 return
             seen_keys.add(dedupe_key)
             courses_by_batch[response_key].append(course_data)
             courses_list.append(course_data)
 
         for assignment in assignments:
-            course_data = _build_routine_course_entry(assignment, batch)
+            course_data = _build_routine_course_entry(assignment, assignment.batch or '')
             if not course_data:
                 continue
             _append_course_entry(course_data)
@@ -1469,7 +1750,7 @@ def get_courses_batch_wise():
                 'teacher_id': teacher_a.id if teacher_a else None,
                 'year': assignment.year or '',
                 'term': assignment.term or '',
-                'batch': batch,
+                'batch': assignment.batch or '',
                 'teachers': [],
             }
             if teacher_a:
@@ -1494,31 +1775,43 @@ def get_courses_batch_wise():
                 _window_scope_filter(StudentCourseRegistration, _routine_window_id()),
             )
         )
-        if batch:
+        if sibling_batches:
+            registration_query = registration_query.filter(Student.batch.in_(sibling_batches))
+        elif batch:
             registration_query = registration_query.filter(Student.batch == batch)
 
         for registration, student_batch in registration_query.all():
             if not _is_non_merged_retake_registration(registration):
                 continue
-            if semester and not _registration_matches_semester(registration, semester, student_batch):
+            # Match any sibling semester (same session/year/term, any batch)
+            if sibling_semesters:
+                if not any(
+                    _registration_matches_semester(registration, sib, student_batch)
+                    for sib in sibling_semesters
+                ):
+                    continue
+            elif semester and not _registration_matches_semester(registration, semester, student_batch):
                 continue
-            if not semester and not _matches_any_active_semester(
+            elif not semester and not _matches_any_active_semester(
                 registration.academic_session,
                 registration.year,
                 registration.term,
                 student_batch,
             ):
                 continue
-            assignment = _find_assignment_for_registration(registration, batch, semester=semester)
+            assignment = _find_assignment_for_registration(
+                registration, student_batch or batch, semester=semester
+            )
             if not assignment:
                 continue
-            course_data = _build_routine_course_entry(assignment, batch)
+            course_data = _build_routine_course_entry(assignment, assignment.batch or student_batch or '')
             if course_data:
                 course_data['course_name'] = f"{course_data['course_name']} (Retake)"
             _append_course_entry(course_data)
 
         current_app.logger.info(
-            f'Returning {len(courses_list)} courses for semester_id={semester_id} batch={batch}'
+            f'Returning {len(courses_list)} courses for semester_id={semester_id} '
+            f'batches={sibling_batches or [batch]}'
         )
 
         return jsonify({
@@ -1526,7 +1819,11 @@ def get_courses_batch_wise():
             'courses': courses_list,
             'courses_by_batch': courses_by_batch,
             'semester_id': semester.id if semester else None,
+            'semester_ids': [s.id for s in sibling_semesters] if sibling_semesters else (
+                [semester.id] if semester else []
+            ),
             'batch': batch,
+            'batches': sibling_batches or ([batch] if batch else []),
             'window_id': _routine_window_id(),
         }), 200
 
@@ -2119,6 +2416,12 @@ def get_saved_routine(saved_routine_id):
                                          f"custom_course_name={entry.get('custom_course_name')}")
                 
                 routine_data.append(entry)
+        
+        # Overlay live curriculum teacher/callsign so grid stays in sync (and persist to DB)
+        _enrich_routine_entries_with_live_teachers(
+            routine_data, persist=True, saved_routine_id=saved_routine_id
+        )
+
         payload = {
             'id': sr_row[0],
             'year': sr_row[1],
@@ -2678,42 +2981,74 @@ def download_pdf():
         
         table_data = [header]
 
-        # Batch color palette - MUST match frontend exactly (routine_new.html batchColors)
+        # High-contrast categorical palette — MUST match frontend (routine_new.html batchColors)
         batch_colors_hex = [
-            '#3B82F6',  # Blue
-            '#10B981',  # Green
-            '#F59E0B',  # Amber
-            '#EF4444',  # Red
-            '#8B5CF6',  # Purple
-            '#EC4899',  # Pink
-            '#06B6D4',  # Cyan
-            '#F97316',  # Orange
-            '#6366F1',  # Indigo
-            '#14B8A6',  # Teal
-            '#84CC16',  # Lime
-            '#A855F7',  # Violet
+            '#E11D48',  # Rose red
+            '#2563EB',  # Strong blue
+            '#16A34A',  # Green
+            '#EA580C',  # Orange
+            '#7C3AED',  # Violet
+            '#0891B2',  # Cyan
+            '#CA8A04',  # Gold
+            '#BE185D',  # Magenta
+            '#1E3A8A',  # Navy
+            '#365314',  # Olive
+            '#9A3412',  # Brown
+            '#0F766E',  # Deep teal
         ]
-        
+
         def hex_to_rgb_color(hex_color):
             """Convert hex color to reportlab Color with transparency"""
             hex_color = hex_color.lstrip('#')
             r = int(hex_color[0:2], 16) / 255.0
             g = int(hex_color[2:4], 16) / 255.0
             b = int(hex_color[4:6], 16) / 255.0
-            # Return lighter version for background
             return colors.Color(r, g, b, alpha=0.25)
-        
-        def get_batch_color_index(batch):
-            """Get consistent color index using same hash algorithm as frontend"""
-            if not batch:
-                return 0
-            # Same hash algorithm as frontend JavaScript
-            hash_val = 0
-            for char in batch:
-                hash_val = ord(char) + ((hash_val << 5) - hash_val)
-            return abs(hash_val) % len(batch_colors_hex)
-        
-        batch_color_map = {}
+
+        def _year_term_rank(value):
+            v = str(value or '').strip().lower()
+            if v.endswith(' year'):
+                v = v[:-5].strip()
+            if v.endswith(' term'):
+                v = v[:-5].strip()
+            ranking = {
+                'first': 1, '1st': 1, '1': 1,
+                'second': 2, '2nd': 2, '2': 2,
+                'third': 3, '3rd': 3, '3': 3,
+                'fourth': 4, '4th': 4, '4': 4,
+                'fifth': 5, '5th': 5, '5': 5,
+            }
+            if v in ranking:
+                return ranking[v]
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return 99
+
+        def get_color_key(cell_data):
+            """year|term so multi-batch same semester share one color; fallback to batch."""
+            year = str((cell_data or {}).get('year') or '').strip()
+            term = str((cell_data or {}).get('term') or '').strip()
+            if year or term:
+                return '|'.join(p for p in (year, term) if p)
+            return str((cell_data or {}).get('batch') or '').strip()
+
+        def color_key_sort(key):
+            parts = str(key).split('|')
+            year = parts[0] if parts else ''
+            term = parts[1] if len(parts) > 1 else ''
+            return (_year_term_rank(year), _year_term_rank(term), str(key))
+
+        # Sequential assignment (sorted year/term) — same approach as frontend
+        unique_keys = sorted({
+            get_color_key(cell_data)
+            for cell_data in routine_map.values()
+            if get_color_key(cell_data)
+        }, key=color_key_sort)
+        batch_color_map = {
+            key: hex_to_rgb_color(batch_colors_hex[index % len(batch_colors_hex)])
+            for index, key in enumerate(unique_keys)
+        }
         cell_batch_colors = []  # Store (row, col, color) for cells with batches
         
         # Data rows
@@ -2754,14 +3089,10 @@ def download_pdf():
                         
                         row.append(Paragraph(cell_content, body_text_style))
                         
-                        # Track batch color for this cell (using hash-based color like frontend)
-                        batch = cell_data.get('batch', '')
-                        if batch:
-                            if batch not in batch_color_map:
-                                # Use hash-based color index (same algorithm as frontend)
-                                color_index = get_batch_color_index(batch)
-                                batch_color_map[batch] = hex_to_rgb_color(batch_colors_hex[color_index])
-                            cell_batch_colors.append((current_row, current_col, batch_color_map[batch]))
+                        # Track semester-group color (year+term; same as frontend)
+                        color_key = get_color_key(cell_data)
+                        if color_key and color_key in batch_color_map:
+                            cell_batch_colors.append((current_row, current_col, batch_color_map[color_key]))
                     else:
                         row.append("")
                     

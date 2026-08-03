@@ -23,9 +23,18 @@ os.environ.setdefault('FLASK_ENV', 'production')
 os.environ.setdefault('CPANEL', '1')
 os.environ.setdefault('MYSQL', '1')
 
-# Setup logging
-LOG_PATH = os.path.join(BASE_DIR, 'passenger_wsgi.log')
-ERROR_PATH = os.path.join(BASE_DIR, 'startup_error.log')
+# Prefer private log dir outside document root (create on host: /home/<user>/ams_logs)
+_home = os.path.expanduser('~')
+_default_log_dir = os.path.join(_home, 'ams_logs')
+LOG_DIR = os.environ.get('AMS_LOG_DIR', _default_log_dir)
+try:
+    os.makedirs(LOG_DIR, exist_ok=True)
+except OSError:
+    LOG_DIR = os.path.join(BASE_DIR, 'logs')
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+LOG_PATH = os.path.join(LOG_DIR, 'passenger_wsgi.log')
+ERROR_PATH = os.path.join(LOG_DIR, 'startup_error.log')
 
 logging.basicConfig(
     filename=LOG_PATH,
@@ -39,16 +48,18 @@ try:
     logging.info('Application created successfully')
 except Exception as e:
     error_msg = traceback.format_exc()
-    logging.error(f'Failed to create application: {error_msg}')
-    with open(ERROR_PATH, 'w') as f:
-        f.write(error_msg)
+    logging.error('Failed to create application: %s', error_msg)
+    try:
+        with open(ERROR_PATH, 'w') as f:
+            f.write(error_msg)
+    except OSError:
+        pass
+    # Do not write startup_error.log into the document root
     raise
 
-# Add error handler to application logger
 handler = logging.FileHandler(LOG_PATH)
 handler.setLevel(logging.ERROR)
 application.logger.addHandler(handler)
 
-# For debugging purposes
 if __name__ == '__main__':
-    application.run(debug=False, host='0.0.0.0', port=5000) 
+    application.run(debug=False, host='0.0.0.0', port=5000)

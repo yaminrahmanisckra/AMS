@@ -65,6 +65,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 # from docx.enum.text import WD_ALIGN_PARAGRAPH
 from uuid import uuid4
 from role_utils import has_teacher_privileges, is_admin, parse_roles
+from utils.ownership import user_owns_class_session
 try:
     from utils.semester_utils import filter_by_active_semester
 except ImportError:
@@ -174,7 +175,6 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
         seen_emails = set()
         view_scores_url = _absolute_url_student_my_scores()
         assessment_label = (assessment_type or 'assessment').replace('_', ' ').title()
-        subject = f"Assessment Marks Revealed: {course_label}"
         skipped_no_user = 0
         skipped_no_email = 0
 
@@ -192,21 +192,81 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
                 continue
             seen_emails.add(email_key)
 
+            student_name = (user.full_name or cs.student_id or 'Student').strip()
+            student_id = (cs.student_id or user.username or '').strip()
+            student_email = user.email.strip()
+            # Per-recipient subject/body per hosting deliverability guidance
+            subject = (
+                f"Your {assessment_label} result is now visible in AMS "
+                f"for {course_label} - {student_name} ({student_id})"
+            )
             text_body = (
-                f"Dear {user.full_name or 'Student'},\n\n"
-                f"Your {assessment_label} marks for {course_label} have been revealed.\n"
-                f"You can check details from your My Scores page:\n{view_scores_url}\n\n"
-                "Academic Management System"
+                f"Dear {student_name},\n\n"
+                "This academic notification is from the Academic Management System (AMS) "
+                "of the Law Discipline, Khulna University.\n\n"
+                "Your course teacher has published / revealed marks for an assessment in "
+                "your enrolled course session. The details for your account are:\n\n"
+                f"- Student name: {student_name}\n"
+                f"- Student ID: {student_id}\n"
+                f"- Student email: {student_email}\n"
+                f"- Course / class session: {course_label}\n"
+                f"- Assessment name: {assessment_label}\n\n"
+                "Purpose of the link below:\n"
+                "The link opens your personal My Scores page in AMS so you can view the "
+                f"{assessment_label} marks for {course_label}. It is not a generic website "
+                "link; it is the scores page for students of this system. You must sign in "
+                "with your AMS student username to see your own marks.\n\n"
+                f"My Scores page address:\n{view_scores_url}\n\n"
+                "How to view your result:\n"
+                "1. Open the My Scores address above in your browser.\n"
+                "2. Sign in with your AMS student account if asked.\n"
+                f"3. Check the marks shown for {assessment_label} under {course_label}.\n\n"
+                "If the address does not open from a click, copy the full line and paste it "
+                "into your browser address bar.\n\n"
+                "If you are not enrolled in this course or believe this message was sent "
+                "by mistake, contact your course teacher or the Law Discipline office. "
+                "No action is required if you already reviewed your marks in AMS.\n\n"
+                "Regards,\n"
+                "Academic Management System\n"
+                "Law Discipline, Khulna University\n"
             )
             html_body = (
-                f"<p>Dear {user.full_name or 'Student'},</p>"
-                f"<p>Your <strong>{assessment_label}</strong> marks for "
-                f"<strong>{course_label}</strong> have been revealed.</p>"
-                f"<p><a href=\"{view_scores_url}\">Open My Scores</a></p>"
-                "<p>Academic Management System</p>"
+                f"<p>Dear {student_name},</p>"
+                "<p>This academic notification is from the Academic Management System (AMS) "
+                "of the Law Discipline, Khulna University.</p>"
+                "<p>Your course teacher has published / revealed marks for an assessment in "
+                "your enrolled course session. The details for your account are:</p>"
+                "<ul>"
+                f"<li>Student name: {student_name}</li>"
+                f"<li>Student ID: {student_id}</li>"
+                f"<li>Student email: {student_email}</li>"
+                f"<li>Course / class session: {course_label}</li>"
+                f"<li>Assessment name: {assessment_label}</li>"
+                "</ul>"
+                "<p><strong>Purpose of the link below:</strong><br>"
+                "The link opens your personal My Scores page in AMS so you can view the "
+                f"{assessment_label} marks for {course_label}. You must sign in with your "
+                "AMS student username to see your own marks.</p>"
+                f"<p><a href=\"{view_scores_url}\">"
+                f"Open My Scores to view {assessment_label} marks for {student_name} ({student_id})"
+                "</a></p>"
+                f"<p>Full address (copy and paste if needed):<br>"
+                f"<span style=\"word-break:break-all;\">{view_scores_url}</span></p>"
+                "<p><strong>How to view your result:</strong></p>"
+                "<ol>"
+                "<li>Open the My Scores address above in your browser.</li>"
+                "<li>Sign in with your AMS student account if asked.</li>"
+                f"<li>Check the marks shown for {assessment_label} under {course_label}.</li>"
+                "</ol>"
+                "<p>If you are not enrolled in this course or believe this message was sent "
+                "by mistake, contact your course teacher or the Law Discipline office.</p>"
+                "<p>Regards,<br>"
+                "Academic Management System<br>"
+                "Law Discipline, Khulna University</p>"
             )
             entries.append({
-                'recipient': user.email.strip(),
+                'recipient': student_email,
+                'subject': subject,
                 'text_body': text_body,
                 'html_body': html_body,
             })
@@ -218,7 +278,7 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
             )
             return
 
-        sent_count = send_notification_batch(subject, entries)
+        sent_count = send_notification_batch(None, entries)
         current_app.logger.info(
             f"Marks-revealed email for session {session_id}: {sent_count} message(s) sent "
             f"(unique recipients={len(entries)})"
@@ -232,6 +292,18 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
 # This prevents the app from hanging during startup
 _WEASYPRINT_HTML = None
 _WEASYPRINT_AVAILABLE = None
+
+def _resolve_formal_pdf_fonts():
+    """Compatibility wrapper — prefer utils.pdf_fonts.resolve_formal_pdf_fonts."""
+    from utils.pdf_fonts import resolve_formal_pdf_fonts
+    return resolve_formal_pdf_fonts()
+
+
+def _resolve_dejavu_pdf_fonts():
+    """Compatibility wrapper — prefer utils.pdf_fonts.resolve_dejavu_pdf_fonts."""
+    from utils.pdf_fonts import resolve_dejavu_pdf_fonts
+    return resolve_dejavu_pdf_fonts()
+
 
 def _get_weasyprint_html():
     """Lazy import WeasyPrint HTML - only import when actually needed"""
@@ -1717,6 +1789,9 @@ def index():
                 current_app.logger.info(f'Updated {assignment_update_count} assignments with batch/academic_session from curriculum year-term config')
             
             # Now update sessions with academic_session / window_id from assignments
+            # Only FILL missing values — never overwrite a different academic_session.
+            # Overwriting (e.g. CSA had a stale/wrong session string) was hiding courses
+            # that previously matched Window active-semester filters.
             updated_count = 0
             for session in sessions_before_update:
                 if getattr(session, 'is_external_course', False):
@@ -1724,16 +1799,23 @@ def index():
                 # Find CourseSessionAssignment for this session
                 assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
                 if assignment:
-                    # Update academic_session if assignment has it and session doesn't / differs
-                    if assignment.academic_session and not session.academic_session:
+                    if assignment.academic_session and not (session.academic_session or '').strip():
                         session.academic_session = assignment.academic_session
                         updated_count += 1
-                        current_app.logger.info(f'Updated session {session.id} ({session.course_name}) with academic_session: {assignment.academic_session}')
-                    elif assignment.academic_session and session.academic_session != assignment.academic_session:
-                        # Update if different
-                        session.academic_session = assignment.academic_session
-                        updated_count += 1
-                        current_app.logger.info(f'Updated session {session.id} ({session.course_name}) academic_session from {session.academic_session} to {assignment.academic_session}')
+                        current_app.logger.info(
+                            f'Filled session {session.id} ({session.course_name}) academic_session: '
+                            f'{assignment.academic_session}'
+                        )
+                    elif (
+                        assignment.academic_session
+                        and session.academic_session
+                        and session.academic_session.strip() != assignment.academic_session.strip()
+                    ):
+                        current_app.logger.warning(
+                            f'Session {session.id} ({session.course_name}) academic_session '
+                            f'"{session.academic_session}" differs from CSA "{assignment.academic_session}" '
+                            f'— keeping session value (no overwrite)'
+                        )
                     # Stamp window from assignment when session window is missing
                     if assignment.window_id is not None and session.window_id is None:
                         session.window_id = assignment.window_id
@@ -2667,7 +2749,11 @@ def take_attendance(session_id):
     """Take or update attendance for a session."""
     session = get_or_404_for_window(Session, session_id)
     students = _class_students_for_session(session_id)
-    
+
+    if not user_owns_class_session(current_user, session):
+        flash('You are not authorized to manage attendance for this session.', 'danger')
+        return redirect(url_for('class_management.index'))
+
     if request.method == 'POST':
         try:
             date_val = datetime.strptime(request.form.get('date'), '%Y-%m-%d').date()
@@ -4085,11 +4171,12 @@ def upload_course_file(session_id):
             return redirect(url_for('class_management.course_file', session_id=session_id))
         
         # Validate file extension
-        allowed_extensions = {'.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', 
+        allowed_extensions = {'.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx',
+                            '.epub', '.djvu', '.djv', '.mobi',
                             '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
         file_ext = os.path.splitext(file.filename)[1].lower()
         if file_ext not in allowed_extensions:
-            flash(f'File type not allowed. Supported formats: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, images', 'error')
+            flash('File type not allowed. Supported formats: PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX, EPUB, DJVU, MOBI, images', 'error')
             return redirect(url_for('class_management.course_file', session_id=session_id))
         
         # Create upload directory if it doesn't exist
@@ -5993,6 +6080,14 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
             if related_session.teacher and related_session.teacher not in course_teachers_pdf:
                 course_teachers_pdf.append(related_session.teacher)
     
+    formal_fonts = _resolve_formal_pdf_fonts()
+    if not formal_fonts:
+        flash(
+            'PDF fonts missing. Upload LiberationSerif-Regular.ttf and LiberationSerif-Bold.ttf to static/fonts/.',
+            'error',
+        )
+        return redirect(url_for('class_management.course_file', session_id=session_id))
+
     # Render HTML template
     html_content = render_template(
         'class_management/course_outline_pdf.html',
@@ -6017,12 +6112,16 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         course_file_components=course_file_components,
         other_issues=other_issues,
         course_teachers=course_teachers,
-        course_teachers_pdf=course_teachers_pdf
+        course_teachers_pdf=course_teachers_pdf,
+        pdf_font_regular=formal_fonts['regular'],
+        pdf_font_bold=formal_fonts['bold'],
+        pdf_font_italic=formal_fonts.get('italic'),
+        pdf_font_bold_italic=formal_fonts.get('bold_italic'),
     )
     
-    # Generate PDF using WeasyPrint
+    # Generate PDF using WeasyPrint with embedded Liberation Serif (Times-compatible)
     buffer = io.BytesIO()
-    HTML(string=html_content).write_pdf(buffer)
+    HTML(string=html_content, base_url=formal_fonts['fonts_dir'].as_uri() + '/').write_pdf(buffer)
     buffer.seek(0)
     
     filename = f"course_outline_{session.course_code or 'course'}_{datetime.now().strftime('%Y%m%d')}.pdf"
@@ -6206,7 +6305,7 @@ def delete_attendance_by_date(session_id, date_str):
         
         session = get_or_404_for_window(Session, session_id)
         
-        if session.teacher.id != current_user.id:
+        if not user_owns_class_session(current_user, session):
             flash('You are not authorized to delete attendance for this session.', 'danger')
             return redirect(url_for('class_management.index'))
         
@@ -7174,6 +7273,16 @@ def download_attendance_sheet_weasyprint(session_id):
         elif session.teacher:
             course_teacher = session.teacher.name
         
+        # Absolute file:// font URIs — required on cPanel where system fonts are Type1-only
+        from utils.pdf_fonts import resolve_dejavu_pdf_fonts
+        pdf_font_regular, pdf_font_bold, fonts_dir = resolve_dejavu_pdf_fonts()
+        if not pdf_font_regular or not pdf_font_bold or not fonts_dir:
+            flash(
+                'PDF fonts missing. Upload DejaVuSans.ttf and DejaVuSans-Bold.ttf to static/fonts/.',
+                'error'
+            )
+            return redirect(url_for('class_management.view_attendance', session_id=session_id))
+
         # Render template
         html_content = render_template(
             'class_management/attendance_sheet_weasyprint.html',
@@ -7184,13 +7293,15 @@ def download_attendance_sheet_weasyprint(session_id):
             term=term,
             course_teacher=course_teacher,
             headers=headers,
-            data_rows=data_rows
+            data_rows=data_rows,
+            pdf_font_regular=pdf_font_regular,
+            pdf_font_bold=pdf_font_bold,
         )
         
         # Generate PDF with WeasyPrint (lazy import already done above)
         try:
             pdf_buffer = io.BytesIO()
-            HTML(string=html_content).write_pdf(pdf_buffer)
+            HTML(string=html_content, base_url=fonts_dir.as_uri() + '/').write_pdf(pdf_buffer)
             pdf_buffer.seek(0)
         except Exception as e:
             current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)
@@ -7225,6 +7336,11 @@ def assessment(session_id):
     """Assessment management for a session"""
     try:
         session = get_or_404_for_window(Session, session_id)
+
+        if not user_owns_class_session(current_user, session):
+            flash('You are not authorized to manage assessment for this session.', 'danger')
+            return redirect(url_for('class_management.index'))
+
         students = _class_students_for_session(session_id)
         is_split_theory = session.course_type == 'theory' and session.course_scope in SPLIT_PARTS
         editable_indices = _get_editable_assessment_indices(session)
@@ -7552,6 +7668,10 @@ def auto_save_assessment(session_id):
     try:
         import json
         session = get_or_404_for_window(Session, session_id)
+
+        if not user_owns_class_session(current_user, session):
+            return jsonify({'success': False, 'message': 'You are not authorized to manage assessment for this session.'}), 403
+
         students = _class_students_for_session(session_id)
         editable_indices = _get_editable_assessment_indices(session)
         editable_sessional_fields = _get_editable_sessional_fields(session)
@@ -10468,10 +10588,20 @@ def student_feedback_responses_pdf_weasyprint(session_id):
                 'academic_session': academic.get('academic_session') or '—',
             })
         
-        # Get font path for WeasyPrint
+        # Get fonts for WeasyPrint (Liberation for English body; Kalpurush for Bengali comments)
+        from utils.pdf_fonts import resolve_formal_pdf_fonts
+        import os
+
+        formal_fonts = resolve_formal_pdf_fonts()
+        if not formal_fonts:
+            flash(
+                'PDF fonts missing. Upload LiberationSerif-*.ttf to static/fonts/.',
+                'error',
+            )
+            return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
         font_path = os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf')
         if not os.path.exists(font_path):
-            # Try alternative path
             font_path = os.path.join(current_app.root_path, 'static', 'fonts', 'kalpurush.ttf')
         
         # Render template
@@ -10483,13 +10613,17 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             feedback_method_options=FEEDBACK_METHOD_OPTIONS,
             feedback_effort_options=FEEDBACK_EFFORT_OPTIONS,
             likert_options=['Strongly disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree'],
-            kalpurush_font_path=font_path if os.path.exists(font_path) else None
+            kalpurush_font_path=font_path if os.path.exists(font_path) else None,
+            pdf_font_regular=formal_fonts['regular'],
+            pdf_font_bold=formal_fonts['bold'],
+            pdf_font_italic=formal_fonts.get('italic'),
+            pdf_font_bold_italic=formal_fonts.get('bold_italic'),
         )
         
         # Generate PDF with WeasyPrint (lazy import already done above)
         try:
             pdf_buffer = io.BytesIO()
-            HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+            HTML(string=html_content, base_url=formal_fonts['fonts_dir'].as_uri() + '/').write_pdf(pdf_buffer)
             pdf_buffer.seek(0)
         except Exception as e:
             current_app.logger.error(f"Error generating PDF with WeasyPrint: {e}", exc_info=True)

@@ -64,6 +64,10 @@
                             <input type="text" class="form-control" id="bank_account_no" name="bank_account_no" value="{% if teacher_record and teacher_record.bank_account_no %}{{ teacher_record.bank_account_no }}{% endif %}" placeholder="Enter bank account number">
                         </div>
                         <div class="mb-3">
+                            <label for="tin_number" class="form-label">TIN Number</label>
+                            <input type="text" class="form-control" id="tin_number" name="tin_number" value="{% if teacher_record and teacher_record.tin_number %}{{ teacher_record.tin_number }}{% endif %}" placeholder="Enter TIN number">
+                        </div>
+                        <div class="mb-3">
                             <input type="hidden" name="is_external_teacher" value="0">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="is_external_teacher" id="is_external_teacher" value="1" {% if teacher_record and (teacher_record.is_external | default(false)) %}checked{% endif %}>

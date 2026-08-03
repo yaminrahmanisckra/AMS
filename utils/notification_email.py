@@ -81,17 +81,20 @@ def _notification_smtp_session():
     port = int(port_raw) if port_raw else int(cfg.get('MAIL_PORT') or 25)
     user = (_notif_setting('NOTIFICATION_MAIL_USERNAME') or '').strip()
     password = _notif_setting('NOTIFICATION_MAIL_PASSWORD')
-    if isinstance(password, str):
-        password = password.rstrip('\r\n')
     use_tls = str(_notif_setting('NOTIFICATION_MAIL_USE_TLS', cfg.get('NOTIFICATION_MAIL_USE_TLS'))).lower() in (
         '1', 'true', 'yes', 'on',
     )
     use_ssl = str(_notif_setting('NOTIFICATION_MAIL_USE_SSL', cfg.get('NOTIFICATION_MAIL_USE_SSL'))).lower() in (
         '1', 'true', 'yes', 'on',
     )
+    from utils.recovery_email import _normalize_mail_password, _normalize_smtp_security, _ssl_context
+    password = _normalize_mail_password(password)
+    host, port, use_tls, use_ssl = _normalize_smtp_security(host, port, use_tls, use_ssl)
+
+    # Shared hosts often break CA verification for smtp.gmail.com (hostname mismatch)
+    context = _ssl_context()
 
     if use_ssl:
-        context = ssl.create_default_context()
         server = smtplib.SMTP_SSL(host, port, timeout=60, context=context)
     else:
         server = smtplib.SMTP(host, port, timeout=60)
@@ -101,7 +104,7 @@ def _notification_smtp_session():
         except Exception:
             pass
         if use_tls and not use_ssl:
-            server.starttls(context=ssl.create_default_context())
+            server.starttls(context=context)
             try:
                 server.ehlo()
             except Exception:
@@ -120,17 +123,28 @@ def _notification_smtp_session():
 
 
 def _build_mime_message(subject: str, sender: str, recipient: str, text_body: str, html_body: str | None):
+    from email.utils import formatdate, make_msgid
+
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = Header(subject, 'utf-8')
+    msg['Subject'] = Header(subject or '', 'utf-8')
     msg['From'] = sender
     msg['To'] = recipient
-    msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
+    msg['Date'] = formatdate(localtime=True)
+    domain = 'localhost'
+    if '@' in (sender or ''):
+        domain = sender.rsplit('@', 1)[-1].strip('>')
+    msg['Message-ID'] = make_msgid(domain=domain)
+    msg.attach(MIMEText(text_body or '', 'plain', 'utf-8'))
     if html_body:
         msg.attach(MIMEText(html_body, 'html', 'utf-8'))
     return msg
 
 
-def _send_via_flask_mail(subject: str, entries: list[dict], sender_override: str | None = None) -> int:
+def _entry_subject(entry: dict, default_subject: str | None) -> str:
+    return (entry.get('subject') or default_subject or '').strip() or 'AMS notification'
+
+
+def _send_via_flask_mail(subject: str | None, entries: list[dict], sender_override: str | None = None) -> int:
     """Fallback sender using Flask-Mail channel."""
     from flask_mail import Message
     from extensions import mail
@@ -144,7 +158,7 @@ def _send_via_flask_mail(subject: str, entries: list[dict], sender_override: str
             continue
         try:
             msg = Message(
-                subject=subject,
+                subject=_entry_subject(entry, subject),
                 recipients=[recipient],
                 body=entry.get('text_body') or '',
                 html=entry.get('html_body'),
@@ -160,9 +174,10 @@ def _send_via_flask_mail(subject: str, entries: list[dict], sender_override: str
     return sent
 
 
-def send_notification_batch(subject: str, entries: list[dict]) -> int:
+def send_notification_batch(subject: str | None, entries: list[dict]) -> int:
     """
-    Send one email per entry (privacy). Each entry: recipient (str), text_body, html_body (optional).
+    Send one email per entry (privacy). Each entry: recipient (str), text_body,
+    html_body (optional), subject (optional; overrides batch subject).
 
     Uses NOTIFICATION_MAIL_* SMTP when configured; otherwise Flask-Mail + MAIL_* (legacy).
     Returns number of messages accepted by SMTP / sent via Flask-Mail.
@@ -194,6 +209,7 @@ def send_notification_batch(subject: str, entries: list[dict]) -> int:
         return _send_via_flask_mail(subject, entries, sender_override=notification_sender or None)
 
     if use_smtp:
+        # From may differ from SMTP login (Brevo); prefer explicit SENDER
         sender = (
             (_notif_setting('NOTIFICATION_MAIL_SENDER') or _notif_setting('NOTIFICATION_MAIL_USERNAME') or '')
             .strip()
@@ -207,8 +223,15 @@ def send_notification_batch(subject: str, entries: list[dict]) -> int:
                     text_body = entry.get('text_body') or ''
                     html_body = entry.get('html_body')
                     try:
-                        mime = _build_mime_message(subject, sender, recipient, text_body, html_body)
-                        smtp.sendmail(sender, [recipient], mime.as_string())
+                        mime = _build_mime_message(
+                            _entry_subject(entry, subject),
+                            sender,
+                            recipient,
+                            text_body,
+                            html_body,
+                        )
+                        mime['Reply-To'] = sender
+                        smtp.sendmail(sender, [recipient], mime.as_bytes())
                         sent += 1
                     except Exception as one_err:
                         current_app.logger.error(

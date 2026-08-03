@@ -1397,41 +1397,89 @@ const RoutineManager = {
         isFullscreen: false
     },
 
-    // Batch color palette - vibrant colors for ribbon
+    // High-contrast categorical palette — hues spaced so no two look alike
     batchColors: [
-        '#3B82F6', // Blue
-        '#10B981', // Green
-        '#F59E0B', // Amber
-        '#EF4444', // Red
-        '#8B5CF6', // Purple
-        '#EC4899', // Pink
-        '#06B6D4', // Cyan
-        '#F97316', // Orange
-        '#6366F1', // Indigo
-        '#14B8A6', // Teal
-        '#84CC16', // Lime
-        '#A855F7', // Violet
+        '#E11D48', // Rose red
+        '#2563EB', // Strong blue
+        '#16A34A', // Green
+        '#EA580C', // Orange
+        '#7C3AED', // Violet
+        '#0891B2', // Cyan
+        '#CA8A04', // Gold
+        '#BE185D', // Magenta
+        '#1E3A8A', // Navy
+        '#365314', // Olive
+        '#9A3412', // Brown
+        '#0F766E', // Deep teal
     ],
 
-    // Get consistent color for a batch
-    getBatchColor: function(batch) {
-        if (!batch) return null;
-        
-        // Return cached color if exists
-        if (this.state.batchColorMap[batch]) {
-            return this.state.batchColorMap[batch];
+    _colorKey: function(batch, year, term) {
+        return [String(year || '').trim(), String(term || '').trim()]
+            .filter(Boolean)
+            .join('|') || String(batch || '').trim();
+    },
+
+    _yearTermRank: function(value) {
+        const v = String(value || '').trim().toLowerCase()
+            .replace(/\s+year$/, '')
+            .replace(/\s+term$/, '');
+        const map = {
+            first: 1, '1st': 1, '1': 1,
+            second: 2, '2nd': 2, '2': 2,
+            third: 3, '3rd': 3, '3': 3,
+            fourth: 4, '4th': 4, '4': 4,
+            fifth: 5, '5th': 5, '5': 5,
+        };
+        if (Object.prototype.hasOwnProperty.call(map, v)) return map[v];
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) ? n : 99;
+    },
+
+    _compareColorKeys: function(a, b) {
+        const [ay, at] = String(a).split('|');
+        const [by, bt] = String(b).split('|');
+        const yr = this._yearTermRank(ay) - this._yearTermRank(by);
+        if (yr !== 0) return yr;
+        const tr = this._yearTermRank(at) - this._yearTermRank(bt);
+        if (tr !== 0) return tr;
+        return String(a).localeCompare(String(b));
+    },
+
+    // Rebuild sequential high-contrast colors for every year|term on the grid
+    rebuildColorMap: function() {
+        const keys = new Set();
+        Object.values(this.state.routine || {}).forEach(item => {
+            if (!item || item.isCustom) return;
+            const key = this._colorKey(item.batch, item.year, item.term);
+            if (key) keys.add(key);
+        });
+        (this.state.semesterContexts || []).forEach(ctx => {
+            const key = this._colorKey('', ctx.year, ctx.term);
+            if (key) keys.add(key);
+        });
+        const sorted = Array.from(keys).sort((a, b) => this._compareColorKeys(a, b));
+        this.state.batchColorMap = {};
+        sorted.forEach((key, index) => {
+            this.state.batchColorMap[key] = this.batchColors[index % this.batchColors.length];
+        });
+    },
+
+    // Get consistent high-contrast color for a semester group (year+term).
+    getBatchColor: function(batch, year, term) {
+        const key = this._colorKey(batch, year, term);
+        if (!key) return null;
+
+        if (!this.state.batchColorMap[key]) {
+            this.rebuildColorMap();
         }
-        
-        // Generate consistent color based on batch string hash
-        let hash = 0;
-        for (let i = 0; i < batch.length; i++) {
-            hash = batch.charCodeAt(i) + ((hash << 5) - hash);
+        if (this.state.batchColorMap[key]) {
+            return this.state.batchColorMap[key];
         }
-        const colorIndex = Math.abs(hash) % this.batchColors.length;
-        const color = this.batchColors[colorIndex];
-        
-        // Cache it
-        this.state.batchColorMap[batch] = color;
+
+        // Fallback for brand-new key not yet on grid/contexts
+        const used = new Set(Object.values(this.state.batchColorMap));
+        const color = this.batchColors.find(c => !used.has(c)) || this.batchColors[0];
+        this.state.batchColorMap[key] = color;
         return color;
     },
 
@@ -1914,11 +1962,12 @@ const RoutineManager = {
                         var option = document.createElement('option');
                         option.value = String(ctx.id);
                         option.textContent = ctx.label || (
-                            [ctx.year, ctx.term, ctx.academic_session, ctx.batch ? ('Batch ' + ctx.batch) : '']
+                            [ctx.year, ctx.term, ctx.academic_session]
                                 .filter(Boolean)
                                 .join(' · ')
                         );
                         option.dataset.batch = ctx.batch || '';
+                        option.dataset.batches = (ctx.batches || []).join(',');
                         option.dataset.session = ctx.academic_session || '';
                         option.dataset.year = ctx.year || '';
                         option.dataset.term = ctx.term || '';
@@ -2070,12 +2119,157 @@ const RoutineManager = {
             });
     },
 
+    // Placement identity: course + year/term/batch/part (NOT teacher — teacher can change)
+    getPlacementKey: function(source) {
+        if (!source) return '';
+        const code = String(source.courseCode || source.course_code || '').trim();
+        if (!code) return '';
+        const year = String(source.year || '').trim();
+        const term = String(source.term || '').trim();
+        const batch = String(source.batch || '').trim();
+        const part = String(source.part || 'Full').trim() || 'Full';
+        return `${code}|${year}|${term}|${batch}|${part}`;
+    },
+
+    getPlacementKeyFromCard: function(card) {
+        if (!card || !card.dataset) return '';
+        return this.getPlacementKey({
+            courseCode: card.dataset.courseCode,
+            year: card.dataset.year,
+            term: card.dataset.term,
+            batch: card.dataset.batch,
+            part: card.dataset.part
+        });
+    },
+
+    getPlacedCountForCard: function(card) {
+        if (!card) return 0;
+        const courseId = String(card.dataset.courseId || '').trim();
+        const code = String(card.dataset.courseCode || '').trim();
+        const year = String(card.dataset.year || '').trim();
+        const term = String(card.dataset.term || '').trim();
+        const batch = String(card.dataset.batch || '').trim();
+        const part = String(card.dataset.part || 'Full').trim() || 'Full';
+
+        let count = 0;
+        Object.values(this.state.routine).forEach(item => {
+            if (!item || !item.courseCode || item.isCustom) return;
+            if (courseId && item.courseId && String(item.courseId) === courseId) {
+                count++;
+                return;
+            }
+            if (String(item.courseCode || '').trim() !== code) return;
+            const itemPart = String(item.part || 'Full').trim() || 'Full';
+            if (itemPart !== part) return;
+            const itemYear = String(item.year || '').trim();
+            const itemTerm = String(item.term || '').trim();
+            if (year && itemYear && year !== itemYear) return;
+            if (term && itemTerm && term !== itemTerm) return;
+            const itemBatch = String(item.batch || '').trim();
+            // Empty batch on either side = wildcard (multi-batch year/term merge)
+            if (batch && itemBatch && batch !== itemBatch) return;
+            count++;
+        });
+        return count;
+    },
+
+    rebuildPlacedCourses: function() {
+        this.state.placedCourses = {};
+        Object.values(this.state.routine).forEach(item => {
+            if (!item || !item.courseCode || item.isCustom) return;
+            const placementKey = this.getPlacementKey(item);
+            if (placementKey) {
+                this.state.placedCourses[placementKey] = (this.state.placedCourses[placementKey] || 0) + 1;
+            }
+            if (item.courseId) {
+                const courseId = String(item.courseId).trim();
+                if (courseId) {
+                    this.state.placedCourses[courseId] = (this.state.placedCourses[courseId] || 0) + 1;
+                }
+            }
+        });
+    },
+
+    // Pull live teacher/callsign from curriculum course list onto matching routine slots
+    syncTeachersFromCurriculum: function(courses) {
+        if (!Array.isArray(courses) || courses.length === 0) return false;
+
+        const byKey = {};
+        const byLoose = {};
+        courses.forEach(course => {
+            const key = this.getPlacementKey(course);
+            if (key) byKey[key] = course;
+            const code = String(course.course_code || '').trim();
+            if (!code) return;
+            const loose = `${code}|${String(course.batch || '').trim()}|${String(course.part || 'Full').trim() || 'Full'}`;
+            byLoose[loose] = course;
+        });
+
+        let changed = false;
+        Object.keys(this.state.routine).forEach(slotKey => {
+            const item = this.state.routine[slotKey];
+            if (!item || !item.courseCode || item.isCustom) return;
+
+            let course = byKey[this.getPlacementKey(item)];
+            if (!course) {
+                const loose = `${String(item.courseCode).trim()}|${String(item.batch || '').trim()}|${String(item.part || 'Full').trim() || 'Full'}`;
+                course = byLoose[loose];
+            }
+            if (!course) return;
+
+            // Backfill semester fields so placement matching stays stable
+            if (!item.year && course.year) { item.year = String(course.year); changed = true; }
+            if (!item.term && course.term) { item.term = String(course.term); changed = true; }
+            if (!item.batch && course.batch) { item.batch = String(course.batch); changed = true; }
+            if ((!item.part || item.part === 'Full') && course.part) {
+                // only fill if we have a more specific part from curriculum
+                if (course.part !== 'Full' || !item.part) {
+                    item.part = course.part;
+                }
+            }
+
+            let teacherShort = '';
+            let teacherId = '';
+            let teachersArray = [];
+            if (course.teachers && course.teachers.length > 0) {
+                teachersArray = course.teachers;
+                teacherShort = course.teachers.map(t => t.short_name || '').filter(Boolean).join('/');
+                teacherId = String(course.teachers[0].id || '');
+            } else if (course.teacher_id) {
+                teacherId = String(course.teacher_id);
+            }
+
+            const newCourseId = String(course.assigned_id || course.id || '').trim();
+            const prevShort = String(item.teacherShort || '');
+            const prevId = String(item.teacherId || '');
+            const prevCourseId = String(item.courseId || '');
+
+            if (prevShort !== teacherShort || prevId !== teacherId || (newCourseId && prevCourseId !== newCourseId)) {
+                item.teacherShort = teacherShort;
+                item.teacherId = teacherId;
+                item.teachers = teachersArray;
+                if (newCourseId) item.courseId = newCourseId;
+                changed = true;
+            }
+        });
+
+        return changed;
+    },
+
     // Display courses
     displayCourses: function(courses) {
         if (!this.elements.coursesList) return;
         if (!courses || courses.length === 0) {
             this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">No courses for this semester.</span></div>';
             return;
+        }
+
+        // Sync callsigns from curriculum onto already-placed routine slots
+        const teachersSynced = this.syncTeachersFromCurriculum(courses);
+        this.rebuildPlacedCourses();
+        if (teachersSynced) {
+            this.state.hasUnsavedChanges = true;
+            this.updateRoutineDisplay();
         }
 
         this.elements.coursesList.innerHTML = '';
@@ -2089,6 +2283,7 @@ const RoutineManager = {
 
         this.filterCourses();
         this.updateCourseCards();
+        this.updateProgress();
     },
 
     // Create course card
@@ -2110,15 +2305,11 @@ const RoutineManager = {
         card.dataset.credit = course.credit || 0;
         card.dataset.part = course.part || 'Full';
         card.dataset.classesPerWeek = course.classes_per_week || 0;
-        // Composite key for matching with loaded routines (which don't have assigned_id)
-        // Use course_code + teacher_short + batch for unique identification
-        const teacherKey = course.teachers && course.teachers.length > 0 
-            ? course.teachers.map(t => t.short_name || '').sort().join('/')
-            : '';
-        card.dataset.compositeKey = `${course.course_code}|${teacherKey}|${course.batch || ''}`;
         card.dataset.year = String(course.year || '').trim();
         card.dataset.term = String(course.term || '').trim();
         card.dataset.batch = course.batch || '';
+        // Placement key excludes teacher so curriculum teacher/callsign changes don't break matching
+        card.dataset.compositeKey = this.getPlacementKey(course);
         card.dataset.colorCode = course.color_code || '';
         card.dataset.isSharedSlot = course.is_shared_slot || false;
         
@@ -2141,16 +2332,14 @@ const RoutineManager = {
         card.dataset.teacherId = teacherId;
         card.dataset.teachers = JSON.stringify(teachersArray);
         
-        // Calculate remaining - check both courseId (new) and compositeKey (loaded)
+        // Calculate remaining from placement key / assigned_id (never sum both)
         const totalClasses = parseInt(course.classes_per_week || 0);
-        const compositeKey = card.dataset.compositeKey;
-        const placedById = this.state.placedCourses[courseId] || 0;
-        const placedByKey = this.state.placedCourses[compositeKey] || 0;
-        const placed = placedById + placedByKey;
+        const placed = this.getPlacedCountForCard(card);
         const remaining = totalClasses - placed;
 
-        // Apply batch color
-        const borderColor = course.color_code || '';
+        // Apply year+term color (same as grid ribbon for merged batches)
+        const borderColor = course.color_code || this.getBatchColor(course.batch, course.year, course.term) || '';
+        card.dataset.colorCode = borderColor;
         const colorBarStyle = borderColor ? `style="background: ${borderColor};"` : '';
         
         card.innerHTML = `
@@ -2199,14 +2388,8 @@ const RoutineManager = {
     updateCourseCards: function() {
         if (!this.elements.coursesList) return;
         this.elements.coursesList.querySelectorAll('.course-card').forEach(card => {
-            const courseId = card.dataset.courseId;
-            const compositeKey = card.dataset.compositeKey;
             const totalClasses = parseInt(card.dataset.classesPerWeek || 0);
-            
-            // Check placements by courseId (for new placements) AND compositeKey (for loaded routines)
-            const placedById = this.state.placedCourses[courseId] || 0;
-            const placedByKey = this.state.placedCourses[compositeKey] || 0;
-            const placed = placedById + placedByKey;
+            const placed = this.getPlacedCountForCard(card);
             const remaining = totalClasses - placed;
 
             let badge = card.querySelector('.course-badge');
@@ -2477,13 +2660,7 @@ const RoutineManager = {
         if (existingItem) {
             // Swap functionality
             if (confirm('This slot is occupied. Do you want to swap the courses?')) {
-                // Remove existing
-                if (existingItem.courseId) {
-                    this.state.placedCourses[existingItem.courseId] = 
-                        Math.max(0, (this.state.placedCourses[existingItem.courseId] || 0) - 1);
-                }
-                
-                // Add new course (continue with normal flow)
+                delete this.state.routine[key];
             } else {
                 return; // User cancelled
             }
@@ -2492,7 +2669,7 @@ const RoutineManager = {
         // Check remaining classes
         const courseId = String(this.state.draggedCourse.dataset.courseId || '').trim();
         const totalClasses = parseInt(this.state.draggedCourse.dataset.classesPerWeek || 0);
-        const placed = this.state.placedCourses[courseId] || 0;
+        const placed = this.getPlacedCountForCard(this.state.draggedCourse);
         const remaining = totalClasses - placed;
         
         if (remaining <= 0) {
@@ -2524,8 +2701,7 @@ const RoutineManager = {
             isSharedSlot: this.state.draggedCourse.dataset.isSharedSlot === 'true'
         };
         
-        // Update placed count
-        this.state.placedCourses[courseId] = placed + 1;
+        this.rebuildPlacedCourses();
 
         // Render
         this.renderSlot(cell);
@@ -2580,24 +2756,9 @@ const RoutineManager = {
             return;
         } else if (this.state.draggedFromCell) {
             const key = this.state.draggedFromCell.key;
-            const routineItem = this.state.draggedFromCell.item;
-            
             if (this.state.routine[key]) {
                 delete this.state.routine[key];
-                
-                // Decrement placement count - check both courseId and compositeKey
-                if (routineItem.courseId) {
-                    this.state.placedCourses[routineItem.courseId] = 
-                        Math.max(0, (this.state.placedCourses[routineItem.courseId] || 0) - 1);
-                }
-                // Also check composite key (for entries loaded from saved routines)
-                // Use course_code + teacher_short + batch (matches course cards)
-                if (routineItem.courseCode) {
-                    const teacherShort = routineItem.teacherShort || '';
-                    const compositeKey = `${routineItem.courseCode}|${teacherShort}|${routineItem.batch || ''}`;
-                    this.state.placedCourses[compositeKey] = 
-                        Math.max(0, (this.state.placedCourses[compositeKey] || 0) - 1);
-                }
+                this.rebuildPlacedCourses();
             }
         }
 
@@ -2634,8 +2795,8 @@ const RoutineManager = {
                 cell.style.webkitUserSelect = 'none';
             }
 
-            // Get batch color for ribbon
-            const batchColor = this.getBatchColor(item.batch);
+            // Get semester-group color for ribbon (same year+term = same color)
+            const batchColor = this.getBatchColor(item.batch, item.year, item.term);
             
             // Reset any previous color styles
             cell.style.backgroundColor = '';
@@ -2663,22 +2824,8 @@ const RoutineManager = {
                     e.stopPropagation();
                     if (confirm('Remove this course from routine?')) {
                         const key = deleteBtn.dataset.key;
-                        const routineItem = this.state.routine[key];
                         delete this.state.routine[key];
-                        
-                        // Decrement placement count - check both courseId and compositeKey
-                        if (routineItem && routineItem.courseId) {
-                            this.state.placedCourses[routineItem.courseId] = 
-                                Math.max(0, (this.state.placedCourses[routineItem.courseId] || 0) - 1);
-                        }
-                        // Also check composite key (for entries loaded from saved routines)
-                        // Use course_code + teacher_short + batch (matches course cards)
-                        if (routineItem && routineItem.courseCode) {
-                            const teacherShort = routineItem.teacherShort || '';
-                            const compositeKey = `${routineItem.courseCode}|${teacherShort}|${routineItem.batch || ''}`;
-                            this.state.placedCourses[compositeKey] = 
-                                Math.max(0, (this.state.placedCourses[compositeKey] || 0) - 1);
-                        }
+                        this.rebuildPlacedCourses();
                         
                         this.updateRoutineDisplay();
                         this.updateCourseCards();
@@ -2708,6 +2855,7 @@ const RoutineManager = {
     updateRoutineDisplay: function() {
         // Re-cache slot cells
         this.elements.slotCells = document.querySelectorAll('.slot-cell');
+        this.rebuildColorMap();
 
         // Use requestAnimationFrame for smooth updates
         requestAnimationFrame(() => {
@@ -2730,12 +2878,7 @@ const RoutineManager = {
                 const total = parseInt(card.dataset.classesPerWeek || 0);
                 if (total > 0) {
                     totalCourses += total;
-                    const courseId = card.dataset.courseId;
-                    const compositeKey = card.dataset.compositeKey;
-                    // Check both courseId (new placements) and compositeKey (loaded routines)
-                    const placedById = this.state.placedCourses[courseId] || 0;
-                    const placedByKey = this.state.placedCourses[compositeKey] || 0;
-                    placedCourses += (placedById + placedByKey);
+                    placedCourses += this.getPlacedCountForCard(card);
                 }
             });
         } else {
@@ -2846,14 +2989,15 @@ const RoutineManager = {
             }
         });
 
-        // Detect batch conflicts (same batch, same time, different rooms)
+        // Detect batch conflicts (same batch + year + term, same time, different rooms)
+        // Different terms of the same batch (e.g. Second First vs Second Second) do NOT clash
         const batchTimeMap = {};
         Object.keys(this.state.routine).forEach(key => {
             const item = this.state.routine[key];
             if (!item.courseCode || !item.batch) return;
 
             const [day, slot] = key.split('|');
-            const batchTimeKey = `${day}|${slot}|${item.batch}`;
+            const batchTimeKey = `${day}|${slot}|${item.batch}|${item.year || ''}|${item.term || ''}`;
 
             if (!batchTimeMap[batchTimeKey]) {
                 batchTimeMap[batchTimeKey] = [];
@@ -2873,7 +3017,7 @@ const RoutineManager = {
                         const cell = this.getCellByKey(entry.key);
                         if (cell && !cell.classList.contains('has-conflict')) {
                             cell.classList.add('has-conflict');
-                            cell.title = 'Batch conflict: Same batch at same time in different rooms';
+                            cell.title = 'Batch conflict: Same batch/year/term at same time in different rooms';
                             conflicts.push({
                                 type: 'batch',
                                 key: entry.key,
@@ -3008,17 +3152,10 @@ const RoutineManager = {
                                 isSharedSlot: item.is_shared_slot || false,
                                 isCustom: isCustom
                             };
-
-                            // Track placed courses - use composite key since saved routines don't have assigned_id
-                            // Use course_code + teacher_short + batch for unique identification (matches course cards)
-                            if (courseCode) {
-                                const teacherShort = item.teacher_short_name || '';
-                                const compositeKey = `${courseCode}|${teacherShort}|${batch}`;
-                                this.state.placedCourses[compositeKey] = 
-                                    (this.state.placedCourses[compositeKey] || 0) + 1;
-                            }
                         }
                     });
+
+                    this.rebuildPlacedCourses();
                     
                     console.log('Routine state after loading:', Object.keys(this.state.routine).length, 'entries');
                 } else {
@@ -3033,7 +3170,7 @@ const RoutineManager = {
                     this.updateProgress();
                     this.checkConflicts();
 
-                    // Reload courses if filter is active
+                    // Reload courses if filter is active (also syncs teachers from curriculum)
                     if (this.elements.batchSelect && this.elements.batchSelect.value) {
                         this.loadBatchCourses(this.elements.batchSelect.value);
                     }
@@ -3086,7 +3223,7 @@ const RoutineManager = {
                 // Only load if less than 1 hour old
                 if (Date.now() - data.timestamp < 3600000) {
                     this.state.routine = data.routine || {};
-                    this.state.placedCourses = data.placedCourses || {};
+                    this.rebuildPlacedCourses();
                     this.updateRoutineDisplay();
                     this.updateCourseCards();
                     this.updateProgress();
@@ -3742,14 +3879,10 @@ const RoutineManager = {
         Object.keys(this.state.routine).forEach(key => {
             const [day, slot, room] = key.split('|');
             if (slot === slotToRemove) {
-                const item = this.state.routine[key];
-                if (item && item.courseId) {
-                    this.state.placedCourses[item.courseId] = 
-                        Math.max(0, (this.state.placedCourses[item.courseId] || 0) - 1);
-                }
                 delete this.state.routine[key];
             }
         });
+        this.rebuildPlacedCourses();
 
         this.updateTimeSlotsInTable(currentSlots);
         this.updateRoutineDisplay();

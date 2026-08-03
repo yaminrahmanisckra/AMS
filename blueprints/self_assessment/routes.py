@@ -4,6 +4,7 @@ import os
 import secrets
 from flask import render_template, redirect, url_for, flash, request, jsonify, current_app
 from flask_login import login_required, current_user
+from extensions import csrf
 from role_utils import parse_roles, get_teachers_excluding_head
 from utils.window_utils import query_for_window, stamp_window_id, get_effective_window_id, get_for_window, get_or_404_for_window
 
@@ -39,6 +40,30 @@ def _get_kalpurush_font_path():
         if os.path.exists(path):
             return os.path.abspath(path).replace(os.sep, '/')
     return None
+
+
+def _write_self_assessment_pdf(html_content):
+    """Embed Liberation Serif fallback and render HTML to PDF bytes."""
+    import io
+    from weasyprint import HTML
+    from utils.pdf_fonts import resolve_formal_pdf_fonts, formal_font_face_css
+
+    formal_fonts = resolve_formal_pdf_fonts()
+    if formal_fonts:
+        face = f"<style>{formal_font_face_css(formal_fonts)}</style>"
+        if '</head>' in html_content:
+            html_content = html_content.replace('</head>', face + '</head>', 1)
+        html_content = html_content.replace(
+            'Tahoma, Arial, sans-serif',
+            "'PDFSerif', 'Times New Roman', Times, serif",
+        )
+        base_url = formal_fonts['fonts_dir'].as_uri() + '/'
+    else:
+        base_url = request.url_root
+
+    pdf_buffer = io.BytesIO()
+    HTML(string=html_content, base_url=base_url).write_pdf(pdf_buffer)
+    return pdf_buffer.getvalue()
 
 
 def _client_ip():
@@ -81,7 +106,14 @@ def is_psac_head():
 
 
 def _name_matches_user(teacher_name, user_full_name):
-    """True if teacher_name matches user_full_name (exact, trimmed, case-insensitive, prefix, or without designation)."""
+    """True if teacher_name matches user_full_name (exact match only, case-insensitive,
+    trimmed, and tolerant of a trailing "(Designation)" suffix on Teacher.name).
+
+    Prefix/substring matching was previously used here but that allowed a short
+    name (e.g. "Ali") to match unrelated teachers whose name merely contained
+    it as a substring (e.g. "Natalie Khan"), letting one user's identity
+    resolve to another teacher's PSAC/self-assessment records.
+    """
     if not teacher_name or not user_full_name:
         return False
     u = (user_full_name or '').strip().lower()
@@ -89,15 +121,10 @@ def _name_matches_user(teacher_name, user_full_name):
     t = t_raw.lower()
     if u == t:
         return True
-    if t.startswith(u) or u.startswith(t):
-        return True
-    # User নাম টিচার নামের ভেতরে থাকলেও ম্যাচ (যেমন "Md. Yamin Rahman" in "Md. Yamin Rahman (Assistant Professor)")
-    if len(u) >= 3 and u in t:
-        return True
     # Teacher.name often "Full Name (Designation)" – compare without part in parentheses
     if ' (' in t_raw:
         t_base = t_raw.split(' (')[0].strip().lower()
-        if u == t_base or t_base.startswith(u) or u.startswith(t_base):
+        if u == t_base:
             return True
     return False
 
@@ -319,6 +346,7 @@ def psac_remove_member(member_id):
 
 
 @self_assessment_bp.route('/s/<survey_type>/<code>', methods=['GET', 'POST'])
+@csrf.exempt
 def public_survey_form(survey_type, code):
     """Public survey form by link (no login). Multiple submissions per link allowed."""
     if survey_type not in SURVEY_TYPES:
@@ -499,8 +527,8 @@ def public_survey_form_pdf(survey_type, code):
     except ImportError:
         return jsonify({'error': 'WeasyPrint not available'}), 503
     try:
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        pdf_data = _write_self_assessment_pdf(html_content)
+        pdf_buffer = io.BytesIO(pdf_data)
         pdf_data = pdf_buffer.getvalue()
     except Exception as e:
         current_app.logger.error(f"Form PDF error: {e}", exc_info=True)
@@ -887,8 +915,8 @@ def survey_responses_pdf(survey_type):
     except ImportError:
         return jsonify({'error': 'WeasyPrint not available'}), 503
     try:
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        pdf_data = _write_self_assessment_pdf(html_content)
+        pdf_buffer = io.BytesIO(pdf_data)
         pdf_data = pdf_buffer.getvalue()
     except Exception as e:
         from flask import current_app
@@ -998,8 +1026,8 @@ def _get_alumni_pdf_bytes(alumni_response, serial_no=None):
             serial_no=serial_no,
             kalpurush_font_path=_get_kalpurush_font_path(),
         )
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        pdf_data = _write_self_assessment_pdf(html_content)
+        pdf_buffer = io.BytesIO(pdf_data)
         return pdf_buffer.getvalue()
     except Exception as e:
         current_app.logger.error(f"Alumni response PDF error: {e}", exc_info=True)
@@ -1071,8 +1099,8 @@ def _get_generic_survey_pdf_bytes(survey_response, serial_no=None):
             serial_no=serial_no,
             kalpurush_font_path=_get_kalpurush_font_path(),
         )
-        pdf_buffer = io.BytesIO()
-        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        pdf_data = _write_self_assessment_pdf(html_content)
+        pdf_buffer = io.BytesIO(pdf_data)
         return pdf_buffer.getvalue()
     except Exception as e:
         current_app.logger.error(f"Survey response PDF error: {e}", exc_info=True)

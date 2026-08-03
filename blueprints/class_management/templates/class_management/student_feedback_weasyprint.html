@@ -15,6 +15,35 @@
             src: url('file://{{ kalpurush_font_path }}') format('truetype');
         }
         {% endif %}
+
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_regular }}');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_bold }}');
+            font-weight: bold;
+            font-style: normal;
+        }
+        {% if pdf_font_italic %}
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_italic }}');
+            font-weight: normal;
+            font-style: italic;
+        }
+        {% endif %}
+        {% if pdf_font_bold_italic %}
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_bold_italic }}');
+            font-weight: bold;
+            font-style: italic;
+        }
+        {% endif %}
         
         * {
             margin: 0;
@@ -23,15 +52,14 @@
         }
         
         body {
-            font-family: Tahoma, Arial, sans-serif;
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif;
             font-size: 8.5pt;
             line-height: 1.2;
             color: #000;
         }
         
-        /* Ensure Tahoma is used for all text except Praise and Suggestions */
         table, div, p, td, th {
-            font-family: Tahoma, Arial, sans-serif;
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif;
         }
         
         .page-break {

@@ -3,9 +3,8 @@ Flask-SQLAlchemy==3.0.5
 Flask-Login==0.6.3
 Flask-Mail==0.9.1
 Flask-Migrate==4.0.5
-Flask-Mail==0.9.1
 Flask-WTF==1.1.1
-Werkzeug==2.3.7
+Werkzeug==2.3.8
 python-dotenv==1.0.0
 itsdangerous==2.1.2
 Jinja2==3.1.2
@@ -17,19 +16,19 @@ alembic==1.12.0
 SQLAlchemy==2.0.21
 WTForms==3.0.1
 gunicorn==21.2.0
-numpy==1.24.3
-pandas==2.0.3
+numpy>=1.26
+pandas>=2.1
 reportlab==4.0.7  # Keep 4.0.7 for existing PDF generation code
 weasyprint==52.5  # Compatible with cPanel's older Pango version (1.42.x)
 brotlicffi>=1.0.0  # Required for WeasyPrint on macOS
 pydyf==0.5.0  # Compatible with WeasyPrint 52.5
 fonttools>=4.0.0  # Required for WeasyPrint, compatible with 52.5
 Pillow==10.1.0
-psycopg2-binary==2.9.7
+psycopg2-binary>=2.9.9
 PyMySQL==1.1.0
 cryptography==41.0.7
 certifi>=2023.7.22
-python-docx 
+python-docx==1.1.0
 openpyxl==3.1.2
 typing-extensions==4.9.0
 # xhtml2pdf==0.2.11  # Removed - requires reportlab<4, conflicts with reportlab 4.0.7

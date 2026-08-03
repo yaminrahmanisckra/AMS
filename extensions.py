@@ -1,10 +1,12 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_mail import Mail
+from flask_wtf.csrf import CSRFProtect
 
 db = SQLAlchemy()
-migrate = Migrate() 
+migrate = Migrate()
 mail = Mail()
+csrf = CSRFProtect()
 
 # Add connection health check to prevent "MySQL server has gone away" errors
 try:

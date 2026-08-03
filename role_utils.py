@@ -202,3 +202,82 @@ def is_admin(user) -> bool:
         return ADMIN_ROLE in parse_roles(user.active_role)
     return ADMIN_ROLE in parse_roles(getattr(user, 'role', None))
 
+
+def has_role(user, *roles) -> bool:
+    """True if user holds any of the given roles (respects active_role when set)."""
+    if not user:
+        return False
+    wanted = {r.lower() for r in roles}
+    if is_admin(user) and ADMIN_ROLE in wanted:
+        return True
+    effective = set(get_effective_roles(user))
+    # Admins acting as admin pass admin_required; for role_required include stored roles too
+    stored = set(parse_roles(getattr(user, 'role', None)))
+    return bool((effective | stored) & wanted)
+
+
+def is_head(user) -> bool:
+    return has_role(user, 'head', ADMIN_ROLE)
+
+
+def is_officer(user) -> bool:
+    return has_role(user, 'officer', ADMIN_ROLE)
+
+
+def can_manage_students(user) -> bool:
+    """Office/admin/head may mint and delete student records."""
+    return has_role(user, ADMIN_ROLE, 'head', 'officer')
+
+
+def can_manage_teachers_roster(user) -> bool:
+    """Create/edit/delete Teacher roster rows (routine management)."""
+    return has_role(user, ADMIN_ROLE, 'head', 'officer')
+
+
+def can_manage_curriculum(user) -> bool:
+    """Mutate curricula and courses."""
+    return has_role(user, ADMIN_ROLE, 'head', 'officer')
+
+
+def role_required(*roles, json_on_fail=False):
+    """Require login and at least one of the given roles. Administrators always pass."""
+    from functools import wraps
+    from flask import abort, flash, jsonify, redirect, request, url_for
+    from flask_login import current_user
+
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if not current_user.is_authenticated:
+                if json_on_fail or request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return jsonify({'success': False, 'error': 'Authentication required'}), 401
+                return redirect(url_for('auth.login', next=request.path))
+            if is_admin(current_user) or has_role(current_user, *roles):
+                return view(*args, **kwargs)
+            if json_on_fail or request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return jsonify({'success': False, 'error': 'Forbidden'}), 403
+            flash('You do not have permission to perform that action.', 'danger')
+            abort(403)
+        return wrapped
+    return decorator
+
+
+def admin_required(view=None, *, json_on_fail=False):
+    """Require administrator role."""
+    dec = role_required(ADMIN_ROLE, json_on_fail=json_on_fail)
+    if view is None:
+        return dec
+    return dec(view)
+
+
+def login_and_role_required(*roles, json_on_fail=False):
+    """@login_required + role_required combined for route stacking convenience."""
+    from functools import wraps
+    from flask_login import login_required as flask_login_required
+
+    role_dec = role_required(*roles, json_on_fail=json_on_fail)
+
+    def decorator(view):
+        return flask_login_required(role_dec(view))
+    return decorator
+

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <title>শিক্ষকের মোট পারিতোষিক — {{ teacher_name }}</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            color: #1a1a1a;
+            font-size: 11pt;
+            line-height: 1.35;
+        }
+        .header {
+            width: 100%;
+            border-bottom: 2px solid #1e3a5f;
+            padding-bottom: 10px;
+            margin-bottom: 14px;
+        }
+        .header table { width: 100%; border-collapse: collapse; }
+        .header td { vertical-align: middle; border: none; padding: 0; }
+        .header img { height: 52px; width: auto; }
+        .org {
+            font-size: 13pt;
+            font-weight: 700;
+            color: #1e3a5f;
+            margin: 0 0 2px 0;
+        }
+        .sub {
+            font-size: 10pt;
+            color: #444;
+            margin: 0;
+        }
+        .title {
+            text-align: center;
+            font-size: 14pt;
+            font-weight: 700;
+            margin: 12px 0 4px 0;
+            color: #111;
+        }
+        .subtitle {
+            text-align: center;
+            font-size: 9.5pt;
+            color: #555;
+            margin: 0 0 14px 0;
+        }
+        .meta {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+            font-size: 10.5pt;
+        }
+        .meta td {
+            padding: 5px 8px;
+            border: 1px solid #c5d0dc;
+            vertical-align: top;
+        }
+        .meta td.label {
+            width: 22%;
+            background: #eef3f8;
+            font-weight: 600;
+            color: #1e3a5f;
+        }
+        .section-title {
+            font-size: 11.5pt;
+            font-weight: 700;
+            color: #1e3a5f;
+            margin: 16px 0 6px 0;
+            padding-bottom: 3px;
+            border-bottom: 1px solid #c5d0dc;
+        }
+        table.summary, table.detail {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+        }
+        table.summary { font-size: 10pt; }
+        table.detail { font-size: 9.5pt; margin: 0 0 12px 0; }
+        table.summary th, table.summary td,
+        table.detail th, table.detail td {
+            border: 1px solid #b0bcc8;
+            padding: 6px 7px;
+            vertical-align: top;
+        }
+        table.summary thead th {
+            background: #1e3a5f;
+            color: #fff;
+            font-weight: 600;
+            text-align: center;
+        }
+        table.detail thead th {
+            background: #dbe4ee;
+            color: #1e3a5f;
+            font-weight: 600;
+            text-align: left;
+        }
+        .num { text-align: right; white-space: nowrap; }
+        .center { text-align: center; }
+        table.summary tbody tr:nth-child(even) { background: #f7f9fb; }
+        table.summary tfoot td {
+            background: #eef3f8;
+            font-weight: 700;
+        }
+        table.summary tfoot tr.vat td {
+            background: #fff7ed;
+            color: #9a3412;
+            font-weight: 600;
+        }
+        table.summary tfoot tr.net td {
+            background: #e6f4ea;
+            color: #14532d;
+        }
+        .context-head {
+            background: #1e3a5f;
+            color: #fff;
+            padding: 6px 8px;
+            font-size: 10pt;
+            font-weight: 700;
+            margin-top: 10px;
+        }
+        .note {
+            font-size: 8.5pt;
+            color: #666;
+            margin-top: 16px;
+            padding-top: 8px;
+            border-top: 1px dashed #b0bcc8;
+        }
+        .footer-line {
+            margin-top: 18px;
+            font-size: 8.5pt;
+            color: #777;
+            text-align: center;
+        }
+        .empty {
+            text-align: center;
+            color: #888;
+            padding: 20px;
+            border: 1px dashed #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <table>
+            <tr>
+                {% if logo_data_uri %}
+                <td style="width:70px;"><img src="{{ logo_data_uri }}" alt="KU"></td>
+                {% endif %}
+                <td>
+                    <p class="org">খুলনা বিশ্ববিদ্যালয়</p>
+                    <p class="sub">Law Discipline · Academic Management System</p>
+                    <p class="sub">পরীক্ষা পারিতোষিক — মোট হিসাব (সব সেশন)</p>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <h1 class="title">শিক্ষকের মোট পারিতোষিক (সব সেশন)</h1>
+    <p class="subtitle">বর্তমান Window-এর সব Exam Committee Statement of Remuneration থেকে যোগফল</p>
+
+    <table class="meta">
+        <tr>
+            <td class="label">শিক্ষকের নাম</td>
+            <td>{{ teacher_name }}</td>
+            <td class="label">পদবি</td>
+            <td>{{ designation or '—' }}</td>
+        </tr>
+        <tr>
+            <td class="label">Window</td>
+            <td>{% if window_name %}{{ window_name }}{% elif window_id %}Window {{ window_id }}{% else %}—{% endif %}</td>
+            <td class="label">তৈরির সময়</td>
+            <td>{{ generated_at }}</td>
+        </tr>
+    </table>
+
+    <div class="section-title">১. সেশন / বর্ষ / টার্ম অনুযায়ী সারাংশ</div>
+    {% if breakdown and breakdown|length > 0 %}
+    <table class="summary">
+        <thead>
+            <tr>
+                <th style="width:8%;">ক্রম</th>
+                <th style="width:18%;">শিক্ষাবর্ষ</th>
+                <th style="width:16%;">বর্ষ</th>
+                <th style="width:16%;">টার্ম</th>
+                <th class="num" style="width:12%;">কাজ</th>
+                <th class="num" style="width:30%;">মোট টাকা (৳)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in breakdown %}
+            <tr>
+                <td class="center">{{ loop.index }}</td>
+                <td class="center">{{ row['academic_session'] }}</td>
+                <td class="center">{{ row['year'] }}</td>
+                <td class="center">{{ row['term'] }}</td>
+                <td class="num">{{ row['job_count'] }}</td>
+                <td class="num">{{ row['total_amount_fmt'] }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="4">সর্বমোট (গ্রস)</td>
+                <td class="num">{{ total_jobs }}</td>
+                <td class="num">{{ grand_total_fmt }}</td>
+            </tr>
+            <tr class="vat">
+                <td colspan="5">VAT ({{ vat_pct }}%)</td>
+                <td class="num">− {{ vat_amount_fmt }}</td>
+            </tr>
+            <tr class="net">
+                <td colspan="5">নীট পাওনা</td>
+                <td class="num">{{ net_payable_fmt }}</td>
+            </tr>
+        </tfoot>
+    </table>
+    {% else %}
+    <div class="empty">এই Window-এ কোনো হিসাবযোগ্য বিল পাওয়া যায়নি।</div>
+    {% endif %}
+
+    {% if breakdown and breakdown|length > 0 %}
+    <div class="section-title">২. বিস্তারিত কাজের তালিকা</div>
+    {% for row in breakdown %}
+    <div class="context-head">
+        {{ loop.index }}. {{ row['academic_session'] }} · {{ row['year'] }} · {{ row['term'] }}
+        &nbsp;&nbsp;|&nbsp;&nbsp; ৳ {{ row['total_amount_fmt'] }}
+    </div>
+    <table class="detail">
+        <thead>
+            <tr>
+                <th style="width:6%;">ক্রম</th>
+                <th style="width:38%;">কাজের বিবরণ</th>
+                <th style="width:32%;">কোর্স / বিবরণ</th>
+                <th class="num" style="width:12%;">পরিমাণ</th>
+                <th class="num" style="width:12%;">টাকা (৳)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in row.jobs %}
+            <tr>
+                <td class="center">{{ loop.index }}</td>
+                <td>{{ job['description'] }}</td>
+                <td>{{ job['courses'] }}</td>
+                <td class="num">{{ job['quantity'] }}</td>
+                <td class="num">{{ job['amount_fmt'] }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5" class="center">কোনো লাইন আইটেম নেই</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endfor %}
+    {% endif %}
+
+    <p class="note">
+        নোট: তথ্যের একমাত্র উৎস — বর্তমান Window-এর Exam Committee Statement of Remuneration।
+        Statement-এ এই শিক্ষকের নামে যে কাজ আছে সেগুলোই গণনা করা হয়েছে।
+        নীট পাওনা = গ্রস − {{ vat_pct }}% VAT।
+        {% if message %}<br>{{ message }}{% endif %}
+    </p>
+    <p class="footer-line">Generated by KU Law Academic Management System</p>
+</body>
+</html>

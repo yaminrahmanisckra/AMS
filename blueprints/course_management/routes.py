@@ -5,8 +5,18 @@ from . import course_management_bp
 from .models import Curriculum, Course, StudentCourseRegistration, CourseRegistrationInvite, DutyAssignment, CurriculumYearTerm, CourseSessionAssignment
 from .forms import CurriculumForm, CourseForm, CourseInfoForm
 from blueprints.student_management.models import Student
-from blueprints.class_management.models import Session, Teacher, ClassStudent
-from role_utils import parse_roles, is_admin, get_teachers_excluding_head
+from blueprints.class_management.models import (
+    Session,
+    Teacher,
+    ClassStudent,
+    ClassAttendance,
+    CourseReview,
+    CourseFileUpload,
+    CourseQuestionThread,
+    CourseOutline,
+    ClassSplitInvite,
+)
+from role_utils import parse_roles, is_admin, get_teachers_excluding_head, role_required
 try:
     from utils.semester_utils import filter_by_active_semester
 except ImportError:
@@ -968,6 +978,7 @@ def view_curriculum(curriculum_id):
 
 @course_management_bp.route('/curriculum/add', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def add_curriculum():
     """Add a new curriculum"""
     form = CurriculumForm()
@@ -993,6 +1004,7 @@ def add_curriculum():
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>/edit', methods=['GET', 'POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def edit_curriculum(curriculum_id):
     """Edit a curriculum"""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
@@ -1052,6 +1064,7 @@ def edit_curriculum(curriculum_id):
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>/clear-assignments', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def clear_curriculum_assignments(curriculum_id):
     """Clear all teacher assignments for this curriculum (archive linked sessions, then remove assignments)."""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
@@ -1078,6 +1091,7 @@ def clear_curriculum_assignments(curriculum_id):
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>/delete', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def delete_curriculum(curriculum_id):
     """Delete a curriculum and all related courses (with proper cleanup)"""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
@@ -1171,6 +1185,7 @@ def delete_curriculum(curriculum_id):
 
 @course_management_bp.route('/curriculum/<int:curriculum_id>/course/add', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def add_course(curriculum_id):
     """Add a new course to a curriculum"""
     curriculum = Curriculum.query.get_or_404(curriculum_id)
@@ -1225,6 +1240,7 @@ def add_course(curriculum_id):
 
 @course_management_bp.route('/course/<int:course_id>/edit', methods=['GET', 'POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def edit_course(course_id):
     """Edit a course"""
     course = Course.query.get_or_404(course_id)
@@ -1280,6 +1296,7 @@ def edit_course(course_id):
 
 @course_management_bp.route('/course/<int:course_id>/delete', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def delete_course(course_id):
     """Delete a course and clean up dependent records."""
     course = Course.query.get_or_404(course_id)
@@ -1364,6 +1381,7 @@ def delete_course(course_id):
 
 @course_management_bp.route('/course/<int:course_id>/info', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def course_info(course_id):
     """Update course information (rationale, CLO, content)"""
     import json
@@ -1432,6 +1450,7 @@ def course_info(course_id):
 
 @course_management_bp.route('/course/<int:course_id>/toggle-offered', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer')
 def toggle_offered(course_id):
     """Toggle the offered status of a course for the active operational window"""
     try:
@@ -4448,8 +4467,251 @@ def save_year_term_config(curriculum_id):
         current_app.logger.error(f'Failed to save year/term config: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': 'Failed to save configuration'}), 500
 
+def _normalize_assignment_section(raw_section):
+    """Normalize UI/API section values to CSA storage: None | 'A' | 'B'."""
+    value = (raw_section or '').strip().upper()
+    if value in ('', 'FULL', 'NONE', 'NULL'):
+        return None
+    if value in ('A', 'B'):
+        return value
+    return None
+
+
+def _section_to_course_scope(section):
+    """Map CSA section to Session.course_scope."""
+    if section == 'A':
+        return 'part_a'
+    if section == 'B':
+        return 'part_b'
+    return 'full'
+
+
+def _course_scope_to_section(course_scope):
+    """Map Session.course_scope to CSA section."""
+    if course_scope == 'part_a':
+        return 'A'
+    if course_scope == 'part_b':
+        return 'B'
+    return None
+
+
+def _section_label(section):
+    return f'Section {section}' if section in ('A', 'B') else 'Full Course'
+
+
+def _compute_split_group_id(course_code, year, term, academic_session=None, window_id=None):
+    """Deterministic split_group_id for Part A/B sessions of the same offering."""
+    parts = [
+        (course_code or '').lower().strip(),
+        (year or '').lower().strip(),
+        (term or '').lower().strip(),
+    ]
+    if academic_session:
+        parts.append(str(academic_session).lower().strip())
+    if window_id is not None:
+        parts.append(f'win{window_id}')
+    return hashlib.md5('_'.join(parts).encode('utf-8')).hexdigest()
+
+
+def _sync_session_denormalized_teacher_ids(session_id, new_teacher_id, old_teacher_id=None):
+    """Keep session-scoped child rows' teacher_id aligned after ownership change."""
+    if not session_id or not new_teacher_id:
+        return
+
+    ClassStudent.query.filter_by(session_id=session_id).update(
+        {'teacher_id': new_teacher_id}, synchronize_session=False
+    )
+    ClassAttendance.query.filter_by(session_id=session_id).update(
+        {'teacher_id': new_teacher_id}, synchronize_session=False
+    )
+    CourseReview.query.filter_by(session_id=session_id).update(
+        {'teacher_id': new_teacher_id}, synchronize_session=False
+    )
+    CourseFileUpload.query.filter_by(session_id=session_id).update(
+        {'teacher_id': new_teacher_id}, synchronize_session=False
+    )
+    CourseQuestionThread.query.filter_by(session_id=session_id).update(
+        {'teacher_id': new_teacher_id}, synchronize_session=False
+    )
+    CourseOutline.query.filter_by(session_id=session_id).update(
+        {'teacher_id': new_teacher_id}, synchronize_session=False
+    )
+
+    if old_teacher_id and old_teacher_id != new_teacher_id:
+        ClassSplitInvite.query.filter_by(
+            inviter_session_id=session_id,
+            inviter_teacher_id=old_teacher_id,
+        ).update({'inviter_teacher_id': new_teacher_id}, synchronize_session=False)
+
+        session_obj = Session.query.get(session_id)
+        split_group_id = getattr(session_obj, 'split_group_id', None) if session_obj else None
+        if split_group_id:
+            ClassSplitInvite.query.filter_by(
+                split_group_id=split_group_id,
+                invited_teacher_id=old_teacher_id,
+            ).update({'invited_teacher_id': new_teacher_id}, synchronize_session=False)
+
+
+def _migrate_assessment_slots_for_scope_change(session_id, old_scope, new_scope):
+    """
+    When a session moves between Part A and Part B, move marks into the slots
+    that the new scope can edit (A: 1-2, B: 3-4) so data stays with the teacher.
+    Full <-> Part keeps marks in place.
+    """
+    if not session_id or old_scope == new_scope:
+        return False
+    if {old_scope, new_scope} != {'part_a', 'part_b'}:
+        return False
+
+    a_to_b = old_scope == 'part_a' and new_scope == 'part_b'
+    students = ClassStudent.query.filter_by(session_id=session_id).all()
+    migrated = 0
+    for student in students:
+        if a_to_b:
+            # Prefer moving A slots into empty B slots; swap if both sides have values.
+            a1, a2 = student.assessment1, student.assessment2
+            b3, b4 = student.assessment3, student.assessment4
+            if a1 is not None or a2 is not None:
+                if b3 is None and b4 is None:
+                    student.assessment3, student.assessment4 = a1, a2
+                    student.assessment1, student.assessment2 = None, None
+                else:
+                    student.assessment1, student.assessment3 = b3, a1
+                    student.assessment2, student.assessment4 = b4, a2
+                migrated += 1
+        else:
+            a1, a2 = student.assessment1, student.assessment2
+            b3, b4 = student.assessment3, student.assessment4
+            if b3 is not None or b4 is not None:
+                if a1 is None and a2 is None:
+                    student.assessment1, student.assessment2 = b3, b4
+                    student.assessment3, student.assessment4 = None, None
+                else:
+                    student.assessment1, student.assessment3 = b3, a1
+                    student.assessment2, student.assessment4 = b4, a2
+                migrated += 1
+    return migrated > 0
+
+
+def _sync_routine_rows_for_assignment(assignment, new_teacher, old_teacher_id=None, old_section=None):
+    """Best-effort sync of timetable routine rows after teacher/section change."""
+    try:
+        from sqlalchemy import inspect as sa_inspect
+
+        course = assignment.course
+        course_code = str((course.course_code if course else '') or '').strip()
+        if not course_code:
+            return
+
+        call_sign = new_teacher.call_sign or getattr(new_teacher, 'short_name', '') or ''
+        year = str(assignment.year or '').strip()
+        term = str(assignment.term or '').strip()
+        batch = str(assignment.batch or '').strip()
+        section = str(assignment.section or '').strip()
+        part = f'Part {section}' if section in ('A', 'B') else 'Full'
+        old_part = None
+        if old_section is not None:
+            old_sec = str(old_section or '').strip()
+            old_part = f'Part {old_sec}' if old_sec in ('A', 'B') else 'Full'
+
+        routine_columns = {col['name'] for col in sa_inspect(db.engine).get_columns('routine')}
+        where_parts = [
+            "course_code = :code",
+            "COALESCE(year, '') = :year",
+            "COALESCE(term, '') = :term",
+        ]
+        params = {
+            'new_tid': new_teacher.id,
+            'call_sign': call_sign,
+            'code': course_code,
+            'year': year,
+            'term': term,
+        }
+        set_parts = ['teacher_id = :new_tid', 'teacher_short_name = :call_sign']
+        if 'batch' in routine_columns and batch:
+            where_parts.append("COALESCE(batch, '') = :batch")
+            params['batch'] = batch
+        if 'part' in routine_columns:
+            if old_part and old_part != part:
+                where_parts.append(
+                    "(COALESCE(part, '') = :old_part OR COALESCE(part, '') = :part "
+                    "OR COALESCE(part, '') = '' OR :part = 'Full')"
+                )
+                params['old_part'] = old_part
+                params['part'] = part
+                set_parts.append('part = :part')
+            else:
+                where_parts.append(
+                    "(COALESCE(part, '') = :part OR COALESCE(part, '') = '' OR :part = 'Full')"
+                )
+                params['part'] = part
+        if old_teacher_id:
+            where_parts.append("(teacher_id = :old_tid OR teacher_id IS NULL)")
+            params['old_tid'] = old_teacher_id
+        if 'is_custom' in routine_columns:
+            where_parts.append("(is_custom IS NULL OR is_custom = 0)")
+
+        result = db.session.execute(
+            text(
+                f"UPDATE routine SET {', '.join(set_parts)} "
+                f"WHERE {' AND '.join(where_parts)}"
+            ),
+            params,
+        )
+        if result.rowcount:
+            current_app.logger.info(
+                f'Synced teacher/part on {result.rowcount} routine row(s) '
+                f'for assignment {assignment.id}'
+            )
+    except Exception as sync_err:
+        current_app.logger.warning(f'Routine teacher sync skipped: {sync_err}')
+
+
+def _get_assignment_or_404_payload(assignment_id):
+    """Load window-scoped CSA or return (None, error_response)."""
+    try:
+        assignment_id = int(assignment_id)
+    except (TypeError, ValueError):
+        return None, (jsonify({'success': False, 'message': 'Invalid assignment ID format.'}), 400)
+
+    if get_for_window:
+        assignment = get_for_window(CourseSessionAssignment, assignment_id)
+    else:
+        assignment = CourseSessionAssignment.query.get(assignment_id)
+    if not assignment:
+        return None, (jsonify({'success': False, 'message': 'Assignment not found.'}), 404)
+    return assignment, None
+
+
+def _find_conflicting_section_assignment(assignment, new_section):
+    """Return another active CSA occupying the target section for same offering."""
+    query = _csa_query().filter(
+        CourseSessionAssignment.id != assignment.id,
+        CourseSessionAssignment.course_id == assignment.course_id,
+        CourseSessionAssignment.year == assignment.year,
+        CourseSessionAssignment.term == assignment.term,
+    )
+    if assignment.batch:
+        query = query.filter(CourseSessionAssignment.batch == assignment.batch)
+    else:
+        query = query.filter(CourseSessionAssignment.batch.is_(None))
+
+    if new_section is None:
+        # Full conflicts with any section (A/B/Full) on same offering.
+        return query.first()
+
+    # Part conflicts with Full or the same part.
+    peers = query.all()
+    for peer in peers:
+        peer_section = _normalize_assignment_section(peer.section)
+        if peer_section is None or peer_section == new_section:
+            return peer
+    return None
+
+
 @course_management_bp.route('/api/assign-teacher-session', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer', json_on_fail=True)
 def assign_teacher_session():
     """Assign teacher to course and automatically create Session in Class Management"""
     try:
@@ -4464,7 +4726,7 @@ def assign_teacher_session():
         course_id = _parse_int(data.get('course_id'))
         curriculum_id = _parse_int(data.get('curriculum_id'))
         teacher_id = _parse_int(data.get('teacher_id'))
-        section = data.get('section', '').strip() or None
+        section = _normalize_assignment_section(data.get('section', ''))
         year = data.get('year', '').strip()
         term = data.get('term', '').strip()
         batch_str = data.get('batch', '').strip()
@@ -4524,49 +4786,27 @@ def assign_teacher_session():
                 'message': 'This assignment already exists. Please remove the existing assignment first.'
             }), 400
         
-        # Determine course scope based on section
+        course_scope = _section_to_course_scope(section)
         SCOPE_FULL = 'full'
         SCOPE_PART_A = 'part_a'
         SCOPE_PART_B = 'part_b'
         
-        if section == 'A':
-            course_scope = SCOPE_PART_A
-        elif section == 'B':
-            course_scope = SCOPE_PART_B
-        else:
-            course_scope = SCOPE_FULL
-        
         # Determine split_group_id for split courses (Part A and Part B)
-        # For split courses, all sessions of the same course/year/term/session should share the same split_group_id
         split_group_id = None
         if course_scope in [SCOPE_PART_A, SCOPE_PART_B]:
-            # Generate a unique identifier for this split course group
-            # Format: course_code_year_term_academic_session (normalized)
-            split_group_parts = [
-                course.course_code.lower().strip(),
-                year.lower().strip(),
-                term.lower().strip()
-            ]
-            if academic_session:
-                split_group_parts.append(academic_session.lower().strip())
-            if window_id is not None:
-                split_group_parts.append(f'win{window_id}')
-            
-            # Create a unique string and hash it to ensure it fits in VARCHAR(36)
-            # MD5 hash produces 32 characters, which fits perfectly in VARCHAR(36)
-            unique_string = '_'.join(split_group_parts)
-            split_group_id = hashlib.md5(unique_string.encode('utf-8')).hexdigest()
-            
-            # Check if there's already a session with this split_group_id
-            # If yes, use the same split_group_id to link them
+            split_group_id = _compute_split_group_id(
+                course.course_code, year, term, academic_session, window_id
+            )
             existing_split_session = Session.query.filter_by(
                 split_group_id=split_group_id,
                 archived=False
             ).first()
             
             if existing_split_session:
-                # Use the existing split_group_id to link sessions
-                current_app.logger.info(f'Found existing split course session {existing_split_session.id} with split_group_id {split_group_id}, linking new session')
+                current_app.logger.info(
+                    f'Found existing split course session {existing_split_session.id} '
+                    f'with split_group_id {split_group_id}, linking new session'
+                )
         
         # Reuse an existing matching session whenever possible (especially archived sessions
         # created during unassign), so attendance/history remains in a single session.
@@ -4665,6 +4905,7 @@ def assign_teacher_session():
         reused_existing_session = reusable_session is not None
         if reused_existing_session:
             session_obj = reusable_session
+            old_teacher_id = session_obj.teacher_id
             session_obj.archived = False
             session_obj.teacher_id = teacher_id
             session_obj.academic_session = academic_session
@@ -4675,10 +4916,7 @@ def assign_teacher_session():
             session_obj.split_group_id = split_group_id
             if window_id is not None:
                 session_obj.window_id = window_id
-            ClassStudent.query.filter_by(session_id=session_obj.id).update(
-                {'teacher_id': teacher_id},
-                synchronize_session=False
-            )
+            _sync_session_denormalized_teacher_ids(session_obj.id, teacher_id, old_teacher_id)
             db.session.flush()
             current_app.logger.info(f'Reusing existing session {session_obj.id} instead of creating a new one')
         else:
@@ -4809,6 +5047,7 @@ def assign_teacher_session():
 
 @course_management_bp.route('/api/unassign-teacher-session', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer', json_on_fail=True)
 def unassign_teacher_session():
     """Unassign teacher and remove associated session created via CourseSessionAssignment."""
     try:
@@ -4864,93 +5103,28 @@ def unassign_teacher_session():
 
         if session_obj and hasattr(session_obj, 'id'):
             session_id = session_obj.id
-            
-            # Instead of deleting, archive the session to preserve data
-            # This ensures batch and academic_session information is retained
+            # Archive only — never hard-delete attendance/assessment data on unassign failure.
             try:
-                # Ensure session has academic_session from assignment if missing
                 if assignment.academic_session and not session_obj.academic_session:
                     session_obj.academic_session = assignment.academic_session
-                
-                # Archive the session instead of deleting
                 session_obj.archived = True
                 db.session.flush()
-                current_app.logger.info(f'Archived session {session_id} (course: {session_obj.course_name}) instead of deleting to preserve batch and session information')
+                current_app.logger.info(
+                    f'Archived session {session_id} (course: {session_obj.course_name}) '
+                    f'to preserve attendance and assessment data'
+                )
             except Exception as archive_error:
                 db.session.rollback()
-                current_app.logger.error(f'Error archiving session {session_id}: {archive_error}', exc_info=True)
-                # If archiving fails, try to delete as fallback
-                try:
-                    # Import all necessary models for cleanup
-                    from blueprints.class_management.models import ClassAttendance, CourseReview, EvaluationInvite, EvaluationSubmission, StudentFeedbackLink, StudentFeedbackResponse, ClassSplitInvite
-                    from blueprints.course_management.models import CourseOutline
-                    
-                    # Delete all related records in correct order
-                    # 1. Delete course_outline first (if exists)
-                    try:
-                        CourseOutline.query.filter_by(session_id=session_id).delete()
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting CourseOutline for session {session_id}: {e}')
-                    
-                    # 2. Delete student feedback responses first (before feedback links)
-                    try:
-                        feedback_link_ids = [link.id for link in StudentFeedbackLink.query.filter_by(session_id=session_id).all()]
-                        if feedback_link_ids:
-                            StudentFeedbackResponse.query.filter(
-                                StudentFeedbackResponse.feedback_link_id.in_(feedback_link_ids)
-                            ).delete(synchronize_session=False)
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting StudentFeedbackResponse for session {session_id}: {e}')
-                    
-                    # 3. Delete student feedback links
-                    try:
-                        StudentFeedbackLink.query.filter_by(session_id=session_id).delete()
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting StudentFeedbackLink for session {session_id}: {e}')
-                    
-                    # 4. Delete evaluation submissions (has session_id directly)
-                    try:
-                        EvaluationSubmission.query.filter_by(session_id=session_id).delete()
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting EvaluationSubmission for session {session_id}: {e}')
-                    
-                    # 5. Delete evaluation invites
-                    try:
-                        EvaluationInvite.query.filter_by(session_id=session_id).delete()
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting EvaluationInvite for session {session_id}: {e}')
-                    
-                    # 6. Delete course reviews
-                    try:
-                        CourseReview.query.filter_by(session_id=session_id).delete()
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting CourseReview for session {session_id}: {e}')
-                    
-                    # 7. Delete attendance records
-                    try:
-                        ClassAttendance.query.filter_by(session_id=session_id).delete()
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting ClassAttendance for session {session_id}: {e}')
-                    
-                    # 8. Delete student records
-                    try:
-                        ClassStudent.query.filter_by(session_id=session_id).delete()
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting ClassStudent for session {session_id}: {e}')
-                    
-                    # 9. Delete split course invites (where this session is the inviter)
-                    try:
-                        ClassSplitInvite.query.filter_by(inviter_session_id=session_id).delete(synchronize_session=False)
-                    except Exception as e:
-                        current_app.logger.warning(f'Error deleting ClassSplitInvite for session {session_id}: {e}')
-                    
-                    # 10. Finally delete the session itself as fallback
-                    db.session.delete(session_obj)
-                    db.session.flush()
-                    current_app.logger.warning(f'Deleted session {session_id} as fallback after archiving failed')
-                except Exception as delete_error:
-                    db.session.rollback()
-                    current_app.logger.error(f'Failed to delete session {session_id} as fallback: {delete_error}', exc_info=True)
+                current_app.logger.error(
+                    f'Error archiving session {session_id}: {archive_error}', exc_info=True
+                )
+                return jsonify({
+                    'success': False,
+                    'message': (
+                        'সেশন আর্কাইভ করতে ব্যর্থ হয়েছে, তাই অ্যাটেনডেন্স/নম্বর '
+                        'সুরক্ষার জন্য আনএসাইন বাতিল করা হয়েছে।'
+                    )
+                }), 500
 
         # Also archive duplicate/orphan sessions for this teacher offering so reassign is not blocked
         if course_for_unassign and assignment_teacher_id and assignment_year and assignment_term:
@@ -5008,81 +5182,296 @@ def unassign_teacher_session():
 
 @course_management_bp.route('/api/replace-teacher-session', methods=['POST'])
 @login_required
+@role_required('admin', 'head', 'officer', json_on_fail=True)
 def replace_teacher_session():
-    """Replace teacher in assignment while keeping all other data intact"""
+    """Replace teacher and/or A/B section while preserving session attendance & marks."""
     try:
         data = request.get_json() or {}
         assignment_id = data.get('assignment_id')
-        new_teacher_id = data.get('new_teacher_id')
-        
-        # Validation
         if not assignment_id:
             return jsonify({'success': False, 'message': 'Assignment ID is required.'}), 400
-        
-        if not new_teacher_id:
-            return jsonify({'success': False, 'message': 'New Teacher ID is required.'}), 400
-        
-        try:
-            assignment_id = int(assignment_id)
-            new_teacher_id = int(new_teacher_id)
-        except (ValueError, TypeError):
-            return jsonify({'success': False, 'message': 'Invalid ID format.'}), 400
-        
-        # Get assignment
-        if get_for_window:
-            assignment = get_for_window(CourseSessionAssignment, assignment_id)
-        else:
-            assignment = CourseSessionAssignment.query.get(assignment_id)
-        if not assignment:
-            return jsonify({'success': False, 'message': 'Assignment not found.'}), 404
-        
-        # Get new teacher
-        new_teacher = Teacher.query.get(new_teacher_id)
-        if not new_teacher:
-            return jsonify({'success': False, 'message': 'New teacher not found.'}), 404
-        
-        # Check if new teacher is same as current teacher
-        if assignment.teacher_id == new_teacher_id:
-            return jsonify({'success': False, 'message': 'New teacher is same as current teacher.'}), 400
-        
+
+        assignment, error = _get_assignment_or_404_payload(assignment_id)
+        if error:
+            return error
+
+        has_new_teacher = 'new_teacher_id' in data and data.get('new_teacher_id') not in (None, '')
+        has_new_section = 'new_section' in data
+        if not has_new_teacher and not has_new_section:
+            return jsonify({
+                'success': False,
+                'message': 'নতুন শিক্ষক বা Section (A/B/Full) দিতে হবে।'
+            }), 400
+
         old_teacher_id = assignment.teacher_id
         old_teacher = Teacher.query.get(old_teacher_id)
-        
-        # Update assignment
+        old_section = _normalize_assignment_section(assignment.section)
+        new_section = _normalize_assignment_section(data.get('new_section')) if has_new_section else old_section
+
+        new_teacher_id = old_teacher_id
+        new_teacher = old_teacher
+        if has_new_teacher:
+            try:
+                new_teacher_id = int(data.get('new_teacher_id'))
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'message': 'Invalid teacher ID format.'}), 400
+            new_teacher = Teacher.query.get(new_teacher_id)
+            if not new_teacher:
+                return jsonify({'success': False, 'message': 'New teacher not found.'}), 404
+
+        teacher_changed = new_teacher_id != old_teacher_id
+        section_changed = new_section != old_section
+        if not teacher_changed and not section_changed:
+            return jsonify({
+                'success': False,
+                'message': 'কোনো পরিবর্তন নির্বাচন করা হয়নি।'
+            }), 400
+
+        # Section conflict / optional peer swap for A↔B
+        swap_with_peer = bool(data.get('swap_with_peer'))
+        peer_assignment = None
+        if section_changed:
+            peer_assignment = _find_conflicting_section_assignment(assignment, new_section)
+            if peer_assignment:
+                peer_section = _normalize_assignment_section(peer_assignment.section)
+                can_swap_ab = (
+                    swap_with_peer
+                    and old_section in ('A', 'B')
+                    and new_section in ('A', 'B')
+                    and peer_section == new_section
+                )
+                if not can_swap_ab:
+                    peer_name = peer_assignment.teacher.name if peer_assignment.teacher else f'ID {peer_assignment.teacher_id}'
+                    return jsonify({
+                        'success': False,
+                        'message': (
+                            f'{_section_label(new_section)} ইতিমধ্যে {peer_name}-এর কাছে আছে। '
+                            f'A/B অদলবদল করতে "Swap A/B Parts" ব্যবহার করুন।'
+                        ),
+                        'conflict_assignment_id': peer_assignment.id,
+                        'can_swap': (
+                            old_section in ('A', 'B')
+                            and new_section in ('A', 'B')
+                            and peer_section == new_section
+                        ),
+                    }), 409
+
+                # Safe A/B swap: exchange sections/scopes; each teacher keeps their session & marks.
+                peer_section = _normalize_assignment_section(peer_assignment.section)
+                assignment.section = peer_section
+                peer_assignment.section = old_section
+                assignment.updated_at = datetime.utcnow()
+                peer_assignment.updated_at = datetime.utcnow()
+
+                if assignment.session_id:
+                    session_obj = Session.query.get(assignment.session_id)
+                    if session_obj:
+                        old_scope = session_obj.course_scope or _section_to_course_scope(old_section)
+                        new_scope = _section_to_course_scope(peer_section)
+                        session_obj.course_scope = new_scope
+                        if new_scope in ('part_a', 'part_b'):
+                            session_obj.split_group_id = session_obj.split_group_id or _compute_split_group_id(
+                                session_obj.course_code,
+                                session_obj.year,
+                                session_obj.term,
+                                session_obj.academic_session or assignment.academic_session,
+                                session_obj.window_id if session_obj.window_id is not None else assignment.window_id,
+                            )
+                        _migrate_assessment_slots_for_scope_change(session_obj.id, old_scope, new_scope)
+                        if teacher_changed:
+                            session_obj.teacher_id = new_teacher_id
+                            assignment.teacher_id = new_teacher_id
+                            _sync_session_denormalized_teacher_ids(
+                                session_obj.id, new_teacher_id, old_teacher_id
+                            )
+
+                if peer_assignment.session_id:
+                    peer_session = Session.query.get(peer_assignment.session_id)
+                    if peer_session:
+                        peer_old_scope = peer_session.course_scope or _section_to_course_scope(peer_section)
+                        peer_new_scope = _section_to_course_scope(old_section)
+                        peer_session.course_scope = peer_new_scope
+                        if peer_new_scope in ('part_a', 'part_b'):
+                            peer_session.split_group_id = peer_session.split_group_id or _compute_split_group_id(
+                                peer_session.course_code,
+                                peer_session.year,
+                                peer_session.term,
+                                peer_session.academic_session or peer_assignment.academic_session,
+                                peer_session.window_id if peer_session.window_id is not None else peer_assignment.window_id,
+                            )
+                        _migrate_assessment_slots_for_scope_change(
+                            peer_session.id, peer_old_scope, peer_new_scope
+                        )
+
+                if teacher_changed and not assignment.session_id:
+                    assignment.teacher_id = new_teacher_id
+
+                sync_teacher = new_teacher if teacher_changed else (old_teacher or new_teacher)
+                peer_teacher = Teacher.query.get(peer_assignment.teacher_id)
+                _sync_routine_rows_for_assignment(assignment, sync_teacher, old_teacher_id if teacher_changed else None, old_section)
+                if peer_teacher:
+                    _sync_routine_rows_for_assignment(peer_assignment, peer_teacher, None, peer_section)
+
+                db.session.commit()
+                return jsonify({
+                    'success': True,
+                    'message': (
+                        f'A/B পার্ট সফলভাবে অদলবদল হয়েছে '
+                        f'({_section_label(old_section)} ↔ {_section_label(peer_section)}). '
+                        f'অ্যাটেনডেন্স ও অ্যাসেসমেন্ট নম্বর সংরক্ষিত আছে।'
+                    )
+                })
+
+        # Direct update path (no peer swap)
         assignment.teacher_id = new_teacher_id
+        assignment.section = new_section
         assignment.updated_at = datetime.utcnow()
-        
-        # Update session if exists
+
+        marks_migrated = False
         if assignment.session_id:
             session_obj = Session.query.get(assignment.session_id)
             if session_obj:
-                session_obj.teacher_id = new_teacher_id
-                current_app.logger.info(f'Updated session {session_obj.id} teacher from {old_teacher_id} to {new_teacher_id}')
-                
-                # Update all ClassStudent records in this session
-                ClassStudent.query.filter_by(session_id=session_obj.id).update({
-                    'teacher_id': new_teacher_id
-                })
-                current_app.logger.info(f'Updated ClassStudent records in session {session_obj.id} to new teacher {new_teacher_id}')
-        
+                old_scope = session_obj.course_scope or _section_to_course_scope(old_section)
+                new_scope = _section_to_course_scope(new_section)
+                if teacher_changed:
+                    session_obj.teacher_id = new_teacher_id
+                    _sync_session_denormalized_teacher_ids(
+                        session_obj.id, new_teacher_id, old_teacher_id
+                    )
+                if section_changed:
+                    session_obj.course_scope = new_scope
+                    if new_scope in ('part_a', 'part_b'):
+                        session_obj.split_group_id = _compute_split_group_id(
+                            session_obj.course_code,
+                            session_obj.year,
+                            session_obj.term,
+                            session_obj.academic_session or assignment.academic_session,
+                            session_obj.window_id if session_obj.window_id is not None else assignment.window_id,
+                        )
+                    else:
+                        session_obj.split_group_id = None
+                    marks_migrated = _migrate_assessment_slots_for_scope_change(
+                        session_obj.id, old_scope, new_scope
+                    )
+
+        _sync_routine_rows_for_assignment(
+            assignment,
+            new_teacher,
+            old_teacher_id if teacher_changed else None,
+            old_section if section_changed else None,
+        )
         db.session.commit()
-        
-        old_teacher_name = old_teacher.name if old_teacher else f'Teacher ID: {old_teacher_id}'
-        new_teacher_name = new_teacher.name
-        
-        current_app.logger.info(f'Successfully replaced teacher in assignment {assignment_id}: {old_teacher_name} -> {new_teacher_name}')
-        
-        return jsonify({
-            'success': True,
-            'message': f'টিচার সফলভাবে পরিবর্তন করা হয়েছে: {old_teacher_name} → {new_teacher_name}'
-        })
-        
+
+        parts = []
+        if teacher_changed:
+            old_name = old_teacher.name if old_teacher else f'Teacher ID: {old_teacher_id}'
+            parts.append(f'শিক্ষক: {old_name} → {new_teacher.name}')
+        if section_changed:
+            parts.append(f'পার্ট: {_section_label(old_section)} → {_section_label(new_section)}')
+        msg = 'সফলভাবে আপডেট হয়েছে: ' + '; '.join(parts)
+        msg += '। অ্যাটেনডেন্স ও সেশন ডাটা সংরক্ষিত আছে।'
+        if marks_migrated:
+            msg += ' A/B স্লট অনুযায়ী অ্যাসেসমেন্ট নম্বর স্থানান্তর করা হয়েছে।'
+
+        current_app.logger.info(
+            f'Updated assignment {assignment.id}: teacher_changed={teacher_changed}, '
+            f'section_changed={section_changed}, marks_migrated={marks_migrated}'
+        )
+        return jsonify({'success': True, 'message': msg})
+
     except Exception as exc:
         db.session.rollback()
-        current_app.logger.error(f'Failed to replace teacher: {exc}', exc_info=True)
+        current_app.logger.error(f'Failed to replace/update teacher assignment: {exc}', exc_info=True)
         return jsonify({
             'success': False,
-            'message': f'টিচার পরিবর্তন করতে ব্যর্থ হয়েছে: {str(exc)}'
+            'message': f'অ্যাসাইনমেন্ট আপডেট করতে ব্যর্থ হয়েছে: {str(exc)}'
+        }), 500
+
+
+@course_management_bp.route('/api/swap-assignment-parts', methods=['POST'])
+@login_required
+@role_required('admin', 'head', 'officer', json_on_fail=True)
+def swap_assignment_parts():
+    """Swap Part A/B sections between two assignments (teachers keep sessions & marks)."""
+    try:
+        data = request.get_json() or {}
+        course_id = data.get('course_id')
+        if not course_id:
+            return jsonify({'success': False, 'message': 'Course ID is required.'}), 400
+        try:
+            course_id = int(course_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'Invalid course ID.'}), 400
+
+        assignments = _csa_query().filter_by(course_id=course_id).all()
+        matched_a = None
+        matched_b = None
+        for candidate in assignments:
+            sec = _normalize_assignment_section(candidate.section)
+            if sec == 'A' and matched_a is None:
+                matched_a = candidate
+            elif sec == 'B' and matched_b is None:
+                matched_b = candidate
+        if matched_a:
+            for candidate in assignments:
+                if _normalize_assignment_section(candidate.section) != 'B':
+                    continue
+                if (
+                    candidate.year == matched_a.year
+                    and candidate.term == matched_a.term
+                    and (candidate.batch or None) == (matched_a.batch or None)
+                ):
+                    matched_b = candidate
+                    break
+        part_a, part_b = matched_a, matched_b
+        if not part_a or not part_b:
+            return jsonify({
+                'success': False,
+                'message': 'A/B অদলবদলের জন্য একই কোর্সে Section A ও Section B দুটোই থাকতে হবে।'
+            }), 400
+
+        teacher_a = Teacher.query.get(part_a.teacher_id)
+        teacher_b = Teacher.query.get(part_b.teacher_id)
+        if not teacher_a or not teacher_b:
+            return jsonify({'success': False, 'message': 'এক বা উভয় শিক্ষক পাওয়া যায়নি।'}), 404
+
+        # Swap sections/scopes; teachers keep their own sessions and marks.
+        part_a.section = 'B'
+        part_b.section = 'A'
+        part_a.updated_at = datetime.utcnow()
+        part_b.updated_at = datetime.utcnow()
+
+        if part_a.session_id:
+            session_a = Session.query.get(part_a.session_id)
+            if session_a:
+                old_scope = session_a.course_scope or 'part_a'
+                session_a.course_scope = 'part_b'
+                _migrate_assessment_slots_for_scope_change(session_a.id, old_scope, 'part_b')
+        if part_b.session_id:
+            session_b = Session.query.get(part_b.session_id)
+            if session_b:
+                old_scope = session_b.course_scope or 'part_b'
+                session_b.course_scope = 'part_a'
+                _migrate_assessment_slots_for_scope_change(session_b.id, old_scope, 'part_a')
+
+        _sync_routine_rows_for_assignment(part_a, teacher_a, None, 'A')
+        _sync_routine_rows_for_assignment(part_b, teacher_b, None, 'B')
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': (
+                f'A/B পার্ট অদলবদল হয়েছে: '
+                f'{teacher_a.name} এখন Section B, {teacher_b.name} এখন Section A. '
+                f'অ্যাটেনডেন্স ও অ্যাসেসমেন্ট নম্বর সংরক্ষিত আছে।'
+            )
+        })
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Failed to swap assignment parts: {exc}', exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'A/B অদলবদল ব্যর্থ: {str(exc)}'
         }), 500
 
 

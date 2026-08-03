@@ -4,13 +4,42 @@
     <meta charset="UTF-8">
     <title>Statement of Remuneration</title>
     <style>
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_regular }}');
+            font-weight: normal;
+            font-style: normal;
+        }
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_bold }}');
+            font-weight: bold;
+            font-style: normal;
+        }
+        {% if pdf_font_italic %}
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_italic }}');
+            font-weight: normal;
+            font-style: italic;
+        }
+        {% endif %}
+        {% if pdf_font_bold_italic %}
+        @font-face {
+            font-family: 'PDFSerif';
+            src: url('{{ pdf_font_bold_italic }}');
+            font-weight: bold;
+            font-style: italic;
+        }
+        {% endif %}
+
         @page {
             size: legal; /* 8.5in x 14in */
             margin: 0.3in 0.6in 0.7in 0.6in; /* Reduced top margin to minimize gaps */
             
             @bottom-center {
                 content: "Page " counter(page) " of " counter(pages);
-                font-family: 'Tahoma', Arial, sans-serif;
+                font-family: 'PDFSerif', 'Times New Roman', Times, serif;
                 font-size: 9pt;
                 color: #000;
                 margin-top: 0.2in;
@@ -29,7 +58,7 @@
         }
         
         body {
-            font-family: 'Tahoma', Arial, sans-serif;
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif;
             font-size: 10pt;
             line-height: 1.3;
             color: #000;
@@ -240,6 +269,10 @@
                             <th>Name</th>
                             <th>Designation/Institute</th>
                             <th>Total No. of Question</th>
+                        {% elif section.type == 'official_support' %}
+                            <th>Name</th>
+                            <th>Designation/Institute</th>
+                            <th>Details</th>
                         {% endif %}
                     </tr>
                 </thead>
@@ -307,6 +340,10 @@
                             <td>{{ item.name }}</td>
                             <td>{{ item.designation }}</td>
                             <td>{{ item.questions or '0' }}</td>
+                        {% elif section.type == 'official_support' %}
+                            <td>{{ item.name }}</td>
+                            <td>{{ item.designation }}</td>
+                            <td>{{ item.details or '-' }}</td>
                         {% endif %}
                     </tr>
                     {% endfor %}

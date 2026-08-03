@@ -139,7 +139,17 @@ def get_effective_window_id(admin_override=False):
 
 
 def filter_by_active_window(query, model, admin_override=False):
-    """Filter query to the user's selected operational window."""
+    """Filter query to the user's selected operational window.
+
+    SECURITY NOTE: rows with window_id IS NULL are treated as "universal" and are
+    returned for EVERY window (see the `or_(... .is_(None))` below). This is
+    intentional for legacy/shared rows created before windows existed, but it
+    means any row that is never stamped with a window_id (e.g. a bug in
+    stamp_window_id/ensure_record_in_window, or a manual DB insert) silently
+    becomes visible across all operational windows instead of being isolated.
+    When adding new window-scoped models/tables, make sure every write path
+    sets window_id explicitly — don't rely on this fallback for isolation.
+    """
     if admin_override:
         return query
 

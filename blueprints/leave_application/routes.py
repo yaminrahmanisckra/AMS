@@ -32,13 +32,33 @@ def _render_leave_pdf(template_name, context, filename):
         from flask import Response
         import io
         from weasyprint import HTML
+        from utils.pdf_fonts import resolve_formal_pdf_fonts, formal_font_face_css
     except ImportError:
         return jsonify({'error': 'WeasyPrint not available'}), 503
 
+    formal_fonts = resolve_formal_pdf_fonts()
+    context = dict(context)
+    if formal_fonts:
+        context.update({
+            'pdf_font_regular': formal_fonts['regular'],
+            'pdf_font_bold': formal_fonts['bold'],
+            'pdf_font_italic': formal_fonts.get('italic'),
+            'pdf_font_bold_italic': formal_fonts.get('bold_italic'),
+        })
+
     html_content = render_template(template_name, **context)
+    if formal_fonts:
+        face = f"<style>{formal_font_face_css(formal_fonts)}</style>"
+        if '</head>' in html_content:
+            html_content = html_content.replace('</head>', face + '</head>', 1)
+        html_content = html_content.replace(
+            'Tahoma, Arial, sans-serif',
+            "'PDFSerif', 'Times New Roman', Times, serif",
+        )
     try:
         pdf_buffer = io.BytesIO()
-        HTML(string=html_content, base_url=request.url_root).write_pdf(pdf_buffer)
+        base = (formal_fonts['fonts_dir'].as_uri() + '/') if formal_fonts else request.url_root
+        HTML(string=html_content, base_url=base).write_pdf(pdf_buffer)
         pdf_data = pdf_buffer.getvalue()
     except Exception as e:
         current_app.logger.error(f"Leave Application PDF error: {e}", exc_info=True)

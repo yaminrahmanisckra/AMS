@@ -670,8 +670,8 @@
                                                                 </span>
                                                                 <button type="button"
                                                                         class="btn btn-sm btn-outline-primary p-1"
-                                                                        onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})"
-                                                                        title="Replace Teacher"
+                                                                        onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }}, '{{ assignment.section or '' }}')"
+                                                                        title="Change Teacher / A-B Part"
                                                                         style="min-width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;">
                                                                     <i class="fas fa-exchange-alt" style="font-size: 0.75rem;"></i>
                                                                 </button>
@@ -684,6 +684,16 @@
                                                                 </button>
                                                             </div>
                                                             {% endfor %}
+                                                            {% set _secs = existing_assignments|map(attribute='section')|list %}
+                                                            {% if 'A' in _secs and 'B' in _secs %}
+                                                            <button type="button"
+                                                                    class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                                    onclick="swapAssignmentParts({{ course.id }})"
+                                                                    title="Swap A/B Parts"
+                                                                    style="font-size: 0.7rem;">
+                                                                <i class="fas fa-random me-1"></i>Swap A/B
+                                                            </button>
+                                                            {% endif %}
                                                         </div>
                                                                 {% else %}
                                                                     <span class="text-muted small">Not assigned</span>
@@ -784,8 +794,8 @@
                                                                 </span>
                                                                 <button type="button"
                                                                         class="btn btn-sm btn-outline-primary p-1"
-                                                                        onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})"
-                                                                        title="Replace Teacher"
+                                                                        onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }}, '{{ assignment.section or '' }}')"
+                                                                        title="Change Teacher / A-B Part"
                                                                         style="min-width: 28px; height: 28px; padding: 0; display: flex; align-items: center; justify-content: center;">
                                                                     <i class="fas fa-exchange-alt" style="font-size: 0.75rem;"></i>
                                                                 </button>
@@ -798,6 +808,16 @@
                                                                 </button>
                                                             </div>
                                                             {% endfor %}
+                                                            {% set _secs = existing_assignments|map(attribute='section')|list %}
+                                                            {% if 'A' in _secs and 'B' in _secs %}
+                                                            <button type="button"
+                                                                    class="btn btn-sm btn-outline-secondary py-0 px-1"
+                                                                    onclick="swapAssignmentParts({{ course.id }})"
+                                                                    title="Swap A/B Parts"
+                                                                    style="font-size: 0.7rem;">
+                                                                <i class="fas fa-random me-1"></i>Swap A/B
+                                                            </button>
+                                                            {% endif %}
                                                         </div>
                                                     {% else %}
                                                         <span class="text-muted small">Not assigned</span>
@@ -1460,7 +1480,7 @@
                                         </span>
                                     </div>
                                     <div class="btn-group" role="group">
-                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }})" title="Replace Teacher">
+                                        <button type="button" class="btn btn-sm btn-outline-primary" onclick="replaceTeacherAssignment({{ assignment.id }}, {{ course.id }}, {{ assignment.teacher_id }}, '{{ assignment.section or '' }}')" title="Change Teacher / A-B Part">
                                             <i class="fas fa-exchange-alt"></i>
                                         </button>
                                         <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment({{ assignment.id }}, {{ course.id }}, this)" title="Unassign">
@@ -1490,40 +1510,60 @@
 
 {% if courses %}
     {% for course in courses %}
-    <!-- Replace Teacher Modal -->
+    <!-- Manage Assignment Modal (teacher + A/B part) -->
     <div class="modal fade" id="replaceTeacherModal{{ course.id }}" tabindex="-1" aria-labelledby="replaceTeacherModalLabel{{ course.id }}" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header bg-primary text-white">
                     <h5 class="modal-title" id="replaceTeacherModalLabel{{ course.id }}">
-                        <i class="fas fa-exchange-alt me-2"></i>Replace Teacher: {{ course.course_code }} - {{ course.course_name }}
+                        <i class="fas fa-exchange-alt me-2"></i>Change Teacher / Part: {{ course.course_code }}
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <form id="replaceTeacherForm{{ course.id }}">
                         <input type="hidden" name="assignment_id" id="replaceAssignmentId{{ course.id }}">
+                        <input type="hidden" id="replaceCurrentTeacherId{{ course.id }}" value="">
+                        <input type="hidden" id="replaceCurrentSection{{ course.id }}" value="">
                         <div class="mb-3">
                             <label for="new_teacher_id{{ course.id }}" class="form-label">
-                                <i class="fas fa-user me-2"></i>Select New Teacher <span class="text-danger">*</span>
+                                <i class="fas fa-user me-2"></i>Teacher
                             </label>
-                            <select class="form-select" id="new_teacher_id{{ course.id }}" name="new_teacher_id" required>
-                                <option value="">Select Teacher</option>
+                            <select class="form-select" id="new_teacher_id{{ course.id }}" name="new_teacher_id">
+                                <option value="">Keep current teacher</option>
                                 {% for teacher in teachers %}
                                 <option value="{{ teacher.id }}">{{ teacher.name }} ({{ teacher.short_name }})</option>
                                 {% endfor %}
                             </select>
+                            <small class="form-text text-muted">নতুন শিক্ষক না বদলালে বর্তমান শিক্ষকই থাকবে।</small>
                         </div>
-                        <div class="alert alert-info">
-                            <i class="fas fa-info-circle me-2"></i>
-                            <strong>Note:</strong> Replacing the teacher will update the assignment and session while keeping all other data (batch, academic session, students, attendance, etc.) intact.
+                        <div class="mb-3">
+                            <label for="new_section{{ course.id }}" class="form-label">
+                                <i class="fas fa-layer-group me-2"></i>Section / Part
+                            </label>
+                            <select class="form-select" id="new_section{{ course.id }}" name="new_section">
+                                <option value="">Full Course</option>
+                                <option value="A">Section A</option>
+                                <option value="B">Section B</option>
+                            </select>
+                            <small class="form-text text-muted">A/B পরিবর্তনে অ্যাসেসমেন্ট স্লট স্বয়ংক্রিয়ভাবে মিলিয়ে নেওয়া হয়।</small>
+                        </div>
+                        <div class="form-check mb-3" id="swapWithPeerWrap{{ course.id }}" style="display:none;">
+                            <input class="form-check-input" type="checkbox" id="swapWithPeer{{ course.id }}">
+                            <label class="form-check-label" for="swapWithPeer{{ course.id }}">
+                                অন্য পার্টের শিক্ষকের সাথে A/B অদলবদল করুন (নম্বর সংরক্ষিত থাকবে)
+                            </label>
+                        </div>
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-shield-alt me-2"></i>
+                            <strong>নিরাপদ পরিবর্তন:</strong> সেশন, ব্যাচ, স্টুডেন্ট, অ্যাটেনডেন্স ও অ্যাসেসমেন্ট নম্বর মুছে যাবে না।
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" onclick="confirmReplaceTeacher({{ course.id }})">
-                        <i class="fas fa-exchange-alt me-1"></i>Replace Teacher
+                        <i class="fas fa-save me-1"></i>Save Changes
                     </button>
                 </div>
             </div>
@@ -2712,78 +2752,129 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Replace teacher in course assignment
-    function replaceTeacherAssignment(assignmentId, courseId, currentTeacherId) {
-        // Set assignment ID in hidden input
+    // Manage teacher / A-B part for an existing assignment
+    function replaceTeacherAssignment(assignmentId, courseId, currentTeacherId, currentSection) {
         document.getElementById(`replaceAssignmentId${courseId}`).value = assignmentId;
-        
-        // Exclude current teacher from dropdown
+        document.getElementById(`replaceCurrentTeacherId${courseId}`).value = currentTeacherId || '';
+        document.getElementById(`replaceCurrentSection${courseId}`).value = currentSection || '';
+
         const teacherSelect = document.getElementById(`new_teacher_id${courseId}`);
-        const options = teacherSelect.querySelectorAll('option');
-        options.forEach(option => {
-            if (option.value == currentTeacherId) {
+        teacherSelect.value = '';
+        teacherSelect.querySelectorAll('option').forEach(option => {
+            if (option.value && String(option.value) === String(currentTeacherId)) {
                 option.style.display = 'none';
             } else {
                 option.style.display = '';
             }
         });
-        
-        // Reset selection
-        teacherSelect.value = '';
-        
-        // Show modal
+
+        const sectionSelect = document.getElementById(`new_section${courseId}`);
+        sectionSelect.value = currentSection || '';
+
+        const swapWrap = document.getElementById(`swapWithPeerWrap${courseId}`);
+        const swapCheck = document.getElementById(`swapWithPeer${courseId}`);
+        if (swapCheck) swapCheck.checked = false;
+        if (swapWrap) {
+            swapWrap.style.display = (currentSection === 'A' || currentSection === 'B') ? 'block' : 'none';
+        }
+
         const modal = new bootstrap.Modal(document.getElementById(`replaceTeacherModal${courseId}`));
         modal.show();
     }
-    
-    function confirmReplaceTeacher(courseId) {
+
+    function confirmReplaceTeacher(courseId, forceSwap) {
         const form = document.getElementById(`replaceTeacherForm${courseId}`);
         const assignmentId = document.getElementById(`replaceAssignmentId${courseId}`).value;
+        const currentTeacherId = document.getElementById(`replaceCurrentTeacherId${courseId}`).value;
+        const currentSection = document.getElementById(`replaceCurrentSection${courseId}`).value || '';
         const newTeacherId = document.getElementById(`new_teacher_id${courseId}`).value;
-        
-        if (!newTeacherId) {
-            alert('Please select a new teacher.');
+        const newSection = document.getElementById(`new_section${courseId}`).value;
+        const swapWithPeer = forceSwap || !!(document.getElementById(`swapWithPeer${courseId}`)?.checked);
+
+        const teacherChanging = !!(newTeacherId && String(newTeacherId) !== String(currentTeacherId));
+        const sectionChanging = String(newSection || '') !== String(currentSection || '');
+        if (!teacherChanging && !sectionChanging) {
+            alert('শিক্ষক বা Section পরিবর্তন করুন।');
             return;
         }
-        
-        if (!confirm('আপনি কি নিশ্চিত যে আপনি এই টিচারকে পরিবর্তন করতে চান? সব ডাটা (batch, session, students, attendance) intact থাকবে।')) {
+
+        const payload = {
+            assignment_id: parseInt(assignmentId, 10),
+            new_section: newSection,
+            swap_with_peer: swapWithPeer
+        };
+        if (teacherChanging) {
+            payload.new_teacher_id = parseInt(newTeacherId, 10);
+        }
+
+        if (!forceSwap && !confirm('আপনি কি নিশ্চিত? অ্যাটেনডেন্স ও অ্যাসেসমেন্ট নম্বর সংরক্ষিত থাকবে।')) {
             return;
         }
-        
-        // Show loading state
+
         const submitBtn = form.closest('.modal').querySelector('.btn-primary');
         const originalText = submitBtn.innerHTML;
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Replacing...';
-        
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
+
         fetch('/course-management/api/replace-teacher-session', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                assignment_id: assignmentId,
-                new_teacher_id: parseInt(newTeacherId)
-            })
+            body: JSON.stringify(payload)
         })
-        .then(response => response.json())
+        .then(async response => {
+            const result = await response.json();
+            result._httpStatus = response.status;
+            return result;
+        })
         .then(result => {
             if (result.success) {
-                alert(result.message || 'টিচার সফলভাবে পরিবর্তন করা হয়েছে।');
+                alert(result.message || 'সফলভাবে আপডেট হয়েছে।');
                 const modal = bootstrap.Modal.getInstance(form.closest('.modal'));
                 if (modal) modal.hide();
                 location.reload();
-            } else {
-                alert(result.message || 'টিচার পরিবর্তন করতে ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+                return;
+            }
+            if (result._httpStatus === 409 && result.can_swap && !swapWithPeer) {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = originalText;
+                if (confirm((result.message || 'কনফ্লিক্ট') + '\n\nA/B অদলবদল করে এগোতে চান?')) {
+                    const swapCheck = document.getElementById(`swapWithPeer${courseId}`);
+                    if (swapCheck) swapCheck.checked = true;
+                    confirmReplaceTeacher(courseId, true);
+                }
+                return;
             }
+            alert(result.message || 'আপডেট ব্যর্থ হয়েছে।');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('টিচার পরিবর্তন করার সময় একটি ত্রুটি ঘটেছে।');
+            alert('আপডেট করার সময় একটি ত্রুটি ঘটেছে।');
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalText;
+        });
+    }
+
+    function swapAssignmentParts(courseId) {
+        if (!confirm('এই কোর্সের Section A ও Section B অদলবদল করবেন? শিক্ষকদের নিজস্ব অ্যাটেনডেন্স/নম্বর থাকবে।')) {
+            return;
+        }
+        fetch('/course-management/api/swap-assignment-parts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ course_id: courseId })
+        })
+        .then(response => response.json())
+        .then(result => {
+            alert(result.message || (result.success ? 'সফল' : 'ব্যর্থ'));
+            if (result.success) location.reload();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('A/B অদলবদল করার সময় ত্রুটি হয়েছে।');
         });
     }
 
@@ -2873,7 +2964,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <span class="ms-2">${sectionLabel}${batchLabel}${badge}</span>
                             </div>
                             <div class="btn-group" role="group">
-                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="replaceTeacherAssignment(${assignment.id}, ${courseId}, ${assignment.teacher_id})" title="Replace Teacher">
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="replaceTeacherAssignment(${assignment.id}, ${courseId}, ${assignment.teacher_id}, '${assignment.section || ''}')" title="Change Teacher / A-B Part">
                                     <i class="fas fa-exchange-alt"></i>
                             </button>
                                 <button type="button" class="btn btn-sm btn-outline-danger" onclick="unassignTeacherAssignment(${assignment.id}, ${courseId}, this)" title="Unassign">

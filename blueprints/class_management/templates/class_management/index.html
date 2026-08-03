@@ -241,14 +241,6 @@
                                                         {% endif %}
                                                     </a>
                                                 </li>
-                                                <li><hr class="dropdown-divider"></li>
-                                                <li>
-                                                    <form action="{{ url_for('class_management.archive_session', session_id=session.id) }}" method="POST" style="display:inline;">
-                                                        <button type="submit" class="dropdown-item" onclick="return confirm('Are you sure you want to archive this course?');" style="border: none; background: none; width: 100%; text-align: left; padding: 0.25rem 1rem;">
-                                                            <i class="fas fa-archive me-2"></i>Archive
-                                            </button>
-                                        </form>
-                                                </li>
                                             </ul>
                                         </div>
                                     </div>
@@ -367,13 +359,6 @@
                                         </a>
                                     </li>
                                     <li><hr class="dropdown-divider"></li>
-                                    <li>
-                                        <form action="{{ url_for('class_management.archive_session', session_id=session.id) }}" method="POST" class="m-0" onsubmit="return confirm('Archive this external course?');">
-                                            <button type="submit" class="dropdown-item">
-                                                <i class="fas fa-archive me-2 text-secondary"></i>Archive
-                                            </button>
-                                        </form>
-                                    </li>
                                     <li>
                                         <form action="{{ url_for('class_management.delete_session', session_id=session.id) }}" method="POST" class="m-0" onsubmit="return confirm('Delete this external course?');">
                                             <button type="submit" class="dropdown-item text-danger">

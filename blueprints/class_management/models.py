@@ -12,6 +12,7 @@ class Teacher(db.Model):
     institute = db.Column(db.String(100), nullable=True, default='Law Discipline, KU')  # Default: Law Discipline, KU
     call_sign = db.Column(db.String(50), nullable=True)  # Call Sign for teacher
     bank_account_no = db.Column(db.String(100), nullable=True)  # Bank Account Number for teacher
+    tin_number = db.Column(db.String(50), nullable=True)  # TIN number for teacher
     is_external = db.Column(db.Boolean, default=False, nullable=False)  # True = External Teacher (other department)
     window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
 

@@ -1,6 +1,7 @@
 from extensions import db
 from datetime import datetime
-from sqlalchemy import or_
+from sqlalchemy import or_, Text
+from sqlalchemy.dialects.mysql import LONGTEXT
 import json
 """
 NOTE:
@@ -201,7 +202,7 @@ class Course(db.Model):
     course_code = db.Column(db.String(20), nullable=False)
     course_name = db.Column(db.String(100), nullable=False)
     credit = db.Column(db.Float, nullable=False)
-    course_type = db.Column(db.String(20), nullable=False)  # Theory/Sessional/Viva
+    course_type = db.Column(db.String(40), nullable=False)  # Theory/Sessional/Viva/Dissertation Proposal (PG)
     category = db.Column(db.String(20), nullable=False, default='ug') # UG/PG
     core_optional = db.Column(db.String(20), nullable=True)  # Core/Optional
     syllabus_year = db.Column(db.String(20), nullable=True)  # Syllabus Year
@@ -523,8 +524,8 @@ class SessionArchive(db.Model):
     batch = db.Column(db.String(50), nullable=True)
     window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     
-    # Archive data (JSON format)
-    archive_data = db.Column(db.Text, nullable=False)  # JSON string containing all archived data
+    # Archive data (JSON format) — LONGTEXT on MySQL (semester snapshots exceed TEXT)
+    archive_data = db.Column(Text().with_variant(LONGTEXT(), 'mysql'), nullable=False)
     
     # Metadata
     archived_by = db.Column(db.String(100), nullable=True)  # User who archived

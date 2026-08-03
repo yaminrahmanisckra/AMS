@@ -1,38 +1,52 @@
+import html
+import logging
 import os
 import sys
 import traceback
 from datetime import datetime
-from flask import current_app, request, jsonify
-import logging
+from logging.handlers import RotatingFileHandler
 
-# Configure logging for cPanel
+from flask import current_app, jsonify, request
+from werkzeug.exceptions import HTTPException
+
+
+def _log_dir():
+    """Prefer a private log directory outside the web-served tree when configured."""
+    configured = os.environ.get('AMS_LOG_DIR', '').strip()
+    if configured:
+        path = configured
+    else:
+        # Parent of docroot: .../ams_logs next to the site folder when possible
+        base = os.path.dirname(os.path.abspath(__file__))
+        sibling = os.path.join(os.path.dirname(base), 'ams_logs')
+        path = sibling if os.path.isdir(os.path.dirname(base)) else os.path.join(base, 'logs')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def setup_error_logging():
-    """Setup comprehensive error logging for cPanel deployment"""
-    
-    # Create logs directory if it doesn't exist
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    
-    # Configure file logging
+    """Setup rotating file logging (not into a publicly served path when AMS_LOG_DIR is set)."""
+    log_dir = _log_dir()
     log_file = os.path.join(log_dir, 'app_errors.log')
-    
-    # Configure logging
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
-    return logging.getLogger(__name__)
+
+    logger = logging.getLogger('ams_errors')
+    if not logger.handlers:
+        logger.setLevel(logging.INFO)
+        handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=5)
+        handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        ))
+        logger.addHandler(handler)
+        stream = logging.StreamHandler(sys.stdout)
+        stream.setLevel(logging.WARNING)
+        logger.addHandler(stream)
+    return logger
+
 
 def log_error(error, context=None):
-    """Log detailed error information"""
+    """Log detailed error information to the private log only."""
     logger = setup_error_logging()
-    
+
     error_info = {
         'timestamp': datetime.now().isoformat(),
         'error_type': type(error).__name__,
@@ -43,58 +57,62 @@ def log_error(error, context=None):
         'user_agent': request.headers.get('User-Agent') if request else 'No request',
         'context': context or {}
     }
-    
-    logger.error(f"Application Error: {error_info}")
-    
-    # Also write to a separate error file for easy access
-    error_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'detailed_errors.log')
-    with open(error_file, 'a', encoding='utf-8') as f:
-        f.write(f"\n{'='*80}\n")
-        f.write(f"ERROR at {error_info['timestamp']}\n")
-        f.write(f"URL: {error_info['request_url']}\n")
-        f.write(f"Method: {error_info['request_method']}\n")
-        f.write(f"Error Type: {error_info['error_type']}\n")
-        f.write(f"Error Message: {error_info['error_message']}\n")
-        f.write(f"Context: {error_info['context']}\n")
-        f.write(f"Traceback:\n{error_info['traceback']}\n")
-        f.write(f"{'='*80}\n")
+
+    logger.error('Application Error: %s', error_info)
+
+    error_file = os.path.join(_log_dir(), 'detailed_errors.log')
+    try:
+        with open(error_file, 'a', encoding='utf-8') as f:
+            f.write(f"\n{'=' * 80}\n")
+            f.write(f"ERROR at {error_info['timestamp']}\n")
+            f.write(f"URL: {error_info['request_url']}\n")
+            f.write(f"Method: {error_info['request_method']}\n")
+            f.write(f"Error Type: {error_info['error_type']}\n")
+            f.write(f"Error Message: {error_info['error_message']}\n")
+            f.write(f"Context: {error_info['context']}\n")
+            f.write(f"Traceback:\n{error_info['traceback']}\n")
+            f.write(f"{'=' * 80}\n")
+    except OSError:
+        logger.error('Failed to append detailed_errors.log', exc_info=True)
+
 
 def check_dependencies():
     """Check if all required dependencies are available"""
     logger = setup_error_logging()
-    
+
     dependencies = {
         'pandas': 'pandas',
-        'openpyxl': 'openpyxl', 
+        'openpyxl': 'openpyxl',
         'reportlab': 'reportlab',
         'python-docx': 'docx',
         'Pillow': 'PIL',
         'numpy': 'numpy',
         'weasyprint': 'weasyprint'
     }
-    
+
     missing_deps = []
     available_deps = {}
-    
+
     for dep_name, import_name in dependencies.items():
         try:
             module = __import__(import_name)
             available_deps[dep_name] = module.__version__ if hasattr(module, '__version__') else 'Available'
-            logger.info(f"✓ {dep_name}: {available_deps[dep_name]}")
+            logger.info('✓ %s: %s', dep_name, available_deps[dep_name])
         except ImportError as e:
             missing_deps.append(dep_name)
-            logger.error(f"✗ {dep_name}: Missing - {e}")
-    
+            logger.error('✗ %s: Missing - %s', dep_name, e)
+
     return {
         'available': available_deps,
         'missing': missing_deps,
         'all_available': len(missing_deps) == 0
     }
 
+
 def check_file_permissions():
     """Check file and directory permissions"""
     logger = setup_error_logging()
-    
+
     paths_to_check = [
         'uploads',
         'logs',
@@ -102,35 +120,35 @@ def check_file_permissions():
         'static',
         'templates'
     ]
-    
+
     permission_issues = []
-    
+
     for path in paths_to_check:
         if os.path.exists(path):
             try:
-                # Check if directory is writable
                 test_file = os.path.join(path, '.test_write')
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
-                logger.info(f"✓ {path}: Writable")
+                logger.info('✓ %s: Writable', path)
             except Exception as e:
-                permission_issues.append(f"{path}: {str(e)}")
-                logger.error(f"✗ {path}: Permission issue - {e}")
+                permission_issues.append(f'{path}: {str(e)}')
+                logger.error('✗ %s: Permission issue - %s', path, e)
         else:
             try:
                 os.makedirs(path, exist_ok=True)
-                logger.info(f"✓ {path}: Created")
+                logger.info('✓ %s: Created', path)
             except Exception as e:
-                permission_issues.append(f"{path}: Cannot create - {str(e)}")
-                logger.error(f"✗ {path}: Cannot create - {e}")
-    
+                permission_issues.append(f'{path}: Cannot create - {str(e)}')
+                logger.error('✗ %s: Cannot create - %s', path, e)
+
     return permission_issues
+
 
 def get_system_info():
     """Get system information for debugging"""
     import platform
-    
+
     return {
         'python_version': sys.version,
         'platform': platform.platform(),
@@ -145,63 +163,67 @@ def get_system_info():
         }
     }
 
-def create_error_response(error, status_code=500):
-    """Create a standardized error response"""
-    error_info = {
-        'error': str(error),
-        'type': type(error).__name__,
-        'timestamp': datetime.now().isoformat(),
-        'path': request.path if request else 'Unknown',
-        'method': request.method if request else 'Unknown'
-    }
-    
-    # Log the error
-    log_error(error, {'status_code': status_code})
-    
-    # Return JSON response for API calls, HTML for others
-    if request and request.path.startswith('/api/'):
-        return jsonify(error_info), status_code
-    else:
-        return f"""
-        <html>
-        <head><title>Error {status_code}</title></head>
-        <body>
-            <h1>Error {status_code}</h1>
-            <p><strong>Error:</strong> {error}</p>
-            <p><strong>Type:</strong> {type(error).__name__}</p>
-            <p><strong>Time:</strong> {error_info['timestamp']}</p>
-            <p><strong>Path:</strong> {error_info['path']}</p>
-            <hr>
-            <p>Please check the error logs for more details.</p>
-        </body>
-        </html>
-        """, status_code
 
-# Global exception handler for Flask app
+def create_error_response(error, status_code=500):
+    """Create a redacted error response (no exception text or raw path reflection)."""
+    safe_path = html.escape(request.path if request else 'Unknown')
+    timestamp = datetime.now().isoformat()
+
+    log_error(error, {'status_code': status_code})
+
+    public = {
+        'error': 'An unexpected error occurred.' if status_code >= 500 else 'The requested resource was not found.' if status_code == 404 else 'Request could not be completed.',
+        'status': status_code,
+        'timestamp': timestamp,
+    }
+
+    if request and (
+        request.path.startswith('/api/')
+        or request.accept_mimetypes.best == 'application/json'
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    ):
+        return jsonify(public), status_code
+
+    title = html.escape(f'Error {status_code}')
+    message = html.escape(public['error'])
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>{title}</title></head>
+<body>
+  <h1>{title}</h1>
+  <p>{message}</p>
+  <p>Time: {html.escape(timestamp)}</p>
+  <p>Reference path: {safe_path}</p>
+  <hr>
+  <p>If this persists, contact the system administrator. Details are recorded in the private application log.</p>
+</body>
+</html>
+""", status_code
+
+
 def register_error_handlers(app):
     """Register error handlers for the Flask application"""
-    
+
     @app.errorhandler(500)
     def internal_error(error):
         return create_error_response(error, 500)
-    
+
     @app.errorhandler(404)
     def not_found_error(error):
         return create_error_response(error, 404)
-    
+
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(error):
+        # Preserve abort(403)/405/etc. status codes (do not collapse to 500)
+        if error.code and error.code >= 400:
+            if error.code >= 500:
+                return create_error_response(error, error.code)
+            # Client errors: redacted generic page without leaking description HTML oddly
+            return create_error_response(error, error.code)
+        return create_error_response(error, 500)
+
     @app.errorhandler(Exception)
     def handle_exception(error):
+        if isinstance(error, HTTPException):
+            return handle_http_exception(error)
         return create_error_response(error, 500)
-    
-    # Add before_request to log all requests
-    @app.before_request
-    def log_request():
-        if current_app:
-            current_app.logger.info(f"Request: {request.method} {request.url}")
-    
-    # Add after_request to log responses
-    @app.after_request
-    def log_response(response):
-        if current_app:
-            current_app.logger.info(f"Response: {response.status_code} for {request.method} {request.url}")
-        return response 
