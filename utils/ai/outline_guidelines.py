@@ -132,7 +132,7 @@ def builtin_delivery_guidelines(delivery_type):
         return [
             'এটি **Sessional (ব্যবহারিক/ক্লিনিক্যাল)** কোর্স — Theory কোর্সের মতো লিখবেন না।',
             'মূল ফোকাস: হাতে-কলমে কাজ, মূল্যায়ন রিপোর্ট, ভাইভা, ফিল্ড/ল্যাব/ক্লিনিক অভিজ্ঞতা।',
-            'Part C-তে sessional_report ও sessional_viva ভিত্তিক মূল্যায়ন স্পষ্ট করুন (যেমন: রিপোর্ট ৬০, ভাইভা ৩০, উপস্থিতি ১০)।',
+            'Part C: Marks Distribution 10+60+30 — Class Participation/Attendance 10, Assessment (CA components) 60, Viva voce 30; strategy_points ও make_up_procedures পূরণ করুন।',
             'lesson_plan-এ প্রতি সপ্তাহে practical exercise, demonstration, field visit, বা clinic activity উল্লেখ করুন।',
             'লেকচার-ভিত্তিক দীর্ঘ theory chapter তালিকা এড়িয়ে কাজ-ভিত্তিক সেশন পরিকল্পনা দিন।',
             'textbooks-এ practical manual, guideline, বা hands-on resource যোগ করুন।',

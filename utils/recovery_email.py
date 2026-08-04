@@ -1,9 +1,10 @@
 """
-Send password-recovery emails via MAIL_* (e.g. recovery@).
+Send password-recovery emails via MAIL_* only (recovery@kulawams.xyz).
 
 Uses smtplib directly for cPanel SMTP. Short timeouts so the forgot-password
-page does not hang. Falls back once to NOTIFICATION_MAIL_* (noreply).
-Does NOT use Flask-Mail (no connect timeout → can spin forever).
+page does not hang. Does NOT use Flask-Mail (no connect timeout → can hang).
+
+Does not fall back to noreply@ — keep recovery and notification channels separate.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from contextlib import contextmanager
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 
 from flask import current_app
 
@@ -28,7 +30,7 @@ def _sync_mail_from_os_environ():
         return
     mail_keys = (
         'MAIL_SERVER', 'MAIL_PORT', 'MAIL_USE_TLS', 'MAIL_USE_SSL',
-        'MAIL_USERNAME', 'MAIL_PASSWORD', 'MAIL_DEFAULT_SENDER',
+        'MAIL_USERNAME', 'MAIL_PASSWORD', 'MAIL_DEFAULT_SENDER', 'MAIL_FROM_NAME',
     )
     for k in mail_keys:
         v = os.environ.get(k)
@@ -60,7 +62,7 @@ def _ssl_context():
     SSL context for SMTP.
 
     Many cPanel/shared hosts intercept outbound TLS and cause
-    CERTIFICATE_VERIFY_FAILED / hostname mismatch for smtp.gmail.com.
+    CERTIFICATE_VERIFY_FAILED / hostname mismatch.
     Set MAIL_SSL_VERIFY=True only when the host has a working CA bundle.
     Default: verify off on CPANEL, otherwise on.
     """
@@ -77,7 +79,22 @@ def _ssl_context():
     return ctx
 
 
-def _build_message(subject: str, sender: str, recipient: str, text_body: str, html_body: str | None):
+def _format_from(sender: str, display_name: str | None = None) -> str:
+    name = (display_name or '').strip()
+    addr = (sender or '').strip()
+    if name and addr:
+        return formataddr((name, addr))
+    return addr
+
+
+def _build_message(
+    subject: str,
+    sender: str,
+    recipient: str,
+    text_body: str,
+    html_body: str | None = None,
+    from_name: str | None = None,
+):
     from email.utils import formatdate, make_msgid
 
     if html_body:
@@ -87,14 +104,13 @@ def _build_message(subject: str, sender: str, recipient: str, text_body: str, ht
     else:
         msg = MIMEText(text_body or '', 'plain', 'utf-8')
 
+    from_header = _format_from(sender, from_name)
     msg['Subject'] = Header(subject, 'utf-8')
-    msg['From'] = sender
+    msg['From'] = from_header
     msg['To'] = recipient
     msg['Date'] = formatdate(localtime=True)
-    # Help cPanel/Exim treat this as system mail, not bulk spam
-    msg['Auto-Submitted'] = 'auto-generated'
-    msg['X-Auto-Response-Suppress'] = 'All'
-    # Domain part of Message-ID helps some filters; derive from sender address
+    # Do NOT set Auto-Submitted — Hosting Bangladesh outbound filter often
+    # treats auto-generated headers as bulk/spam (550 classified as SPAM).
     domain = 'localhost'
     if '@' in sender:
         domain = sender.rsplit('@', 1)[-1].strip('>')
@@ -109,13 +125,10 @@ def _normalize_mail_password(password):
     if not isinstance(password, str):
         return password
     pw = password.rstrip('\r\n').strip()
-    # cPanel / .env paste artifacts: "secret" or 'secret'
     if len(pw) >= 2 and pw[0] == pw[-1] and pw[0] in ('"', "'"):
         pw = pw[1:-1].strip()
-    # Zero-width / BOM that break SMTP AUTH
     for ch in ('\ufeff', '\u200b', '\u200c', '\u200d', '\u00a0'):
         pw = pw.replace(ch, '')
-    # "xxxx xxxx xxxx xxxx" → "xxxxxxxxxxxxxxxx"
     if ' ' in pw and len(pw.replace(' ', '')) >= 16:
         pw = pw.replace(' ', '')
     return pw
@@ -130,7 +143,6 @@ def _smtp_auth_diag(user: str, password, host: str | None = None) -> str:
     if 'brevo' not in host_l and 'sendinblue' not in host_l:
         return '; '.join(hints)
     low = pw.lower()
-    # Brevo-only hints
     if low.startswith('xkeysib-'):
         hints.append('WRONG_KEY_TYPE: API key (xkeysib). Use an SMTP key from SMTP & API → SMTP')
     elif len(pw) > 80 or low.startswith('xsmtpsib-'):
@@ -159,6 +171,81 @@ def _normalize_smtp_security(host, port, use_tls, use_ssl):
     if port == 587:
         return host, port, True, False
     return host, port, use_tls, use_ssl
+
+
+def _endpoint_candidates(host, port, use_tls, use_ssl, sender_email: str):
+    """
+    Primary endpoint first; then Hosting Bangladesh / cPanel submission alternatives.
+    Prefer server.hostingbangladesh.com:465 (SSL) as recommended by the host.
+    """
+    primary = _normalize_smtp_security(host, port, use_tls, use_ssl)
+    out = [primary]
+    domain = ''
+    if sender_email and '@' in sender_email:
+        domain = sender_email.rsplit('@', 1)[-1].strip().lower()
+
+    preferred = [
+        ('server.hostingbangladesh.com', 465, False, True),
+        ('server.hostingbangladesh.com', 587, True, False),
+    ]
+    if domain:
+        preferred.extend([
+            (f'mail.{domain}', 465, False, True),
+            (f'mail.{domain}', 587, True, False),
+            (domain, 465, False, True),
+            (domain, 587, True, False),
+            ('localhost', 25, False, False),
+        ])
+    for alt in preferred:
+        if alt not in out:
+            out.append(alt)
+    return out
+
+
+def _is_spam_reject(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return 'classified as spam' in text or ('550' in text and 'spam' in text)
+
+
+def _find_sendmail_binary() -> str | None:
+    """cPanel/Exim local injection path (often same as webmail)."""
+    import shutil
+    for candidate in (
+        os.environ.get('MAIL_SENDMAIL_PATH') or '',
+        '/usr/sbin/sendmail',
+        '/usr/lib/sendmail',
+        shutil.which('sendmail') or '',
+    ):
+        path = (candidate or '').strip()
+        if path and os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+def _send_via_sendmail(raw: bytes, envelope_from: str, recipient: str) -> str:
+    """
+    Pipe a full RFC822 message to sendmail/exim.
+    Some hosts reject SMTP submission as spam but still accept local sendmail.
+    """
+    import subprocess
+
+    binary = _find_sendmail_binary()
+    if not binary:
+        raise RuntimeError('sendmail binary not found')
+    # -i : do not treat lone '.' as end of message
+    # -f : envelope sender (must be a local mailbox the account may use)
+    cmd = [binary, '-i', '-f', envelope_from, '--', recipient]
+    proc = subprocess.run(
+        cmd,
+        input=raw,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or b'').decode('utf-8', errors='replace').strip()
+        raise RuntimeError(f'sendmail exit {proc.returncode}: {err or "unknown error"}')
+    return f'sendmail:{binary}'
 
 
 @contextmanager
@@ -202,95 +289,151 @@ def _smtp_session(host, port, user, password, use_tls, use_ssl, timeout=SMTP_TIM
                 pass
 
 
+def _envelope_sender(from_header: str, fallback: str) -> str:
+    """Extract bare address for SMTP MAIL FROM."""
+    addr = (fallback or '').strip()
+    raw = (from_header or '').strip()
+    if '<' in raw and '>' in raw:
+        addr = raw.rsplit('<', 1)[-1].rstrip('>').strip() or addr
+    return addr
+
+
+def send_smtp_message(
+    *,
+    host,
+    port,
+    use_tls,
+    use_ssl,
+    user,
+    password,
+    sender,
+    recipient,
+    subject,
+    text_body,
+    html_body=None,
+    from_name=None,
+    timeout=SMTP_TIMEOUT_SEC,
+    try_cpanel_alternatives=True,
+) -> str:
+    """
+    Send one message. Returns the endpoint string that succeeded (host:port or sendmail:…).
+    Retries mail.domain submission if localhost is rejected as spam, then local sendmail.
+    """
+    recipient = (recipient or '').strip()
+    sender = (sender or '').strip()
+    user = (user or '').strip()
+    if not recipient:
+        raise RuntimeError('Missing recipient email')
+    if not sender:
+        raise RuntimeError('Missing sender email')
+
+    msg = _build_message(subject, sender, recipient, text_body or '', html_body, from_name=from_name)
+    msg['Reply-To'] = sender
+    envelope_from = _envelope_sender(msg['From'], sender)
+    raw = msg.as_bytes()
+
+    if try_cpanel_alternatives:
+        candidates = _endpoint_candidates(host, port, use_tls, use_ssl, sender)
+    else:
+        candidates = [_normalize_smtp_security(host, port, use_tls, use_ssl)]
+
+    errors = []
+    spam_hits = 0
+    for h, p, tls, ssl_on in candidates:
+        endpoint = f'{h}:{p}'
+        try:
+            with _smtp_session(
+                host=h,
+                port=p,
+                user=user or sender,
+                password=password,
+                use_tls=tls,
+                use_ssl=ssl_on,
+                timeout=timeout,
+            ) as smtp:
+                smtp.sendmail(envelope_from, [recipient], raw)
+            if endpoint != f'{str(host).strip()}:{int(port or 25)}':
+                current_app.logger.info('SMTP delivered via alternate endpoint %s', endpoint)
+            return endpoint
+        except Exception as err:
+            errors.append(f'{endpoint}: {err}')
+            current_app.logger.warning('SMTP attempt failed (%s): %s', endpoint, err)
+            if _is_spam_reject(err):
+                spam_hits += 1
+            continue
+
+    # Last resort on cPanel: local sendmail (same path webmail often uses)
+    allow_sendmail = _mail_bool('MAIL_USE_SENDMAIL', True)
+    if allow_sendmail and (spam_hits or errors):
+        try:
+            endpoint = _send_via_sendmail(raw, envelope_from, recipient)
+            current_app.logger.info('Mail delivered via %s', endpoint)
+            return endpoint
+        except Exception as sm_err:
+            errors.append(f'sendmail: {sm_err}')
+            current_app.logger.warning('sendmail fallback failed: %s', sm_err)
+
+    raise RuntimeError(' | '.join(errors) if errors else 'Email send failed')
+
+
 def send_recovery_email(subject: str, recipient: str, text_body: str, html_body: str | None = None) -> None:
     """
-    Send one password-reset email via MAIL_* SMTP (short timeout).
-    One fallback to NOTIFICATION_MAIL_* (noreply). No Flask-Mail (hang risk).
+    Send one password-reset email via MAIL_* only (recovery@).
 
-    MAIL_USERNAME = SMTP login; MAIL_DEFAULT_SENDER = From address.
-    They may differ (Brevo). On cPanel localhost they are usually the same.
+    MAIL_USERNAME / MAIL_DEFAULT_SENDER should both be recovery@kulawams.xyz
+    on cPanel localhost (login and From must match the mailbox).
     """
     _sync_mail_from_os_environ()
     recipient = (recipient or '').strip()
     if not recipient:
         raise RuntimeError('Missing recipient email')
 
-    errors = []
-
-    # Auth user and From may differ (Brevo: xxx@smtp-brevo.com vs recovery@domain).
-    # cPanel localhost usually uses the same mailbox for both.
     mail_user = (_mail_setting('MAIL_USERNAME') or '').strip()
-    sender = (_mail_setting('MAIL_DEFAULT_SENDER') or '').strip() or mail_user
-    if sender:
-        try:
-            host = (_mail_setting('MAIL_SERVER') or 'localhost').strip()
-            port = int(_mail_setting('MAIL_PORT') or 25)
-            use_tls = _mail_bool('MAIL_USE_TLS', False)
-            use_ssl = _mail_bool('MAIL_USE_SSL', False)
-            if port == 465:
-                use_ssl = True
-                use_tls = False
-            elif port == 587 and not use_ssl:
-                use_tls = True
-            msg = _build_message(subject, sender, recipient, text_body, html_body)
-            msg['Reply-To'] = sender
-            with _smtp_session(
-                host=host,
-                port=port,
-                user=mail_user or sender,
-                password=_mail_setting('MAIL_PASSWORD'),
-                use_tls=use_tls,
-                use_ssl=use_ssl,
-            ) as smtp:
-                smtp.sendmail(sender, [recipient], msg.as_bytes())
-            return
-        except Exception as smtp_err:
-            diag = _smtp_auth_diag(mail_user or sender, _mail_setting('MAIL_PASSWORD'), host)
-            errors.append(
-                f'MAIL_* ({_mail_setting("MAIL_SERVER")}:{_mail_setting("MAIL_PORT")}): {smtp_err} [{diag}]'
-            )
-            current_app.logger.warning(f"recovery SMTP (MAIL_*) failed: {smtp_err} | {diag}")
-
-    # Single fallback: noreply / notification channel
-    try:
-        from utils.notification_email import (
-            _notification_smtp_configured,
-            _notif_setting,
+    # Hosting Bangladesh: SMTP login and From must be the identical mailbox address
+    sender = mail_user or (_mail_setting('MAIL_DEFAULT_SENDER') or '').strip()
+    default_sender = (_mail_setting('MAIL_DEFAULT_SENDER') or '').strip()
+    if default_sender and mail_user and default_sender.lower() != mail_user.lower():
+        current_app.logger.warning(
+            'MAIL_DEFAULT_SENDER (%s) differs from MAIL_USERNAME (%s); '
+            'using MAIL_USERNAME as From per host requirement',
+            default_sender,
+            mail_user,
         )
-        if _notification_smtp_configured():
-            notif_user = (_notif_setting('NOTIFICATION_MAIL_USERNAME') or '').strip()
-            notif_sender = (
-                (_notif_setting('NOTIFICATION_MAIL_SENDER') or '').strip() or notif_user
-            )
-            if notif_sender:
-                host = _notif_setting('NOTIFICATION_MAIL_SERVER') or current_app.config.get('MAIL_SERVER') or 'localhost'
-                port = int(_notif_setting('NOTIFICATION_MAIL_PORT') or current_app.config.get('MAIL_PORT') or 25)
-                use_tls = str(_notif_setting('NOTIFICATION_MAIL_USE_TLS', False)).lower() in (
-                    '1', 'true', 'yes', 'on',
-                )
-                use_ssl = str(_notif_setting('NOTIFICATION_MAIL_USE_SSL', False)).lower() in (
-                    '1', 'true', 'yes', 'on',
-                )
-                if port == 465:
-                    use_ssl = True
-                    use_tls = False
-                elif port == 587 and not use_ssl:
-                    use_tls = True
-                mime = _build_message(subject, notif_sender, recipient, text_body or '', html_body)
-                mime['Reply-To'] = notif_sender
-                with _smtp_session(
-                    host=host,
-                    port=port,
-                    user=notif_user or notif_sender,
-                    password=_notif_setting('NOTIFICATION_MAIL_PASSWORD'),
-                    use_tls=use_tls,
-                    use_ssl=use_ssl,
-                ) as smtp:
-                    smtp.sendmail(notif_sender, [recipient], mime.as_bytes())
-                current_app.logger.info('password reset sent via NOTIFICATION_MAIL_* fallback')
-                return
-    except Exception as notif_err:
-        errors.append(f'NOTIFICATION_MAIL_*: {notif_err}')
-        current_app.logger.warning(f"recovery SMTP (NOTIFICATION_MAIL_*) failed: {notif_err}")
+    if not sender or not mail_user:
+        raise RuntimeError(
+            'MAIL_USERNAME / MAIL_DEFAULT_SENDER not set. '
+            'Use recovery@kulawams.xyz for password recovery.'
+        )
 
-    raise RuntimeError(' | '.join(errors) if errors else 'Email send failed (no SMTP configured)')
+    # Bare From (no display name) — matches SMTP login exactly unless overridden
+    from_name = (_mail_setting('MAIL_FROM_NAME') or '').strip() or None
+    try:
+        send_smtp_message(
+            host=_mail_setting('MAIL_SERVER') or 'localhost',
+            port=_mail_setting('MAIL_PORT') or 25,
+            use_tls=_mail_bool('MAIL_USE_TLS', False),
+            use_ssl=_mail_bool('MAIL_USE_SSL', False),
+            user=mail_user,
+            password=_mail_setting('MAIL_PASSWORD'),
+            sender=mail_user,
+            recipient=recipient,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            from_name=from_name,
+            try_cpanel_alternatives=True,
+        )
+    except Exception as smtp_err:
+        diag = _smtp_auth_diag(mail_user, _mail_setting('MAIL_PASSWORD'), _mail_setting('MAIL_SERVER'))
+        hint = ''
+        if _is_spam_reject(smtp_err):
+            hint = (
+                ' | Host outbound content filter rejected the message. '
+                'Use SMTP host server.hostingbangladesh.com port 465 (SSL), '
+                'keep MAIL_USERNAME and MAIL_DEFAULT_SENDER identical, '
+                'and ensure the message body is specific (name, account, link purpose, validity).'
+            )
+        raise RuntimeError(
+            f'MAIL_* ({_mail_setting("MAIL_SERVER")}:{_mail_setting("MAIL_PORT")}): '
+            f'{smtp_err} [{diag}]{hint}'
+        ) from smtp_err

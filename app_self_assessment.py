@@ -68,17 +68,17 @@ def create_app():
     app.config['NOTIFICATION_MAIL_SERVER'] = os.getenv('NOTIFICATION_MAIL_SERVER') or app.config['MAIL_SERVER']
     _np = os.getenv('NOTIFICATION_MAIL_PORT')
     app.config['NOTIFICATION_MAIL_PORT'] = int(_np) if _np else app.config['MAIL_PORT']
-    app.config['NOTIFICATION_MAIL_USE_TLS'] = _env_bool_sa(
-        'NOTIFICATION_MAIL_USE_TLS', app.config['MAIL_USE_TLS']
-    )
-    app.config['NOTIFICATION_MAIL_USE_SSL'] = _env_bool_sa(
-        'NOTIFICATION_MAIL_USE_SSL', app.config['MAIL_USE_SSL']
-    )
+    app.config['NOTIFICATION_MAIL_USE_TLS'] = _env_bool_sa('NOTIFICATION_MAIL_USE_TLS', False)
+    app.config['NOTIFICATION_MAIL_USE_SSL'] = _env_bool_sa('NOTIFICATION_MAIL_USE_SSL', False)
     app.config['NOTIFICATION_MAIL_USERNAME'] = os.getenv('NOTIFICATION_MAIL_USERNAME')
     app.config['NOTIFICATION_MAIL_PASSWORD'] = os.getenv('NOTIFICATION_MAIL_PASSWORD')
     app.config['NOTIFICATION_MAIL_SENDER'] = os.getenv(
         'NOTIFICATION_MAIL_SENDER', os.getenv('NOTIFICATION_MAIL_USERNAME')
     )
+    app.config['NOTIFICATION_MAIL_FROM_NAME'] = (
+        os.getenv('NOTIFICATION_MAIL_FROM_NAME') or 'AMS Notifications'
+    ).strip()
+    app.config['MAIL_FROM_NAME'] = (os.getenv('MAIL_FROM_NAME') or 'AMS Account Recovery').strip()
     for k in list(os.environ.keys()):
         if not k.startswith('NOTIFICATION_MAIL_'):
             continue

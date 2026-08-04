@@ -37,19 +37,17 @@ AddDefaultCharset UTF-8
     Deny from all
 </FilesMatch>
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION BEGIN
-# MAIL_* must be set in cPanel Application Environment (not committed).
-# After rotating the recovery@ mailbox password, set:
-#   MAIL_SERVER=localhost  (was mis-cased as Mail_SERVER)
-#   MAIL_USERNAME / MAIL_DEFAULT_SENDER / MAIL_PORT / MAIL_USE_TLS / MAIL_USE_SSL / MAIL_PASSWORD
-# Do not save MAIL changes in the same File Manager write as the FilesMatch block above.
+# Dual mailbox — set in cPanel Python App Environment (do not commit passwords):
+# Hosting Bangladesh recommended SMTP:
+#   MAIL_SERVER / NOTIFICATION_MAIL_SERVER = server.hostingbangladesh.com
+#   MAIL_PORT / NOTIFICATION_MAIL_PORT = 465
+#   MAIL_USE_SSL / NOTIFICATION_MAIL_USE_SSL = True
+#   MAIL_USE_TLS / NOTIFICATION_MAIL_USE_TLS = False
+#   Username and From/Sender must be the same full mailbox address
+#   MAIL_*              → recovery@kulawams.xyz
+#   NOTIFICATION_MAIL_* → noreply@kulawams.xyz
 <IfModule Litespeed>
-# SetEnv MAIL_SERVER localhost
-# SetEnv MAIL_USERNAME recovery@kulawams.xyz
-# SetEnv MAIL_DEFAULT_SENDER recovery@kulawams.xyz
-# SetEnv MAIL_USE_TLS False
-# SetEnv MAIL_USE_SSL False
-# SetEnv MAIL_PORT 25
-# SetEnv MAIL_PASSWORD <set-in-cpanel-after-rotation>
+# SetEnv values belong in cPanel Application Manager, not here.
 </IfModule>
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION END
 

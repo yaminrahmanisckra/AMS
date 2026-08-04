@@ -548,12 +548,47 @@
             </div>
         </div>
 
+                {% set as_flags = outline_data.assessment_strategy if outline_data.assessment_strategy else {} %}
+                {% set part_b_ns = namespace(techniques=true, cie=true, smee=true) %}
+                {% if session_delivery_type == 'sessional' %}
+                    {% if as_flags.get('assessment_techniques_enabled') is not none %}
+                        {% set _t = as_flags.get('assessment_techniques_enabled') %}
+                        {% if _t is string %}
+                            {% set part_b_ns.techniques = _t|lower in ['1', 'true', 'yes', 'on'] %}
+                        {% else %}
+                            {% set part_b_ns.techniques = _t %}
+                        {% endif %}
+                    {% endif %}
+                    {% if as_flags.get('cie_enabled') is not none %}
+                        {% set _c = as_flags.get('cie_enabled') %}
+                        {% if _c is string %}
+                            {% set part_b_ns.cie = _c|lower in ['1', 'true', 'yes', 'on'] %}
+                        {% else %}
+                            {% set part_b_ns.cie = _c %}
+                        {% endif %}
+                    {% endif %}
+                    {% if as_flags.get('smee_enabled') is not none %}
+                        {% set _s = as_flags.get('smee_enabled') %}
+                        {% if _s is string %}
+                            {% set part_b_ns.smee = _s|lower in ['1', 'true', 'yes', 'on'] %}
+                        {% else %}
+                            {% set part_b_ns.smee = _s %}
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
+
                 <!-- 15. Assessment Techniques of each topic of the course -->
-        <div class="card shadow mb-3">
-                    <div class="card-header bg-secondary text-white">
-                        <h5 class="mb-0">15. Assessment Techniques of each topic of the course:</h5>
+        <div class="card shadow mb-3" id="assessmentTechniquesCard" {% if session_delivery_type == 'sessional' and not part_b_ns.techniques %}data-section-disabled="1"{% endif %}>
+                    <div class="card-header bg-secondary text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <h5 class="mb-0"><span class="part-b-sec-num" data-sec="techniques">15</span>. Assessment Techniques of each topic of the course:</h5>
+                        {% if session_delivery_type == 'sessional' %}
+                        <div class="form-check form-switch mb-0" onclick="event.stopPropagation();">
+                            <input class="form-check-input" type="checkbox" role="switch" id="assessmentTechniquesEnabledToggle" {% if part_b_ns.techniques %}checked{% endif %} onchange="togglePartBSection('techniques', this.checked)">
+                            <label class="form-check-label text-white" for="assessmentTechniquesEnabledToggle">Include</label>
+                        </div>
+                        {% endif %}
                     </div>
-                    <div class="card-body">
+                    <div class="card-body" id="assessmentTechniquesSectionBody" {% if session_delivery_type == 'sessional' and not part_b_ns.techniques %}style="display: none;"{% endif %}>
                         <div id="assessmentTechniquesContainer">
                             <!-- Assessment techniques will be added here -->
                         </div>
@@ -564,11 +599,17 @@
                 </div>
 
                 <!-- 16. CIE - Continuous Internal Evaluation (Mark) -->
-                <div class="card shadow mb-3">
-                    <div class="card-header bg-secondary text-white">
-                        <h5 class="mb-0">16. CIE- Continuous Internal Evaluation (Mark):</h5>
+                <div class="card shadow mb-3" id="cieCard" {% if session_delivery_type == 'sessional' and not part_b_ns.cie %}data-section-disabled="1"{% endif %}>
+                    <div class="card-header bg-secondary text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <h5 class="mb-0"><span class="part-b-sec-num" data-sec="cie">16</span>. CIE- Continuous Internal Evaluation (Mark):</h5>
+                        {% if session_delivery_type == 'sessional' %}
+                        <div class="form-check form-switch mb-0" onclick="event.stopPropagation();">
+                            <input class="form-check-input" type="checkbox" role="switch" id="cieEnabledToggle" {% if part_b_ns.cie %}checked{% endif %} onchange="togglePartBSection('cie', this.checked)">
+                            <label class="form-check-label text-white" for="cieEnabledToggle">Include</label>
+                        </div>
+                        {% endif %}
                     </div>
-                    <div class="card-body">
+                    <div class="card-body" id="cieSectionBody" {% if session_delivery_type == 'sessional' and not part_b_ns.cie %}style="display: none;"{% endif %}>
                         <div class="mb-3">
                             <button type="button" class="btn btn-outline-success btn-sm" onclick="addCIEColumn()">
                                 <i class="fas fa-plus me-1"></i>Add Column
@@ -595,11 +636,17 @@
                 </div>
 
                 <!-- 17. SMEE - Semester End Examination (Marks) -->
-                <div class="card shadow mb-3">
-                    <div class="card-header bg-secondary text-white">
-                        <h5 class="mb-0">17. SMEE- Semester End Examination (Marks):</h5>
+                <div class="card shadow mb-3" id="smeeCard" {% if session_delivery_type == 'sessional' and not part_b_ns.smee %}data-section-disabled="1"{% endif %}>
+                    <div class="card-header bg-secondary text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <h5 class="mb-0"><span class="part-b-sec-num" data-sec="smee">17</span>. SMEE- Semester End Examination (Marks):</h5>
+                        {% if session_delivery_type == 'sessional' %}
+                        <div class="form-check form-switch mb-0" onclick="event.stopPropagation();">
+                            <input class="form-check-input" type="checkbox" role="switch" id="smeeEnabledToggle" {% if part_b_ns.smee %}checked{% endif %} onchange="togglePartBSection('smee', this.checked)">
+                            <label class="form-check-label text-white" for="smeeEnabledToggle">Include</label>
+                        </div>
+                        {% endif %}
                     </div>
-                    <div class="card-body">
+                    <div class="card-body" id="smeeSectionBody" {% if session_delivery_type == 'sessional' and not part_b_ns.smee %}style="display: none;"{% endif %}>
                         <div class="table-responsive">
                             <table class="table table-bordered table-sm" id="smeeTable">
                                 <thead class="table-light">
@@ -630,8 +677,132 @@
             </div>
             <div class="collapse" id="partC">
             <div class="card-body">
+                {% if session_delivery_type == 'sessional' %}
+                {# ---- Sessional Part C (PDF: 10+60+30) ---- #}
+                {% set as_s = outline_data.assessment_strategy if outline_data.assessment_strategy else {} %}
+                {% set strategy_points = as_s.get('strategy_points') if as_s.get('strategy_points') else ['', '', ''] %}
+                {% set default_ca_names = ['Assignment', 'Presentation', 'Quiz test', 'Group Work', 'Oral exam', 'Performance evaluation', 'Written test'] %}
+                {% set saved_ca = as_s.get('ca_components') if as_s.get('ca_components') else [] %}
+                {% set ca_ns = namespace(points=[]) %}
+                {% for item in saved_ca %}
+                    {% if item is string and item.strip() %}
+                        {% set ca_ns.points = ca_ns.points + [item.strip()] %}
+                    {% elif item is mapping and item.get('name') and item.get('selected', true) %}
+                        {% set ca_ns.points = ca_ns.points + [item.get('name')] %}
+                    {% endif %}
+                {% endfor %}
+                {% if as_s.get('ca_components_other') and as_s.get('ca_components_other')|string|trim %}
+                    {% set ca_ns.points = ca_ns.points + [as_s.get('ca_components_other')|string|trim] %}
+                {% endif %}
+                {% set ca_component_points = ca_ns.points if ca_ns.points else default_ca_names %}
+                {% set make_up_list = outline_data.make_up_procedures_list if outline_data.make_up_procedures_list else [
+                    'Personal contact',
+                    'Online classes (in case of scheduled classes missed due to inevitable reasons)',
+                    'Special assignments',
+                    'Group discussion and group assignments'
+                ] %}
+
                 <div class="mb-3">
-                    <label class="form-label"><strong>17. Assessment Strategy</strong> (Bloom's Taxonomy and Rubric based, Quiz, Mid Term, Assignment, Project, Report, Class Test, Presentation, Semester Final)</label>
+                    <label class="form-label"><strong><span class="part-c-sec-num" data-sec="strategy">17</span>. Assessment Strategy</strong></label>
+                    <p class="text-muted small mb-2">List the assessment approaches used in this sessional course (i, ii, iii…).</p>
+                    <div id="sessionalStrategyPointsContainer">
+                        {% for point in strategy_points %}
+                        <div class="input-group input-group-sm mb-2 sessional-strategy-row">
+                            <span class="input-group-text strategy-point-label">{{ loop.index }}.</span>
+                            <input type="text" class="form-control" name="strategy_point[]" value="{{ point }}" placeholder="Assessment strategy point">
+                            <button type="button" class="btn btn-outline-danger" onclick="this.closest('.sessional-strategy-row').remove(); renumberStrategyPoints();" title="Remove">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addSessionalStrategyPoint()">
+                        <i class="fas fa-plus me-1"></i>Add Strategy Point
+                    </button>
+                </div>
+
+                <h6 class="mt-4 mb-3">Marks Distribution for Sessional Courses (10+60+30=100)</h6>
+                <p class="text-muted small">Continuous Assessment: Class participation 10 + Assessment 60; Viva voce 30</p>
+                <div class="table-responsive mb-4">
+                    <table class="table table-bordered table-sm" id="sessionalMarksDistributionTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Component</th>
+                                <th style="width: 15%;">%</th>
+                                <th>Comments</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Class Participation (Attendance)</td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="attendance_percent" value="{{ as_s.get('attendance_percent', '10') }}" placeholder="10">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="attendance_comment" value="{{ as_s.get('attendance_comment', '') }}" placeholder="Optional comment">
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Assessment (Continuous Assessment)</td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="ca_assessment_percent" value="{{ as_s.get('ca_assessment_percent', '60') }}" placeholder="60">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="ca_assessment_comment" value="{{ as_s.get('ca_assessment_comment', '') }}" placeholder="Components selected below">
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Viva voce</td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="viva_percent" value="{{ as_s.get('viva_percent', '30') }}" placeholder="30">
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm" name="viva_comment" value="{{ as_s.get('viva_comment', '') }}" placeholder="Optional comment">
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h6 class="mt-3 mb-2">Assessment Components (Total = {{ as_s.get('ca_assessment_percent', '60') }})</h6>
+                <p class="text-muted small mb-2">List the assessment activities that make up the continuous assessment marks.</p>
+                <div id="sessionalCaComponentsContainer">
+                    {% for point in ca_component_points %}
+                    <div class="input-group input-group-sm mb-2 sessional-ca-component-row">
+                        <span class="input-group-text ca-component-label">{{ loop.index }}.</span>
+                        <input type="text" class="form-control" name="ca_component[]" value="{{ point }}" placeholder="e.g., Assignment, Presentation, Quiz test">
+                        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.sessional-ca-component-row').remove(); renumberCaComponents();" title="Remove">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+                <button type="button" class="btn btn-outline-primary btn-sm mb-4" onclick="addSessionalCaComponent()">
+                    <i class="fas fa-plus me-1"></i>Add Assessment Component
+                </button>
+
+                <h6 class="mt-4 mb-3"><strong><span class="part-c-sec-num" data-sec="makeup">18</span>. Make-up Procedures</strong></h6>
+                <div id="makeUpProceduresContainer">
+                    {% for proc in make_up_list %}
+                    {% if proc is string %}
+                    <div class="input-group input-group-sm mb-2 makeup-procedure-row">
+                        <span class="input-group-text makeup-procedure-label">{{ loop.index }}.</span>
+                        <input type="text" class="form-control" name="make_up_procedure[]" value="{{ proc }}" placeholder="Make-up procedure">
+                        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.makeup-procedure-row').remove(); renumberMakeUpProcedures();" title="Remove">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                <button type="button" class="btn btn-outline-primary btn-sm mb-3" onclick="addMakeUpProcedure()">
+                    <i class="fas fa-plus me-1"></i>Add Make-up Procedure
+                </button>
+
+                {% else %}
+                {# ---- Theory Part C (unchanged) ---- #}
+                <div class="mb-3">
+                    <label class="form-label"><strong><span class="part-c-sec-num" data-sec="strategy">17</span>. Assessment Strategy</strong> (Bloom's Taxonomy and Rubric based, Quiz, Mid Term, Assignment, Project, Report, Class Test, Presentation, Semester Final)</label>
                 </div>
                 
                 <!-- Marks Distribution for Theory Courses -->
@@ -728,16 +899,41 @@
                         </tbody>
                     </table>
                 </div>
+                {% endif %}
                 
-                <h6 class="mt-4 mb-3"><strong>18. Assessment Rubrics</strong></h6>
+                {% set rubrics_ns = namespace(enabled=true) %}
+                {% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('rubrics_enabled') is not none %}
+                    {% set _re = outline_data.assessment_strategy.get('rubrics_enabled') %}
+                    {% if _re is string %}
+                        {% set rubrics_ns.enabled = _re|lower in ['1', 'true', 'yes', 'on'] %}
+                    {% else %}
+                        {% set rubrics_ns.enabled = _re %}
+                    {% endif %}
+                {% endif %}
+                {% set rubrics_enabled = rubrics_ns.enabled %}
+
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-4 mb-2">
+                    <h6 class="mb-0" id="rubricsSectionHeading"><strong><span class="part-c-sec-num" data-sec="rubrics">18</span>. Assessment Rubrics</strong></h6>
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="rubricsEnabledToggle" name="rubrics_enabled" value="1" {% if rubrics_enabled %}checked{% endif %} onchange="toggleRubricsSection(this.checked)">
+                        <label class="form-check-label" for="rubricsEnabledToggle">Include in outline / PDF</label>
+                    </div>
+                </div>
+                <div id="rubricsSectionBody" {% if not rubrics_enabled %}style="display: none;"{% endif %}>
                 <div id="rubricsContainer">
                     <!-- Rubrics will be added here -->
                 </div>
-                <button type="button" class="btn btn-outline-warning btn-sm mb-3" onclick="addRubric()">
+                <button type="button" class="btn btn-outline-warning btn-sm mb-3" id="addRubricBtn" onclick="addRubric()">
                     <i class="fas fa-plus me-1"></i>Add Rubric
                 </button>
+                </div>
+                {% if not rubrics_enabled %}
+                <p class="text-muted small mb-3" id="rubricsDisabledHint">Assessment Rubrics is disabled and will be omitted from the PDF. Section numbers below will adjust automatically.</p>
+                {% else %}
+                <p class="text-muted small mb-3 d-none" id="rubricsDisabledHint">Assessment Rubrics is disabled and will be omitted from the PDF. Section numbers below will adjust automatically.</p>
+                {% endif %}
                 
-                <h6 class="mt-4 mb-3"><strong>19. Evaluation Policy (Grading System):</strong></h6>
+                <h6 class="mt-4 mb-3" id="evaluationSectionHeading"><strong><span class="part-c-sec-num" data-sec="evaluation">19</span>. Evaluation Policy (Grading System):</strong></h6>
                 <div class="mb-3">
                     <p><strong>Evaluation:</strong> Grades will be calculated as per the university grading structure</p>
                 </div>
@@ -760,7 +956,7 @@
                     <i class="fas fa-plus me-1"></i>Add Row
                 </button>
                 
-                <h6 class="mt-4 mb-3"><strong>20. Other Issues</strong></h6>
+                <h6 class="mt-4 mb-3" id="otherIssuesSectionHeading"><strong><span class="part-c-sec-num" data-sec="other">20</span>. Other Issues</strong></h6>
                 <div class="mb-3">
                     <label class="form-label"><strong>Class Discussion/Participation</strong></label>
                     <textarea class="form-control" name="class_discussion" rows="3" placeholder="Participation in class discussions is strongly encouraged...">{% if outline_data.other_issues and outline_data.other_issues.get('class_discussion') %}{{ outline_data.other_issues.class_discussion }}{% endif %}</textarea>
@@ -942,6 +1138,9 @@
 {% endif %}
 
 <script>
+// Global — used by saveCourseOutline (outside DOMContentLoaded)
+var sessionDeliveryType = {{ session_delivery_type | tojson }};
+
 let cloData = [];
 let ploMapping = {};
 
@@ -1214,23 +1413,26 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Initialize Attendance Marks Distribution
-    const attendanceMarks = {{ outline_data.assessment_strategy.attendance_marks|tojson if outline_data.assessment_strategy and outline_data.assessment_strategy.get('attendance_marks') else '[]' }};
-    if (attendanceMarks && attendanceMarks.length > 0) {
-        attendanceMarks.forEach(am => addAttendanceMarksRow(am));
-    } else {
-        // Add default attendance marks distribution
-        const defaultAttendanceMarks = [
-            { range: 'Above 90%', marks: '10' },
-            { range: '85% to less than 90%', marks: '9' },
-            { range: '80% to less than 85%', marks: '8' },
-            { range: '75% to less than 80%', marks: '7' },
-            { range: '70% to less than 75%', marks: '6' },
-            { range: '65% to less than 70%', marks: '5' },
-            { range: '60% to less than 65%', marks: '4' },
-            { range: 'less than 60%', marks: '0' }
-        ];
-        defaultAttendanceMarks.forEach(am => addAttendanceMarksRow(am));
+    // Initialize Attendance Marks Distribution (theory only)
+    const attendanceMarksTableBody = document.getElementById('attendanceMarksTableBody');
+    if (attendanceMarksTableBody) {
+        const attendanceMarks = {{ outline_data.assessment_strategy.attendance_marks|tojson if outline_data.assessment_strategy and outline_data.assessment_strategy.get('attendance_marks') else '[]' }};
+        if (attendanceMarks && attendanceMarks.length > 0) {
+            attendanceMarks.forEach(am => addAttendanceMarksRow(am));
+        } else {
+            // Add default attendance marks distribution
+            const defaultAttendanceMarks = [
+                { range: 'Above 90%', marks: '10' },
+                { range: '85% to less than 90%', marks: '9' },
+                { range: '80% to less than 85%', marks: '8' },
+                { range: '75% to less than 80%', marks: '7' },
+                { range: '70% to less than 75%', marks: '6' },
+                { range: '65% to less than 70%', marks: '5' },
+                { range: '60% to less than 65%', marks: '4' },
+                { range: 'less than 60%', marks: '0' }
+            ];
+            defaultAttendanceMarks.forEach(am => addAttendanceMarksRow(am));
+        }
     }
     
     // Initialize rubrics
@@ -1282,8 +1484,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
         });
-    } else {
-        addRubric(); // Add one empty rubric section
+    } else if ((document.getElementById('rubricsEnabledToggle') || {}).checked) {
+        addRubric(); // Add one empty rubric section when included
+    }
+    if (typeof updatePartCSectionNumbers === 'function') {
+        updatePartCSectionNumbers();
+    }
+    if (typeof updateOutlineSectionNumbers === 'function') {
+        updateOutlineSectionNumbers();
     }
     
     // Initialize grading policy
@@ -2062,7 +2270,7 @@ function addSMEERow(data = {}) {
 function addAttendanceMarksRow(data = {}) {
     const tbody = document.getElementById('attendanceMarksTableBody');
     if (!tbody) return;
-    
+
     const row = document.createElement('tr');
     row.innerHTML = `
         <td>
@@ -2078,6 +2286,135 @@ function addAttendanceMarksRow(data = {}) {
         </td>
     `;
     tbody.appendChild(row);
+}
+
+function renumberStrategyPoints() {
+    document.querySelectorAll('#sessionalStrategyPointsContainer .strategy-point-label').forEach((el, idx) => {
+        el.textContent = `${idx + 1}.`;
+    });
+}
+
+function addSessionalStrategyPoint(value = '') {
+    const container = document.getElementById('sessionalStrategyPointsContainer');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-2 sessional-strategy-row';
+    row.innerHTML = `
+        <span class="input-group-text strategy-point-label"></span>
+        <input type="text" class="form-control" name="strategy_point[]" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="Assessment strategy point">
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.sessional-strategy-row').remove(); renumberStrategyPoints();" title="Remove">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    container.appendChild(row);
+    renumberStrategyPoints();
+}
+
+function renumberCaComponents() {
+    document.querySelectorAll('#sessionalCaComponentsContainer .ca-component-label').forEach((el, idx) => {
+        el.textContent = `${idx + 1}.`;
+    });
+}
+
+function addSessionalCaComponent(value = '') {
+    const container = document.getElementById('sessionalCaComponentsContainer');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-2 sessional-ca-component-row';
+    row.innerHTML = `
+        <span class="input-group-text ca-component-label"></span>
+        <input type="text" class="form-control" name="ca_component[]" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="e.g., Assignment, Presentation, Quiz test">
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.sessional-ca-component-row').remove(); renumberCaComponents();" title="Remove">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    container.appendChild(row);
+    renumberCaComponents();
+}
+
+function renumberMakeUpProcedures() {
+    document.querySelectorAll('#makeUpProceduresContainer .makeup-procedure-label').forEach((el, idx) => {
+        el.textContent = `${idx + 1}.`;
+    });
+}
+
+function updatePartCSectionNumbers() {
+    updateOutlineSectionNumbers();
+}
+
+function isPartBSectionEnabled(toggleId) {
+    const el = document.getElementById(toggleId);
+    // Theory (no toggle) → always enabled; sessional uses checkbox
+    if (!el) return true;
+    return !!el.checked;
+}
+
+function updateOutlineSectionNumbers() {
+    const techniquesOn = isPartBSectionEnabled('assessmentTechniquesEnabledToggle');
+    const cieOn = isPartBSectionEnabled('cieEnabledToggle');
+    const smeeOn = isPartBSectionEnabled('smeeEnabledToggle');
+    const rubricsOn = !!(document.getElementById('rubricsEnabledToggle') || {}).checked;
+
+    let n = 15;
+    const setNum = (sel, on) => {
+        const el = document.querySelector(sel);
+        if (el && on) el.textContent = String(n++);
+    };
+
+    // Part B 15–17 — only assign numbers to included sections
+    setNum('.part-b-sec-num[data-sec="techniques"]', techniquesOn);
+    setNum('.part-b-sec-num[data-sec="cie"]', cieOn);
+    setNum('.part-b-sec-num[data-sec="smee"]', smeeOn);
+
+    // Part C continues from next available number
+    const strategyNum = document.querySelector('.part-c-sec-num[data-sec="strategy"]');
+    if (strategyNum) strategyNum.textContent = String(n++);
+    const makeupNum = document.querySelector('.part-c-sec-num[data-sec="makeup"]');
+    if (makeupNum) makeupNum.textContent = String(n++);
+
+    const rubricsNum = document.querySelector('.part-c-sec-num[data-sec="rubrics"]');
+    const evalNum = document.querySelector('.part-c-sec-num[data-sec="evaluation"]');
+    const otherNum = document.querySelector('.part-c-sec-num[data-sec="other"]');
+    if (rubricsOn) {
+        if (rubricsNum) rubricsNum.textContent = String(n++);
+    }
+    if (evalNum) evalNum.textContent = String(n++);
+    if (otherNum) otherNum.textContent = String(n);
+}
+
+function togglePartBSection(section, enabled) {
+    const bodyMap = {
+        techniques: 'assessmentTechniquesSectionBody',
+        cie: 'cieSectionBody',
+        smee: 'smeeSectionBody',
+    };
+    const body = document.getElementById(bodyMap[section] || '');
+    if (body) body.style.display = enabled ? '' : 'none';
+    updateOutlineSectionNumbers();
+}
+
+function toggleRubricsSection(enabled) {
+    const body = document.getElementById('rubricsSectionBody');
+    const hint = document.getElementById('rubricsDisabledHint');
+    if (body) body.style.display = enabled ? '' : 'none';
+    if (hint) hint.classList.toggle('d-none', !!enabled);
+    updateOutlineSectionNumbers();
+}
+
+function addMakeUpProcedure(value = '') {
+    const container = document.getElementById('makeUpProceduresContainer');
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'input-group input-group-sm mb-2 makeup-procedure-row';
+    row.innerHTML = `
+        <span class="input-group-text makeup-procedure-label"></span>
+        <input type="text" class="form-control" name="make_up_procedure[]" value="${(value || '').replace(/"/g, '&quot;')}" placeholder="Make-up procedure">
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.makeup-procedure-row').remove(); renumberMakeUpProcedures();" title="Remove">
+            <i class="fas fa-trash"></i>
+        </button>
+    `;
+    container.appendChild(row);
+    renumberMakeUpProcedures();
 }
 
 function addCLORow(data = {}) {
@@ -2639,7 +2976,20 @@ function saveCourseOutline(isAutoSave = false) {
         clo_data: cloDataArray,
         plo_mapping: ploMappingData,
         lesson_plan: [],
-        assessment_strategy: {
+        assessment_strategy: (typeof sessionDeliveryType !== 'undefined' && sessionDeliveryType === 'sessional') ? {
+            strategy_points: (formData.getAll('strategy_point[]') || []).map(s => (s || '').trim()).filter(Boolean),
+            attendance_percent: formData.get('attendance_percent') || '10',
+            attendance_comment: formData.get('attendance_comment') || '',
+            ca_assessment_percent: formData.get('ca_assessment_percent') || '60',
+            ca_assessment_comment: formData.get('ca_assessment_comment') || '',
+            ca_components: (formData.getAll('ca_component[]') || []).map(s => (s || '').trim()).filter(Boolean),
+            viva_percent: formData.get('viva_percent') || '30',
+            viva_comment: formData.get('viva_comment') || '',
+            rubrics_enabled: !!(document.getElementById('rubricsEnabledToggle') || {}).checked,
+            assessment_techniques_enabled: isPartBSectionEnabled('assessmentTechniquesEnabledToggle'),
+            cie_enabled: isPartBSectionEnabled('cieEnabledToggle'),
+            smee_enabled: isPartBSectionEnabled('smeeEnabledToggle')
+        } : {
             attendance_percent: formData.get('attendance_percent') || '10',
             attendance_comment: formData.get('attendance_comment') || 'Minimum mark is 4 for 60% attendance',
             ca_percent: formData.get('ca_percent') || '30',
@@ -2649,7 +2999,12 @@ function saveCourseOutline(isAutoSave = false) {
             ca_section_a_total: formData.get('ca_section_a_total') || '2',
             ca_section_b_total: formData.get('ca_section_b_total') || '2',
             ca_considered: formData.get('ca_considered') || 'Best Three Assessments',
-            attendance_marks: []
+            attendance_marks: [],
+            rubrics_enabled: !!(document.getElementById('rubricsEnabledToggle') || {}).checked,
+            // Preserve toggles if present (sessional); theory has no toggles → true
+            assessment_techniques_enabled: isPartBSectionEnabled('assessmentTechniquesEnabledToggle'),
+            cie_enabled: isPartBSectionEnabled('cieEnabledToggle'),
+            smee_enabled: isPartBSectionEnabled('smeeEnabledToggle')
         },
         assessment_techniques: [],
         rubrics: [],
@@ -2660,7 +3015,9 @@ function saveCourseOutline(isAutoSave = false) {
         reference_books: formData.getAll('reference_books')[0]?.split('\n').filter(l => l.trim()) || [],
         other_resources: formData.getAll('other_resources')[0]?.split('\n').filter(l => l.trim()) || [],
         course_file_components: formData.getAll('course_file_components')[0]?.split('\n').filter(l => l.trim()) || [],
-        make_up_procedures: formData.get('make_up_procedures') || '',
+        make_up_procedures: (typeof sessionDeliveryType !== 'undefined' && sessionDeliveryType === 'sessional')
+            ? (formData.getAll('make_up_procedure[]') || []).map(s => (s || '').trim()).filter(Boolean).join('\n')
+            : (formData.get('make_up_procedures') || ''),
         other_issues: {
             class_discussion: formData.get('class_discussion') || '',
             general_expectations: formData.get('general_expectations') || '',
@@ -2737,16 +3094,18 @@ function saveCourseOutline(isAutoSave = false) {
         }
     }
     
-    // Collect Attendance Marks Distribution
-    const attendanceRanges = formData.getAll('attendance_range[]');
-    const attendanceMarks = formData.getAll('attendance_marks[]');
-    data.assessment_strategy.attendance_marks = [];
-    for (let i = 0; i < attendanceRanges.length; i++) {
-        if (attendanceRanges[i] || attendanceMarks[i]) {
-            data.assessment_strategy.attendance_marks.push({
-                range: attendanceRanges[i] || '',
-                marks: attendanceMarks[i] || ''
-            });
+    // Collect Attendance Marks Distribution (theory) or CA components already in assessment_strategy (sessional)
+    if (typeof sessionDeliveryType === 'undefined' || sessionDeliveryType !== 'sessional') {
+        const attendanceRanges = formData.getAll('attendance_range[]');
+        const attendanceMarksVals = formData.getAll('attendance_marks[]');
+        data.assessment_strategy.attendance_marks = [];
+        for (let i = 0; i < attendanceRanges.length; i++) {
+            if (attendanceRanges[i] || attendanceMarksVals[i]) {
+                data.assessment_strategy.attendance_marks.push({
+                    range: attendanceRanges[i] || '',
+                    marks: attendanceMarksVals[i] || ''
+                });
+            }
         }
     }
     
@@ -2966,7 +3325,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const saveUrl = '{{ url_for("class_management.save_course_outline", session_id=session.id) }}';
         const generateUrl = '{{ url_for("class_management.generate_full_outline_ai", session_id=session.id) }}';
         const tickUrlTemplate = '{{ url_for("class_management.tick_outline_ai_job", session_id=session.id, job_id=0) }}';
-        const sessionDeliveryType = {{ session_delivery_type | tojson }};
+        const aiSessionDeliveryType = {{ session_delivery_type | tojson }};
+        if (deliveryTypeEl && !deliveryTypeEl.value) {
+            deliveryTypeEl.value = aiSessionDeliveryType;
+        }
         const AI_PRESETS = {
             theory: {{ (
                 'সপ্তাহভিত্তিক lesson plan ক্যালেন্ডারের working days মেনে চলবে।\n'
@@ -2978,7 +3340,8 @@ document.addEventListener('DOMContentLoaded', function() {
             ) | tojson }},
             sessional: {{ (
                 'প্রতি সপ্তাহে অন্তত একটি hands-on কার্যক্রম লিখুন।\n'
-                'মূল্যায়ন: Sessional Report ৬০, Sessional Viva ৩০, Attendance ১০।\n'
+                'মূল্যায়ন (Part C): Attendance/Class Participation ১০, Assessment components ৬০, Viva voce ৩০।\n'
+                'strategy_points ও make_up_procedures (Personal contact, Online classes, Special assignments, Group discussion) পূরণ করুন।\n'
                 'রুব্রিক্স practical skill ও presentation-এর উপর ভিত্তি করে হবে।\n'
                 'বাংলা আইনি প্রসঙ্গে উদাহরণ দিন যেখানে প্রাসঙ্গিক।'
             ) | tojson }}

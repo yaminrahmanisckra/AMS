@@ -1,19 +1,12 @@
 """
-Send app notification emails (marks revealed, etc.) via NOTIFICATION_MAIL_* (e.g. noreply@).
-Password reset continues to use Flask-Mail + MAIL_* (e.g. recovery@) in auth blueprint.
+Send app notification emails (marks revealed, assessments, etc.) via
+NOTIFICATION_MAIL_* only (noreply@kulawams.xyz).
 
-Reads NOTIFICATION_* from os.environ first, then Flask app.config (cPanel sometimes injects
-env only into the process environment).
+Password recovery uses utils.recovery_email + MAIL_* (recovery@) — separate channel.
 """
 from __future__ import annotations
 
 import os
-import smtplib
-import ssl
-from contextlib import contextmanager
-from email.header import Header
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 
 from flask import current_app
 
@@ -66,112 +59,18 @@ def _notification_smtp_configured() -> bool:
     pwd = _notif_setting('NOTIFICATION_MAIL_PASSWORD')
     if isinstance(pwd, str):
         pwd = pwd.rstrip('\r\n')
-    # Password can be short or start with @; only reject None / empty / whitespace-only
     pwd_ok = pwd is not None and str(pwd).strip() != ''
     sender = (_notif_setting('NOTIFICATION_MAIL_SENDER') or _notif_setting('NOTIFICATION_MAIL_USERNAME') or '').strip()
     return bool(user and pwd_ok and sender)
 
 
-@contextmanager
-def _notification_smtp_session():
-    _sync_notification_mail_from_os_environ()
-    cfg = current_app.config
-    host = _notif_setting('NOTIFICATION_MAIL_SERVER') or cfg.get('MAIL_SERVER') or 'localhost'
-    port_raw = _notif_setting('NOTIFICATION_MAIL_PORT')
-    port = int(port_raw) if port_raw else int(cfg.get('MAIL_PORT') or 25)
-    user = (_notif_setting('NOTIFICATION_MAIL_USERNAME') or '').strip()
-    password = _notif_setting('NOTIFICATION_MAIL_PASSWORD')
-    use_tls = str(_notif_setting('NOTIFICATION_MAIL_USE_TLS', cfg.get('NOTIFICATION_MAIL_USE_TLS'))).lower() in (
-        '1', 'true', 'yes', 'on',
-    )
-    use_ssl = str(_notif_setting('NOTIFICATION_MAIL_USE_SSL', cfg.get('NOTIFICATION_MAIL_USE_SSL'))).lower() in (
-        '1', 'true', 'yes', 'on',
-    )
-    from utils.recovery_email import _normalize_mail_password, _normalize_smtp_security, _ssl_context
-    password = _normalize_mail_password(password)
-    host, port, use_tls, use_ssl = _normalize_smtp_security(host, port, use_tls, use_ssl)
-
-    # Shared hosts often break CA verification for smtp.gmail.com (hostname mismatch)
-    context = _ssl_context()
-
-    if use_ssl:
-        server = smtplib.SMTP_SSL(host, port, timeout=60, context=context)
-    else:
-        server = smtplib.SMTP(host, port, timeout=60)
-    try:
-        try:
-            server.ehlo()
-        except Exception:
-            pass
-        if use_tls and not use_ssl:
-            server.starttls(context=context)
-            try:
-                server.ehlo()
-            except Exception:
-                pass
-        if user and password:
-            server.login(user, password)
-        yield server
-    finally:
-        try:
-            server.quit()
-        except Exception:
-            try:
-                server.close()
-            except Exception:
-                pass
-
-
-def _build_mime_message(subject: str, sender: str, recipient: str, text_body: str, html_body: str | None):
-    from email.utils import formatdate, make_msgid
-
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = Header(subject or '', 'utf-8')
-    msg['From'] = sender
-    msg['To'] = recipient
-    msg['Date'] = formatdate(localtime=True)
-    domain = 'localhost'
-    if '@' in (sender or ''):
-        domain = sender.rsplit('@', 1)[-1].strip('>')
-    msg['Message-ID'] = make_msgid(domain=domain)
-    msg.attach(MIMEText(text_body or '', 'plain', 'utf-8'))
-    if html_body:
-        msg.attach(MIMEText(html_body, 'html', 'utf-8'))
-    return msg
+def _notif_bool(key: str, fallback=False) -> bool:
+    raw = _notif_setting(key, fallback)
+    return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def _entry_subject(entry: dict, default_subject: str | None) -> str:
     return (entry.get('subject') or default_subject or '').strip() or 'AMS notification'
-
-
-def _send_via_flask_mail(subject: str | None, entries: list[dict], sender_override: str | None = None) -> int:
-    """Fallback sender using Flask-Mail channel."""
-    from flask_mail import Message
-    from extensions import mail
-
-    cfg = current_app.config
-    sent = 0
-    fallback_sender = sender_override or cfg.get('MAIL_DEFAULT_SENDER') or cfg.get('MAIL_USERNAME')
-    for entry in entries:
-        recipient = (entry.get('recipient') or '').strip()
-        if not recipient:
-            continue
-        try:
-            msg = Message(
-                subject=_entry_subject(entry, subject),
-                recipients=[recipient],
-                body=entry.get('text_body') or '',
-                html=entry.get('html_body'),
-                sender=fallback_sender,
-            )
-            mail.send(msg)
-            sent += 1
-        except Exception as one_err:
-            current_app.logger.error(
-                f"notification email (legacy) failed to {recipient}: {one_err}",
-                exc_info=True,
-            )
-    return sent
 
 
 def send_notification_batch(subject: str | None, entries: list[dict]) -> int:
@@ -179,73 +78,68 @@ def send_notification_batch(subject: str | None, entries: list[dict]) -> int:
     Send one email per entry (privacy). Each entry: recipient (str), text_body,
     html_body (optional), subject (optional; overrides batch subject).
 
-    Uses NOTIFICATION_MAIL_* SMTP when configured; otherwise Flask-Mail + MAIL_* (legacy).
-    Returns number of messages accepted by SMTP / sent via Flask-Mail.
+    Uses NOTIFICATION_MAIL_* (noreply@) only — never recovery@ / MAIL_*.
+    Returns number of messages accepted by SMTP.
     """
     if not entries:
         return 0
 
     _sync_notification_mail_from_os_environ()
 
-    cfg = current_app.config
-    sent = 0
+    if not _notification_smtp_configured():
+        current_app.logger.error(
+            'notification email skipped: set NOTIFICATION_MAIL_USERNAME, '
+            'NOTIFICATION_MAIL_PASSWORD, and NOTIFICATION_MAIL_SENDER '
+            '(noreply@kulawams.xyz)'
+        )
+        return 0
 
-    use_smtp = _notification_smtp_configured()
-    intends = _user_intends_notification_mail_channel()
+    from utils.recovery_email import send_smtp_message
+
+    user = (_notif_setting('NOTIFICATION_MAIL_USERNAME') or '').strip()
+    sender = (
+        (_notif_setting('NOTIFICATION_MAIL_SENDER') or '').strip() or user
+    )
+    password = _notif_setting('NOTIFICATION_MAIL_PASSWORD')
+    host = _notif_setting('NOTIFICATION_MAIL_SERVER') or 'localhost'
+    port = int(_notif_setting('NOTIFICATION_MAIL_PORT') or 25)
+    use_tls = _notif_bool('NOTIFICATION_MAIL_USE_TLS', False)
+    use_ssl = _notif_bool('NOTIFICATION_MAIL_USE_SSL', False)
+    from_name = (
+        _notif_setting('NOTIFICATION_MAIL_FROM_NAME') or ''
+    ).strip() or None
+
     current_app.logger.info(
-        f"notification email path: {'NOTIFICATION_SMTP (noreply)' if use_smtp else 'LEGACY Flask-Mail (MAIL_*)'}"
-        f"; intends_notification_channel={intends}"
+        'notification email path: NOTIFICATION_SMTP (noreply) sender=%s', sender
     )
 
-    notification_sender = (
-        (_notif_setting('NOTIFICATION_MAIL_SENDER') or _notif_setting('NOTIFICATION_MAIL_USERNAME') or '')
-        .strip()
-    )
-    if intends and not use_smtp:
-        current_app.logger.warning(
-            "NOTIFICATION mail looks partially configured; using Flask-Mail fallback with "
-            f"sender={notification_sender or 'MAIL_DEFAULT_SENDER'}"
-        )
-        return _send_via_flask_mail(subject, entries, sender_override=notification_sender or None)
-
-    if use_smtp:
-        # From may differ from SMTP login (Brevo); prefer explicit SENDER
-        sender = (
-            (_notif_setting('NOTIFICATION_MAIL_SENDER') or _notif_setting('NOTIFICATION_MAIL_USERNAME') or '')
-            .strip()
-        )
+    sent = 0
+    for entry in entries:
+        recipient = (entry.get('recipient') or '').strip()
+        if not recipient:
+            continue
         try:
-            with _notification_smtp_session() as smtp:
-                for entry in entries:
-                    recipient = (entry.get('recipient') or '').strip()
-                    if not recipient:
-                        continue
-                    text_body = entry.get('text_body') or ''
-                    html_body = entry.get('html_body')
-                    try:
-                        mime = _build_mime_message(
-                            _entry_subject(entry, subject),
-                            sender,
-                            recipient,
-                            text_body,
-                            html_body,
-                        )
-                        mime['Reply-To'] = sender
-                        smtp.sendmail(sender, [recipient], mime.as_bytes())
-                        sent += 1
-                    except Exception as one_err:
-                        current_app.logger.error(
-                            f"notification email failed to {recipient}: {one_err}",
-                            exc_info=True,
-                        )
-        except Exception as conn_err:
-            current_app.logger.error(f"notification SMTP session failed: {conn_err}", exc_info=True)
-        if sent == 0 and entries:
-            current_app.logger.warning(
-                "NOTIFICATION SMTP sent 0 messages; trying Flask-Mail fallback with notification sender."
+            # Host rule: SMTP login and From must match
+            send_smtp_message(
+                host=host,
+                port=port,
+                use_tls=use_tls,
+                use_ssl=use_ssl,
+                user=user,
+                password=password,
+                sender=user,
+                recipient=recipient,
+                subject=_entry_subject(entry, subject),
+                text_body=entry.get('text_body') or '',
+                html_body=entry.get('html_body'),
+                from_name=from_name,
+                timeout=60,
+                try_cpanel_alternatives=True,
             )
-            return _send_via_flask_mail(subject, entries, sender_override=notification_sender or None)
-        return sent
-
-    # Legacy / dev: no NOTIFICATION credentials
-    return _send_via_flask_mail(subject, entries)
+            sent += 1
+        except Exception as one_err:
+            current_app.logger.error(
+                f'notification email failed to {recipient}: {one_err}',
+                exc_info=True,
+            )
+    return sent

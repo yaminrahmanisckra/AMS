@@ -79,6 +79,50 @@ def normalize_assessment_strategy(strategy):
         if old_key in out and out.get(new_key) in (None, ''):
             out[new_key] = out[old_key]
 
+    points = out.get('strategy_points')
+    if isinstance(points, str):
+        out['strategy_points'] = [ln.strip() for ln in points.splitlines() if ln.strip()]
+    elif isinstance(points, list):
+        out['strategy_points'] = [str(p).strip() for p in points if str(p).strip()]
+    elif points is not None:
+        out['strategy_points'] = [str(points).strip()] if str(points).strip() else []
+
+    comps = out.get('ca_components')
+    if isinstance(comps, list):
+        cleaned_comps = []
+        for item in comps:
+            if isinstance(item, dict):
+                name = str(item.get('name') or '').strip()
+                if name and item.get('selected', True):
+                    cleaned_comps.append(name)
+            elif item is not None:
+                name = str(item).strip()
+                if name:
+                    cleaned_comps.append(name)
+        other = str(out.get('ca_components_other') or '').strip()
+        if other and other not in cleaned_comps:
+            cleaned_comps.append(other)
+        out['ca_components'] = cleaned_comps
+    elif isinstance(comps, str) and comps.strip():
+        out['ca_components'] = [ln.strip() for ln in comps.splitlines() if ln.strip()]
+    elif comps is not None:
+        out['ca_components'] = []
+
+    if 'rubrics_enabled' in out:
+        val = out.get('rubrics_enabled')
+        if isinstance(val, str):
+            out['rubrics_enabled'] = val.strip().lower() in ('1', 'true', 'yes', 'on')
+        else:
+            out['rubrics_enabled'] = bool(val)
+
+    for flag_key in ('assessment_techniques_enabled', 'cie_enabled', 'smee_enabled'):
+        if flag_key in out:
+            val = out.get(flag_key)
+            if isinstance(val, str):
+                out[flag_key] = val.strip().lower() in ('1', 'true', 'yes', 'on')
+            else:
+                out[flag_key] = bool(val)
+
     return out
 
 

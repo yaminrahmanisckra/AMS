@@ -157,16 +157,13 @@ def _absolute_url_student_my_scores():
 
 
 def _send_marks_revealed_email_to_session_students(session_id, course_label, assessment_type=None):
-    """Send marks-revealed email via NOTIFICATION_MAIL_* (noreply); falls back to MAIL_* if unset."""
+    """Send marks-revealed email via NOTIFICATION_MAIL_* (noreply@) only."""
     from utils.notification_email import _notification_smtp_configured, send_notification_batch
 
-    cfg = current_app.config
-    if _notification_smtp_configured():
-        pass
-    elif not (cfg.get('MAIL_USERNAME') and cfg.get('MAIL_PASSWORD')):
+    if not _notification_smtp_configured():
         current_app.logger.error(
             "marks_revealed email skipped: set NOTIFICATION_MAIL_USERNAME/PASSWORD/SENDER "
-            "or MAIL_USERNAME/MAIL_PASSWORD for legacy send"
+            "(noreply@kulawams.xyz)"
         )
         return
 
@@ -195,10 +192,11 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
             student_name = (user.full_name or cs.student_id or 'Student').strip()
             student_id = (cs.student_id or user.username or '').strip()
             student_email = user.email.strip()
-            # Per-recipient subject/body per hosting deliverability guidance
+            # Hosting Bangladesh: personalized per student; specific subject;
+            # clear link purpose; HTML + plain-text; no identical mass template.
             subject = (
                 f"Your {assessment_label} result is now visible in AMS "
-                f"for {course_label} - {student_name} ({student_id})"
+                f"for {course_label} — {student_name} ({student_id})"
             )
             text_body = (
                 f"Dear {student_name},\n\n"
@@ -229,6 +227,7 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
                 "Regards,\n"
                 "Academic Management System\n"
                 "Law Discipline, Khulna University\n"
+                "Sender: noreply@kulawams.xyz\n"
             )
             html_body = (
                 f"<p>Dear {student_name},</p>"
@@ -262,7 +261,8 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
                 "by mistake, contact your course teacher or the Law Discipline office.</p>"
                 "<p>Regards,<br>"
                 "Academic Management System<br>"
-                "Law Discipline, Khulna University</p>"
+                "Law Discipline, Khulna University<br>"
+                "Sender: noreply@kulawams.xyz</p>"
             )
             entries.append({
                 'recipient': student_email,
@@ -5786,9 +5786,28 @@ def edit_course_outline(session_id):
         'other_resources': json.loads(course_outline.other_resources) if course_outline.other_resources else [],
         'course_file_components': json.loads(course_outline.course_file_components) if course_outline.course_file_components else [],
         'other_issues': json.loads(course_outline.other_issues) if course_outline.other_issues else {},
+        'make_up_procedures': course_outline.make_up_procedures or '',
     }
     from utils.ai.outline_parser import normalize_assessment_strategy
     outline_data['assessment_strategy'] = normalize_assessment_strategy(outline_data.get('assessment_strategy'))
+
+    # Parse make-up procedures into a list for the sessional Part C form
+    make_up_raw = outline_data.get('make_up_procedures') or ''
+    make_up_list = []
+    if isinstance(make_up_raw, list):
+        make_up_list = [str(x).strip() for x in make_up_raw if str(x).strip()]
+    elif isinstance(make_up_raw, str) and make_up_raw.strip():
+        stripped = make_up_raw.strip()
+        if stripped.startswith('['):
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, list):
+                    make_up_list = [str(x).strip() for x in parsed if str(x).strip()]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                make_up_list = [ln.strip() for ln in make_up_raw.splitlines() if ln.strip()]
+        else:
+            make_up_list = [ln.strip() for ln in make_up_raw.splitlines() if ln.strip()]
+    outline_data['make_up_procedures_list'] = make_up_list
 
     ai_outline_enabled = False
     try:
@@ -6068,8 +6087,22 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
     other_resources = safe_json_parse(course_outline.other_resources, [])
     course_file_components = safe_json_parse(course_outline.course_file_components, [])
     other_issues = safe_json_parse(course_outline.other_issues, {})
-    
-    # Get all teachers for this course (if split group exists)
+    make_up_raw = getattr(course_outline, 'make_up_procedures', None) or ''
+    make_up_procedures_list = []
+    if isinstance(make_up_raw, list):
+        make_up_procedures_list = [str(x).strip() for x in make_up_raw if str(x).strip()]
+    elif isinstance(make_up_raw, str) and make_up_raw.strip():
+        stripped = make_up_raw.strip()
+        if stripped.startswith('['):
+            try:
+                parsed = json.loads(stripped)
+                if isinstance(parsed, list):
+                    make_up_procedures_list = [str(x).strip() for x in parsed if str(x).strip()]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                make_up_procedures_list = [ln.strip() for ln in make_up_raw.splitlines() if ln.strip()]
+        else:
+            make_up_procedures_list = [ln.strip() for ln in make_up_raw.splitlines() if ln.strip()]
+    session_delivery_type = (session.course_type or 'theory')
     course_teachers = [session.teacher]
     course_teachers_pdf = [session.teacher]
     if session.split_group_id:
@@ -6111,6 +6144,9 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         other_resources=other_resources,
         course_file_components=course_file_components,
         other_issues=other_issues,
+        make_up_procedures=make_up_raw if isinstance(make_up_raw, str) else '',
+        make_up_procedures_list=make_up_procedures_list,
+        session_delivery_type=session_delivery_type,
         course_teachers=course_teachers,
         course_teachers_pdf=course_teachers_pdf,
         pdf_font_regular=formal_fonts['regular'],

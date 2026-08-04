@@ -269,7 +269,8 @@ def create_app():
     app.config['MAIL_DEFAULT_SENDER'] = (
         (os.getenv('MAIL_DEFAULT_SENDER') or app.config['MAIL_USERNAME'] or '').strip() or None
     )
-    # Notification channel (e.g. noreply@) — separate from MAIL_* used for password recovery (recovery@)
+    app.config['MAIL_FROM_NAME'] = (os.getenv('MAIL_FROM_NAME') or '').strip()
+    # Notification channel (noreply@) — separate from MAIL_* used for password recovery (recovery@)
     def _env_bool(name, fallback):
         v = os.getenv(name)
         if v is None:
@@ -279,17 +280,16 @@ def create_app():
     app.config['NOTIFICATION_MAIL_SERVER'] = os.getenv('NOTIFICATION_MAIL_SERVER') or app.config['MAIL_SERVER']
     _notif_port = os.getenv('NOTIFICATION_MAIL_PORT')
     app.config['NOTIFICATION_MAIL_PORT'] = int(_notif_port) if _notif_port else app.config['MAIL_PORT']
-    app.config['NOTIFICATION_MAIL_USE_TLS'] = _env_bool(
-        'NOTIFICATION_MAIL_USE_TLS', app.config['MAIL_USE_TLS']
-    )
-    app.config['NOTIFICATION_MAIL_USE_SSL'] = _env_bool(
-        'NOTIFICATION_MAIL_USE_SSL', app.config['MAIL_USE_SSL']
-    )
+    app.config['NOTIFICATION_MAIL_USE_TLS'] = _env_bool('NOTIFICATION_MAIL_USE_TLS', False)
+    app.config['NOTIFICATION_MAIL_USE_SSL'] = _env_bool('NOTIFICATION_MAIL_USE_SSL', False)
     app.config['NOTIFICATION_MAIL_USERNAME'] = os.getenv('NOTIFICATION_MAIL_USERNAME')
     app.config['NOTIFICATION_MAIL_PASSWORD'] = os.getenv('NOTIFICATION_MAIL_PASSWORD')
     app.config['NOTIFICATION_MAIL_SENDER'] = os.getenv(
         'NOTIFICATION_MAIL_SENDER', os.getenv('NOTIFICATION_MAIL_USERNAME')
     )
+    app.config['NOTIFICATION_MAIL_FROM_NAME'] = (
+        os.getenv('NOTIFICATION_MAIL_FROM_NAME') or ''
+    ).strip()
     # Re-merge from os.environ so cPanel/Passenger values always win over any stale defaults
     for k in list(os.environ.keys()):
         if not k.startswith('NOTIFICATION_MAIL_'):

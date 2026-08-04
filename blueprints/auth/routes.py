@@ -1,4 +1,5 @@
 import hashlib
+import secrets
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -342,77 +343,241 @@ def _password_fingerprint(user):
 
 
 FORGOT_PASSWORD_UNIFORM_MESSAGE = (
-    'If an account exists for that email address, a password reset link has been sent.'
+    'If an account exists for that email address, a verification code has been sent.'
 )
+
+RESET_CODE_SALT = 'password-reset-code-salt'
+RESET_CODE_MAX_AGE = 3600  # 1 hour
+
+
+def _hash_reset_code(code: str) -> str:
+    return hashlib.sha256((code or '').strip().encode('utf-8')).hexdigest()
 
 
 @auth_bp.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
+    """
+    Email a one-time 6-digit code (no URL) — hosting outbound filters often
+    reject messages that contain long reset links.
+    """
     if request.method == 'POST':
         email = (request.form.get('email') or '').strip()
-        # Case-insensitive + trimmed match (DB email may differ in case/whitespace)
         user = (
             User.query.filter(db.func.lower(User.email) == email.lower()).first()
             if email
             else None
         )
         if user:
+            code = f'{secrets.randbelow(1_000_000):06d}'
             s = get_serializer()
-            token = s.dumps(
-                {'email': user.email, 'pf': _password_fingerprint(user)},
-                salt='password-reset-salt',
+            challenge = s.dumps(
+                {
+                    'email': user.email,
+                    'pf': _password_fingerprint(user),
+                    'ch': _hash_reset_code(code),
+                },
+                salt=RESET_CODE_SALT,
             )
-            reset_url = url_for('auth.reset_password', token=token, _external=True)
             try:
                 from datetime import datetime as _dt
 
                 display_name = (user.full_name or user.username or 'User').strip()
                 account_id = (user.username or user.email or '').strip()
                 requested_at = _dt.utcnow().strftime('%d %B %Y, %H:%M UTC')
-                # Keep subject/body short — hosting outbound filters flag long
-                # "password reset / click here / security" templates as spam (550).
-                subject = f"AMS account help — {account_id} — Law Discipline, KU"
+                subject = (
+                    f"AMS account verification code for {display_name} "
+                    f"(username: {account_id})"
+                )
                 text_body = (
                     f"Dear {display_name},\n\n"
-                    "Law Discipline, Khulna University (Academic Management System).\n\n"
-                    f"Account: {account_id}\n"
-                    f"Email: {user.email}\n"
-                    f"Time: {requested_at}\n\n"
-                    "Open this AMS page to choose a new sign-in password "
-                    "(valid for 1 hour, one use):\n"
-                    f"{reset_url}\n\n"
-                    "If you did not ask for this, ignore this message. "
-                    "Your current password stays unchanged.\n\n"
+                    "You are receiving this email because an account recovery was requested "
+                    "for your account in the Academic Management System (AMS) used by the "
+                    "Law Discipline, Khulna University.\n\n"
+                    "Account details related to this request:\n"
+                    f"- Full name: {display_name}\n"
+                    f"- Username: {account_id}\n"
+                    f"- Registered email: {user.email}\n"
+                    f"- Request time: {requested_at}\n\n"
+                    "Purpose of the verification code below:\n"
+                    "Enter this code on the AMS account recovery page in your browser "
+                    "(the page that opened after you submitted your email). "
+                    "The code lets you set a new sign-in password for this account only. "
+                    "It is valid for 1 hour from the request time above and works only once. "
+                    "After you change your password, or after 1 hour, the code will no longer work.\n\n"
+                    f"Your AMS verification code: {code}\n\n"
+                    "How to use the code:\n"
+                    "1. Keep the AMS recovery page open in your browser "
+                    "(or open Forgot Password again and use the same email if needed).\n"
+                    "2. Enter the 6-digit code above.\n"
+                    "3. Choose a new password and confirm it.\n"
+                    "4. Sign in to AMS with your username and the new password.\n\n"
+                    "If you did not request this account recovery, please ignore this email. "
+                    "Do not share the code. Your existing password will stay the same and no "
+                    "change will be made to your account.\n\n"
+                    "This message was sent only to the email registered on your AMS account. "
+                    "For assistance, contact the Law Discipline office or your AMS administrator.\n\n"
+                    "Regards,\n"
                     "Academic Management System\n"
                     "Law Discipline, Khulna University\n"
+                    "Sender: recovery@kulawams.xyz\n"
                 )
-                # Plain text only — HTML + multiple CTAs often trip cPanel spam filters
+                html_body = (
+                    f"<p>Dear {display_name},</p>"
+                    "<p>You are receiving this email because an account recovery was requested "
+                    "for your account in the Academic Management System (AMS) used by the "
+                    "Law Discipline, Khulna University.</p>"
+                    "<p><strong>Account details related to this request:</strong></p>"
+                    "<ul>"
+                    f"<li>Full name: {display_name}</li>"
+                    f"<li>Username: {account_id}</li>"
+                    f"<li>Registered email: {user.email}</li>"
+                    f"<li>Request time: {requested_at}</li>"
+                    "</ul>"
+                    "<p><strong>Purpose of the verification code below:</strong><br>"
+                    "Enter this code on the AMS account recovery page in your browser. "
+                    "The code lets you set a new sign-in password for this account only. "
+                    "It is valid for <strong>1 hour</strong> and works only once.</p>"
+                    f"<p style=\"font-size:1.4rem;letter-spacing:0.2em;\"><strong>"
+                    f"{code}</strong></p>"
+                    "<p><strong>How to use the code:</strong></p>"
+                    "<ol>"
+                    "<li>Keep the AMS recovery page open in your browser.</li>"
+                    "<li>Enter the 6-digit code above.</li>"
+                    "<li>Choose a new password and confirm it.</li>"
+                    "<li>Sign in to AMS with your username and the new password.</li>"
+                    "</ol>"
+                    "<p>If you did not request this account recovery, please ignore this email. "
+                    "Do not share the code. Your existing password will stay the same.</p>"
+                    "<p>This message was sent only to the email registered on your AMS account. "
+                    "For assistance, contact the Law Discipline office or your AMS administrator.</p>"
+                    "<p>Regards,<br>"
+                    "Academic Management System<br>"
+                    "Law Discipline, Khulna University<br>"
+                    "Sender: recovery@kulawams.xyz</p>"
+                )
                 send_recovery_email(
                     subject=subject,
                     recipient=user.email,
                     text_body=text_body,
-                    html_body=None,
+                    html_body=html_body,
                 )
-                flash('A password reset link has been sent to your email.', 'info')
+                session['reset_challenge'] = challenge
+                session['reset_email_hint'] = user.email
+                flash('A verification code has been sent to your email.', 'info')
+                return redirect(url_for('auth.verify_reset_code'))
             except Exception as e:
                 print('Email send error:', e, file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
                 current_app.logger.error(f'Password reset email failed: {e}', exc_info=True)
-                # Show SMTP reason while hosting spam-filter issues are being fixed
-                flash(f'Failed to send email: {e}', 'danger')
+                # Friendly message — full SMTP detail stays in server logs
+                err_text = str(e)
+                if 'classified as spam' in err_text.lower() or '550' in err_text:
+                    flash(
+                        'Email recovery could not be completed: the mail host rejected the message '
+                        'as spam (outbound content filter). Please ask an AMS administrator to '
+                        'reset your password from Admin Dashboard → Users → Reset Password.',
+                        'danger',
+                    )
+                else:
+                    flash(
+                        'Email recovery failed. Please ask an AMS administrator to reset your password.',
+                        'danger',
+                    )
         else:
-            # Do not reveal whether the email is registered
             flash(FORGOT_PASSWORD_UNIFORM_MESSAGE, 'info')
     return render_template('auth/forgot_password.html')
 
 
+@auth_bp.route('/account/verify-code', methods=['GET', 'POST'])
+def verify_reset_code():
+    """Enter emailed 6-digit code + new password (no link required in the email)."""
+    challenge = session.get('reset_challenge') or request.form.get('challenge') or ''
+    email_hint = session.get('reset_email_hint') or ''
+
+    if request.method == 'POST':
+        challenge = (request.form.get('challenge') or challenge or '').strip()
+        code = (request.form.get('code') or '').strip()
+        password = request.form.get('password') or ''
+        confirm_password = request.form.get('confirm_password') or ''
+
+        s = get_serializer()
+        try:
+            data = s.loads(challenge, salt=RESET_CODE_SALT, max_age=RESET_CODE_MAX_AGE)
+        except Exception:
+            flash('This recovery session is invalid or has expired. Please request a new code.', 'danger')
+            return redirect(url_for('auth.forgot_password'))
+
+        email = data.get('email') if isinstance(data, dict) else None
+        token_fingerprint = data.get('pf') if isinstance(data, dict) else None
+        code_hash = data.get('ch') if isinstance(data, dict) else None
+
+        user = User.query.filter_by(email=email).first() if email else None
+        if not user:
+            flash('Invalid user.', 'danger')
+            return redirect(url_for('auth.forgot_password'))
+
+        if token_fingerprint is not None and token_fingerprint != _password_fingerprint(user):
+            flash('This recovery session is invalid or has expired. Please request a new code.', 'danger')
+            return redirect(url_for('auth.forgot_password'))
+
+        if not code or _hash_reset_code(code) != code_hash:
+            flash('Invalid verification code. Please check the email and try again.', 'danger')
+            return render_template(
+                'auth/verify_reset_code.html',
+                challenge=challenge,
+                email_hint=email or email_hint,
+            )
+
+        if not password or not confirm_password:
+            flash('Please fill out all fields.', 'danger')
+        elif password != confirm_password:
+            flash('Passwords do not match.', 'danger')
+        elif len(password) < 6:
+            flash('Password must be at least 6 characters.', 'danger')
+        else:
+            user.set_password(password)
+            user.must_change_password = False
+            db.session.commit()
+            session.pop('reset_challenge', None)
+            session.pop('reset_email_hint', None)
+            flash('Your password has been updated. Please log in.', 'success')
+            return redirect(url_for('auth.login'))
+
+        return render_template(
+            'auth/verify_reset_code.html',
+            challenge=challenge,
+            email_hint=email or email_hint,
+        )
+
+    if not challenge:
+        flash('Please request a verification code first.', 'info')
+        return redirect(url_for('auth.forgot_password'))
+
+    return render_template(
+        'auth/verify_reset_code.html',
+        challenge=challenge,
+        email_hint=email_hint,
+    )
+
+
+@auth_bp.route('/account/access/<token>', methods=['GET', 'POST'])
+def account_access(token):
+    """Set a new sign-in credential from an emailed one-time link."""
+    return _handle_account_access(token)
+
+
 @auth_bp.route('/reset-password/<token>', methods=['GET', 'POST'])
 def reset_password(token):
+    """Legacy URL alias — prefer /account/access/<token> in new emails."""
+    return _handle_account_access(token)
+
+
+def _handle_account_access(token):
     s = get_serializer()
     try:
         data = s.loads(token, salt='password-reset-salt', max_age=3600)
     except Exception:
-        flash('The password reset link is invalid or has expired.', 'danger')
+        flash('This link is invalid or has expired.', 'danger')
         return redirect(url_for('auth.forgot_password'))
 
     if isinstance(data, dict):
@@ -429,8 +594,7 @@ def reset_password(token):
         return redirect(url_for('auth.forgot_password'))
 
     if token_fingerprint is not None and token_fingerprint != _password_fingerprint(user):
-        # Password already changed since this link was issued (or link was reused) — dead link.
-        flash('The password reset link is invalid or has expired.', 'danger')
+        flash('This link is invalid or has expired.', 'danger')
         return redirect(url_for('auth.forgot_password'))
 
     if request.method == 'POST':
@@ -439,11 +603,11 @@ def reset_password(token):
         if not password or not confirm_password:
             flash('Please fill out all fields.', 'danger')
         elif password != confirm_password:
-            flash('Passwords do not match.', 'danger')
+            flash('Entries do not match.', 'danger')
         else:
             user.set_password(password)
             user.must_change_password = False
             db.session.commit()
-            flash('Your password has been reset. Please login.', 'success')
+            flash('Your sign-in details were updated. Please log in.', 'success')
             return redirect(url_for('auth.login'))
-    return render_template('auth/reset_password.html', token=token)
+    return render_template('auth/account_access.html', token=token)

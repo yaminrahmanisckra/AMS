@@ -331,7 +331,13 @@
         <div class="cover-instructor">
             {{ teacher.name }}<br>
             {% if teacher.designation %}{{ teacher.designation }}<br>{% endif %}
-            {% if teacher.department %}{{ teacher.department }}{% endif %}
+            {% set institute = (teacher.institute or '')|trim %}
+            {% if not institute or 'law discipline' in institute|lower %}
+            Law Discipline<br>
+            Khulna University
+            {% else %}
+            {{ institute }}
+            {% endif %}
         </div>
         {% endfor %}
         {% endif %}
@@ -367,8 +373,9 @@
             <td>
                 {% if course_teachers_pdf %}
                     {% for t in course_teachers_pdf %}
-                        {{ t.name }}{% if t.designation %}, {{ t.designation }}{% endif %}{% if t.department %}, {{ t.department }}{% endif %}{% if not loop.last %}; {% endif %}
+                        {{ t.name }}{% if t.designation %}, {{ t.designation }}{% endif %}{% if not loop.last %}; {% endif %}
                     {% endfor %}
+                    <br>Law Discipline, Khulna University
                 {% else %}
                     —
                 {% endif %}
@@ -591,8 +598,29 @@
         </tbody>
     </table>
     
-    <!-- 15. Assessment Techniques of each topic of the course -->
-    <div class="subsection-title">15. Assessment Techniques of each topic of the course:</div>
+    {# Part B §§15–17 and Part C/D share one counter (sessional can omit 15–17) #}
+    {% set sec = namespace(n=15) %}
+    {% set is_sessional = session_delivery_type|default('theory') == 'sessional' %}
+    {% set pb = namespace(techniques=true, cie=true, smee=true) %}
+    {% if is_sessional and assessment_strategy %}
+        {% if assessment_strategy.get('assessment_techniques_enabled') is not none %}
+            {% set _t = assessment_strategy.get('assessment_techniques_enabled') %}
+            {% if _t is string %}{% set pb.techniques = _t|lower in ['1', 'true', 'yes', 'on'] %}{% else %}{% set pb.techniques = _t %}{% endif %}
+        {% endif %}
+        {% if assessment_strategy.get('cie_enabled') is not none %}
+            {% set _c = assessment_strategy.get('cie_enabled') %}
+            {% if _c is string %}{% set pb.cie = _c|lower in ['1', 'true', 'yes', 'on'] %}{% else %}{% set pb.cie = _c %}{% endif %}
+        {% endif %}
+        {% if assessment_strategy.get('smee_enabled') is not none %}
+            {% set _s = assessment_strategy.get('smee_enabled') %}
+            {% if _s is string %}{% set pb.smee = _s|lower in ['1', 'true', 'yes', 'on'] %}{% else %}{% set pb.smee = _s %}{% endif %}
+        {% endif %}
+    {% endif %}
+
+    {% if pb.techniques %}
+    <!-- Assessment Techniques of each topic of the course -->
+    <div class="subsection-title">{{ sec.n }}. Assessment Techniques of each topic of the course:</div>
+    {% set sec.n = sec.n + 1 %}
     <table class="data-table">
         <thead>
             <tr>
@@ -625,9 +653,12 @@
             {% endif %}
         </tbody>
     </table>
+    {% endif %}
     
-    <!-- 16. CIE- Continuous Internal Evaluation (Mark) -->
-    <div class="subsection-title">16. CIE- Continuous Internal Evaluation (Mark):</div>
+    {% if pb.cie %}
+    <!-- CIE- Continuous Internal Evaluation (Mark) -->
+    <div class="subsection-title">{{ sec.n }}. CIE- Continuous Internal Evaluation (Mark):</div>
+    {% set sec.n = sec.n + 1 %}
     <table class="data-table">
         <thead>
             <tr>
@@ -669,9 +700,12 @@
             {% endif %}
         </tbody>
     </table>
+    {% endif %}
     
-    <!-- 17. SMEE- Semester End Examination (Marks) -->
-    <div class="subsection-title">17. SMEE- Semester End Examination (Marks):</div>
+    {% if pb.smee %}
+    <!-- SMEE- Semester End Examination (Marks) -->
+    <div class="subsection-title">{{ sec.n }}. SMEE- Semester End Examination (Marks):</div>
+    {% set sec.n = sec.n + 1 %}
     <table class="data-table">
         <thead>
             <tr>
@@ -694,19 +728,115 @@
             {% endif %}
         </tbody>
     </table>
+    {% endif %}
     
     <!-- PART C: ASSESSMENT AND EVALUATION -->
     <div class="section-title page-break">PART C: ASSESSMENT AND EVALUATION</div>
+
+    {% set rubrics_ns = namespace(enabled=true) %}
+    {% if assessment_strategy and assessment_strategy.get('rubrics_enabled') is not none %}
+        {% set _re = assessment_strategy.get('rubrics_enabled') %}
+        {% if _re is string %}
+            {% set rubrics_ns.enabled = _re|lower in ['1', 'true', 'yes', 'on'] %}
+        {% else %}
+            {% set rubrics_ns.enabled = _re %}
+        {% endif %}
+    {% endif %}
+    {% set rubrics_enabled = rubrics_ns.enabled %}
+    {# Continue section numbering from Part B (do not reset) #}
     
-    <!-- 17. Assessment Strategy -->
-    <div class="subsection-title">17. Assessment Strategy</div>
+    {% if session_delivery_type|default('theory') == 'sessional' %}
+    {# ---- Sessional Part C ---- #}
+    <div class="subsection-title">{{ sec.n }}. Assessment Strategy</div>
+    {% set sec.n = sec.n + 1 %}
+    {% set strategy_points = assessment_strategy.get('strategy_points') if assessment_strategy else None %}
+    {% if strategy_points and strategy_points|length > 0 %}
+    <ol type="i" style="margin-top: 0.05in; margin-bottom: 0.15in;">
+        {% for point in strategy_points %}
+        {% if point %}
+        <li>{{ point }}</li>
+        {% endif %}
+        {% endfor %}
+    </ol>
+    {% elif assessment_strategy and assessment_strategy.get('description') %}
+    <p>{{ assessment_strategy.get('description') }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+
+    <div class="subsection-subtitle">Marks Distribution for Sessional Courses (10+60+30=100)</div>
+    {% if assessment_strategy %}
+    <table class="data-table" style="margin-bottom: 0.15in;">
+        <thead>
+            <tr>
+                <th>Component</th>
+                <th class="center">%</th>
+                <th>Comments</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Class Participation (Attendance)</td>
+                <td class="center">{{ assessment_strategy.get('attendance_percent', '10') }}</td>
+                <td>{{ assessment_strategy.get('attendance_comment', '') }}</td>
+            </tr>
+            <tr>
+                <td>Assessment (Continuous Assessment)</td>
+                <td class="center">{{ assessment_strategy.get('ca_assessment_percent', '60') }}</td>
+                <td>{{ assessment_strategy.get('ca_assessment_comment', '') }}</td>
+            </tr>
+            <tr>
+                <td>Viva voce</td>
+                <td class="center">{{ assessment_strategy.get('viva_percent', '30') }}</td>
+                <td>{{ assessment_strategy.get('viva_comment', '') }}</td>
+            </tr>
+        </tbody>
+    </table>
+
+    {% set ca_components = assessment_strategy.get('ca_components') or [] %}
+    {% set ca_ns = namespace(points=[]) %}
+    {% for item in ca_components %}
+        {% if item is string and item.strip() %}
+            {% set ca_ns.points = ca_ns.points + [item.strip()] %}
+        {% elif item is mapping and item.get('name') and item.get('selected', true) %}
+            {% set ca_ns.points = ca_ns.points + [item.get('name')] %}
+        {% endif %}
+    {% endfor %}
+    {% if assessment_strategy.get('ca_components_other') %}
+        {% set ca_ns.points = ca_ns.points + [assessment_strategy.get('ca_components_other')] %}
+    {% endif %}
+    {% if ca_ns.points %}
+    <div class="subsection-subtitle">Assessment Components (Total = {{ assessment_strategy.get('ca_assessment_percent', '60') }})</div>
+    <ol type="i" style="margin-top: 0.05in; margin-bottom: 0.15in;">
+        {% for point in ca_ns.points %}
+        <li>{{ point }}</li>
+        {% endfor %}
+    </ol>
+    {% endif %}
+    {% endif %}
+
+    <div class="subsection-title">{{ sec.n }}. Make-up Procedures</div>
+    {% set sec.n = sec.n + 1 %}
+    {% if make_up_procedures_list and make_up_procedures_list|length > 0 %}
+    <ol type="i" style="margin-top: 0.05in; margin-bottom: 0.15in;">
+        {% for proc in make_up_procedures_list %}
+        <li>{{ proc }}</li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+
+    {% else %}
+    {# ---- Theory Part C ---- #}
+    <div class="subsection-title">{{ sec.n }}. Assessment Strategy</div>
+    {% set sec.n = sec.n + 1 %}
     {% if assessment_strategy and assessment_strategy.get('description') %}
     <p>{{ assessment_strategy.get('description') }}</p>
     {% else %}
     <p class="not-specified">Not specified</p>
     {% endif %}
     
-    <!-- 17. Assessment Strategy - Marks Distribution for Theory Courses -->
     {% if assessment_strategy %}
     <table class="data-table" style="margin-bottom: 0.2in;">
         <thead>
@@ -735,7 +865,6 @@
         </tbody>
     </table>
     
-    <!-- Attendance Marks Distribution -->
     {% if assessment_strategy.get('attendance_marks') %}
     <div class="subsection-subtitle">Attendance Marks Distribution</div>
     <table class="data-table" style="margin-bottom: 0.2in;">
@@ -756,7 +885,6 @@
     </table>
     {% endif %}
     
-    <!-- Continuous Assessment -->
     <div class="subsection-subtitle">Continuous Assessment ({{ assessment_strategy.get('ca_percent', '30') }}%)</div>
     <table class="data-table" style="margin-bottom: 0.2in;">
         <thead>
@@ -778,9 +906,12 @@
         </tbody>
     </table>
     {% endif %}
+    {% endif %}
     
-    <!-- 18. Assessment Rubrics -->
-    <div class="subsection-title">18. Assessment Rubrics</div>
+    {% if rubrics_enabled %}
+    <!-- Assessment Rubrics -->
+    <div class="subsection-title">{{ sec.n }}. Assessment Rubrics</div>
+    {% set sec.n = sec.n + 1 %}
     {% if rubrics_by_type and rubrics_by_type|length > 0 %}
         {# Render each type group as a single table #}
         {% for rubric_type, rubric_list in rubrics_by_type.items() %}
@@ -841,9 +972,11 @@
     {% else %}
     <p class="not-specified">Not specified</p>
     {% endif %}
+    {% endif %}
     
-    <!-- 19. Evaluation Policy (Grading System) -->
-    <div class="subsection-title">19. Evaluation Policy (Grading System)</div>
+    <!-- Evaluation Policy (Grading System) -->
+    <div class="subsection-title">{{ sec.n }}. Evaluation Policy (Grading System)</div>
+    {% set sec.n = sec.n + 1 %}
     <table class="data-table">
         <thead>
             <tr>
@@ -871,8 +1004,9 @@
         </tbody>
     </table>
     
-    <!-- 20. Other Issues -->
-    <div class="subsection-title">20. Other Issues</div>
+    <!-- Other Issues -->
+    <div class="subsection-title">{{ sec.n }}. Other Issues</div>
+    {% set sec.n = sec.n + 1 %}
     
     <p><strong>Class Discussion/Participation:</strong></p>
     {% if other_issues and other_issues.get('class_discussion') %}
@@ -905,8 +1039,8 @@
     <!-- PART D: LEARNING RESOURCES -->
     <div class="section-title page-break">PART D: LEARNING RESOURCES</div>
     
-    <!-- 20. Textbooks -->
-    <div class="subsection-title">20. Textbooks</div>
+    <div class="subsection-title">{{ sec.n }}. Textbooks</div>
+    {% set sec.n = sec.n + 1 %}
     {% if textbooks and textbooks|length > 0 %}
         {% for book in textbooks %}
         <p>{{ loop.index }}. {% if book is string %}{{ book }}{% else %}{{ book.get('title', '') if book.get('title') else book }}{% endif %}</p>
@@ -915,8 +1049,8 @@
     <p class="not-specified">Not specified</p>
     {% endif %}
     
-    <!-- 21. Reference Books -->
-    <div class="subsection-title">21. Reference Books</div>
+    <div class="subsection-title">{{ sec.n }}. Reference Books</div>
+    {% set sec.n = sec.n + 1 %}
     {% if reference_books and reference_books|length > 0 %}
         {% for book in reference_books %}
         <p>{{ loop.index }}. {% if book is string %}{{ book }}{% else %}{{ book.get('title', '') if book.get('title') else book }}{% endif %}</p>
@@ -925,8 +1059,8 @@
     <p class="not-specified">Not specified</p>
     {% endif %}
     
-    <!-- 22. Other Resources -->
-    <div class="subsection-title">22. Other Resources (Online Resources or others)</div>
+    <div class="subsection-title">{{ sec.n }}. Other Resources (Online Resources or others)</div>
+    {% set sec.n = sec.n + 1 %}
     {% if other_resources and other_resources|length > 0 %}
         {% for resource in other_resources %}
         <p>{{ loop.index }}. {% if resource is string %}{{ resource }}{% else %}{{ resource.get('title', '') if resource.get('title') else resource }}{% endif %}</p>
@@ -935,8 +1069,7 @@
     <p class="not-specified">Not specified</p>
     {% endif %}
     
-    <!-- 23. Course File -->
-    <div class="subsection-title">23. Course File</div>
+    <div class="subsection-title">{{ sec.n }}. Course File</div>
     {% if course_file_components and course_file_components|length > 0 %}
         {% for component in course_file_components %}
         <p>{% if component is string %}{{ component }}{% else %}{{ component.get('title', '') if component.get('title') else component }}{% endif %}</p>
