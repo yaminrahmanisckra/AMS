@@ -43,6 +43,7 @@ OUTLINE_JSON_SCHEMA = {
         'date': 'YYYY-MM-DD or week range',
         'topic': 'string',
         'outcome': 'string',
+        'activities': 'string',
         'teaching_assessment': 'string',
         'clo_alignment': 'CLO 1',
     }],

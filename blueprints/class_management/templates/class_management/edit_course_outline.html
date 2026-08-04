@@ -1582,11 +1582,15 @@ function addLessonPlanRow(data = {}) {
             </div>
         </div>
         <div class="row g-2 mt-2">
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label small">Specific Outcome</label>
                 <textarea class="form-control form-control-sm" name="lesson_outcome[]" rows="2" placeholder="Students will be able to...">${data.outcome || ''}</textarea>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+                <label class="form-label small">Suggested Activities</label>
+                <textarea class="form-control form-control-sm" name="lesson_activities[]" rows="2" placeholder="Reading, group discussion, case analysis…">${data.activities || ''}</textarea>
+            </div>
+            <div class="col-md-4">
                 <label class="form-label small">Teaching & Assessment</label>
                 <textarea class="form-control form-control-sm" name="lesson_teaching[]" rows="2" placeholder="Lecture, Question answer">${data.teaching_assessment || ''}</textarea>
             </div>
@@ -1724,11 +1728,15 @@ function insertLessonPlanRow(button) {
             </div>
         </div>
         <div class="row g-2 mt-2">
-            <div class="col-md-6">
+            <div class="col-md-4">
                 <label class="form-label small">Specific Outcome</label>
                 <textarea class="form-control form-control-sm" name="lesson_outcome[]" rows="2" placeholder="Students will be able to..."></textarea>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
+                <label class="form-label small">Suggested Activities</label>
+                <textarea class="form-control form-control-sm" name="lesson_activities[]" rows="2" placeholder="Reading, group discussion, case analysis…"></textarea>
+            </div>
+            <div class="col-md-4">
                 <label class="form-label small">Teaching & Assessment</label>
                 <textarea class="form-control form-control-sm" name="lesson_teaching[]" rows="2" placeholder="Lecture, Question answer"></textarea>
             </div>
@@ -3032,6 +3040,7 @@ function saveCourseOutline(isAutoSave = false) {
     const dates = formData.getAll('lesson_date[]');
     const topics = formData.getAll('lesson_topic[]');
     const outcomes = formData.getAll('lesson_outcome[]');
+    const activities = formData.getAll('lesson_activities[]');
     const teachings = formData.getAll('lesson_teaching[]');
     const clos = formData.getAll('lesson_clo[]');
     
@@ -3042,6 +3051,7 @@ function saveCourseOutline(isAutoSave = false) {
                 date: dates[i] || '',
                 topic: topics[i] || '',
                 outcome: outcomes[i] || '',
+                activities: activities[i] || '',
                 teaching_assessment: teachings[i] || '',
                 clo_alignment: clos[i] || ''
             });
