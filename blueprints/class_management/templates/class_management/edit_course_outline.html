@@ -973,6 +973,40 @@
                     <label class="form-label"><strong>Academic Honesty</strong></label>
                     <textarea class="form-control" name="academic_honesty" rows="3" placeholder="Honesty, trust, and personal responsibility...">{% if outline_data.other_issues and outline_data.other_issues.get('academic_honesty') %}{{ outline_data.other_issues.academic_honesty }}{% endif %}</textarea>
                 </div>
+
+                {% set custom_ns = namespace(enabled=false, header='', body='') %}
+                {% if outline_data.assessment_strategy %}
+                    {% if outline_data.assessment_strategy.get('custom_section_enabled') is not none %}
+                        {% set _ce = outline_data.assessment_strategy.get('custom_section_enabled') %}
+                        {% if _ce is string %}
+                            {% set custom_ns.enabled = _ce|lower in ['1', 'true', 'yes', 'on'] %}
+                        {% else %}
+                            {% set custom_ns.enabled = _ce %}
+                        {% endif %}
+                    {% endif %}
+                    {% set custom_ns.header = outline_data.assessment_strategy.get('custom_section_header', '') or '' %}
+                    {% set custom_ns.body = outline_data.assessment_strategy.get('custom_section_body', '') or '' %}
+                {% endif %}
+
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-4 mb-2">
+                    <h6 class="mb-0" id="customSectionHeading"><strong><span class="part-c-sec-num" data-sec="custom">21</span>. <span id="customSectionTitlePreview">{% if custom_ns.header %}{{ custom_ns.header }}{% else %}Custom Section{% endif %}</span></strong></h6>
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="customSectionEnabledToggle" {% if custom_ns.enabled %}checked{% endif %} onchange="toggleCustomSection(this.checked)">
+                        <label class="form-check-label" for="customSectionEnabledToggle">Include in outline / PDF</label>
+                    </div>
+                </div>
+                <p class="text-muted small mb-2">Add an optional custom section at the end of Part C with your own heading and content.</p>
+                <div id="customSectionBody" {% if not custom_ns.enabled %}style="display: none;"{% endif %}>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Section Heading</strong></label>
+                        <input type="text" class="form-control" id="customSectionHeaderInput" name="custom_section_header" value="{{ custom_ns.header }}" placeholder="e.g., Plagiarism Policy, Field Visit Guidelines" oninput="updateCustomSectionTitlePreview()">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label"><strong>Section Content</strong></label>
+                        <textarea class="form-control" name="custom_section_body" rows="5" placeholder="Enter the content for this section…">{{ custom_ns.body }}</textarea>
+                    </div>
+                </div>
+                <p class="text-muted small mb-3 {% if custom_ns.enabled %}d-none{% endif %}" id="customSectionDisabledHint">Custom section is disabled and will be omitted from the PDF. Section numbers below will adjust automatically.</p>
                 </div>
             </div>
         </div>
@@ -2383,11 +2417,30 @@ function updateOutlineSectionNumbers() {
     const rubricsNum = document.querySelector('.part-c-sec-num[data-sec="rubrics"]');
     const evalNum = document.querySelector('.part-c-sec-num[data-sec="evaluation"]');
     const otherNum = document.querySelector('.part-c-sec-num[data-sec="other"]');
+    const customNum = document.querySelector('.part-c-sec-num[data-sec="custom"]');
+    const customOn = !!(document.getElementById('customSectionEnabledToggle') || {}).checked;
     if (rubricsOn) {
         if (rubricsNum) rubricsNum.textContent = String(n++);
     }
     if (evalNum) evalNum.textContent = String(n++);
-    if (otherNum) otherNum.textContent = String(n);
+    if (otherNum) otherNum.textContent = String(n++);
+    if (customOn && customNum) customNum.textContent = String(n++);
+}
+
+function updateCustomSectionTitlePreview() {
+    const input = document.getElementById('customSectionHeaderInput');
+    const preview = document.getElementById('customSectionTitlePreview');
+    if (!preview) return;
+    const text = (input && input.value || '').trim();
+    preview.textContent = text || 'Custom Section';
+}
+
+function toggleCustomSection(enabled) {
+    const body = document.getElementById('customSectionBody');
+    const hint = document.getElementById('customSectionDisabledHint');
+    if (body) body.style.display = enabled ? '' : 'none';
+    if (hint) hint.classList.toggle('d-none', !!enabled);
+    updateOutlineSectionNumbers();
 }
 
 function togglePartBSection(section, enabled) {
@@ -2996,7 +3049,10 @@ function saveCourseOutline(isAutoSave = false) {
             rubrics_enabled: !!(document.getElementById('rubricsEnabledToggle') || {}).checked,
             assessment_techniques_enabled: isPartBSectionEnabled('assessmentTechniquesEnabledToggle'),
             cie_enabled: isPartBSectionEnabled('cieEnabledToggle'),
-            smee_enabled: isPartBSectionEnabled('smeeEnabledToggle')
+            smee_enabled: isPartBSectionEnabled('smeeEnabledToggle'),
+            custom_section_enabled: !!(document.getElementById('customSectionEnabledToggle') || {}).checked,
+            custom_section_header: formData.get('custom_section_header') || '',
+            custom_section_body: formData.get('custom_section_body') || ''
         } : {
             attendance_percent: formData.get('attendance_percent') || '10',
             attendance_comment: formData.get('attendance_comment') || 'Minimum mark is 4 for 60% attendance',
@@ -3012,7 +3068,10 @@ function saveCourseOutline(isAutoSave = false) {
             // Preserve toggles if present (sessional); theory has no toggles → true
             assessment_techniques_enabled: isPartBSectionEnabled('assessmentTechniquesEnabledToggle'),
             cie_enabled: isPartBSectionEnabled('cieEnabledToggle'),
-            smee_enabled: isPartBSectionEnabled('smeeEnabledToggle')
+            smee_enabled: isPartBSectionEnabled('smeeEnabledToggle'),
+            custom_section_enabled: !!(document.getElementById('customSectionEnabledToggle') || {}).checked,
+            custom_section_header: formData.get('custom_section_header') || '',
+            custom_section_body: formData.get('custom_section_body') || ''
         },
         assessment_techniques: [],
         rubrics: [],

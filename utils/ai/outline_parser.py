@@ -108,20 +108,18 @@ def normalize_assessment_strategy(strategy):
     elif comps is not None:
         out['ca_components'] = []
 
-    if 'rubrics_enabled' in out:
-        val = out.get('rubrics_enabled')
-        if isinstance(val, str):
-            out['rubrics_enabled'] = val.strip().lower() in ('1', 'true', 'yes', 'on')
-        else:
-            out['rubrics_enabled'] = bool(val)
-
-    for flag_key in ('assessment_techniques_enabled', 'cie_enabled', 'smee_enabled'):
+    for flag_key in ('assessment_techniques_enabled', 'cie_enabled', 'smee_enabled', 'custom_section_enabled', 'rubrics_enabled'):
         if flag_key in out:
             val = out.get(flag_key)
             if isinstance(val, str):
                 out[flag_key] = val.strip().lower() in ('1', 'true', 'yes', 'on')
             else:
                 out[flag_key] = bool(val)
+
+    if 'custom_section_header' in out and out.get('custom_section_header') is not None:
+        out['custom_section_header'] = str(out.get('custom_section_header') or '').strip()
+    if 'custom_section_body' in out and out.get('custom_section_body') is not None:
+        out['custom_section_body'] = str(out.get('custom_section_body') or '').strip()
 
     return out
 

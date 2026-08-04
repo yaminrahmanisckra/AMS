@@ -1035,6 +1035,29 @@
     {% else %}
     <p class="not-specified">Not specified</p>
     {% endif %}
+
+    {% set custom_enabled = false %}
+    {% if assessment_strategy and assessment_strategy.get('custom_section_enabled') is not none %}
+        {% set _ce = assessment_strategy.get('custom_section_enabled') %}
+        {% if _ce is string %}
+            {% set custom_enabled = _ce|lower in ['1', 'true', 'yes', 'on'] %}
+        {% else %}
+            {% set custom_enabled = _ce %}
+        {% endif %}
+    {% endif %}
+    {% if custom_enabled %}
+    {% set custom_header = assessment_strategy.get('custom_section_header', '') if assessment_strategy else '' %}
+    {% set custom_body = assessment_strategy.get('custom_section_body', '') if assessment_strategy else '' %}
+    {% if custom_header or custom_body %}
+    <div class="subsection-title">{{ sec.n }}. {{ custom_header or 'Custom Section' }}</div>
+    {% set sec.n = sec.n + 1 %}
+    {% if custom_body %}
+    <p style="white-space: pre-wrap;">{{ custom_body }}</p>
+    {% else %}
+    <p class="not-specified">Not specified</p>
+    {% endif %}
+    {% endif %}
+    {% endif %}
     
     <!-- PART D: LEARNING RESOURCES -->
     <div class="section-title page-break">PART D: LEARNING RESOURCES</div>
