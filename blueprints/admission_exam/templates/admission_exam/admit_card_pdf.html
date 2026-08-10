@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Admit Card – {{ candidate.application_id }}</title>
+<style>
+    {% if bangla_font_face %}{{ bangla_font_face|safe }}{% endif %}
+    /*
+     * Image slots use page-absolute mm positions (same numbers as ADMIT_IMAGE_SLOTS
+     * in routes.py). ReportLab stamps into these boxes after WeasyPrint.
+     */
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 210mm;
+        height: 297mm;
+    }
+    body {
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 11.5pt;
+        color: #111;
+        position: relative;
+    }
+    .bn, td.bn, span.bn {
+        font-family: 'AdmitBangla', sans-serif !important;
+        font-size: 12.5pt;
+        line-height: 1.35;
+        font-weight: normal;
+        font-style: normal;
+    }
+    .page {
+        position: relative;
+        width: 210mm;
+        height: 297mm;
+        padding: 0;
+    }
+    .card {
+        position: absolute;
+        left: 12mm;
+        top: 14mm;
+        width: 186mm;
+        height: 269mm;
+        border: 0.55mm solid #1a3a6b;
+        border-radius: 2mm;
+        padding: 7mm 8mm 6mm 8mm;
+    }
+    /* —— absolute image slots (page coordinates) —— */
+    .slot-logo {
+        position: absolute;
+        left: {{ slots.logo.left }}mm;
+        top: {{ slots.logo.top }}mm;
+        width: {{ slots.logo.w }}mm;
+        height: {{ slots.logo.h }}mm;
+    }
+    .slot-photo {
+        position: absolute;
+        left: {{ slots.photo.left }}mm;
+        top: {{ slots.photo.top }}mm;
+        width: {{ slots.photo.w }}mm;
+        height: {{ slots.photo.h }}mm;
+        border: 0.35mm solid #555;
+        background: #fff;
+    }
+    .slot-sig-cand {
+        position: absolute;
+        left: {{ slots.sig_cand.left }}mm;
+        top: {{ slots.sig_cand.top }}mm;
+        width: {{ slots.sig_cand.w }}mm;
+        height: {{ slots.sig_cand.h }}mm;
+    }
+    .slot-sig-chair {
+        position: absolute;
+        left: {{ slots.sig_chair.left }}mm;
+        top: {{ slots.sig_chair.top }}mm;
+        width: {{ slots.sig_chair.w }}mm;
+        height: {{ slots.sig_chair.h }}mm;
+    }
+    .header {
+        display: table;
+        width: 100%;
+        border-bottom: 0.4mm solid #1a3a6b;
+        padding-bottom: 4mm;
+        margin-bottom: 4mm;
+        min-height: 38mm;
+    }
+    .header-logo-spacer {
+        display: table-cell;
+        width: 42mm;
+        vertical-align: middle;
+    }
+    .header-text {
+        display: table-cell;
+        vertical-align: middle;
+        text-align: center;
+        padding: 0 2mm;
+    }
+    .header-spacer {
+        display: table-cell;
+        width: 42mm;
+    }
+    .header .uni { font-size: 18pt; font-weight: bold; letter-spacing: 0.3px; line-height: 1.2; }
+    .header .disc { font-size: 13pt; margin-top: 1mm; line-height: 1.2; }
+    .header .cycle { font-size: 11.5pt; margin-top: 1.5mm; color: #333; line-height: 1.25; }
+    .admit-title-wrap { text-align: center; margin: 2mm 0 5mm 0; }
+    .admit-title {
+        display: inline-block;
+        border: 0.45mm solid #1a3a6b;
+        background: #eef3fb;
+        padding: 2mm 10mm;
+        font-size: 14pt;
+        font-weight: bold;
+        letter-spacing: 2px;
+        color: #1a3a6b;
+    }
+    table.main { width: 100%; border-collapse: collapse; }
+    table.main > tbody > tr > td { vertical-align: top; }
+    .photo-spacer {
+        width: 36mm;
+        height: 42mm;
+    }
+    .roll-box {
+        border: 0.45mm solid #1a3a6b;
+        background: #eef3fb;
+        padding: 3mm 4mm;
+        text-align: center;
+        margin-bottom: 4mm;
+    }
+    .roll-box .lbl { font-size: 8.5pt; color: #444; text-transform: uppercase; letter-spacing: 1px; }
+    .roll-box .val { font-size: 20pt; font-weight: bold; color: #1a3a6b; margin-top: 1mm; }
+    table.info { width: 100%; border-collapse: collapse; }
+    table.info th, table.info td {
+        text-align: left;
+        padding: 2.2mm 2mm;
+        font-size: 11pt;
+        border-bottom: 0.2mm solid #bbb;
+        vertical-align: bottom;
+    }
+    table.info th { width: 42%; color: #333; font-weight: bold; }
+    table.info td { font-size: 11.5pt; }
+    .exam-info {
+        margin-top: 8mm;
+        border: 0.3mm solid #999;
+        padding: 3.5mm 4mm;
+        background: #fafafa;
+        font-size: 11pt;
+        line-height: 1.45;
+    }
+    .signs-wrap {
+        position: absolute;
+        left: 8mm;
+        right: 8mm;
+        /* Just under stamped signature images (coords relative to .card at top:14mm) */
+        top: {{ slots.sig_cand.top + slots.sig_cand.h + 1 - 14 }}mm;
+    }
+    table.signs { width: 100%; border-collapse: collapse; }
+    table.signs td { width: 50%; text-align: center; font-size: 10pt; vertical-align: bottom; }
+    .sign-line {
+        border-top: 0.3mm solid #333;
+        display: inline-block;
+        padding: 1.5mm 8mm 0 8mm;
+        min-width: 48mm;
+    }
+    .footer-block {
+        position: absolute;
+        left: 8mm;
+        right: 8mm;
+        bottom: 5mm;
+    }
+    .footer-note {
+        font-size: 8.5pt;
+        color: #555;
+        border-top: 0.2mm dashed #999;
+        padding-top: 2.5mm;
+        text-align: center;
+        line-height: 1.35;
+    }
+    .print-note {
+        margin-top: 3mm;
+        font-size: 10pt;
+        font-weight: bold;
+        color: #cc0000;
+        text-align: center;
+    }
+</style>
+</head>
+<body>
+<div class="page">
+    {# Image target boxes — ReportLab draws into these exact rects #}
+    <div class="slot-logo"></div>
+    {% if show_photo %}<div class="slot-photo"></div>{% endif %}
+    <div class="slot-sig-cand"></div>
+    <div class="slot-sig-chair"></div>
+
+    <div class="card">
+        <div class="header">
+            <div class="header-logo-spacer"></div>
+            <div class="header-text">
+                <div class="uni">Khulna University</div>
+                <div class="disc">Law Discipline</div>
+                <div class="cycle">{{ cycle.name }}</div>
+            </div>
+            <div class="header-spacer"></div>
+        </div>
+
+        <div class="admit-title-wrap">
+            <div class="admit-title">ADMIT&nbsp;CARD</div>
+        </div>
+
+        <table class="main">
+            <tr>
+                <td style="padding-right: 3mm;">
+                    {% if show_roll_box %}
+                    <div class="roll-box">
+                        <div class="lbl">Roll Number</div>
+                        <div class="val">{{ candidate.roll_no or '—' }}</div>
+                    </div>
+                    {% endif %}
+                    <table class="info">
+                        {% for row in info_rows %}
+                        <tr>
+                            <th>{{ row.label }}</th>
+                            <td>{% if row.is_bangla %}<span class="bn" lang="bn">{{ row.value }}</span>{% else %}{{ row.value }}{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </td>
+                {% if show_photo %}
+                <td style="width: 36mm;"><div class="photo-spacer"></div></td>
+                {% endif %}
+            </tr>
+        </table>
+
+        {% if cycle.exam_date or cycle.exam_venue %}
+        <div class="exam-info">
+            {% if cycle.exam_date %}<div><strong>Date &amp; Time of Examination:</strong> {{ cycle.exam_date }}</div>{% endif %}
+            {% if cycle.exam_venue %}<div><strong>Venue:</strong> {{ cycle.exam_venue }}</div>{% endif %}
+        </div>
+        {% endif %}
+
+        <div class="signs-wrap">
+            <table class="signs">
+                <tr>
+                    <td><span class="sign-line">Signature of Candidate</span></td>
+                    <td><span class="sign-line">Chairman, Admission Committee</span></td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="footer-block">
+            <div class="footer-note">
+                This admit card must be presented at the examination hall along with a valid photo ID.
+                Issued electronically by the Admission Committee, Law Discipline, Khulna University.
+            </div>
+            <div class="print-note">
+                Important: Please bring a COLOUR PRINT of this admit card to the examination hall.
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+{% block title %}My Application – {{ cycle.name }}{% endblock %}
+{% block mobile_title %}My Application{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 860px;">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+        <div>
+            <h4 class="fw-bold mb-0">My Application</h4>
+            <span class="text-muted small">{{ cycle.name }}</span>
+        </div>
+        <a href="{{ url_for('admission_exam.candidate_logout', token=cycle.public_token) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-sign-out-alt me-1"></i>Logout
+        </a>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <div class="small text-muted mb-1">Application ID</div>
+                    <div class="fs-5 fw-bold">{{ candidate.application_id }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <div class="small text-muted mb-1">Payment Status</div>
+                    {% if candidate.payment_status == 'verified' %}
+                    <span class="badge bg-success fs-6">Verified</span>
+                    {% elif candidate.payment_status == 'rejected' %}
+                    <span class="badge bg-danger fs-6">Rejected</span>
+                    {% else %}
+                    <span class="badge bg-warning text-dark fs-6">Pending</span>
+                    {% endif %}
+                    {% if candidate.payment_note %}
+                    <div class="small text-muted mt-1">{{ candidate.payment_note }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <div class="small text-muted mb-1">Roll Number</div>
+                    <div class="fs-5 fw-bold">{{ candidate.roll_no or '—' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if can_download_admit %}
+    <div class="card border-success shadow-sm mb-4" id="admitDownloadBar">
+        <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
+            <div class="text-success">
+                <i class="fas fa-check-circle me-1"></i><strong>Your admit card is ready.</strong>
+            </div>
+            <a href="{{ url_for('admission_exam.candidate_admit_card', token=cycle.public_token) }}?v={{ range(100000, 999999) | random }}"
+               class="btn btn-success" target="_blank" rel="noopener">
+                <i class="fas fa-file-pdf me-1"></i>Open Admit Card
+            </a>
+        </div>
+    </div>
+    {% else %}
+    <div class="card border-0 bg-light mb-4">
+        <div class="card-body small text-muted py-3">
+            <i class="fas fa-info-circle me-1"></i>
+            Your admit card will be available here once your payment is verified,
+            a roll number is assigned, and the committee publishes admit cards.
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light d-flex align-items-center gap-2">
+            <strong>Application Details</strong>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3 text-center mb-3">
+                    {% if candidate.photo_path %}
+                    <img src="{{ url_for('admission_exam.candidate_photo', token=cycle.public_token) }}"
+                         alt="Photo" class="img-thumbnail" style="max-width: 140px;">
+                    {% else %}
+                    <div class="border rounded p-4 text-muted small">No photo</div>
+                    {% endif %}
+                    <div class="mt-3">
+                        <div class="small text-muted mb-1">Your signature</div>
+                        {% if candidate.signature_path %}
+                        <img src="{{ url_for('admission_exam.candidate_signature_image', token=cycle.public_token) }}"
+                             alt="Signature" class="img-thumbnail bg-white" style="max-width: 160px; max-height: 70px;">
+                        {% else %}
+                        <div class="border rounded p-2 text-muted small">No signature</div>
+                        {% endif %}
+                    </div>
+                    {% if candidate.payment_status != 'verified' %}
+                    <form method="POST" enctype="multipart/form-data" class="mt-2 text-start"
+                          action="{{ url_for('admission_exam.candidate_update_signature', token=cycle.public_token) }}">
+                        <label class="form-label small mb-1">
+                            {% if candidate.signature_path %}Replace signature{% else %}Upload signature{% endif %}
+                        </label>
+                        <input type="file" class="form-control form-control-sm" name="candidate_signature"
+                               accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+                        <button type="submit" class="btn btn-sm btn-outline-primary mt-2 w-100">Save Signature</button>
+                    </form>
+                    {% endif %}
+                </div>
+                <div class="col-md-9">
+                    <table class="table table-sm small">
+                        {% for field in display_fields %}
+                        {% if field.key == 'full_name' %}
+                        <tr><th style="width: 35%;">{{ field.label }}</th><td>{{ candidate.full_name }}</td></tr>
+                        {% elif field.key == 'phone' %}
+                        <tr><th>{{ field.label }}</th><td>{{ candidate.phone }}</td></tr>
+                        {% elif field.key == 'email' %}
+                        <tr><th>{{ field.label }}</th><td>{{ candidate.email or '—' }}</td></tr>
+                        {% elif field.source == 'extra' and field.key not in ('other_exam_name',) and extra.get(field.key) %}
+                        <tr><th>{{ field.label }}</th><td>{{ extra.get(field.key) }}</td></tr>
+                        {% endif %}
+                        {% endfor %}
+                        <tr><th>Submitted At</th><td>{{ candidate.created_at.strftime('%d %B %Y, %I:%M %p') }}</td></tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if academic_rows %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong>Academic Qualifications</strong></div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Name of the Examination</th>
+                            {% for suffix, col_label in academic_col_suffixes %}
+                            <th>{{ col_label }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in academic_rows %}
+                        <tr>
+                            <td><strong>{{ row.label }}</strong></td>
+                            <td>{{ row.year or '—' }}</td>
+                            <td>{{ row.board or '—' }}</td>
+                            <td>{{ row.institution or '—' }}</td>
+                            <td>{{ row.cgpa or '—' }}</td>
+                            <td>{{ row.percentage or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong>Academic Certificates &amp; Transcripts</strong></div>
+        <div class="card-body">
+            {% if documents %}
+            <div class="table-responsive mb-3">
+                <table class="table table-sm small align-middle">
+                    <thead>
+                        <tr>
+                            <th>Tag</th>
+                            <th>File</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for doc in documents %}
+                        <tr>
+                            <td>{{ doc.tag }}</td>
+                            <td>
+                                <a href="{{ url_for('admission_exam.candidate_document_file', token=cycle.public_token, doc_id=doc.id) }}"
+                                   target="_blank" rel="noopener">{{ doc.original_filename or 'View' }}</a>
+                            </td>
+                            <td>
+                                {% if doc.status == 'verified' %}
+                                <span class="badge bg-success">Verified</span>
+                                {% elif doc.status == 'rejected' %}
+                                <span class="badge bg-danger">Rejected</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">Pending</span>
+                                {% endif %}
+                                {% if doc.note %}<div class="text-muted mt-1">{{ doc.note }}</div>{% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if candidate.payment_status != 'verified' and documents|length > 1 %}
+                                <form method="POST" class="d-inline"
+                                      action="{{ url_for('admission_exam.candidate_delete_document', token=cycle.public_token, doc_id=doc.id) }}"
+                                      onsubmit="return confirm('Remove this document?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="small text-muted">No documents uploaded yet.</p>
+            {% endif %}
+
+            {% if candidate.payment_status != 'verified' %}
+            <hr>
+            <p class="small text-muted mb-2">Upload additional attested certificates / transcripts (JPG or PNG only — PDF not allowed; max {{ document_max_label }}).</p>
+            <form method="POST" enctype="multipart/form-data"
+                  action="{{ url_for('admission_exam.candidate_add_documents', token=cycle.public_token) }}"
+                  id="dashDocForm">
+                <div id="dashDocumentRows"></div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="dashAddDocBtn">
+                    <i class="fas fa-plus me-1"></i>Add file row
+                </button>
+                <button type="submit" class="btn btn-sm btn-primary mt-2">Upload</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {% set selected_pay = candidate.payment_method or 'agrani_bank' %}
+    {% set selected_is_mfs = selected_pay in mfs_payment_methods %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light"><strong>Payment Information</strong></div>
+        <div class="card-body">
+            <table class="table table-sm small mb-3">
+                <tr>
+                    <th style="width: 35%;">Method</th>
+                    <td>{{ payment_method_labels.get(candidate.payment_method, candidate.payment_method) }}</td>
+                </tr>
+                {% if candidate.payment_method == 'agrani_bank' %}
+                <tr><th>Slip / Transaction No.</th><td>{{ candidate.bank_slip_txn_no or '—' }}</td></tr>
+                <tr>
+                    <th>Deposit Slip</th>
+                    <td>
+                        {% if candidate.bank_slip_path %}
+                        <a href="{{ url_for('admission_exam.candidate_bank_slip', token=cycle.public_token) }}"
+                           target="_blank" rel="noopener">View uploaded slip</a>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><th>{{ mfs_labels.txn }}</th><td>{{ candidate.rocket_txn_id or '—' }}</td></tr>
+                <tr><th>{{ mfs_labels.sender }}</th><td>{{ candidate.rocket_sender_phone or '—' }}</td></tr>
+                {% endif %}
+            </table>
+            {% if candidate.payment_status != 'verified' and enabled_payment_methods %}
+            <hr>
+            <p class="small text-muted">
+                {% if candidate.payment_status == 'rejected' %}
+                Your payment could not be verified. Correct the information below and resubmit.
+                {% else %}
+                Made a mistake? You can update your payment information until it is verified.
+                {% endif %}
+            </p>
+            <form method="POST" enctype="multipart/form-data"
+                  action="{{ url_for('admission_exam.candidate_update_payment', token=cycle.public_token) }}">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Payment method</label>
+                    <div class="d-flex flex-wrap gap-3">
+                        {% for method in enabled_payment_methods %}
+                        <div class="form-check">
+                            <input class="form-check-input payment-method-radio" type="radio"
+                                   name="payment_method" id="dash_pay_{{ method }}" value="{{ method }}"
+                                   {% if selected_pay == method %}checked{% endif %} required>
+                            <label class="form-check-label small" for="dash_pay_{{ method }}">
+                                {{ payment_method_labels.get(method, method) }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="payment-method-block" data-kind="mfs"
+                     {% if not selected_is_mfs %}style="display:none;"{% endif %}>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label small"><span id="dashMfsTxnLabel">{{ mfs_labels.txn }}</span></label>
+                            <input type="text" class="form-control form-control-sm" name="rocket_txn_id"
+                                   value="{{ candidate.rocket_txn_id or '' }}"
+                                   {% if selected_is_mfs %}required{% endif %}>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small"><span id="dashMfsSenderLabel">{{ mfs_labels.sender }}</span></label>
+                            <input type="tel" class="form-control form-control-sm" name="rocket_sender_phone"
+                                   value="{{ candidate.rocket_sender_phone or '' }}"
+                                   {% if selected_is_mfs %}required{% endif %}>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="payment-method-block mt-2" data-method="agrani_bank"
+                     {% if selected_pay != 'agrani_bank' %}style="display:none;"{% endif %}>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label small">Slip / Transaction Number</label>
+                            <input type="text" class="form-control form-control-sm" name="bank_slip_txn_no"
+                                   value="{{ candidate.bank_slip_txn_no or '' }}"
+                                   {% if selected_pay == 'agrani_bank' %}required{% endif %}>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small">
+                                Deposit Slip Photo
+                                {% if not candidate.bank_slip_path %}<span class="text-danger">*</span>{% endif %}
+                            </label>
+                            <input type="file" class="form-control form-control-sm" name="bank_slip" id="dashBankSlip"
+                                   accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                   {% if selected_pay == 'agrani_bank' and not candidate.bank_slip_path %}required{% endif %}>
+                            <div class="form-text">JPG/PNG, max {{ bank_slip_max_label }}. Leave empty to keep the current slip.</div>
+                            <div class="text-danger small mt-1 d-none" id="dashBankSlipErr"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-sm btn-primary">Update Payment</button>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    const slipInput = document.getElementById('dashBankSlip');
+    const slipErr = document.getElementById('dashBankSlipErr');
+    const SLIP_MAX = 2 * 1024 * 1024;
+    if (slipInput && slipErr) {
+        slipInput.addEventListener('change', function () {
+            slipErr.classList.add('d-none');
+            slipErr.textContent = '';
+            const f = slipInput.files && slipInput.files[0];
+            if (!f) return;
+            if (f.size > SLIP_MAX) {
+                slipErr.textContent = 'Slip photo is too large. Maximum is 2 MB.';
+                slipErr.classList.remove('d-none');
+                slipInput.value = '';
+            }
+        });
+    }
+
+    const MFS = new Set({{ mfs_payment_methods|tojson }});
+    const LABELS = {{ payment_method_labels|tojson }};
+
+    function syncPaymentMethodUI() {
+        const selected = document.querySelector('input[name="payment_method"]:checked');
+        const method = selected ? selected.value : null;
+        const isMfs = method && MFS.has(method);
+        const hasExistingSlip = {{ 'true' if candidate.bank_slip_path else 'false' }};
+        if (isMfs) {
+            const name = LABELS[method] || method;
+            const txnLabel = document.getElementById('dashMfsTxnLabel');
+            const senderLabel = document.getElementById('dashMfsSenderLabel');
+            if (txnLabel) txnLabel.textContent = name + ' Transaction ID';
+            if (senderLabel) senderLabel.textContent = 'Sender ' + name + ' Account';
+        }
+        document.querySelectorAll('.payment-method-block').forEach(function (block) {
+            const kind = block.getAttribute('data-kind');
+            const active = kind === 'mfs'
+                ? isMfs
+                : (block.getAttribute('data-method') === method);
+            block.style.display = active ? '' : 'none';
+            block.querySelectorAll('input').forEach(function (el) {
+                if (el.type === 'file') {
+                    if (active && !hasExistingSlip) {
+                        el.setAttribute('required', 'required');
+                    } else {
+                        el.removeAttribute('required');
+                    }
+                } else if (el.type === 'text' || el.type === 'tel') {
+                    if (active) {
+                        el.setAttribute('required', 'required');
+                    } else {
+                        el.removeAttribute('required');
+                    }
+                }
+            });
+        });
+    }
+    document.querySelectorAll('.payment-method-radio').forEach(function (radio) {
+        radio.addEventListener('change', syncPaymentMethodUI);
+    });
+    syncPaymentMethodUI();
+
+    const DOC_TAGS = {{ document_tags|tojson }};
+    const DOC_MAX = 5 * 1024 * 1024;
+    const dashDocBox = document.getElementById('dashDocumentRows');
+    const dashAddDoc = document.getElementById('dashAddDocBtn');
+
+    function dashDocTagOptions() {
+        let html = '<option value="">— Select tag —</option>';
+        DOC_TAGS.forEach(function (tag) {
+            html += '<option value="' + String(tag).replace(/"/g, '&quot;') + '">' + tag + '</option>';
+        });
+        html += '<option value="__custom__">Custom tag…</option>';
+        return html;
+    }
+
+    function dashDocRowHtml() {
+        return '<div class="border rounded p-2 mb-2 dash-doc-row">' +
+            '<div class="row g-2 align-items-end">' +
+            '<div class="col-md-4"><select class="form-select form-select-sm dash-doc-tag" name="doc_tag">' + dashDocTagOptions() + '</select>' +
+            '<input type="text" class="form-control form-control-sm mt-1 dash-doc-custom d-none" name="doc_tag_custom" placeholder="Custom tag"></div>' +
+            '<div class="col-md-6"><input type="file" class="form-control form-control-sm dash-doc-file" name="doc_file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>' +
+            '<div class="text-danger small d-none dash-doc-err"></div></div>' +
+            '<div class="col-md-2"><button type="button" class="btn btn-sm btn-outline-danger w-100 dash-doc-remove">Remove</button></div>' +
+            '</div></div>';
+    }
+
+    function bindDashDocRow(row) {
+        const sel = row.querySelector('.dash-doc-tag');
+        const custom = row.querySelector('.dash-doc-custom');
+        const input = row.querySelector('.dash-doc-file');
+        const err = row.querySelector('.dash-doc-err');
+        function sync() {
+            const isCustom = sel.value === '__custom__';
+            custom.classList.toggle('d-none', !isCustom);
+            if (isCustom) custom.setAttribute('required', 'required');
+            else { custom.removeAttribute('required'); custom.value = ''; }
+        }
+        if (sel) { sel.addEventListener('change', sync); sync(); }
+        if (input && err) {
+            input.addEventListener('change', function () {
+                err.classList.add('d-none');
+                const f = input.files && input.files[0];
+                if (f && f.size > DOC_MAX) {
+                    err.textContent = 'File too large (max 5 MB).';
+                    err.classList.remove('d-none');
+                    input.value = '';
+                }
+            });
+        }
+    }
+
+    if (dashDocBox && dashAddDoc) {
+        dashDocBox.insertAdjacentHTML('beforeend', dashDocRowHtml());
+        bindDashDocRow(dashDocBox.lastElementChild);
+        dashAddDoc.addEventListener('click', function () {
+            dashDocBox.insertAdjacentHTML('beforeend', dashDocRowHtml());
+            bindDashDocRow(dashDocBox.lastElementChild);
+        });
+        dashDocBox.addEventListener('click', function (e) {
+            const btn = e.target.closest('.dash-doc-remove');
+            if (!btn) return;
+            const rows = dashDocBox.querySelectorAll('.dash-doc-row');
+            if (rows.length <= 1) return;
+            btn.closest('.dash-doc-row').remove();
+        });
+    }
+})();
+</script>
+{% endblock %}

@@ -37,7 +37,7 @@
 
 <div class="container mt-4">
     <div class="card shadow">
-        <div class="card-header bg-success text-white">
+        <div class="card-header bg-success text-white m-page-header">
             <h5 class="card-title mb-0">
                 <i class="fas fa-clipboard-check me-2"></i>Take Attendance - {{ session.course_name or session.term }}
                 {% if session.course_code %}
@@ -77,7 +77,7 @@
                 
                 {% if students %}
                     <div class="table-responsive m-table-scroll-sticky">
-                        <table class="attendance-table">
+                        <table class="attendance-table m-keep-table">
                             <thead>
                                 <tr>
                                     <th>#</th>

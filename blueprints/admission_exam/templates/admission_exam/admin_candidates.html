@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Candidates – {{ cycle.name }}{% endblock %}
+{% block mobile_title %}Candidates{% endblock %}
+{% block content %}
+<div class="container-fluid my-4" style="max-width: 1300px;">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-1">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.index') }}">Admission Exam</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}">{{ cycle.name }}</a></li>
+                    <li class="breadcrumb-item active">Candidates</li>
+                </ol>
+            </nav>
+            <h4 class="fw-bold mb-0">Candidates <span class="text-muted fs-6">({{ candidates|length }})</span></h4>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{{ url_for('admission_exam.export_application_forms_zip', cycle_id=cycle.id) }}"
+               class="btn btn-outline-primary btn-sm"
+               title="All candidates in this cycle — verified or not, with or without roll. Each form + attachments as a PDF in one ZIP.">
+                <i class="fas fa-file-archive me-1"></i>All Forms ZIP
+            </a>
+            <a href="{{ url_for('admission_exam.export_admit_cards_pdf', cycle_id=cycle.id, payment=payment, status=status, search=search) }}"
+               class="btn btn-outline-success btn-sm"
+               title="Merged admit cards (verified + roll assigned only)">
+                <i class="fas fa-id-card me-1"></i>Admit Cards PDF
+            </a>
+            <a href="{{ url_for('admission_exam.export_candidates', cycle_id=cycle.id) }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-file-excel me-1"></i>Export Excel
+            </a>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <form method="GET" class="card shadow-sm mb-3">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label small mb-0">Search</label>
+                    <input type="text" class="form-control form-control-sm" name="search" value="{{ search }}"
+                           placeholder="Name, Application ID, phone, roll, TxnID…">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-0">Payment</label>
+                    <select class="form-select form-select-sm" name="payment">
+                        <option value="">All</option>
+                        <option value="pending" {% if payment == 'pending' %}selected{% endif %}>Pending</option>
+                        <option value="verified" {% if payment == 'verified' %}selected{% endif %}>Verified</option>
+                        <option value="rejected" {% if payment == 'rejected' %}selected{% endif %}>Rejected</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-0">Application Status</label>
+                    <select class="form-select form-select-sm" name="status">
+                        <option value="">All</option>
+                        <option value="submitted" {% if status == 'submitted' %}selected{% endif %}>Submitted</option>
+                        <option value="selected" {% if status == 'selected' %}selected{% endif %}>Selected</option>
+                        <option value="rejected" {% if status == 'rejected' %}selected{% endif %}>Rejected</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-sm btn-primary w-100"><i class="fas fa-filter me-1"></i>Filter</button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <form method="POST" action="{{ url_for('admission_exam.candidates_bulk', cycle_id=cycle.id) }}" id="bulkForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <span class="small text-muted">With selected:</span>
+            <button type="submit" name="action" value="verify_payment" class="btn btn-sm btn-outline-success"
+                    onclick="return confirm('Mark payment as VERIFIED for all checked candidates?');">
+                <i class="fas fa-check me-1"></i>Verify Payment
+            </button>
+            <button type="submit" name="action" value="select" class="btn btn-sm btn-outline-primary"
+                    onclick="return confirm('Mark all checked candidates as SELECTED?');">
+                <i class="fas fa-user-check me-1"></i>Select
+            </button>
+            <button type="submit" name="action" value="reject" class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Mark all checked candidates as REJECTED?');">
+                <i class="fas fa-user-times me-1"></i>Reject
+            </button>
+            <button type="submit" name="action" value="clear_rolls" class="btn btn-sm btn-outline-secondary"
+                    onclick="return confirm('Unassign roll numbers from all checked candidates?');">
+                <i class="fas fa-eraser me-1"></i>Unassign Rolls
+            </button>
+            <span class="vr d-none d-md-inline mx-1"></span>
+            <button type="submit" name="action" value="download_forms_zip" class="btn btn-sm btn-primary"
+                    title="ZIP of selected forms; each PDF includes certificate attachments">
+                <i class="fas fa-file-archive me-1"></i>Selected Forms ZIP
+            </button>
+            <button type="submit" name="action" value="download_forms_pdf" class="btn btn-sm btn-outline-primary"
+                    title="Same package; ZIP if more than one selected">
+                <i class="fas fa-file-pdf me-1"></i>Selected Forms
+            </button>
+            <button type="submit" name="action" value="download_admit_cards_pdf" class="btn btn-sm btn-success">
+                <i class="fas fa-id-card me-1"></i>Selected Admit Cards
+            </button>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 30px;"><input type="checkbox" class="form-check-input" id="checkAll"></th>
+                            <th>Application ID</th>
+                            <th>Name</th>
+                            <th>Phone</th>
+                            <th>Payment Ref</th>
+                            <th>Payment</th>
+                            <th>Status</th>
+                            <th>Roll</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in candidates %}
+                        <tr>
+                            <td><input type="checkbox" class="form-check-input row-check" name="candidate_ids" value="{{ c.id }}"></td>
+                            <td class="fw-semibold">{{ c.application_id }}</td>
+                            <td>{{ c.full_name }}</td>
+                            <td class="small">{{ c.phone }}</td>
+                            <td class="small">
+                                {% if c.payment_method == 'agrani_bank' %}
+                                <span class="badge bg-light text-dark border">Agrani Bank</span><br>
+                                <code>{{ c.bank_slip_txn_no or '—' }}</code>
+                                {% elif c.payment_method == 'bkash' %}
+                                <span class="badge bg-light text-dark border">bKash</span><br>
+                                <code>{{ c.rocket_txn_id or '—' }}</code><br>
+                                <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
+                                {% elif c.payment_method == 'nagad' %}
+                                <span class="badge bg-light text-dark border">Nagad</span><br>
+                                <code>{{ c.rocket_txn_id or '—' }}</code><br>
+                                <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
+                                {% else %}
+                                <span class="badge bg-light text-dark border">Rocket</span><br>
+                                <code>{{ c.rocket_txn_id or '—' }}</code><br>
+                                <span class="text-muted">{{ c.rocket_sender_phone or '' }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if c.payment_status == 'verified' %}
+                                <span class="badge bg-success">Verified</span>
+                                {% elif c.payment_status == 'rejected' %}
+                                <span class="badge bg-danger">Rejected</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">Pending</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if c.application_status == 'selected' %}
+                                <span class="badge bg-primary">Selected</span>
+                                {% elif c.application_status == 'rejected' %}
+                                <span class="badge bg-secondary">Rejected</span>
+                                {% else %}
+                                <span class="badge bg-light text-dark border">Submitted</span>
+                                {% endif %}
+                            </td>
+                            <td class="fw-semibold">{{ c.roll_no or '—' }}</td>
+                            <td class="text-end">
+                                <a href="{{ url_for('admission_exam.candidate_detail', candidate_id=c.id) }}"
+                                   class="btn btn-sm btn-outline-primary" title="View / manage">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="9" class="text-center text-muted py-4">No candidates found.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('checkAll').addEventListener('change', function () {
+    document.querySelectorAll('.row-check').forEach(cb => { cb.checked = this.checked; });
+});
+</script>
+{% endblock %}

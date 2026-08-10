@@ -1135,7 +1135,7 @@ body.fullscreen-active .routine-table {
 
 <div class="routine-app">
     <!-- Toolbar -->
-    <header class="r-toolbar">
+    <header class="r-toolbar m-page-header">
         <div class="r-toolbar-left">
             <span class="r-logo">KU Law</span>
             {% if current_saved_routine %}
@@ -1144,7 +1144,7 @@ body.fullscreen-active .routine-table {
             <input type="text" id="routine-title" class="r-title" placeholder="Class Routine" value="Class Routine">
             <input type="date" id="effective-date" class="r-date">
         </div>
-        <div class="r-toolbar-right">
+        <div class="r-toolbar-right m-action-row">
             {% if can_edit %}
             <div class="r-progress" id="progress-indicator" style="display: none;"><span id="progress-text">0%</span><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width: 0%"></div></div></div>
             <button type="button" class="r-btn r-btn-pri" id="btn-save"><i class="fas fa-save"></i> Save</button>

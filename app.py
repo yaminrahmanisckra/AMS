@@ -381,6 +381,9 @@ def create_app():
         endpoint = request.endpoint or ''
         if endpoint in WINDOW_EXEMPT_ENDPOINTS:
             return
+        # Admission Exam module is window-independent (self-contained yearly cycles)
+        if endpoint.startswith('admission_exam.'):
+            return
 
         redirect_endpoint = ensure_valid_session_window(current_user, active_role)
         if redirect_endpoint and endpoint != redirect_endpoint:
@@ -467,6 +470,15 @@ def create_app():
         import logging
         import traceback
         logging.warning('Self Assessment blueprint not loaded: %s', e)
+        logging.warning(traceback.format_exc())
+
+    try:
+        from blueprints.admission_exam import admission_exam_bp
+        app.register_blueprint(admission_exam_bp, url_prefix='/admission-exam')
+    except Exception as e:
+        import logging
+        import traceback
+        logging.warning('Admission Exam blueprint not loaded: %s', e)
         logging.warning(traceback.format_exc())
     
     @app.route('/debug-self-assessment')
@@ -801,6 +813,14 @@ def create_app():
             except Exception:
                 pass
 
+        show_admission_exam = False
+        if 'admission_exam.index' in current_app.view_functions:
+            try:
+                from blueprints.admission_exam.routes import user_can_access_admission
+                show_admission_exam = user_can_access_admission()
+            except Exception:
+                pass
+
         # Leave Application card: show for teacher-privilege users on main dashboard
         show_leave_application = has_teacher_privileges(current_user)
 
@@ -808,6 +828,7 @@ def create_app():
             'dashboard.html',
             show_course_registration_review=show_course_registration_review,
             show_self_assessment=show_self_assessment,
+            show_admission_exam=show_admission_exam,
             show_leave_application=show_leave_application,
         ))
         # Add cache-control headers to prevent browser caching of user-specific content
@@ -14629,13 +14650,17 @@ def create_app():
             # Render HTML template with data
             applicant_name = get_val('applicant_name')
             tin_number = ''
+            recipient_signature_data_uri = None
             try:
                 from blueprints.class_management.models import Teacher
+                from utils.user_signature import signature_data_uri_for_name
                 teacher_for_tin = _find_teacher_record_for_name(applicant_name)
                 if teacher_for_tin and getattr(teacher_for_tin, 'tin_number', None):
                     tin_number = str(teacher_for_tin.tin_number).strip()
+                recipient_signature_data_uri = signature_data_uri_for_name(applicant_name)
             except Exception:
                 tin_number = ''
+                recipient_signature_data_uri = None
 
             html_content = render_template(
                 'remuneration_pdf_template.html',
@@ -14658,6 +14683,7 @@ def create_app():
                 total_in_words=get_val('total_in_words'),
                 bank_account=get_val('bank_account'),
                 tin_number=tin_number,
+                recipient_signature_data_uri=recipient_signature_data_uri,
                 auditor_sign=get_val('auditor_sign'),
                 deputy_sign=get_val('deputy_sign'),
                 controller_sign=get_val('controller_sign'),
@@ -17196,6 +17222,12 @@ def create_app():
                             
                             bank_account = participant.get('bank_account') or ''
                             tin_number = participant.get('tin_number') or ''
+                            recipient_signature_data_uri = None
+                            try:
+                                from utils.user_signature import signature_data_uri_for_name
+                                recipient_signature_data_uri = signature_data_uri_for_name(applicant_name)
+                            except Exception:
+                                recipient_signature_data_uri = None
                             
                             # Convert total to words
                             total_in_words = _number_to_words_bengali(total_amount) if total_amount > 0 else ''
@@ -17262,6 +17294,7 @@ def create_app():
                                 'total_in_words': total_in_words,
                                 'bank_account': bank_account,
                                 'tin_number': tin_number,
+                                'recipient_signature_data_uri': recipient_signature_data_uri,
                                 'auditor_sign': '',
                                 'deputy_sign': '',
                                 'controller_sign': '',
@@ -17749,6 +17782,41 @@ def create_app():
                     # Store relative path in database
                     current_user.photo = f"/static/uploads/user_photos/{filename}"
 
+            # Digital signature (shared: admission scrutinizer, remuneration recipient, etc.)
+            from utils.user_signature import (
+                save_user_signature, delete_user_signature_file, user_signature_public_url,
+                resolve_upload_path,
+            )
+            if request.form.get('remove_signature') == '1':
+                delete_user_signature_file(current_user)
+                current_user.signature_path = None
+            elif 'signature' in request.files:
+                sig_file = request.files['signature']
+                if sig_file and sig_file.filename:
+                    old_sig_path = current_user.signature_path
+                    path, err = save_user_signature(current_user, sig_file)
+                    if err:
+                        flash(err, 'danger')
+                        db.session.rollback()
+                        teacher_record = None
+                        user_roles = parse_roles(current_user.role)
+                        if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
+                            teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
+                        return render_template(
+                            'profile.html',
+                            teacher_record=teacher_record,
+                            signature_preview_url=user_signature_public_url(current_user),
+                        )
+                    current_user.signature_path = path
+                    # Remove previous file (if different path)
+                    if old_sig_path and old_sig_path != path:
+                        old_abs = resolve_upload_path(old_sig_path)
+                        if old_abs:
+                            try:
+                                os.remove(old_abs)
+                            except OSError:
+                                pass
+
             # Update password if provided
             if new_password or confirm_password:
                 if not current_password or not current_user.check_password(current_password):
@@ -17836,8 +17904,13 @@ def create_app():
         user_roles = parse_roles(current_user.role)
         if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles:
             teacher_record = Teacher.query.filter_by(name=current_user.full_name).first()
-        
-        return render_template('profile.html', teacher_record=teacher_record)
+
+        from utils.user_signature import user_signature_public_url
+        return render_template(
+            'profile.html',
+            teacher_record=teacher_record,
+            signature_preview_url=user_signature_public_url(current_user),
+        )
 
     return app
 

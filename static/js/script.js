@@ -2,12 +2,17 @@
 
 document.addEventListener('DOMContentLoaded', function() {
     
-    // Auto-hide alerts after 5 seconds
-    const alerts = document.querySelectorAll('.alert');
-    alerts.forEach(alert => {
+    // Auto-hide only flash messages (inside .m-flash-wrap) after 5 seconds.
+    // Never target page content that happens to use Bootstrap .alert styling.
+    const alerts = document.querySelectorAll('.m-flash-wrap .alert');
+    alerts.forEach(alertEl => {
         setTimeout(() => {
-            const bsAlert = new bootstrap.Alert(alert);
-            bsAlert.close();
+            try {
+                const bsAlert = bootstrap.Alert.getOrCreateInstance(alertEl);
+                bsAlert.close();
+            } catch (e) {
+                alertEl.remove();
+            }
         }, 5000);
     });
 

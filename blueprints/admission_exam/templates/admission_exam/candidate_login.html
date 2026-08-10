@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Candidate Login – {{ cycle.name }}{% endblock %}
+{% block mobile_title %}Login{% endblock %}
+{% block content %}
+<div class="container my-5" style="max-width: 480px;">
+    <div class="card shadow-sm">
+        <div class="card-body p-4">
+            <div class="text-center mb-4">
+                <i class="fas fa-id-card fa-2x text-primary mb-2"></i>
+                <h4 class="fw-bold mb-1">Candidate Login</h4>
+                <p class="text-muted small mb-0">{{ cycle.name }}</p>
+            </div>
+            <form method="POST" action="{{ url_for('admission_exam.candidate_login', token=cycle.public_token) }}">
+                <div class="mb-3">
+                    <label class="form-label">Application ID</label>
+                    <input type="text" class="form-control" name="application_id" required
+                           placeholder="e.g. {{ cycle.app_id_prefix or 'APP' }}-0001" autocomplete="off">
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">PIN</label>
+                    <input type="password" class="form-control" name="pin" required
+                           inputmode="numeric" placeholder="6-digit PIN" autocomplete="off">
+                </div>
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="fas fa-sign-in-alt me-1"></i>Login
+                </button>
+            </form>
+            <hr>
+            <p class="small text-muted text-center mb-0">
+                Lost your PIN? Contact the exam committee office to have it reset.
+            </p>
+        </div>
+    </div>
+    <div class="text-center mt-3">
+        <a href="{{ url_for('admission_exam.landing', token=cycle.public_token) }}" class="small">
+            <i class="fas fa-arrow-left me-1"></i>Back to admission page
+        </a>
+    </div>
+</div>
+{% endblock %}

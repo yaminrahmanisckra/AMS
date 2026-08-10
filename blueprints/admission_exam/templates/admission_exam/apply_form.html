@@ -1,0 +1,483 @@
+{% extends "base.html" %}
+{% block title %}Apply – {{ cycle.name }}{% endblock %}
+{% block mobile_title %}Apply{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 960px;">
+    <div class="text-center mb-4">
+        <h3 class="fw-bold mb-1">{{ cycle.name }}</h3>
+        <h6 class="text-muted">Application Form – Law Discipline, Khulna University</h6>
+    </div>
+
+    <form method="POST" enctype="multipart/form-data"
+          action="{{ url_for('admission_exam.apply_form', token=cycle.public_token) }}">
+
+        {% set personal_fields = form_fields|selectattr('section', 'equalto', 'personal')|list %}
+        {% set other_fields = form_fields|selectattr('section', 'equalto', 'other')|list %}
+        {% set show_photo = photo_required or (field_schema|selectattr('key', 'equalto', 'photo')|selectattr('on_form')|list|length > 0) %}
+        {% set show_signature = signature_required or (field_schema|selectattr('key', 'equalto', 'candidate_signature')|selectattr('on_form')|list|length > 0) %}
+        {% set selected_pay = form.get('payment_method', enabled_payment_methods[0] if enabled_payment_methods else 'agrani_bank') %}
+        {% set selected_is_mfs = selected_pay in mfs_payment_methods %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><strong>Personal Information</strong></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {% for field in personal_fields %}
+                    <div class="col-md-{% if field.field_type == 'textarea' %}12{% elif field.key in ('phone', 'email', 'date_of_birth', 'guardian_phone', 'guardian_relation') %}3{% else %}6{% endif %}">
+                        <label class="form-label">
+                            {{ field.label }}
+                            {% if field.required %}<span class="text-danger">*</span>{% endif %}
+                        </label>
+                        {% if field.field_type == 'textarea' %}
+                        <textarea class="form-control" name="{{ field.key }}" rows="2"
+                                  {% if field.required %}required{% endif %}>{{ form.get(field.key, '') }}</textarea>
+                        {% else %}
+                        <input type="{{ field.field_type if field.field_type in ('email', 'tel', 'date') else 'text' }}"
+                               class="form-control{% if field.key == 'full_name' %} text-uppercase{% endif %}"
+                               name="{{ field.key }}"
+                               {% if field.required %}required{% endif %}
+                               {% if field.key == 'full_name' %}style="text-transform: uppercase;" autocomplete="name"{% endif %}
+                               {% if field.key == 'phone' %}placeholder="01XXXXXXXXX"{% endif %}
+                               value="{{ form.get(field.key, '') }}">
+                        {% if field.key == 'full_name' %}
+                        <div class="form-text">Please type in CAPITAL letters.</div>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    {% if show_photo or show_signature %}
+                    <div class="col-12">
+                        <div class="row g-3">
+                            {% if show_photo %}
+                            <div class="col-md-6">
+                                <label class="form-label">
+                                    Passport-size Photo
+                                    {% if photo_required %}<span class="text-danger">*</span>{% endif %}
+                                </label>
+                                <input type="file" class="form-control" name="photo" id="photoInput"
+                                       accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                       {% if photo_required %}required{% endif %}>
+                                <div class="form-text">JPG or PNG, maximum <strong>1 MB</strong>. This photo will appear on your admit card.</div>
+                                <div class="text-danger small mt-1 d-none" id="photoSizeError"></div>
+                            </div>
+                            {% endif %}
+                            {% if show_signature %}
+                            <div class="col-md-6">
+                                <label class="form-label">
+                                    Signature of the Applicant
+                                    {% if signature_required %}<span class="text-danger">*</span>{% endif %}
+                                </label>
+                                <input type="file" class="form-control" name="candidate_signature" id="signatureInput"
+                                       accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                       {% if signature_required %}required{% endif %}>
+                                <div class="form-text">Clear signature on white background, JPG or PNG, maximum <strong>1 MB</strong>.</div>
+                                <div class="text-danger small mt-1 d-none" id="signatureSizeError"></div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if show_academic %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><strong>Academic Qualifications</strong></div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-sm align-middle mb-0" id="academicTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="min-width: 140px;">Name of the Examination</th>
+                                {% for suffix, col_label in academic_col_suffixes %}
+                                <th>{{ col_label }}</th>
+                                {% endfor %}
+                                <th style="width: 48px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="academicTableBody">
+                            {% for prefix, exam_label in academic_exam_rows %}
+                            <tr>
+                                <td>
+                                    <strong>{{ exam_label }}</strong>
+                                    {% if prefix == 'other' %}
+                                    <input type="text" class="form-control form-control-sm mt-1"
+                                           name="other_exam_name" placeholder="Name of examination"
+                                           value="{{ form.get('other_exam_name', '') }}">
+                                    {% endif %}
+                                </td>
+                                {% for suffix, col_label in academic_col_suffixes %}
+                                <td>
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="{{ prefix }}_{{ suffix }}"
+                                           value="{{ form.get(prefix ~ '_' ~ suffix, '') }}"
+                                           aria-label="{{ exam_label }} – {{ col_label }}">
+                                </td>
+                                {% endfor %}
+                                <td></td>
+                            </tr>
+                            {% endfor %}
+                            {% for row in academic_extra_rows or [] %}
+                            <tr class="academic-extra-row">
+                                <td>
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="extra_row_exam_name" placeholder="Name of examination"
+                                           value="{{ row.exam_name }}" required>
+                                </td>
+                                <td><input type="text" class="form-control form-control-sm" name="extra_row_year" value="{{ row.year }}"></td>
+                                <td><input type="text" class="form-control form-control-sm" name="extra_row_board" value="{{ row.board }}"></td>
+                                <td><input type="text" class="form-control form-control-sm" name="extra_row_institution" value="{{ row.institution }}"></td>
+                                <td><input type="text" class="form-control form-control-sm" name="extra_row_cgpa" value="{{ row.cgpa }}"></td>
+                                <td><input type="text" class="form-control form-control-sm" name="extra_row_percentage" value="{{ row.percentage }}"></td>
+                                <td class="text-center">
+                                    <button type="button" class="btn btn-sm btn-outline-danger academic-row-remove" title="Remove row">&times;</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-3" id="addAcademicRowBtn">
+                    <i class="fas fa-plus me-1"></i>Add new row
+                </button>
+                <div class="form-text">Use “Add new row” for additional qualifications below Others.</div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <strong>Academic Certificates &amp; Transcripts</strong>
+                <span class="text-danger">*</span>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-3">
+                    Upload attested photocopies of all academic certificates and transcripts.
+                    Tag each file (e.g. SSC Certificate). You may also type a custom tag.
+                    JPG or PNG images only (PDF not allowed) — max <strong>{{ document_max_label }}</strong> each. At least one file is required.
+                </p>
+                <div id="documentUploadRows"></div>
+                <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="addDocumentRowBtn">
+                    <i class="fas fa-plus me-1"></i>Add another file
+                </button>
+            </div>
+        </div>
+
+        {% if other_fields %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><strong>Other Information</strong></div>
+            <div class="card-body">
+                <div class="row g-3">
+                    {% for field in other_fields %}
+                    <div class="col-md-6">
+                        <label class="form-label">
+                            {{ field.label }}
+                            {% if field.required %}<span class="text-danger">*</span>{% endif %}
+                        </label>
+                        {% if field.field_type == 'textarea' %}
+                        <textarea class="form-control" name="{{ field.key }}" rows="2"
+                                  {% if field.required %}required{% endif %}>{{ form.get(field.key, '') }}</textarea>
+                        {% else %}
+                        <input type="text" class="form-control" name="{{ field.key }}"
+                               {% if field.required %}required{% endif %}
+                               value="{{ form.get(field.key, '') }}">
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if enabled_payment_methods %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><strong>Payment Information</strong></div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Payment method <span class="text-danger">*</span></label>
+                    <div class="d-flex flex-wrap gap-3">
+                        {% for method in enabled_payment_methods %}
+                        <div class="form-check">
+                            <input class="form-check-input payment-method-radio" type="radio"
+                                   name="payment_method" id="pay_{{ method }}" value="{{ method }}"
+                                   {% if selected_pay == method %}checked{% endif %} required>
+                            <label class="form-check-label" for="pay_{{ method }}">
+                                {{ payment_method_labels.get(method, method) }}
+                            </label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div id="mfsPaymentBlock" class="payment-method-block" data-kind="mfs"
+                     {% if not selected_is_mfs %}style="display:none;"{% endif %}>
+                    <div class="border rounded p-3 small mb-3" style="background: #e8f4fc; border-color: #b6d4fe !important; color: #084298;">
+                        Send the application fee{% if cycle.fee_amount %} of <strong>Tk. {{ cycle.fee_amount }}</strong>{% endif %}
+                        to <strong id="mfsMethodName">{{ payment_method_labels.get(selected_pay, selected_pay) }}</strong>
+                        account <strong id="mfsAccountNumber">{{ payment_accounts.get(selected_pay) or '(see instructions)' }}</strong>,
+                        then enter the Transaction ID and the account number you sent from.
+                        Your admit card will be issued after the committee verifies the payment.
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label"><span id="mfsTxnLabel">Transaction ID</span> <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="rocket_txn_id"
+                                   value="{{ form.get('rocket_txn_id', '') }}"
+                                   {% if selected_is_mfs %}required{% endif %}>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label"><span id="mfsSenderLabel">Sender Account Number</span> <span class="text-danger">*</span></label>
+                            <input type="tel" class="form-control" name="rocket_sender_phone"
+                                   placeholder="01XXXXXXXXX"
+                                   value="{{ form.get('rocket_sender_phone', '') }}"
+                                   {% if selected_is_mfs %}required{% endif %}>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="agraniPaymentBlock" class="payment-method-block" data-method="agrani_bank"
+                     {% if selected_pay != 'agrani_bank' %}style="display:none;"{% endif %}>
+                    <div class="border rounded p-3 small mb-3" style="background: #eef8f0; border-color: #b7dfc3 !important; color: #0f5132;">
+                        Deposit the application fee{% if cycle.fee_amount %} of <strong>Tk. {{ cycle.fee_amount }}</strong>{% endif %}
+                        to Agrani Bank
+                        {% if cycle.agrani_account_name %}(<strong>{{ cycle.agrani_account_name }}</strong>){% endif %}
+                        account <strong>{{ cycle.agrani_account_number or '(see instructions)' }}</strong>{% if cycle.agrani_branch %},
+                        branch <strong>{{ cycle.agrani_branch }}</strong>{% endif %}{% if cycle.agrani_routing_number %},
+                        routing no. <strong>{{ cycle.agrani_routing_number }}</strong>{% endif %},
+                        then upload a clear photo of the deposit slip and type the slip / transaction number.
+                        The committee will verify the slip before issuing your admit card.
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Slip / Transaction Number <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="bank_slip_txn_no"
+                                   value="{{ form.get('bank_slip_txn_no', '') }}"
+                                   {% if selected_pay == 'agrani_bank' %}required{% endif %}>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Deposit Slip Photo <span class="text-danger">*</span></label>
+                            <input type="file" class="form-control" name="bank_slip" id="bankSlipInput"
+                                   accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                                   {% if selected_pay == 'agrani_bank' %}required{% endif %}>
+                            <div class="form-text">JPG or PNG, maximum <strong>{{ bank_slip_max_label }}</strong>.</div>
+                            <div class="text-danger small mt-1 d-none" id="bankSlipSizeError"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light"><strong>Declaration</strong></div>
+            <div class="card-body">
+                <div class="small" style="white-space: pre-wrap; line-height: 1.55;">{{ declaration_text }}</div>
+                <hr>
+                <p class="small text-muted mb-0">
+                    By submitting this application and uploading your signature, you confirm that you have read
+                    and agree to the declaration above. Your signature will appear under this declaration on the
+                    printed application form.
+                </p>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between">
+            <a href="{{ url_for('admission_exam.landing', token=cycle.public_token) }}" class="btn btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i>Back
+            </a>
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="fas fa-paper-plane me-1"></i>Submit Application
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    function bindMaxSize(inputId, errId, maxBytes, label) {
+        const input = document.getElementById(inputId);
+        const err = document.getElementById(errId);
+        if (!input || !err) return;
+        input.addEventListener('change', function () {
+            err.classList.add('d-none');
+            err.textContent = '';
+            const f = input.files && input.files[0];
+            if (!f) return;
+            if (f.size > maxBytes) {
+                err.textContent = label + ' is too large (' + (f.size / (1024 * 1024)).toFixed(1) + ' MB). Maximum is ' + (maxBytes / (1024 * 1024)) + ' MB.';
+                err.classList.remove('d-none');
+                input.value = '';
+            }
+        });
+    }
+    bindMaxSize('photoInput', 'photoSizeError', 1 * 1024 * 1024, 'Photo');
+    bindMaxSize('signatureInput', 'signatureSizeError', 1 * 1024 * 1024, 'Signature');
+    bindMaxSize('bankSlipInput', 'bankSlipSizeError', 2 * 1024 * 1024, 'Slip photo');
+
+    const nameInput = document.querySelector('input[name="full_name"]');
+    if (nameInput) {
+        nameInput.addEventListener('input', function () {
+            const start = nameInput.selectionStart;
+            const end = nameInput.selectionEnd;
+            nameInput.value = nameInput.value.toUpperCase();
+            try { nameInput.setSelectionRange(start, end); } catch (e) {}
+        });
+    }
+
+    const MFS = new Set({{ mfs_payment_methods|tojson }});
+    const LABELS = {{ payment_method_labels|tojson }};
+    const ACCOUNTS = {{ payment_accounts|tojson }};
+
+    function syncPaymentMethodUI() {
+        const selected = document.querySelector('input[name="payment_method"]:checked');
+        const method = selected ? selected.value : null;
+        const isMfs = method && MFS.has(method);
+        if (isMfs) {
+            const name = LABELS[method] || method;
+            const acct = ACCOUNTS[method] || '(see instructions)';
+            const methodEl = document.getElementById('mfsMethodName');
+            const acctEl = document.getElementById('mfsAccountNumber');
+            const txnLabel = document.getElementById('mfsTxnLabel');
+            const senderLabel = document.getElementById('mfsSenderLabel');
+            if (methodEl) methodEl.textContent = name;
+            if (acctEl) acctEl.textContent = acct;
+            if (txnLabel) txnLabel.textContent = name + ' Transaction ID';
+            if (senderLabel) senderLabel.textContent = 'Sender ' + name + ' Account Number';
+        }
+        document.querySelectorAll('.payment-method-block').forEach(function (block) {
+            const kind = block.getAttribute('data-kind');
+            const active = kind === 'mfs'
+                ? isMfs
+                : (block.getAttribute('data-method') === method);
+            block.style.display = active ? '' : 'none';
+            block.querySelectorAll('input, select, textarea').forEach(function (el) {
+                if (el.type === 'file' || el.type === 'text' || el.type === 'tel') {
+                    if (active) {
+                        el.setAttribute('required', 'required');
+                    } else {
+                        el.removeAttribute('required');
+                    }
+                }
+            });
+        });
+    }
+    document.querySelectorAll('.payment-method-radio').forEach(function (radio) {
+        radio.addEventListener('change', syncPaymentMethodUI);
+    });
+    syncPaymentMethodUI();
+
+    // Extra academic rows
+    const academicBody = document.getElementById('academicTableBody');
+    const addAcademicBtn = document.getElementById('addAcademicRowBtn');
+    function academicExtraRowHtml(values) {
+        values = values || {};
+        return '<tr class="academic-extra-row">' +
+            '<td><input type="text" class="form-control form-control-sm" name="extra_row_exam_name" placeholder="Name of examination" value="' + (values.exam_name || '') + '" required></td>' +
+            '<td><input type="text" class="form-control form-control-sm" name="extra_row_year" value="' + (values.year || '') + '"></td>' +
+            '<td><input type="text" class="form-control form-control-sm" name="extra_row_board" value="' + (values.board || '') + '"></td>' +
+            '<td><input type="text" class="form-control form-control-sm" name="extra_row_institution" value="' + (values.institution || '') + '"></td>' +
+            '<td><input type="text" class="form-control form-control-sm" name="extra_row_cgpa" value="' + (values.cgpa || '') + '"></td>' +
+            '<td><input type="text" class="form-control form-control-sm" name="extra_row_percentage" value="' + (values.percentage || '') + '"></td>' +
+            '<td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger academic-row-remove" title="Remove row">&times;</button></td>' +
+            '</tr>';
+    }
+    if (addAcademicBtn && academicBody) {
+        addAcademicBtn.addEventListener('click', function () {
+            academicBody.insertAdjacentHTML('beforeend', academicExtraRowHtml());
+        });
+        academicBody.addEventListener('click', function (e) {
+            const btn = e.target.closest('.academic-row-remove');
+            if (!btn) return;
+            const row = btn.closest('tr');
+            if (row) row.remove();
+        });
+    }
+
+    // Document uploads
+    const DOC_TAGS = {{ document_tags|tojson }};
+    const DOC_MAX = 5 * 1024 * 1024;
+    const docContainer = document.getElementById('documentUploadRows');
+    const addDocBtn = document.getElementById('addDocumentRowBtn');
+
+    function docTagOptions(selected) {
+        let html = '<option value="">— Select tag —</option>';
+        DOC_TAGS.forEach(function (tag) {
+            html += '<option value="' + tag.replace(/"/g, '&quot;') + '"' +
+                (selected === tag ? ' selected' : '') + '>' + tag + '</option>';
+        });
+        html += '<option value="__custom__"' + (selected === '__custom__' ? ' selected' : '') + '>Custom tag…</option>';
+        return html;
+    }
+
+    function documentRowHtml() {
+        return '<div class="border rounded p-3 mb-2 document-upload-row">' +
+            '<div class="row g-2 align-items-end">' +
+            '<div class="col-md-4"><label class="form-label small mb-1">Tag <span class="text-danger">*</span></label>' +
+            '<select class="form-select form-select-sm doc-tag-select" name="doc_tag">' + docTagOptions('') + '</select>' +
+            '<input type="text" class="form-control form-control-sm mt-1 doc-tag-custom d-none" name="doc_tag_custom" placeholder="Type custom tag"></div>' +
+            '<div class="col-md-6"><label class="form-label small mb-1">File <span class="text-danger">*</span></label>' +
+            '<input type="file" class="form-control form-control-sm doc-file-input" name="doc_file" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>' +
+            '<div class="text-danger small mt-1 d-none doc-size-error"></div></div>' +
+            '<div class="col-md-2"><button type="button" class="btn btn-sm btn-outline-danger w-100 doc-row-remove">Remove</button></div>' +
+            '</div></div>';
+    }
+
+    function syncDocTagCustom(row) {
+        const sel = row.querySelector('.doc-tag-select');
+        const custom = row.querySelector('.doc-tag-custom');
+        if (!sel || !custom) return;
+        const isCustom = sel.value === '__custom__';
+        custom.classList.toggle('d-none', !isCustom);
+        if (isCustom) custom.setAttribute('required', 'required');
+        else {
+            custom.removeAttribute('required');
+            custom.value = '';
+        }
+    }
+
+    function bindDocRow(row) {
+        const sel = row.querySelector('.doc-tag-select');
+        if (sel) {
+            sel.addEventListener('change', function () { syncDocTagCustom(row); });
+            syncDocTagCustom(row);
+        }
+        const input = row.querySelector('.doc-file-input');
+        const err = row.querySelector('.doc-size-error');
+        if (input && err) {
+            input.addEventListener('change', function () {
+                err.classList.add('d-none');
+                err.textContent = '';
+                const f = input.files && input.files[0];
+                if (!f) return;
+                if (f.size > DOC_MAX) {
+                    err.textContent = 'File is too large. Maximum is 5 MB.';
+                    err.classList.remove('d-none');
+                    input.value = '';
+                }
+            });
+        }
+    }
+
+    if (docContainer && addDocBtn) {
+        docContainer.insertAdjacentHTML('beforeend', documentRowHtml());
+        bindDocRow(docContainer.lastElementChild);
+        addDocBtn.addEventListener('click', function () {
+            docContainer.insertAdjacentHTML('beforeend', documentRowHtml());
+            bindDocRow(docContainer.lastElementChild);
+        });
+        docContainer.addEventListener('click', function (e) {
+            const btn = e.target.closest('.doc-row-remove');
+            if (!btn) return;
+            const rows = docContainer.querySelectorAll('.document-upload-row');
+            if (rows.length <= 1) {
+                alert('At least one document upload row is required.');
+                return;
+            }
+            btn.closest('.document-upload-row').remove();
+        });
+    }
+})();
+</script>
+{% endblock %}

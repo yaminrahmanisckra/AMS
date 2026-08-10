@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Form Fields – {{ cycle.name }}{% endblock %}
+{% block mobile_title %}Form Fields{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 1100px;">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-1">
+                    <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.index') }}">Admission Exam</a></li>
+                    <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}">{{ cycle.name }}</a></li>
+                    <li class="breadcrumb-item active">Form &amp; Admit Card Fields</li>
+                </ol>
+            </nav>
+            <h3 class="fw-bold mb-0">Form &amp; Admit Card Fields</h3>
+            <p class="text-muted small mb-0">Choose labels, required fields, and what appears on the form / admit PDF / application PDF.</p>
+        </div>
+        <a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1"></i>Back to Cycle
+        </a>
+    </div>
+
+    <div class="card shadow-sm" id="fieldSchema">
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('admission_exam.cycle_field_schema', cycle_id=cycle.id) }}" id="fieldSchemaForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-3">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="min-width: 160px;">Label</th>
+                                <th>Section</th>
+                                <th class="text-center">Form</th>
+                                <th class="text-center">Admit</th>
+                                <th class="text-center">App PDF</th>
+                                <th class="text-center">Required</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="fieldSchemaRows">
+                            {% for field in field_schema %}
+                            <tr class="field-schema-row">
+                                <td>
+                                    <input type="hidden" name="field_key" value="{{ field.key }}">
+                                    <input type="hidden" name="field_source" value="{{ field.source }}">
+                                    <input type="hidden" name="field_type" value="{{ field.field_type }}">
+                                    <input type="hidden" name="field_locked" value="{{ '1' if field.locked else '0' }}">
+                                    <input type="text" class="form-control form-control-sm" name="field_label"
+                                           value="{{ field.label }}" required>
+                                    <div class="form-text small">{{ field.key }}{% if field.locked %} · locked{% endif %}</div>
+                                </td>
+                                <td style="max-width: 130px;">
+                                    {% if field.source == 'system' and field.key in ('application_id', 'roll_no') %}
+                                    <input type="hidden" name="field_section" value="identity">
+                                    <span class="small text-muted">Identity</span>
+                                    {% else %}
+                                    <select class="form-select form-select-sm" name="field_section">
+                                        <option value="personal" {% if field.section == 'personal' %}selected{% endif %}>Personal</option>
+                                        <option value="academic" {% if field.section == 'academic' %}selected{% endif %}>Academic</option>
+                                        <option value="payment" {% if field.section == 'payment' %}selected{% endif %}>Payment</option>
+                                        <option value="other" {% if field.section == 'other' %}selected{% endif %}>Other</option>
+                                        <option value="identity" {% if field.section == 'identity' %}selected{% endif %}>Identity</option>
+                                    </select>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if field.source == 'system' or field.key in ('full_name', 'phone', 'photo', 'rocket_txn_id', 'rocket_sender_phone') %}
+                                    <input type="hidden" name="field_on_form_{{ loop.index0 }}" value="{{ '1' if field.on_form else '0' }}">
+                                    <i class="fas {% if field.on_form %}fa-check text-success{% else %}fa-minus text-muted{% endif %}"></i>
+                                    {% else %}
+                                    <input type="checkbox" class="form-check-input" name="field_on_form_{{ loop.index0 }}" value="1"
+                                           {% if field.on_form %}checked{% endif %}>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    <input type="checkbox" class="form-check-input" name="field_on_admit_{{ loop.index0 }}" value="1"
+                                           {% if field.on_admit %}checked{% endif %}>
+                                </td>
+                                <td class="text-center">
+                                    <input type="checkbox" class="form-check-input" name="field_on_app_pdf_{{ loop.index0 }}" value="1"
+                                           {% if field.on_app_pdf %}checked{% endif %}>
+                                </td>
+                                <td class="text-center">
+                                    {% if field.locked and field.required %}
+                                    <input type="hidden" name="field_required_{{ loop.index0 }}" value="1">
+                                    <i class="fas fa-check text-success"></i>
+                                    {% elif field.source == 'system' %}
+                                    <input type="hidden" name="field_required_{{ loop.index0 }}" value="0">
+                                    <span class="text-muted">—</span>
+                                    {% else %}
+                                    <input type="checkbox" class="form-check-input" name="field_required_{{ loop.index0 }}" value="1"
+                                           {% if field.required %}checked{% endif %}>
+                                    {% endif %}
+                                </td>
+                                <td class="text-nowrap">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary field-move-up" title="Move up"><i class="fas fa-arrow-up"></i></button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary field-move-down" title="Move down"><i class="fas fa-arrow-down"></i></button>
+                                    {% if not field.locked %}
+                                    <button type="button" class="btn btn-sm btn-outline-danger field-remove" title="Remove"><i class="fas fa-times"></i></button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="border rounded p-3 bg-light mb-3">
+                    <div class="fw-semibold small mb-2">Add custom field</div>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small mb-0">Label</label>
+                            <input type="text" class="form-control form-control-sm" name="new_field_label" placeholder="e.g. National ID">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Section</label>
+                            <select class="form-select form-select-sm" name="new_field_section">
+                                <option value="personal">Personal</option>
+                                <option value="academic">Academic</option>
+                                <option value="other">Other</option>
+                                <option value="payment">Payment</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small mb-0">Type</label>
+                            <select class="form-select form-select-sm" name="new_field_type">
+                                <option value="text">Text</option>
+                                <option value="textarea">Long text</option>
+                                <option value="tel">Phone</option>
+                                <option value="email">Email</option>
+                                <option value="date">Date</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="d-flex flex-wrap gap-3 small pt-1">
+                                <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="new_field_on_form" value="1" checked> Form</label>
+                                <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="new_field_on_admit" value="1"> Admit</label>
+                                <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="new_field_on_app_pdf" value="1" checked> App PDF</label>
+                                <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="new_field_required" value="1"> Required</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save me-1"></i>Save Field Settings
+                    </button>
+                    <button type="submit" name="action" value="reset_defaults" class="btn btn-outline-secondary"
+                            onclick="return confirm('Reset all fields to the default layout?');">
+                        Reset to defaults
+                    </button>
+                    <a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}" class="btn btn-outline-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const form = document.getElementById('fieldSchemaForm');
+    const tbody = document.getElementById('fieldSchemaRows');
+    if (!form || !tbody) return;
+
+    function reindexFieldRows() {
+        Array.from(tbody.querySelectorAll('.field-schema-row')).forEach(function (row, i) {
+            row.querySelectorAll('input, select').forEach(function (el) {
+                const name = el.getAttribute('name') || '';
+                if (/^field_(on_form|on_admit|on_app_pdf|required)_\d+$/.test(name)) {
+                    el.setAttribute('name', name.replace(/_\d+$/, '_' + i));
+                }
+            });
+        });
+    }
+
+    tbody.addEventListener('click', function (e) {
+        const up = e.target.closest('.field-move-up');
+        const down = e.target.closest('.field-move-down');
+        const remove = e.target.closest('.field-remove');
+        const row = e.target.closest('.field-schema-row');
+        if (!row) return;
+        if (up && row.previousElementSibling) {
+            tbody.insertBefore(row, row.previousElementSibling);
+            reindexFieldRows();
+        } else if (down && row.nextElementSibling) {
+            tbody.insertBefore(row.nextElementSibling, row);
+            reindexFieldRows();
+        } else if (remove) {
+            row.remove();
+            reindexFieldRows();
+        }
+    });
+
+    form.addEventListener('submit', function () {
+        reindexFieldRows();
+    });
+})();
+</script>
+{% endblock %}

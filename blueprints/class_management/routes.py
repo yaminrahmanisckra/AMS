@@ -671,6 +671,8 @@ def _get_external_assessment_display_total(session, student_id, combined_values,
             display_total = combined_pg_total.get(student_id)
         elif combined_best3 is not None:
             display_total = combined_best3.get(student_id)
+    if mode != 'best_three_40':
+        display_total = _maybe_round_assessment_total(session, display_total)
     return display_total, mode
 
 
@@ -719,6 +721,30 @@ def _round_half_up_int(value):
         return int(Decimal(str(float(value))).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
     except (TypeError, ValueError, ArithmeticError):
         return None
+
+
+def _session_rounds_assessment_total(session):
+    return bool(session and getattr(session, 'round_assessment_total', False))
+
+
+def _maybe_round_assessment_total(session, value):
+    """Optionally round an assessment total when the session toggle is enabled."""
+    if value is None:
+        return None
+    if _session_rounds_assessment_total(session):
+        return _round_half_up_int(value)
+    return value
+
+
+def _sync_round_assessment_total(session, enabled):
+    """Persist round-total flag on this session and split partners."""
+    enabled = bool(enabled)
+    related = _resolve_attendance_related_sessions(session, include_archived=False) or [session]
+    for related_session in related:
+        if related_session is None:
+            continue
+        related_session.round_assessment_total = enabled
+    return enabled
 
 
 def _generate_feedback_code():
@@ -1197,9 +1223,16 @@ def _recalculate_assessment_totals(session):
         for entries in student_map.values():
             combined = _combined_dict_from_entries(entries)
             result = _compute_external_assessment_total(combined, mode)
+            display_total = _maybe_round_assessment_total(session, result['display_total'])
+            assessment_total = result['assessment_total']
+            assessment_total_40 = result['assessment_total_40']
+            if mode != 'best_three_40':
+                assessment_total = _maybe_round_assessment_total(session, assessment_total)
+            else:
+                assessment_total_40 = display_total
             for entry in entries:
-                entry.assessment_total = result['assessment_total']
-                entry.assessment_total_40 = result['assessment_total_40']
+                entry.assessment_total = assessment_total
+                entry.assessment_total_40 = assessment_total_40
                 entry.assessment_avg = result['assessment_avg']
         return
 
@@ -1230,7 +1263,7 @@ def _recalculate_assessment_totals(session):
         else:
             if marks:
                 best = marks[:3] if len(marks) >= 3 else marks
-                total = sum(best)  # Keep fraction for UG courses, no rounding
+                total = _maybe_round_assessment_total(session, sum(best))
             else:
                 total = None
             for entry in entries:
@@ -1315,6 +1348,8 @@ def _build_combined_assessment_values(session):
             mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
             result = _compute_external_assessment_total(combined, mode)
             display_total = result['display_total']
+            if mode != 'best_three_40':
+                display_total = _maybe_round_assessment_total(session, display_total)
             if mode == 'best_three_40':
                 pg_total_map[student_id] = display_total
                 pg_avg_map[student_id] = result['assessment_avg']
@@ -1337,10 +1372,10 @@ def _build_combined_assessment_values(session):
                 pg_avg_map[student_id] = None
                 pg_total_map[student_id] = None
         else:
-            # UG: Best 3 total
+            # UG: Best 3 total (optionally rounded via session toggle)
             if valid_marks:
                 best = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
-                ug_best3[student_id] = sum(best)  # Keep fraction for UG courses, no rounding
+                ug_best3[student_id] = _maybe_round_assessment_total(session, sum(best))
             else:
                 ug_best3[student_id] = None
     
@@ -6714,6 +6749,7 @@ def download_pdf_report(session_id):
                     else merged_values.get('sessional_viva')
                 ) or 0
                 total_marks = attendance_marks + sessional_report + sessional_viva
+                total_marks = _maybe_round_assessment_total(session, total_marks)
                 student_data_for_pdf.append({
                     'id': student.student_id,
                     'attendance': format_one_decimal(attendance_marks),
@@ -6751,7 +6787,7 @@ def download_pdf_report(session_id):
                         else:
                             assessment_marks_display = 0
                     else:
-                        # UG: keep original fraction in combined PDF
+                        # UG: combined_best3 already respects the round-total toggle
                         ug_total = combined_best3.get(student.student_id) or 0
                         assessment_marks_display = ug_total if ug_total else 0
 
@@ -7586,7 +7622,8 @@ def assessment(session_id):
             absent_status_map=absent_status_map,
             current_teacher_id=current_teacher.id,
             reveal_status=current_teacher_reveals,
-            assessment_slot_count=len(editable_indices)
+            assessment_slot_count=len(editable_indices),
+            round_assessment_total=_session_rounds_assessment_total(session),
         )
         
     except Exception as e:
@@ -7661,6 +7698,58 @@ def toggle_assessment_reveal(session_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@class_management_bp.route('/assessment/<int:session_id>/toggle-round-total', methods=['POST'])
+@login_required
+def toggle_round_assessment_total(session_id):
+    """Enable/disable whole-number rounding for assessment totals (UI + PDF/Excel)."""
+    try:
+        session = get_or_404_for_window(Session, session_id)
+        current_teacher = _ensure_current_teacher()
+        if session.teacher_id != current_teacher.id:
+            split_meta = _build_split_context(session)
+            if not split_meta or not split_meta.peers:
+                return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+            partner_ids = [peer.teacher_id for peer in split_meta.peers]
+            if current_teacher.id not in partner_ids:
+                return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        data = request.get_json(silent=True) or {}
+        enabled = bool(data.get('enabled'))
+        _sync_round_assessment_total(session, enabled)
+        if session.course_type == 'theory':
+            _recalculate_assessment_totals(session)
+        db.session.commit()
+
+        students = _class_students_for_session(session_id)
+        _, combined_best3, _, combined_pg_total = _build_combined_assessment_values(session)
+        totals = {}
+        for student in students:
+            if session.course_type == 'sessional' and session.category == 'ug':
+                report = student.sessional_report or 0
+                viva = student.sessional_viva or 0
+                totals[str(student.id)] = _maybe_round_assessment_total(session, report + viva)
+            elif _is_external_theory_session(session):
+                mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+                if mode == 'best_three_40':
+                    totals[str(student.id)] = combined_pg_total.get(student.student_id)
+                else:
+                    totals[str(student.id)] = combined_best3.get(student.student_id)
+            elif session.category == 'pg':
+                totals[str(student.id)] = combined_pg_total.get(student.student_id)
+            else:
+                totals[str(student.id)] = combined_best3.get(student.student_id)
+
+        return jsonify({
+            'success': True,
+            'enabled': enabled,
+            'totals': totals,
+            'message': 'Round total setting updated',
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 
 @class_management_bp.route('/assessment/<int:session_id>/set-external-mode', methods=['POST'])
 @login_required
@@ -8683,7 +8772,11 @@ def download_assessment_excel(session_id):
                     total = 'Absent'
                 else:
                     total = (s.sessional_report or 0) + (s.sessional_viva or 0)
-                    total = int(round(total)) if total else ''
+                    if total:
+                        rounded = _maybe_round_assessment_total(session, total)
+                        total = rounded if rounded is not None else ''
+                    else:
+                        total = ''
                 
                 data.append([
                     s.student_id,
@@ -9041,6 +9134,10 @@ def course_assessment(session_id):
                     EvaluationSubmission.query.filter_by(invite_id=existing.id).delete()
                     existing.status = 'invited'
                     existing.created_at = datetime.utcnow()
+                    if getattr(existing, 'window_id', None) is None:
+                        existing.window_id = getattr(session, 'window_id', None) or get_effective_window_id()
+                    if stamp_window_id:
+                        stamp_window_id(existing)
                     db.session.commit()
                     flash('Invitation re-activated.', 'success')
                 else:
@@ -9050,8 +9147,11 @@ def course_assessment(session_id):
                     session_id=session_id,
                     inviter_teacher_id=session.teacher_id,
                     evaluator_teacher_id=evaluator_teacher_id,
-                    status='invited'
+                    status='invited',
+                    window_id=getattr(session, 'window_id', None) or get_effective_window_id(),
                 )
+                if stamp_window_id:
+                    stamp_window_id(invite)
                 db.session.add(invite)
                 db.session.commit()
                 flash('Invitation created successfully.', 'success')
@@ -9121,7 +9221,9 @@ def inject_invites_count():
         if current_user.is_authenticated and has_teacher_privileges(current_user):
             teacher = Teacher.query.filter_by(name=current_user.full_name).first()
             if teacher:
-                count = EvaluationInvite.query.filter_by(evaluator_teacher_id=teacher.id, status='invited').count()
+                count = query_for_window(EvaluationInvite).filter_by(
+                    evaluator_teacher_id=teacher.id, status='invited'
+                ).count()
                 exam_count = query_for_window(ExamScrutinizerInvite).filter_by(scrutinizer_teacher_id=teacher.id, status='invited').count()
                 split_count = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').count()
                 out['pending_invites_count'] = count + exam_count + split_count
@@ -9224,7 +9326,12 @@ def my_invitations():
     if not teacher:
         flash('No teacher profile found.', 'warning')
         return redirect(url_for('index'))
-    invites = EvaluationInvite.query.filter_by(evaluator_teacher_id=teacher.id).order_by(EvaluationInvite.created_at.desc()).all()
+    invites = (
+        query_for_window(EvaluationInvite)
+        .filter_by(evaluator_teacher_id=teacher.id)
+        .order_by(EvaluationInvite.created_at.desc())
+        .all()
+    )
     session_ids = [inv.session_id for inv in invites]
     sessions_by_id = {s.id: s for s in query_for_window(Session).filter(Session.id.in_(session_ids)).all()} if session_ids else {}
     inviter_ids = [inv.inviter_teacher_id for inv in invites]
@@ -9273,7 +9380,7 @@ def clear_cancelled_invitations():
         return redirect(url_for('index'))
 
     try:
-        peer_deleted = EvaluationInvite.query.filter_by(
+        peer_deleted = query_for_window(EvaluationInvite).filter_by(
             evaluator_teacher_id=teacher.id,
             status='cancelled'
         ).delete(synchronize_session=False)

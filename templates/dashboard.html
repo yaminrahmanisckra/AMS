@@ -488,6 +488,16 @@ html {
         'show': true
     }) %}
     {% endif %}
+    {% if show_admission_exam|default(false) %}
+    {% set _ = cards.append({
+        'title': 'Admission Exam',
+        'desc': 'Masters admission – applications, Rocket payment verification, rolls, and admit cards.',
+        'icon': 'fas fa-id-card',
+        'color_class': 'card-orange',
+        'url': url_for('admission_exam.index'),
+        'show': true
+    }) %}
+    {% endif %}
 
     <div class="row g-3 g-md-4">
         {% for card in cards if card.show %}

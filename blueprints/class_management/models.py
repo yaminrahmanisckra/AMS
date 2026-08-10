@@ -46,6 +46,8 @@ class Session(db.Model):
     archived = db.Column(db.Boolean, default=False)
     is_external_course = db.Column(db.Boolean, default=False, nullable=False)
     external_assessment_mode = db.Column(db.String(20), nullable=False, default='best_three')
+    # When True, assessment totals are shown/exported as whole numbers (half-up).
+    round_assessment_total = db.Column(db.Boolean, nullable=False, default=False)
     course_type = db.Column(db.String(20), nullable=False, default='theory')
     category = db.Column(db.String(20), nullable=False, default='ug')
     course_scope = db.Column(db.String(10), nullable=False, default='full')  # full | part_a | part_b
@@ -257,7 +259,13 @@ class EvaluationInvite(db.Model):
     inviter_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     evaluator_teacher_id = db.Column(db.Integer, db.ForeignKey('teacher.id'), nullable=False)
     status = db.Column(db.String(20), default='invited')  # invited | submitted | reviewed | cancelled
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    operational_window = db.relationship(
+        'OperationalWindow',
+        backref=db.backref('evaluation_invites', lazy='dynamic'),
+    )
 
 # Submission of classroom observation report by invited teacher
 class EvaluationSubmission(db.Model):

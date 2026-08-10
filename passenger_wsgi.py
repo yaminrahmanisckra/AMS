@@ -46,6 +46,11 @@ try:
     from app import create_app
     application = create_app()
     logging.info('Application created successfully')
+    try:
+        from blueprints.admission_exam.routes import ADMIT_PDF_ENGINE
+        logging.info('Admit PDF engine loaded: %s', ADMIT_PDF_ENGINE)
+    except Exception as eng_err:
+        logging.warning('Admit PDF engine import failed: %s', eng_err)
 except Exception as e:
     error_msg = traceback.format_exc()
     logging.error('Failed to create application: %s', error_msg)

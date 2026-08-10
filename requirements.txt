@@ -23,6 +23,7 @@ weasyprint==52.5  # Compatible with cPanel's older Pango version (1.42.x)
 brotlicffi>=1.0.0  # Required for WeasyPrint on macOS
 pydyf==0.5.0  # Compatible with WeasyPrint 52.5
 fonttools>=4.0.0  # Required for WeasyPrint, compatible with 52.5
+uharfbuzz>=0.37.0  # HarfBuzz shaping for correct Bangla matras in ReportLab PDFs
 Pillow==10.1.0
 psycopg2-binary>=2.9.9
 PyMySQL==1.1.0

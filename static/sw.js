@@ -1,5 +1,5 @@
 // Service Worker for Academic Management System PWA
-const CACHE_NAME = 'ams-ku-v2'; // Updated version to clear old cache
+const CACHE_NAME = 'ams-ku-v3'; // v3: never intercept /admission-exam/
 const urlsToCache = [
   // Removed '/' - HTML pages should NEVER be cached
   '/static/css/style.css',
@@ -52,9 +52,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip API requests and dynamic content
+  // Skip API requests and dynamic content (including admission candidate pages)
   if (event.request.url.includes('/api/') || 
       event.request.url.includes('/download') ||
+      event.request.url.includes('/admission-exam/') ||
       event.request.url.includes('.ics')) {
     return;
   }

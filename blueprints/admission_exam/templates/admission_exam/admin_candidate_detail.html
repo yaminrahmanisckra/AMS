@@ -1,0 +1,444 @@
+{% extends "base.html" %}
+{% block title %}{{ candidate.application_id }} – Candidate{% endblock %}
+{% block mobile_title %}Candidate{% endblock %}
+{% block content %}
+<div class="container my-4" style="max-width: 1000px;">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-2">
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.index') }}">Admission Exam</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}">{{ cycle.name }}</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}">Candidates</a></li>
+            <li class="breadcrumb-item active">{{ candidate.application_id }}</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+        <h4 class="fw-bold mb-0">{{ candidate.full_name }}
+            <span class="text-muted fs-6">({{ candidate.application_id }})</span>
+        </h4>
+        <div class="d-flex gap-2">
+            {% if candidate.payment_status == 'verified' and candidate.roll_no %}
+            <a href="{{ url_for('admission_exam.candidate_admit_card_admin', candidate_id=candidate.id) }}?v={{ range(100000, 999999) | random }}"
+               class="btn btn-sm btn-success" target="_blank" rel="noopener">
+                <i class="fas fa-id-card me-1"></i>Admit Card PDF
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <!-- Application info -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <strong>Application Information</strong>
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#editForm">
+                        <i class="fas fa-pen me-1"></i>Edit
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3 text-center mb-3">
+                            {% if candidate.photo_path %}
+                            <img src="{{ url_for('admission_exam.candidate_photo_admin', candidate_id=candidate.id) }}"
+                                 alt="Photo" class="img-thumbnail" style="max-width: 130px;">
+                            {% else %}
+                            <div class="border rounded p-4 text-muted small">No photo</div>
+                            {% endif %}
+                            <div class="mt-3">
+                                <div class="small text-muted mb-1">Applicant signature</div>
+                                {% if candidate.signature_path %}
+                                <img src="{{ url_for('admission_exam.candidate_signature_admin', candidate_id=candidate.id) }}"
+                                     alt="Signature" class="img-thumbnail bg-white"
+                                     style="max-width: 150px; max-height: 60px;">
+                                {% else %}
+                                <div class="border rounded p-2 text-muted small">No signature</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <table class="table table-sm small mb-0">
+                                <tr><th style="width: 35%;">Application ID</th><td>{{ candidate.application_id }}</td></tr>
+                                <tr><th>Roll No</th><td>{{ candidate.roll_no or '—' }}</td></tr>
+                                <tr><th>Full Name</th><td>{{ candidate.full_name }}</td></tr>
+                                <tr><th>Mobile</th><td>{{ candidate.phone }}</td></tr>
+                                <tr><th>Email</th><td>{{ candidate.email or '—' }}</td></tr>
+                                {% for key, label in extra_field_defs %}
+                                <tr><th>{{ label }}</th><td>{{ extra.get(key) or '—' }}</td></tr>
+                                {% endfor %}
+                                <tr><th>Submitted At</th><td>{{ candidate.created_at.strftime('%d %b %Y, %I:%M %p') if candidate.created_at else '—' }}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Edit form (collapsed) -->
+                    <div class="collapse mt-3" id="editForm">
+                        <hr>
+                        <form method="POST" enctype="multipart/form-data"
+                              action="{{ url_for('admission_exam.candidate_edit', candidate_id=candidate.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label small">Full Name</label>
+                                    <input type="text" class="form-control form-control-sm" name="full_name" value="{{ candidate.full_name }}" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small">Mobile</label>
+                                    <input type="text" class="form-control form-control-sm" name="phone" value="{{ candidate.phone }}" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small">Email</label>
+                                    <input type="email" class="form-control form-control-sm" name="email" value="{{ candidate.email or '' }}">
+                                </div>
+                                {% for key, label in extra_field_defs %}
+                                <div class="col-md-6">
+                                    <label class="form-label small">{{ label }}</label>
+                                    <input type="text" class="form-control form-control-sm" name="{{ key }}" value="{{ extra.get(key, '') }}">
+                                </div>
+                                {% endfor %}
+                                <div class="col-md-6">
+                                    <label class="form-label small">Replace Photo</label>
+                                    <input type="file" class="form-control form-control-sm" name="photo" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                                    <div class="form-text">JPG/PNG, max 1 MB</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small">Replace Signature</label>
+                                    <input type="file" class="form-control form-control-sm" name="candidate_signature" accept=".jpg,.jpeg,.png,image/jpeg,image/png">
+                                    <div class="form-text">JPG/PNG, max 1 MB</div>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-sm btn-primary mt-3"><i class="fas fa-save me-1"></i>Save Changes</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            {% if show_academic %}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light"><strong>Academic Qualifications</strong></div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-sm align-middle mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Name of the Examination</th>
+                                    {% for suffix, col_label in academic_col_suffixes %}
+                                    <th>{{ col_label }}</th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in academic_rows %}
+                                <tr>
+                                    <td><strong>{{ row.label }}</strong></td>
+                                    <td>{{ row.year or '—' }}</td>
+                                    <td>{{ row.board or '—' }}</td>
+                                    <td>{{ row.institution or '—' }}</td>
+                                    <td>{{ row.cgpa or '—' }}</td>
+                                    <td>{{ row.percentage or '—' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                    <strong>Academic Certificates &amp; Transcripts</strong>
+                    <span class="badge bg-secondary">{{ documents|length }} file(s)</span>
+                </div>
+                <div class="card-body">
+                    {% if documents %}
+                    <div class="d-flex flex-column gap-3">
+                        {% for doc in documents %}
+                        <div class="border rounded p-3">
+                            <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+                                <div>
+                                    <div class="fw-semibold">{{ doc.tag }}</div>
+                                    <div class="small text-muted">{{ doc.original_filename or 'Document' }}</div>
+                                </div>
+                                <div>
+                                    {% if doc.status == 'verified' %}
+                                    <span class="badge bg-success">Verified</span>
+                                    {% elif doc.status == 'rejected' %}
+                                    <span class="badge bg-danger">Rejected</span>
+                                    {% else %}
+                                    <span class="badge bg-warning text-dark">Pending</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <a href="{{ url_for('admission_exam.candidate_document_admin', candidate_id=candidate.id, doc_id=doc.id) }}"
+                                   class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
+                                    <i class="fas fa-eye me-1"></i>View / Download
+                                </a>
+                            </div>
+                            {% if doc.verified_by and doc.verifier %}
+                            <div class="small text-muted mb-2">
+                                Checked by {{ doc.verifier.full_name }}
+                                {% if doc.verified_at %} · {{ doc.verified_at.strftime('%d %b %Y, %I:%M %p') }}{% endif %}
+                            </div>
+                            {% endif %}
+                            {% if doc.note %}
+                            <div class="small mb-2"><strong>Note:</strong> {{ doc.note }}</div>
+                            {% endif %}
+                            <form method="POST"
+                                  action="{{ url_for('admission_exam.candidate_document_verify', candidate_id=candidate.id, doc_id=doc.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <label class="form-label small mb-1">Note (optional)</label>
+                                <textarea class="form-control form-control-sm mb-2" name="note" rows="2"
+                                          placeholder="e.g. unclear scan, missing attestation">{{ doc.note or '' }}</textarea>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="submit" name="action" value="verify" class="btn btn-sm btn-success">
+                                        <i class="fas fa-check me-1"></i>Verify
+                                    </button>
+                                    <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger">
+                                        <i class="fas fa-times me-1"></i>Reject
+                                    </button>
+                                    <button type="submit" name="action" value="reset" class="btn btn-sm btn-outline-secondary">
+                                        Reset to Pending
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted small">No documents uploaded.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Account management -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-light"><strong>Candidate Account</strong></div>
+                <div class="card-body d-flex flex-wrap gap-2">
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_reset_pin', candidate_id=candidate.id) }}"
+                          onsubmit="return confirm('Generate a new PIN for this candidate? The old PIN will stop working.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-warning"><i class="fas fa-key me-1"></i>Reset PIN</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_delete', candidate_id=candidate.id) }}"
+                          onsubmit="return confirm('Delete this application permanently? This cannot be undone.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger"><i class="fas fa-trash me-1"></i>Delete Application</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <!-- Payment verification -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light">
+                    <strong>
+                        <i class="fas fa-money-check-alt me-1"></i>Payment Verification
+                        ({{ payment_method_labels.get(candidate.payment_method, candidate.payment_method) }})
+                    </strong>
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm small">
+                        <tr>
+                            <th style="width: 45%;">Method</th>
+                            <td>{{ payment_method_labels.get(candidate.payment_method, candidate.payment_method) }}</td>
+                        </tr>
+                        {% if candidate.payment_method == 'agrani_bank' %}
+                        <tr>
+                            <th>Slip / Transaction No.</th>
+                            <td><code>{{ candidate.bank_slip_txn_no or '—' }}</code></td>
+                        </tr>
+                        <tr>
+                            <th>Deposit Slip</th>
+                            <td>
+                                {% if candidate.bank_slip_path %}
+                                <a href="{{ url_for('admission_exam.candidate_bank_slip_admin', candidate_id=candidate.id) }}"
+                                   target="_blank" rel="noopener">
+                                    <img src="{{ url_for('admission_exam.candidate_bank_slip_admin', candidate_id=candidate.id) }}"
+                                         alt="Bank slip" class="img-thumbnail" style="max-width: 100%; max-height: 220px;">
+                                </a>
+                                {% else %}
+                                —
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><th>{{ mfs_labels.txn }}</th><td><code>{{ candidate.rocket_txn_id or '—' }}</code></td></tr>
+                        <tr><th>{{ mfs_labels.sender }}</th><td>{{ candidate.rocket_sender_phone or '—' }}</td></tr>
+                        {% endif %}
+                        <tr><th>Status</th>
+                            <td>
+                                {% if candidate.payment_status == 'verified' %}
+                                <span class="badge bg-success">Verified</span>
+                                {% elif candidate.payment_status == 'rejected' %}
+                                <span class="badge bg-danger">Rejected</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">Pending</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% if candidate.verifier %}
+                        <tr><th>Scrutinizer</th>
+                            <td>
+                                {{ candidate.verifier.full_name }}
+                                {% if candidate.verified_at %}
+                                <span class="text-muted">· {{ candidate.verified_at.strftime('%d %b %Y %I:%M %p') }}</span>
+                                {% endif %}
+                                {% if candidate.verifier.signature_path %}
+                                <div class="mt-2">
+                                    <img src="{{ url_for('admission_exam.user_scrutinizer_signature_image', user_id=candidate.verifier.id) }}"
+                                         alt="Scrutinizer signature" class="img-thumbnail bg-white"
+                                         style="max-height: 56px; max-width: 180px;">
+                                </div>
+                                {% else %}
+                                <div class="small text-warning mt-1">No signature on this member’s profile yet.</div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% if candidate.payment_note %}
+                        <tr><th>Note</th><td>{{ candidate.payment_note }}</td></tr>
+                        {% endif %}
+                    </table>
+                    {% if candidate.payment_method == 'agrani_bank' %}
+                    <p class="small text-muted mb-2">
+                        Open the deposit slip photo, confirm the slip/transaction number and amount against the Agrani Bank statement, then mark the payment.
+                    </p>
+                    {% else %}
+                    <p class="small text-muted mb-2">
+                        Cross-check the Transaction ID and sender number against the
+                        {{ payment_method_labels.get(candidate.payment_method, 'MFS') }}
+                        account statement, then mark the payment.
+                    </p>
+                    {% endif %}
+                    <div class="alert alert-light border small mb-3 py-2">
+                        <strong>Scrutinizer:</strong> Any committee member may verify.
+                        The member who clicks <em>Verify</em> (from their own login) becomes Scrutinizer —
+                        their personal signature appears on the application form PDF.
+                        {% if not my_signature_uploaded %}
+                        <span class="text-danger">You have not uploaded your signature yet.</span>
+                        {% endif %}
+                    </div>
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_payment', candidate_id=candidate.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="mb-2">
+                            <input type="text" class="form-control form-control-sm" name="note"
+                                   placeholder="Optional note (e.g. amount mismatch)" value="{{ candidate.payment_note or '' }}">
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="submit" name="action" value="verify" class="btn btn-sm btn-success">
+                                <i class="fas fa-check me-1"></i>Verify
+                            </button>
+                            <button type="submit" name="action" value="reject" class="btn btn-sm btn-danger"
+                                    onclick="return confirm('Reject this payment? The candidate will be able to resubmit corrected info.');">
+                                <i class="fas fa-times me-1"></i>Reject
+                            </button>
+                            <button type="submit" name="action" value="reset" class="btn btn-sm btn-outline-secondary">
+                                Reset to Pending
+                            </button>
+                        </div>
+                    </form>
+                    <hr>
+                    <div class="small fw-semibold mb-1">My signature ({{ current_user.full_name }})</div>
+                    <p class="small text-muted mb-2">
+                        Same signature as Profile — used here as Scrutinizer on application form PDFs.
+                        Manage it anytime from <a href="{{ url_for('profile') }}">Profile</a>.
+                    </p>
+                    <form method="POST" enctype="multipart/form-data" class="mb-2"
+                          action="{{ url_for('admission_exam.user_verification_signature_upload') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="candidate_id" value="{{ candidate.id }}">
+                        <input type="hidden" name="cycle_id" value="{{ cycle.id }}">
+                        <input type="hidden" name="action" value="upload">
+                        <div class="input-group input-group-sm">
+                            <input type="file" class="form-control" name="signature" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+                            <button type="submit" class="btn btn-outline-primary">Upload / Replace</button>
+                        </div>
+                        <div class="form-text">Personal — only used when <strong>you</strong> verify. Other members keep their own signatures.</div>
+                    </form>
+                    {% if my_signature_uploaded %}
+                    <div class="mb-2">
+                        <img src="{{ url_for('admission_exam.user_verification_signature_image') }}"
+                             alt="My signature" class="img-thumbnail bg-white" style="max-height: 56px;">
+                    </div>
+                    {% endif %}
+                    {% if candidate.payment_status == 'verified' and (not candidate.verified_by or candidate.verified_by != current_user.id) %}
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_set_scrutinizer', candidate_id=candidate.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">
+                            Set me as Scrutinizer on this form
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Roll number -->
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-light"><strong><i class="fas fa-list-ol me-1"></i>Roll Number</strong></div>
+                <div class="card-body">
+                    <p class="small mb-2">Current:
+                        {% if candidate.roll_no %}
+                        <code class="fs-6">{{ candidate.roll_no }}</code>
+                        {% else %}
+                        <span class="text-muted">Not assigned</span>
+                        {% endif %}
+                    </p>
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_roll', candidate_id=candidate.id) }}" class="mb-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="update">
+                        <label class="form-label small">Update roll number</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" name="roll_no"
+                                   value="{{ candidate.roll_no or '' }}"
+                                   placeholder="e.g. {{ cycle.roll_start_display }}" maxlength="30" required>
+                            <button type="submit" class="btn btn-primary">Save</button>
+                        </div>
+                        <div class="form-text">Must be unique in this cycle. Example format: <code>{{ cycle.roll_start_display }}</code></div>
+                    </form>
+                    {% if candidate.roll_no %}
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_roll', candidate_id=candidate.id) }}"
+                          onsubmit="return confirm('Unassign roll {{ candidate.roll_no }} from this candidate?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="clear">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="fas fa-times me-1"></i>Unassign Roll
+                        </button>
+                    </form>
+                    {% endif %}
+                    <p class="small text-muted mt-2 mb-0">
+                        Bulk assign is on the cycle page. After unassigning, that candidate can receive a new roll on the next bulk assign.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Selection -->
+            <div class="card shadow-sm">
+                <div class="card-header bg-light"><strong><i class="fas fa-user-check me-1"></i>Application Decision</strong></div>
+                <div class="card-body">
+                    <p class="small mb-2">Current status:
+                        {% if candidate.application_status == 'selected' %}
+                        <span class="badge bg-primary">Selected</span>
+                        {% elif candidate.application_status == 'rejected' %}
+                        <span class="badge bg-secondary">Rejected</span>
+                        {% else %}
+                        <span class="badge bg-light text-dark border">Submitted</span>
+                        {% endif %}
+                    </p>
+                    <form method="POST" action="{{ url_for('admission_exam.candidate_select', candidate_id=candidate.id) }}" class="d-flex flex-wrap gap-2">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" name="status" value="selected" class="btn btn-sm btn-primary">Select</button>
+                        <button type="submit" name="status" value="rejected" class="btn btn-sm btn-outline-danger">Reject</button>
+                        <button type="submit" name="status" value="submitted" class="btn btn-sm btn-outline-secondary">Reset</button>
+                    </form>
+                    <p class="small text-muted mt-2 mb-0">
+                        Roll numbers can be managed in the Roll Number card above, or bulk-assigned from the cycle page.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

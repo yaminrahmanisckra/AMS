@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Application Form – {{ candidate.application_id }}</title>
+<style>
+    {% if bangla_font_face %}{{ bangla_font_face|safe }}{% endif %}
+    /*
+     * Page 1: form body (logo/photo stamps).
+     * Page 2: declaration + signatures (separate so stamps never overlap text).
+     * Slots sync with APP_FORM_IMAGE_SLOTS in routes.py (page 0 / page 1).
+     */
+    @page { size: A4; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 210mm;
+    }
+    body {
+        font-family: 'Times New Roman', Times, serif;
+        font-size: 9pt;
+        color: #111;
+    }
+    .bn, td.bn, span.bn {
+        font-family: 'AdmitBangla', sans-serif !important;
+        font-size: 11.5pt;
+        line-height: 1.35;
+        font-weight: normal;
+        font-style: normal;
+    }
+    .page {
+        position: relative;
+        width: 210mm;
+        height: 297mm;
+        page-break-after: always;
+        overflow: hidden;
+    }
+    .page:last-child { page-break-after: auto; }
+    .card {
+        position: absolute;
+        left: 10mm;
+        top: 10mm;
+        width: 190mm;
+        height: 277mm;
+        border: 0.5mm solid #1a3a6b;
+        border-radius: 1.5mm;
+        padding: 5mm 6mm 5mm 6mm;
+    }
+    .slot-logo {
+        position: absolute;
+        left: {{ slots.logo.left }}mm;
+        top: {{ slots.logo.top }}mm;
+        width: {{ slots.logo.w }}mm;
+        height: {{ slots.logo.h }}mm;
+        z-index: 2;
+    }
+    .slot-photo {
+        position: absolute;
+        left: {{ slots.photo.left }}mm;
+        top: {{ slots.photo.top }}mm;
+        width: {{ slots.photo.w }}mm;
+        height: {{ slots.photo.h }}mm;
+        border: 0.3mm solid #555;
+        background: #fff;
+        z-index: 2;
+    }
+    .slot-sig-cand {
+        position: absolute;
+        left: {{ slots.sig_cand.left }}mm;
+        top: {{ slots.sig_cand.top }}mm;
+        width: {{ slots.sig_cand.w }}mm;
+        height: {{ slots.sig_cand.h }}mm;
+        z-index: 3;
+    }
+    .slot-sig-scrut {
+        position: absolute;
+        left: {{ slots.sig_scrut.left }}mm;
+        top: {{ slots.sig_scrut.top }}mm;
+        width: {{ slots.sig_scrut.w }}mm;
+        height: {{ slots.sig_scrut.h }}mm;
+        z-index: 3;
+    }
+    .header {
+        display: table;
+        width: 100%;
+        border-bottom: 0.4mm solid #1a3a6b;
+        padding-bottom: 2.5mm;
+        margin-bottom: 2mm;
+        min-height: {{ slots.logo.h + 4 }}mm;
+    }
+    .header-logo-spacer {
+        display: table-cell;
+        width: {{ slots.logo.w + 10 }}mm;
+        vertical-align: middle;
+    }
+    .header-text {
+        display: table-cell;
+        vertical-align: middle;
+        text-align: center;
+        padding: 0 2mm;
+    }
+    .header-spacer {
+        display: table-cell;
+        width: {{ slots.logo.w + 10 }}mm;
+    }
+    .header .uni { font-size: 14pt; font-weight: bold; line-height: 1.15; }
+    .header .disc { font-size: 10pt; margin-top: 0.6mm; line-height: 1.15; }
+    .header .cycle { font-size: 9pt; margin-top: 0.8mm; color: #333; line-height: 1.2; }
+    .form-title-wrap { text-align: center; margin: 1.5mm 0 2.5mm 0; }
+    .form-title {
+        display: inline-block;
+        border: 0.4mm solid #1a3a6b;
+        background: #eef3fb;
+        padding: 1.2mm 7mm;
+        font-size: 10.5pt;
+        font-weight: bold;
+        letter-spacing: 1.2px;
+        color: #1a3a6b;
+    }
+    table.identity { width: 100%; border-collapse: collapse; margin-bottom: 1.5mm; }
+    table.identity td { vertical-align: top; }
+    .photo-spacer {
+        width: {{ slots.photo.w + 2 }}mm;
+        height: {{ slots.photo.h }}mm;
+    }
+    table.info { width: 100%; border-collapse: collapse; }
+    table.info th, table.info td {
+        text-align: left;
+        padding: 1.2mm 1.5mm;
+        font-size: 8.5pt;
+        border-bottom: 0.2mm solid #bbb;
+        vertical-align: bottom;
+    }
+    table.info th { width: 38%; color: #333; font-weight: bold; }
+    table.info td { font-size: 9pt; }
+    .sec {
+        font-size: 9.5pt;
+        font-weight: bold;
+        color: #1a3a6b;
+        margin: 2.5mm 0 1.5mm 0;
+    }
+    table.acad {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1mm;
+        font-size: 7pt;
+    }
+    table.acad th, table.acad td {
+        border: 0.25mm solid #666;
+        padding: 1mm 1.2mm;
+        text-align: center;
+        vertical-align: middle;
+    }
+    table.acad th { background: #eef3fb; font-weight: bold; }
+    table.acad td:first-child, table.acad th:first-child { text-align: left; }
+    .decl {
+        font-size: 9.5pt;
+        line-height: 1.45;
+        text-align: justify;
+        margin: 0 0 2.5mm 0;
+        display: block;
+        clear: both;
+    }
+    .decl-block {
+        margin-top: 2mm;
+        /* Keep declaration above the fixed signature band on page 2 */
+        max-height: {{ slots.sig_cand.top - 40 }}mm;
+        overflow: hidden;
+    }
+    .signs-area {
+        position: absolute;
+        left: 6mm;
+        right: 6mm;
+        /* page slot top minus card top (10mm) */
+        top: {{ slots.sig_cand.top - 10 }}mm;
+    }
+    table.signs {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    table.signs td {
+        width: 50%;
+        text-align: center;
+        vertical-align: top;
+        padding: 0 4mm;
+    }
+    .sig-pad {
+        height: {{ slots.sig_cand.h }}mm;
+        width: {{ slots.sig_cand.w }}mm;
+        margin: 0 auto 2mm auto;
+    }
+    .sig-rule {
+        border-top: 0.35mm solid #333;
+        width: 58mm;
+        margin: 0 auto;
+    }
+    .sig-caption {
+        font-size: 9pt;
+        margin-top: 1.5mm;
+        line-height: 1.25;
+    }
+    .sig-sub {
+        display: block;
+        font-size: 8pt;
+        color: #333;
+        margin-top: 0.6mm;
+    }
+    .footer-note {
+        position: absolute;
+        left: 6mm;
+        right: 6mm;
+        bottom: 4mm;
+        font-size: 7pt;
+        color: #555;
+        border-top: 0.2mm dashed #999;
+        padding-top: 1.5mm;
+        text-align: center;
+        line-height: 1.35;
+    }
+    .page-label {
+        font-size: 8pt;
+        color: #666;
+        text-align: right;
+        margin-bottom: 2mm;
+    }
+</style>
+</head>
+<body>
+
+{# ——— Page 1: application body ——— #}
+<div class="page">
+    <div class="slot-logo"></div>
+    {% if show_photo %}<div class="slot-photo"></div>{% endif %}
+
+    <div class="card">
+        <div class="header">
+            <div class="header-logo-spacer"></div>
+            <div class="header-text">
+                <div class="uni">Khulna University</div>
+                <div class="disc">Law Discipline</div>
+                <div class="cycle">{{ cycle.name }}</div>
+            </div>
+            <div class="header-spacer"></div>
+        </div>
+
+        <div class="form-title-wrap">
+            <div class="form-title">APPLICATION&nbsp;FORM</div>
+        </div>
+
+        <table class="identity">
+            <tr>
+                <td>
+                    <table class="info">
+                        {% for row in identity_rows %}
+                        <tr>
+                            <th>{{ row.label }}</th>
+                            <td>{% if row.is_bangla %}<span class="bn" lang="bn">{{ row.value }}</span>{% else %}{{ row.value }}{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                </td>
+                {% if show_photo %}
+                <td style="width: {{ slots.photo.w + 2 }}mm;"><div class="photo-spacer"></div></td>
+                {% endif %}
+            </tr>
+        </table>
+
+        {% for section in sections %}
+        <div class="sec">{{ section.number }}. {{ section.title }}</div>
+        {% if section.kind == 'academic' %}
+        <table class="acad">
+            <tr>
+                <th>Name of the Examination</th>
+                {% for col in academic_cols %}<th>{{ col }}</th>{% endfor %}
+            </tr>
+            {% for arow in academic_rows %}
+            <tr>
+                <td>{{ arow.label }}</td>
+                <td>{{ arow.year or '—' }}</td>
+                <td>{{ arow.board or '—' }}</td>
+                <td>{{ arow.institution or '—' }}</td>
+                <td>{{ arow.cgpa or '—' }}</td>
+                <td>{{ arow.percentage or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <table class="info">
+            {% for row in section.rows %}
+            <tr>
+                <th>{{ row.label }}</th>
+                <td>{% if row.is_bangla %}<span class="bn" lang="bn">{{ row.value }}</span>{% else %}{{ row.value }}{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% endif %}
+        {% endfor %}
+
+        <div class="footer-note">
+            Continued on next page — Declaration &amp; signatures.
+        </div>
+    </div>
+</div>
+
+{# ——— Page 2: declaration + signatures (fixed layout, no overlap) ——— #}
+<div class="page">
+    <div class="slot-sig-cand"></div>
+    <div class="slot-sig-scrut"></div>
+
+    <div class="card">
+        <div class="page-label">Application ID: {{ candidate.application_id }}</div>
+        <div class="sec" style="margin-top:0;">{{ declaration_number }}. Declaration</div>
+        <div class="decl-block">
+            {% for para in declaration_paras %}
+            <div class="decl">{{ para }}</div>
+            {% endfor %}
+        </div>
+
+        <div class="signs-area">
+            <table class="signs">
+                <tr>
+                    <td>
+                        <div class="sig-pad"></div>
+                        <div class="sig-rule"></div>
+                        <div class="sig-caption">Signature of the Applicant</div>
+                    </td>
+                    <td>
+                        <div class="sig-pad"></div>
+                        <div class="sig-rule"></div>
+                        <div class="sig-caption">
+                            Signature of the Scrutinizer
+                            {% if verifier_name %}<span class="sig-sub">{{ verifier_name }}</span>{% endif %}
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="footer-note">
+            This is a system-generated copy of the admission application submitted through
+            the Law Discipline Academic Management System, Khulna University.
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

@@ -11,7 +11,7 @@
         }
     </style>
     <div class="card shadow">
-        <div class="card-header bg-primary text-white">
+        <div class="card-header bg-primary text-white m-page-header">
             <h5 class="card-title mb-0">
                 <i class="fas fa-chart-line me-2"></i>Assessment - {{ session.course_name or session.term }}
                 {% if session.course_code %}
@@ -54,14 +54,14 @@
             {% endif %}
 
             <!-- Assessment Reveal Controls -->
-            <div class="card mb-3 border-info">
+            <div class="card mb-3 border-info assessment-reveal-card">
                 <div class="card-header bg-info text-white">
                     <h6 class="mb-0"><i class="fas fa-eye me-2"></i>Score Reveal Controls</h6>
                 </div>
                 <div class="card-body">
                     <p class="text-muted small mb-3">Control which assessment scores and attendance marks students can view.</p>
                     
-                    <div class="row g-3">
+                    <div class="row g-3 m-switch-grid">
                         {% if session.course_type == 'theory' and session.category == 'ug' %}
                             {% for i in range(1,5) %}
                                 {% if i in editable_indices %}
@@ -129,7 +129,28 @@
                                     <strong>Attendance Marks</strong>
                                 </label>
                             </div>
-                            <div class="d-flex gap-2">
+                            {% if session.course_type == 'theory' and session.category == 'pg' and not session.is_external_course %}
+                            {# PG totals are already converted/rounded on the 40 scale #}
+                            {% else %}
+                            <div class="mt-3 mb-2">
+                                <div class="small text-muted mb-1"><strong>Total rounding</strong> (table + PDF/Excel)</div>
+                                <div class="d-flex flex-wrap gap-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="round_assessment_total"
+                                               id="round_total_off" value="0"
+                                               {% if not round_assessment_total %}checked{% endif %}>
+                                        <label class="form-check-label" for="round_total_off">Exact total</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="round_assessment_total"
+                                               id="round_total_on" value="1"
+                                               {% if round_assessment_total %}checked{% endif %}>
+                                        <label class="form-check-label" for="round_total_on">Round to whole number</label>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                            <div class="d-flex gap-2 m-action-row">
                                 <button type="button" class="btn btn-sm btn-success" id="reveal-all-btn">
                                     <i class="fas fa-eye me-1"></i>Reveal All
                                 </button>
@@ -144,7 +165,7 @@
             
             <form method="POST">
                 <div class="table-responsive m-table-scroll-sticky">
-                    <table class="table table-bordered align-middle table-sm" style="min-width: 700px; font-size: 0.95em;">
+                    <table class="table table-bordered align-middle table-sm assessment-marks-table m-keep-table" style="min-width: 700px; font-size: 0.95em;">
                         {% if session.is_external_course and session.course_type == 'theory' %}
                         {% set ext_mark_max = 15 if external_assessment_mode == 'part_a_b_15' else 10 %}
                         <thead class="table-light">
@@ -427,6 +448,27 @@
     </div>
 </div>
 
+<script>
+window.ROUND_ASSESSMENT_TOTAL = {{ 'true' if round_assessment_total else 'false' }};
+window.roundHalfUpInt = function (value) {
+    if (value === null || value === undefined || isNaN(value)) return null;
+    return Math.floor(Number(value) + 0.5);
+};
+window.formatAssessmentTotalDisplay = function (value) {
+    if (value === null || value === undefined || isNaN(value)) {
+        return '<span class="text-muted">-</span>';
+    }
+    if (window.ROUND_ASSESSMENT_TOTAL) {
+        return String(window.roundHalfUpInt(value));
+    }
+    const text = Number(value).toFixed(2).replace(/\.?0+$/, '');
+    return text;
+};
+window.applyOptionalTotalRounding = function (value) {
+    if (value === null || value === undefined || isNaN(value)) return value;
+    return window.ROUND_ASSESSMENT_TOTAL ? window.roundHalfUpInt(value) : value;
+};
+</script>
 {% if session.is_external_course and session.course_type == 'theory' %}
 <script>
 const EXTERNAL_ASSESSMENT_COLUMN_LABELS = {{ {
@@ -488,8 +530,7 @@ function formatExternalTotal(value, mode) {
     if (mode === 'best_three_40') {
         return String(Math.round(value));
     }
-    const text = value.toFixed(2).replace(/\.?0+$/, '');
-    return text;
+    return window.formatAssessmentTotalDisplay(value);
 }
 
 function calcExternalTotal(studentId, mode) {
@@ -653,12 +694,12 @@ function calcBest3Total(studentId) {
     if (vals.length === 0) {
         cell.innerHTML = '<span class="text-muted">-</span>';
     } else if (vals.length < 3) {
-        const sum = vals.reduce((a,b) => a+b, 0);
-        cell.textContent = sum.toFixed(2).replace(/\.?0+$/, ''); // Keep fraction, remove trailing zeros
+        const sum = window.applyOptionalTotalRounding(vals.reduce((a,b) => a+b, 0));
+        cell.innerHTML = window.formatAssessmentTotalDisplay(sum);
     } else {
         vals.sort((a,b) => b-a);
-        const sum = vals.slice(0,3).reduce((a,b) => a+b, 0);
-        cell.textContent = sum.toFixed(2).replace(/\.?0+$/, ''); // Keep fraction, remove trailing zeros
+        const sum = window.applyOptionalTotalRounding(vals.slice(0,3).reduce((a,b) => a+b, 0));
+        cell.innerHTML = window.formatAssessmentTotalDisplay(sum);
     }
 }
 
@@ -752,13 +793,13 @@ function calcSessionalTotal(studentId) {
     let report = reportAbsent ? 0 : (reportInput.value ? parseFloat(reportInput.value) : 0);
     let viva = vivaAbsent ? 0 : (vivaInput.value ? parseFloat(vivaInput.value) : 0);
     
-    const total = report + viva;
+    const total = window.applyOptionalTotalRounding(report + viva);
     const cell = document.getElementById('sessional_total_' + studentId);
     
     if (reportAbsent && vivaAbsent) {
         cell.innerHTML = '<span class="text-muted">Absent</span>';
     } else {
-        cell.textContent = total;
+        cell.innerHTML = window.formatAssessmentTotalDisplay(total);
     }
 }
 
@@ -1038,6 +1079,67 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
             alert('Error updating reveal status. Please try again.');
         });
     }
+
+    function recalcVisibleTotalsFromPage() {
+        if (typeof recalcAllExternalTotals === 'function') {
+            const modeSelect = document.getElementById('externalAssessmentMode');
+            recalcAllExternalTotals(modeSelect ? modeSelect.value : 'best_three');
+            return;
+        }
+        document.querySelectorAll('[id^="best3total_"]').forEach(cell => {
+            const studentId = cell.id.replace('best3total_', '');
+            if (typeof calcBest3Total === 'function') calcBest3Total(studentId);
+        });
+        document.querySelectorAll('[id^="sessional_total_"]').forEach(cell => {
+            const studentId = cell.id.replace('sessional_total_', '');
+            if (typeof calcSessionalTotal === 'function') calcSessionalTotal(studentId);
+        });
+    }
+
+    function applyServerTotals(totals) {
+        if (!totals) return;
+        Object.keys(totals).forEach(studentId => {
+            const value = totals[studentId];
+            const targets = [
+                document.getElementById('best3total_' + studentId),
+                document.getElementById('assessment-total-' + studentId),
+                document.getElementById('sessional_total_' + studentId),
+            ].filter(Boolean);
+            targets.forEach(cell => {
+                if (value === null || value === undefined) {
+                    cell.innerHTML = '<span class="text-muted">-</span>';
+                } else {
+                    cell.innerHTML = window.formatAssessmentTotalDisplay(Number(value));
+                }
+            });
+        });
+    }
+
+    document.querySelectorAll('input[name="round_assessment_total"]').forEach(radio => {
+        radio.addEventListener('change', function () {
+            if (!this.checked) return;
+            const enabled = this.value === '1';
+            window.ROUND_ASSESSMENT_TOTAL = enabled;
+            fetch(`/class-management/assessment/${sessionId}/toggle-round-total`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: enabled })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    alert(data.message || 'Could not update round-total setting.');
+                    return;
+                }
+                if (data.totals) {
+                    applyServerTotals(data.totals);
+                } else {
+                    recalcVisibleTotalsFromPage();
+                }
+            })
+            .catch(() => alert('Could not update round-total setting. Please try again.'));
+        });
+    });
 })();
 </script>
 

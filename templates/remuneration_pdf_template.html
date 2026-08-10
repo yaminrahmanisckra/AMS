@@ -335,11 +335,20 @@
         
         .signature-box-space {
             display: block;
-            height: 22px;
-            min-height: 22px;
+            height: 28px;
+            min-height: 28px;
             margin: 3px 0 4px;
-            line-height: 22px;
+            line-height: 28px;
             overflow: hidden;
+            text-align: center;
+        }
+        .signature-box-space img {
+            max-height: 26px;
+            max-width: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            vertical-align: middle;
         }
         
         .signature-box-footer {
@@ -728,7 +737,7 @@
             </div>
             <div class="signature-box signature-box-recipient">
                 <div class="signature-box-label">প্রাপকের স্বাক্ষর ও তারিখ</div>
-                <div class="signature-box-space">&#160;</div>
+                <div class="signature-box-space">{% if recipient_signature_data_uri %}<img src="{{ recipient_signature_data_uri }}" alt=""/>{% else %}&#160;{% endif %}</div>
                 <div class="signature-box-footer"></div>
                 <div class="signature-date-row">
                     <span>তারিখ:</span>

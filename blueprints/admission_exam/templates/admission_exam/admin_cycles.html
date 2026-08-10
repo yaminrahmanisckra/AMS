@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Admission Exam{% endblock %}
+{% block mobile_title %}Admission{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+        <div>
+            <h1 class="mb-1"><i class="fas fa-id-card me-2"></i>Admission Exam</h1>
+            <p class="text-muted mb-0">Manage admission cycles: applications, payments, rolls, and admit cards.</p>
+        </div>
+        {% if can_create %}
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newCycleModal">
+            <i class="fas fa-plus me-1"></i>New Cycle
+        </button>
+        {% endif %}
+    </div>
+
+    {% if not cycles %}
+    <div class="alert alert-info">No admission cycles yet.{% if can_create %} Create one to get started.{% endif %}</div>
+    {% endif %}
+
+    <div class="row g-3">
+        {% for cycle in cycles %}
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-body d-flex flex-wrap align-items-center gap-3">
+                    <div class="flex-grow-1">
+                        <h5 class="mb-1">
+                            <a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}" class="text-decoration-none">{{ cycle.name }}</a>
+                        </h5>
+                        <div class="d-flex flex-wrap gap-2 small">
+                            {% if cycle.is_cycle_enabled %}
+                            <span class="badge bg-success">Enabled</span>
+                            {% else %}
+                            <span class="badge bg-danger">Disabled</span>
+                            {% endif %}
+                            {% if cycle.status == 'open' %}
+                            <span class="badge bg-success">Applications Open</span>
+                            {% elif cycle.status == 'closed' %}
+                            <span class="badge bg-secondary">Closed</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">Draft</span>
+                            {% endif %}
+                            {% if cycle.admit_published %}
+                            <span class="badge bg-info text-dark">Admit Cards Published</span>
+                            {% endif %}
+                            <span class="text-muted">Created {{ cycle.created_at.strftime('%d %b %Y') }}</span>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-3 text-center small">
+                        <div><div class="fw-bold fs-5">{{ stats[cycle.id].total }}</div><div class="text-muted">Applicants</div></div>
+                        <div><div class="fw-bold fs-5 text-success">{{ stats[cycle.id].verified }}</div><div class="text-muted">Paid</div></div>
+                        <div><div class="fw-bold fs-5 text-primary">{{ stats[cycle.id].selected }}</div><div class="text-muted">Selected</div></div>
+                    </div>
+                    <div class="d-flex flex-column gap-1">
+                        <a href="{{ url_for('admission_exam.cycle_detail', cycle_id=cycle.id) }}" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-cog me-1"></i>Manage
+                        </a>
+                        <a href="{{ url_for('admission_exam.candidates_list', cycle_id=cycle.id) }}" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-users me-1"></i>Candidates
+                        </a>
+                        <form method="POST" action="{{ url_for('admission_exam.cycle_toggle_enabled', cycle_id=cycle.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            {% if cycle.is_cycle_enabled %}
+                            <input type="hidden" name="enabled" value="0">
+                            <button type="submit" class="btn btn-sm btn-outline-danger w-100"
+                                    onclick="return confirm('Disable this cycle? The public application link will stop working.');">
+                                <i class="fas fa-ban me-1"></i>Disable
+                            </button>
+                            {% else %}
+                            <input type="hidden" name="enabled" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-success w-100">
+                                <i class="fas fa-check me-1"></i>Enable
+                            </button>
+                            {% endif %}
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+{% if can_create %}
+<div class="modal fade" id="newCycleModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form class="modal-content" method="POST" action="{{ url_for('admission_exam.cycle_new') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+                <h5 class="modal-title">New Admission Cycle</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Cycle Name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="name" required
+                           placeholder="e.g. LL.M Admission Test 2026">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Application ID Prefix</label>
+                    <input type="text" class="form-control" name="app_id_prefix" value="LLM" maxlength="20">
+                    <div class="form-text">Application IDs will look like LLM-0001, LLM-0002, …</div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Short Public Link <span class="text-danger">*</span></label>
+                    <div class="input-group">
+                        <span class="input-group-text small">…/apply/</span>
+                        <input type="text" class="form-control" name="public_slug" required
+                               pattern="[A-Za-z0-9-]{3,64}" value="llm2027"
+                               placeholder="llm2027" maxlength="64">
+                    </div>
+                    <div class="form-text">Letters, numbers, hyphens only. Example: <code>…/admission-exam/apply/llm2027</code></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

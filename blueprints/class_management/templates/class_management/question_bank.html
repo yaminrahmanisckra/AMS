@@ -81,7 +81,7 @@
             font-size: 0.88rem;
         }
     </style>
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 m-page-header">
         <h2 class="mb-0"><i class="fas fa-book-reader me-2"></i>Question Bank</h2>
         <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
             <i class="fas fa-arrow-left me-1"></i>Back
@@ -131,7 +131,7 @@
         </div>
         <div class="card-body p-0 collapse show" id="qbAvailableMain">
             <div class="border-bottom bg-white p-2 p-md-3">
-                <form method="get" action="{{ url_for('class_management.question_bank') }}" class="row g-2 align-items-center">
+                <form method="get" action="{{ url_for('class_management.question_bank') }}" class="row g-2 align-items-center qb-filter-row">
                     <div class="col-12 col-md-5">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text"><i class="fas fa-folder"></i></span>
@@ -359,7 +359,7 @@
             </div>
             {% if can_manage %}
             <div class="p-2 p-md-3 border-bottom bg-light">
-                <div class="row g-2 align-items-end">
+                <div class="row g-2 align-items-end qb-move-bar">
                     <div class="col-md-5">
                         <label class="form-label small mb-1">Move selected files/folders to</label>
                         <select id="qbMoveTargetFolder" class="form-select form-select-sm">
@@ -380,7 +380,7 @@
                         </button>
                     </div>
                     <div class="col-md-3">
-                        <small class="text-muted">Tip: ফাইল বা ফোল্ডার টেনে (drag) অন্য ফোল্ডারে drop করলেও move হবে।</small>
+                        <small class="text-muted qb-tip">Tip: ফাইল বা ফোল্ডার টেনে (drag) অন্য ফোল্ডারে drop করলেও move হবে।</small>
                     </div>
                 </div>
             </div>

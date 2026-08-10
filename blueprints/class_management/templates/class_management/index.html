@@ -90,7 +90,7 @@
                 </h4>
                 {% endif %}
             </div>
-            <div class="d-flex flex-column gap-2" style="margin-top: -12px;">
+            <div class="m-action-row d-flex flex-column gap-2" style="margin-top: -12px;">
                 <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#externalCourseModal">
                     <i class="fas fa-plus me-1"></i>Add External Course
                 </button>
@@ -130,12 +130,12 @@
     </div>
 
     <div class="module-card cm-active-courses-section">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center" style="border-radius: 18px 18px 0 0;">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center m-page-header" style="border-radius: 18px 18px 0 0;">
             <h5 class="card-title mb-0">
                 <i class="fas fa-list me-2"></i>Active Courses
             </h5>
-            <div class="d-flex gap-2">
-                <a href="{{ url_for('class_management.archive') }}" class="btn btn-outline-secondary btn-sm">
+            <div class="m-action-row d-flex gap-2">
+                <a href="{{ url_for('class_management.archive') }}" class="btn btn-outline-secondary btn-sm m-action-full">
                     <i class="fas fa-archive me-1"></i>Archived Courses
                 </a>
             </div>

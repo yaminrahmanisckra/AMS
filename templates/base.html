@@ -114,9 +114,11 @@
     {% block force_scrolling_css %}{% endblock %}
 </head>
 <body data-active-endpoint="{{ request.endpoint or '' }}">
+    {% set is_admission_public = request.path.startswith('/admission-exam/apply/') %}
+    {% set admission_public_token = request.view_args.get('token') if is_admission_public and request.view_args else none %}
     <nav class="navbar navbar-expand-lg navbar-dark navbar-desktop d-none d-lg-block">
         <div class="container">
-            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('index') }}">
+            <a class="navbar-brand d-flex align-items-center" href="{% if admission_public_token %}{{ url_for('admission_exam.landing', token=admission_public_token) }}{% else %}{{ url_for('index') }}{% endif %}">
                 <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="KU Logo" style="height: 50px; width: auto; margin-right: 12px;">
                 <span>Academic Management System</span>
             </a>
@@ -337,7 +339,7 @@
                         </div>
                     </div>
                 </div>
-                {% else %}
+                {% elif not is_admission_public %}
                 <div class="navbar-nav ms-auto">
                     <a class="nav-link" href="{{ url_for('auth.login') }}">
                         <i class="fas fa-sign-in-alt me-1"></i>Login
@@ -349,7 +351,7 @@
     </nav>
 
     <header class="m-topbar d-lg-none">
-        <a class="m-topbar-brand" href="{{ url_for('index') }}">
+        <a class="m-topbar-brand" href="{% if admission_public_token %}{{ url_for('admission_exam.landing', token=admission_public_token) }}{% else %}{{ url_for('index') }}{% endif %}">
             <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="KU">
             <span class="m-topbar-brand-text">AMS</span>
         </a>
@@ -420,7 +422,7 @@
             <button type="button" class="m-topbar-btn" id="mMenuBtn" aria-label="Open menu">
                 <i class="fas fa-bars"></i>
             </button>
-            {% else %}
+            {% elif not is_admission_public %}
             <a class="m-topbar-btn" href="{{ url_for('auth.login') }}" title="Login"><i class="fas fa-sign-in-alt"></i></a>
             {% endif %}
         </div>
