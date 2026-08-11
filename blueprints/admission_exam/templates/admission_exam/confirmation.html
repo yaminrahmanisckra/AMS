@@ -45,7 +45,7 @@
                 <tr><th>Sender Account</th><td>{{ candidate.rocket_sender_phone or '—' }}</td></tr>
                 {% endif %}
                 <tr><th>Payment Status</th><td><span class="badge bg-warning text-dark">Pending verification</span></td></tr>
-                <tr><th>Submitted At</th><td>{{ candidate.created_at.strftime('%d %B %Y, %I:%M %p') }}</td></tr>
+                <tr><th>Submitted At</th><td>{{ candidate.created_at|bd('%d %B %Y, %I:%M %p') }}</td></tr>
             </table>
         </div>
     </div>

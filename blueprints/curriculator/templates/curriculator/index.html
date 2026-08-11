@@ -46,7 +46,7 @@
                     <p class="card-text text-muted small mb-2">
                         {% if d.applicable_batches %}Batches: {{ d.applicable_batches }}{% else %}—{% endif %}
                     </p>
-                    <p class="card-text small text-muted mb-3">Updated {{ d.updated_at.strftime('%Y-%m-%d') if d.updated_at else '—' }}</p>
+                    <p class="card-text small text-muted mb-3">Updated {{ d.updated_at|bd('%Y-%m-%d') if d.updated_at else '—' }}</p>
                     <div class="d-flex flex-wrap gap-1 align-items-center">
                         <a href="{{ url_for('curriculator.document_detail', doc_id=d.id) }}" class="btn btn-outline-primary btn-sm">
                             Open <i class="fas fa-arrow-right ms-1"></i>

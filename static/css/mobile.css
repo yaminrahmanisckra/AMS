@@ -1615,28 +1615,93 @@
         min-width: 44px;
     }
 
+    /* Attendance report overrides older sticky nth-child rules */
+    body.m-shell .m-table-scroll-sticky .att-report-table th:nth-child(1),
+    body.m-shell .m-table-scroll-sticky .att-report-table td:nth-child(1),
+    body.m-shell .m-table-scroll-sticky .att-report-table .att-col-si {
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        overflow: hidden !important;
+        font-size: 0 !important;
+        color: transparent !important;
+        line-height: 0 !important;
+    }
+
+    body.m-shell .m-table-scroll-sticky .att-report-table th:nth-child(2),
+    body.m-shell .m-table-scroll-sticky .att-report-table td:nth-child(2),
+    body.m-shell .m-table-scroll-sticky .att-report-table .att-col-id,
+    body.m-shell .m-table-scroll-sticky .att-report-table .freeze-col-2 {
+        left: 0 !important;
+        min-width: 52px !important;
+        max-width: 58px !important;
+        width: 52px !important;
+    }
+
+    body.m-shell .m-table-scroll-sticky .att-report-table th:nth-child(3),
+    body.m-shell .m-table-scroll-sticky .att-report-table td:nth-child(3),
+    body.m-shell .m-table-scroll-sticky .att-report-table .att-col-name,
+    body.m-shell .m-table-scroll-sticky .att-report-table .freeze-col-3,
+    body.m-shell .m-table-scroll-sticky .att-report-table .student-name {
+        left: 52px !important;
+        min-width: 88px !important;
+        max-width: 110px !important;
+        width: 96px !important;
+        font-size: 0.68rem !important;
+    }
+
     /* Attendance report toolbar */
     body.m-shell .att-report-actions {
         width: 100%;
     }
 
+    body.m-shell .att-report-toolbar {
+        margin-bottom: 0.5rem !important;
+        gap: 0.5rem !important;
+        position: sticky;
+        top: calc(var(--m-topbar-height) + env(safe-area-inset-top, 0px));
+        z-index: 12;
+        background: var(--m-card-bg, #fff);
+        padding: 0.4rem 0;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
     body.m-shell .att-report-primary {
         display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        margin-bottom: 0.65rem;
+        flex-wrap: nowrap;
+        gap: 0.35rem;
+        margin-bottom: 0;
+        flex: 1 1 auto;
+        min-width: 0;
     }
 
     body.m-shell .att-report-primary > .btn {
-        flex: 1 1 calc(50% - 0.4rem);
-        min-height: var(--m-touch);
-        font-size: 0.8rem !important;
+        flex: 1 1 0;
+        min-height: 36px;
+        font-size: 0.78rem !important;
         margin-bottom: 0 !important;
+        padding: 0.35rem 0.5rem;
+        white-space: nowrap;
+    }
+
+    body.m-shell .att-btn-full {
+        display: none !important;
+    }
+
+    body.m-shell .att-btn-short {
+        display: inline !important;
     }
 
     body.m-shell .edit-toggle {
         justify-content: flex-start !important;
-        margin-bottom: 0.65rem !important;
+        margin-bottom: 0 !important;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.1rem;
+        flex: 0 0 auto;
     }
 
     body.m-shell .edit-toggle .form-check-input {
@@ -1644,11 +1709,191 @@
         height: 1.25em;
     }
 
+    body.m-shell .edit-toggle .form-check-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    body.m-shell.att-edit-on .att-edit-hint {
+        display: block !important;
+        font-size: 0.65rem;
+        line-height: 1.2;
+    }
+
+    body.m-shell .att-report-scroll {
+        max-height: calc(100dvh - 210px);
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 0.75rem;
+    }
+
+    body.m-shell .att-report-table {
+        font-size: 0.72rem !important;
+        min-width: 0 !important;
+    }
+
+    body.m-shell .att-report-table th,
+    body.m-shell .att-report-table td {
+        padding: 0.2rem 0.15rem !important;
+    }
+
+    body.m-shell .att-report-table .att-col-si {
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        overflow: hidden !important;
+        font-size: 0 !important;
+        color: transparent !important;
+    }
+
+    body.m-shell .att-report-table .att-col-id,
+    body.m-shell .att-report-table .freeze-col-2 {
+        left: 0 !important;
+        min-width: 52px !important;
+        max-width: 58px;
+        width: 52px;
+        font-size: 0.68rem;
+        z-index: 5;
+    }
+
+    body.m-shell .att-report-table .att-col-name,
+    body.m-shell .att-report-table .freeze-col-3,
+    body.m-shell .att-report-table .student-name {
+        left: 52px !important;
+        min-width: 88px !important;
+        max-width: 110px !important;
+        width: 96px;
+        font-size: 0.68rem !important;
+        line-height: 1.2;
+        white-space: normal !important;
+        z-index: 5;
+        border-right: 2px solid #adb5bd !important;
+    }
+
+    body.m-shell .att-report-table thead .att-col-id,
+    body.m-shell .att-report-table thead .att-col-name,
+    body.m-shell .att-report-table thead .freeze-col-2,
+    body.m-shell .att-report-table thead .freeze-col-3 {
+        z-index: 6;
+        background: #222 !important;
+        color: #fff;
+    }
+
+    body.m-shell .att-report-table .att-col-group {
+        font-size: 0.62rem !important;
+        padding: 0.15rem !important;
+        letter-spacing: 0.02em;
+    }
+
+    body.m-shell .att-report-table .att-date-full {
+        display: none !important;
+    }
+
+    body.m-shell .att-report-table .att-date-short {
+        display: inline-block !important;
+    }
+
+    body.m-shell .att-report-table thead th.att-date-th {
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        height: 72px;
+        min-width: 28px !important;
+        max-width: 30px !important;
+        width: 28px !important;
+        padding: 4px 2px !important;
+        font-size: 0.62rem !important;
+        font-weight: 600;
+        line-height: 1.1;
+        white-space: nowrap;
+        vertical-align: middle;
+        text-align: left;
+        letter-spacing: 0.01em;
+    }
+
+    body.m-shell .att-report-table .attendance-cell {
+        min-width: 28px !important;
+        width: 28px !important;
+        max-width: 30px !important;
+        padding: 0 !important;
+        vertical-align: middle;
+    }
+
+    body.m-shell .att-report-table .attendance-cell .status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        width: 100%;
+        font-size: 0.82rem;
+        font-weight: 700;
+    }
+
+    body.m-shell.att-edit-on .att-report-table .attendance-cell.editable {
+        background: rgba(13, 110, 253, 0.04);
+    }
+
+    body.m-shell.att-edit-on .att-report-table .attendance-cell.editable:active {
+        background: rgba(13, 110, 253, 0.16);
+    }
+
+    body.m-shell .att-report-table .att-col-part,
+    body.m-shell .att-report-table .att-col-total {
+        width: 0 !important;
+        min-width: 0 !important;
+        max-width: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        overflow: hidden !important;
+        font-size: 0 !important;
+        color: transparent !important;
+    }
+
+    body.m-shell .att-report-table .att-col-present,
+    body.m-shell .att-report-table .att-col-pct,
+    body.m-shell .att-report-table .att-col-marks {
+        min-width: 36px;
+        font-size: 0.68rem;
+        white-space: nowrap;
+    }
+
+    body.m-shell .att-report-table .att-col-pct {
+        min-width: 44px;
+    }
+
+    body.m-shell .att-report-table .marks-input-edit {
+        width: 44px !important;
+        min-height: 30px;
+        font-size: 0.75rem;
+        padding: 0.15rem;
+    }
+
+    body.m-shell .att-report-table .manual-badge {
+        font-size: 0.55rem;
+        padding: 0.1rem 0.25rem;
+    }
+
+    body.m-shell .att-teacher-card .card-header {
+        padding: 0.55rem 0.7rem;
+    }
+
+    body.m-shell .att-teacher-card .card-header h5 {
+        font-size: 0.85rem;
+    }
+
+    body.m-shell .att-teacher-card .card-body {
+        padding: 0.45rem !important;
+    }
+
     body.m-shell .m-table-scroll-sticky .attendance-table .student-name {
-        min-width: 120px !important;
-        max-width: 150px;
-        font-size: 0.72rem;
-        line-height: 1.25;
+        min-width: 88px !important;
+        max-width: 110px;
+        font-size: 0.68rem;
+        line-height: 1.2;
         white-space: normal !important;
     }
 
@@ -1843,6 +2088,132 @@
         padding-left: 0 !important;
         padding-right: 0 !important;
         max-width: 100% !important;
+    }
+
+    /* ---- Student dashboard surfaces ---- */
+    body.m-shell .student-scores-page .card.shadow,
+    body.m-shell .student-files-page .card.shadow,
+    body.m-shell .student-notif-page .card.shadow {
+        box-shadow: none !important;
+    }
+
+    body.m-shell .student-scores-page,
+    body.m-shell .student-files-page,
+    body.m-shell .student-dash-page,
+    body.m-shell .student-reg-page,
+    body.m-shell .student-notif-page {
+        padding-top: 0.35rem !important;
+    }
+
+    body.m-shell .sv-course-card,
+    body.m-shell .sf-card,
+    body.m-shell .sn-card,
+    body.m-shell .student-reg-page .card {
+        border-radius: 12px !important;
+    }
+
+    body.m-shell .student-reg-page .table-mobile-stack thead {
+        display: none;
+    }
+
+    body.m-shell .student-reg-page .table-mobile-stack tbody tr {
+        display: block;
+        background: #fff;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 12px;
+        margin-bottom: 0.65rem;
+        padding: 0.7rem 0.8rem;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+
+    body.m-shell .student-reg-page .table-mobile-stack tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.65rem;
+        border: none !important;
+        padding: 0.4rem 0 !important;
+        white-space: normal !important;
+        text-align: right !important;
+    }
+
+    body.m-shell .student-reg-page .table-mobile-stack tbody td::before {
+        content: attr(data-label);
+        font-weight: 700;
+        color: #6b7280;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        text-align: left;
+        flex-shrink: 0;
+        max-width: 42%;
+    }
+
+    body.m-shell .student-reg-page .table-mobile-stack tbody td[data-label=""] {
+        display: none;
+    }
+
+    body.m-shell .student-reg-page .table-mobile-stack tbody td[data-label="Action"] .btn,
+    body.m-shell .student-reg-page .table-mobile-stack tbody td[data-label="Remarks"] .form-select {
+        width: 100%;
+        max-width: 180px;
+    }
+
+    body.m-shell .student-reg-page .sr-total-row td[data-label="Summary"]::before {
+        content: none;
+    }
+
+    body.m-shell .batch-events-student .card,
+    body.m-shell .calendar-container {
+        border-radius: 12px;
+    }
+
+    body.m-shell .calendar-container {
+        padding: 0.85rem !important;
+    }
+
+    body.m-shell .calendar-day {
+        min-height: 64px !important;
+        padding: 0.25rem !important;
+    }
+
+    body.m-shell .calendar-day-number {
+        font-size: 0.78rem;
+    }
+
+    body.m-shell .calendar-event {
+        font-size: 0.58rem !important;
+        padding: 0.1rem 0.2rem !important;
+    }
+
+    body.m-shell .qb-shell {
+        border-radius: 12px;
+    }
+
+    body.m-shell .qb-toolbar {
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    body.m-shell .qb-toolbar-left,
+    body.m-shell .qb-toolbar-right {
+        width: 100%;
+    }
+
+    body.m-shell .qb-filter-row .btn {
+        min-height: 36px;
+    }
+
+    body.m-shell #btn-course-filter {
+        min-height: 36px;
+    }
+
+    body.m-shell #course-filter-modal .modal-body {
+        padding: 0.85rem 1rem;
+    }
+
+    body.m-shell .course-filter-item {
+        min-height: 44px;
     }
 }
 

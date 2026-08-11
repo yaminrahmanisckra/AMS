@@ -46,7 +46,7 @@
             <div class="row">
                 <div class="col-md-6">
                     <p class="mb-1"><strong>Status:</strong> <span class="badge bg-success">Created</span></p>
-                    <p class="mb-1"><strong>Last Updated:</strong> {{ course_outline.updated_at.strftime('%Y-%m-%d %H:%M') if course_outline.updated_at else 'Never' }}</p>
+                    <p class="mb-1"><strong>Last Updated:</strong> {{ course_outline.updated_at|bd('%Y-%m-%d %H:%M') if course_outline.updated_at else 'Never' }}</p>
                 </div>
                 <div class="col-md-6 text-end">
                     <a href="{{ url_for('class_management.edit_course_outline', session_id=session.id) }}" class="btn btn-primary">
@@ -112,7 +112,7 @@
                                             <span class="badge bg-secondary">Other</span>
                                         </td>
                                         <td>
-                                            <small>{{ file.created_at.strftime('%Y-%m-%d %H:%M') if file.created_at else 'N/A' }}</small>
+                                            <small>{{ file.created_at|bd('%Y-%m-%d %H:%M') if file.created_at else 'N/A' }}</small>
                                         </td>
                                         <td>
                                             <small>

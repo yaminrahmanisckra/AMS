@@ -276,7 +276,7 @@
                                                 <div class="flex-grow-1 overflow-hidden">
                                                     <div class="fw-semibold text-dark text-truncate">{{ n.subject }}</div>
                                                     <small class="text-muted">{{ n.student_name }} · {{ n.course_label }}</small>
-                                                    <div class="small text-muted mt-0">{{ n.created_at.strftime('%b %d, %I:%M %p') if n.created_at else '' }}</div>
+                                                    <div class="small text-muted mt-0">{{ n.created_at|bd('%b %d, %I:%M %p') if n.created_at else '' }}</div>
                                                 </div>
                                             </div>
                                         </a>
@@ -310,12 +310,12 @@
                                     <li>
                                         <a class="dropdown-item py-3 notification-item" href="{{ url_for('class_management.student_notification_read', notification_id=n.id) }}">
                                             <div class="d-flex">
-                                                <div class="flex-shrink-0 me-2 rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; {% if n.type == 'question_reply' %}background-color: rgba(13, 110, 253, 0.2);{% elif n.type == 'marks_revealed' %}background-color: rgba(25, 135, 84, 0.2);{% else %}background-color: rgba(108, 117, 125, 0.2);{% endif %}">
-                                                    {% if n.type == 'question_reply' %}<i class="fas fa-reply text-primary"></i>{% elif n.type == 'marks_revealed' %}<i class="fas fa-chart-line text-success"></i>{% else %}<i class="fas fa-file-download text-secondary"></i>{% endif %}
+                                                <div class="flex-shrink-0 me-2 rounded-circle d-flex align-items-center justify-content-center" style="width: 40px; height: 40px; {% if n.type == 'question_reply' %}background-color: rgba(13, 110, 253, 0.2);{% elif n.type == 'marks_revealed' %}background-color: rgba(25, 135, 84, 0.2);{% elif n.type == 'notice' %}background-color: rgba(139, 90, 43, 0.2);{% else %}background-color: rgba(108, 117, 125, 0.2);{% endif %}">
+                                                    {% if n.type == 'question_reply' %}<i class="fas fa-reply text-primary"></i>{% elif n.type == 'marks_revealed' %}<i class="fas fa-chart-line text-success"></i>{% elif n.type == 'notice' %}<i class="fas fa-thumbtack" style="color:#8b5a2b;"></i>{% else %}<i class="fas fa-file-download text-secondary"></i>{% endif %}
                                                 </div>
                                                 <div class="flex-grow-1 overflow-hidden">
                                                     <div class="fw-semibold text-dark text-truncate">{{ n.title }}</div>
-                                                    <div class="small text-muted mt-0">{{ n.created_at.strftime('%b %d, %I:%M %p') if n.created_at else '' }}</div>
+                                                    <div class="small text-muted mt-0">{{ n.created_at|bd('%b %d, %I:%M %p') if n.created_at else '' }}</div>
                                                 </div>
                                             </div>
                                         </a>

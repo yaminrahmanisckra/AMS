@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ notice.title }} — Notice{% endblock %}
+{% block mobile_title %}Notice{% endblock %}
+
+{% block content %}
+<div class="nb-detail-page">
+    <div class="container py-4" style="max-width: 820px;">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <a href="{{ url_for('noticeboard.board') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i> Board
+            </a>
+            <div class="nb-detail-actions">
+                <a href="{{ url_for('noticeboard.notice_pdf', notice_id=notice.id) }}" class="btn btn-sm btn-dark">
+                    <i class="fas fa-file-pdf me-1"></i> PDF
+                </a>
+                {% if can_manage %}
+                <a href="{{ url_for('noticeboard.edit', notice_id=notice.id) }}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-edit me-1"></i> Edit
+                </a>
+                {% endif %}
+                {% if is_composer %}
+                <a href="{{ url_for('noticeboard.index') }}" class="btn btn-sm btn-outline-secondary">Manage</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <article class="nb-sheet">
+            <header class="nb-sheet-head">
+                <div class="nb-sheet-kicker">Official Notice</div>
+                <h1 class="nb-sheet-title">{{ notice.title }}</h1>
+                <div class="nb-sheet-meta">
+                    <span>{{ notice.notice_date.strftime('%d %B %Y') }}</span>
+                    <span class="mx-2">·</span>
+                    <span>{{ author_name }}</span>
+                    {% if notice.created_at %}
+                    <span class="mx-2">·</span>
+                    <span title="Posted (Bangladesh time)">Posted {{ notice.created_at|bd('%d %b %Y, %I:%M %p') }}</span>
+                    {% endif %}
+                </div>
+                {% if is_composer %}
+                <div class="small text-muted mt-2">Audience: {{ audience_summary }}</div>
+                {% endif %}
+            </header>
+            <div class="nb-sheet-body">
+                {{ notice.body_html | safe }}
+            </div>
+        </article>
+    </div>
+</div>
+
+<style>
+.nb-detail-page {
+    background: linear-gradient(180deg, #ebe2d2 0%, #f4eee4 40%, #f7f3eb 100%);
+    min-height: calc(100vh - 120px);
+}
+.nb-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+.nb-sheet {
+    background: #fffdf7;
+    border: 1px solid rgba(60,40,20,0.15);
+    box-shadow: 0 14px 32px rgba(60,40,20,0.12);
+    padding: 2rem 1.5rem 2.25rem;
+    position: relative;
+}
+.nb-sheet::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 6px;
+    background: linear-gradient(90deg, #8b4513, #c4a574, #8b4513);
+}
+.nb-sheet-kicker {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.72rem;
+    color: #7a6550;
+    margin-bottom: 0.5rem;
+}
+.nb-sheet-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(1.25rem, 4.5vw, 1.85rem);
+    font-weight: 700;
+    color: #2a2118;
+    margin-bottom: 0.5rem;
+    line-height: 1.25;
+}
+.nb-sheet-meta {
+    color: #6b5a48;
+    font-size: 0.88rem;
+    border-bottom: 1px solid rgba(42,33,24,0.12);
+    padding-bottom: 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.35rem;
+    line-height: 1.45;
+}
+.nb-sheet-meta .mx-2 { margin-left: 0.15rem !important; margin-right: 0.15rem !important; }
+.nb-sheet-body {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 1.02rem;
+    line-height: 1.7;
+    color: #2f261c;
+    padding-top: 1.1rem;
+    overflow-wrap: anywhere;
+}
+.nb-sheet-body p { margin-bottom: 0.85rem; }
+.nb-sheet-body ul, .nb-sheet-body ol { padding-left: 1.25rem; margin-bottom: 0.85rem; }
+.nb-sheet-body img { max-width: 100%; height: auto; }
+@media (max-width: 576px) {
+    .nb-detail-page { min-height: calc(100vh - 56px); }
+    .nb-detail-page .container {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+    .nb-sheet {
+        padding: 1.2rem 0.95rem 1.35rem;
+        border-radius: 14px;
+        box-shadow: 0 8px 20px rgba(60,40,20,0.1);
+    }
+    .nb-sheet-body { font-size: 0.98rem; line-height: 1.65; }
+    .nb-detail-actions .btn {
+        min-height: 40px;
+        font-size: 0.82rem;
+    }
+}
+</style>
+{% endblock %}

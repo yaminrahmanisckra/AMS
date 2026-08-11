@@ -5,78 +5,269 @@
 {% block mobile_title %}Course Files{% endblock %}
 
 {% block content %}
-<div class="container my-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2><i class="fas fa-folder-open me-2"></i>Course Files</h2>
-        <a href="/student/dashboard" class="btn btn-outline-secondary">
+<div class="container my-3 my-md-4 student-files-page">
+    <div class="sf-page-intro d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3 mb-md-4">
+        <div>
+            <h2 class="sf-title mb-1"><i class="fas fa-folder-open me-2"></i>Course Files</h2>
+            <p class="text-muted mb-0 small">Course outlines and files shared by your teachers.</p>
+        </div>
+        <a href="/student/dashboard" class="btn btn-outline-secondary btn-sm d-none d-md-inline-flex">
             <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
         </a>
     </div>
 
     {% if course_files %}
-    <div class="card shadow">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0"><i class="fas fa-file-pdf me-2"></i>Available Course Files</h5>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead>
-                        <tr>
-                            <th>Course Code</th>
-                            <th>Course Name</th>
-                            <th>File Name</th>
-                            <th>Teacher</th>
-                            <th>Academic Session</th>
-                            <th>Year</th>
-                            <th>Term</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for file in course_files %}
-                        <tr>
-                            <td><strong>{{ file.course_code or '—' }}</strong></td>
-                            <td>{{ file.course_name or '—' }}</td>
-                            <td>
-                                {% if file.type == 'course_outline' %}
-                                    <span class="badge bg-danger">Course Outline</span>
-                                {% else %}
-                                    <i class="fas fa-file me-1"></i>{{ file.file_name }}
-                                    {% if file.description %}
-                                        <br><small class="text-muted">{{ file.description }}</small>
-                                    {% endif %}
-                                {% endif %}
-                            </td>
-                            <td>{{ file.teacher_name }}</td>
-                            <td>{{ file.academic_session or '—' }}</td>
-                            <td>{{ file.year or '—' }}</td>
-                            <td>{{ file.term or '—' }}</td>
-                            <td>
-                                {% if file.type == 'course_outline' %}
-                                    <a href="{{ url_for('class_management.student_download_course_outline_pdf', session_id=file.session_id) }}" 
-                                       class="btn btn-danger btn-sm">
-                                        <i class="fas fa-download me-1"></i>Download PDF
-                                    </a>
-                                {% else %}
-                                    <a href="{{ url_for('class_management.student_download_uploaded_file', file_id=file.file_id) }}" 
-                                       class="btn btn-primary btn-sm">
-                                        <i class="fas fa-download me-1"></i>Download
-                                    </a>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    <div class="sf-list">
+        {% for file in course_files %}
+        <article class="sf-card">
+            <div class="sf-card-top">
+                <div class="sf-icon {% if file.type == 'course_outline' %}sf-icon-outline{% else %}sf-icon-file{% endif %}">
+                    {% if file.type == 'course_outline' %}
+                        <i class="fas fa-file-pdf"></i>
+                    {% else %}
+                        <i class="fas fa-file-alt"></i>
+                    {% endif %}
+                </div>
+                <div class="sf-card-main">
+                    <div class="sf-code-row">
+                        <strong class="sf-code">{{ file.course_code or '—' }}</strong>
+                        {% if file.type == 'course_outline' %}
+                            <span class="sf-type-badge">Course Outline</span>
+                        {% endif %}
+                    </div>
+                    <h3 class="sf-course-name">{{ file.course_name or 'Untitled course' }}</h3>
+                    {% if file.type != 'course_outline' %}
+                        <p class="sf-filename"><i class="fas fa-paperclip me-1"></i>{{ file.file_name }}</p>
+                        {% if file.description %}
+                            <p class="sf-desc">{{ file.description }}</p>
+                        {% endif %}
+                    {% endif %}
+                </div>
             </div>
-        </div>
+            <dl class="sf-meta">
+                <div>
+                    <dt>Teacher</dt>
+                    <dd>{{ file.teacher_name or '—' }}</dd>
+                </div>
+                <div>
+                    <dt>Session</dt>
+                    <dd>{{ file.academic_session or '—' }}</dd>
+                </div>
+                <div>
+                    <dt>Year</dt>
+                    <dd>{{ file.year or '—' }}</dd>
+                </div>
+                <div>
+                    <dt>Term</dt>
+                    <dd>{{ file.term or '—' }}</dd>
+                </div>
+            </dl>
+            <div class="sf-actions">
+                {% if file.type == 'course_outline' %}
+                    <a href="{{ url_for('class_management.student_download_course_outline_pdf', session_id=file.session_id) }}"
+                       class="btn btn-danger btn-sm">
+                        <i class="fas fa-download me-1"></i>Download PDF
+                    </a>
+                {% else %}
+                    <a href="{{ url_for('class_management.student_download_uploaded_file', file_id=file.file_id) }}"
+                       class="btn btn-primary btn-sm">
+                        <i class="fas fa-download me-1"></i>Download
+                    </a>
+                {% endif %}
+            </div>
+        </article>
+        {% endfor %}
     </div>
     {% else %}
-    <div class="alert alert-info">
-        <i class="fas fa-info-circle me-2"></i>
-        <strong>No course files available.</strong> Course outlines and files will appear here once your teachers enable student access.
+    <div class="sf-empty">
+        <i class="fas fa-folder-open"></i>
+        <div>
+            <strong>No course files available</strong>
+            <p class="mb-0">Course outlines and files will appear here once your teachers enable student access.</p>
+        </div>
     </div>
     {% endif %}
 </div>
+
+<style>
+.student-files-page {
+    max-width: 860px;
+}
+
+.sf-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.sf-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.sf-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 0.95rem 1rem;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+}
+
+.sf-card-top {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+
+.sf-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sf-icon-outline {
+    background: rgba(220, 53, 69, 0.12);
+    color: #dc3545;
+}
+
+.sf-icon-file {
+    background: rgba(13, 110, 253, 0.12);
+    color: #0d6efd;
+}
+
+.sf-card-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.sf-code-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.2rem;
+}
+
+.sf-code {
+    font-size: 0.78rem;
+    color: #374151;
+}
+
+.sf-type-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #b91c1c;
+    background: #fee2e2;
+    border-radius: 999px;
+    padding: 0.15rem 0.45rem;
+}
+
+.sf-course-name {
+    margin: 0;
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.3;
+}
+
+.sf-filename {
+    margin: 0.3rem 0 0;
+    font-size: 0.8rem;
+    color: #4b5563;
+}
+
+.sf-desc {
+    margin: 0.2rem 0 0;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.sf-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem 0.75rem;
+    margin: 0.85rem 0 0;
+}
+
+.sf-meta > div {
+    background: #f8fafc;
+    border: 1px solid #eef2f7;
+    border-radius: 10px;
+    padding: 0.45rem 0.55rem;
+}
+
+.sf-meta dt {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6b7280;
+    margin: 0;
+}
+
+.sf-meta dd {
+    margin: 0.1rem 0 0;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #111827;
+}
+
+.sf-actions {
+    margin-top: 0.85rem;
+}
+
+.sf-empty {
+    display: flex;
+    gap: 0.85rem;
+    align-items: flex-start;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 14px;
+    padding: 1.1rem;
+    color: #1e3a8a;
+}
+
+.sf-empty i {
+    font-size: 1.4rem;
+    margin-top: 0.15rem;
+}
+
+.sf-empty p {
+    font-size: 0.85rem;
+    color: #334155;
+    margin-top: 0.25rem;
+}
+
+@media (max-width: 575.98px) {
+    .student-files-page {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+
+    .sf-title {
+        font-size: 1.15rem;
+    }
+
+    .sf-card {
+        padding: 0.85rem;
+    }
+
+    .sf-actions .btn {
+        width: 100%;
+    }
+}
+
+@media (min-width: 768px) {
+    .sf-meta {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+</style>
 {% endblock %}

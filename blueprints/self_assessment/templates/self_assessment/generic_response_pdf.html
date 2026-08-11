@@ -21,7 +21,7 @@
     </style>
 </head>
 <body>
-    <div class="meta-line">Serial No.: {{ serial_no or 1 }} | Submitted: {{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
+    <div class="meta-line">Serial No.: {{ serial_no or 1 }} | Submitted: {{ r.created_at|bd('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
     <div class="doc-header">
         <div class="doc-title">SURVEY RESPONSE – {{ r.survey_type | upper }}</div>
     </div>

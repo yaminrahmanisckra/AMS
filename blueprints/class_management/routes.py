@@ -43,6 +43,7 @@ except ImportError:
 import pandas as pd
 import os
 from datetime import datetime, date
+from utils.timezone import format_bd, bd_now
 from decimal import Decimal, ROUND_HALF_UP
 import secrets
 from reportlab.pdfgen import canvas
@@ -1523,6 +1524,47 @@ def _status_payload_for_response(student_stats, status_label, record_id=None, st
         'total_classes': student_stats.get('effective_total_classes', student_stats.get('base_total_classes', 0)),
         'student_db_id': student_db_id
     }
+
+
+def _attendance_rotate_up_header_png(text, font_path, font_size=18, bg_rgb=(216, 228, 188), scale=4):
+    """Bake Excel-style Rotate Text Up into a high-DPI PNG for sharp WeasyPrint output.
+
+    Draws text LTR at ``scale``× resolution, rotates 90° CCW (bottom → top), and
+    returns a data URI sized for CSS display so the PDF keeps crisp vector-like edges.
+    Returns (data_uri, display_width_px, display_height_px).
+    """
+    import base64
+    from PIL import Image, ImageDraw, ImageFont
+
+    render_size = max(12, int(round(font_size * scale)))
+    try:
+        font = ImageFont.truetype(str(font_path), render_size)
+    except Exception:
+        font = ImageFont.load_default()
+
+    dummy = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(dummy)
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = max(1, bbox[2] - bbox[0])
+    text_h = max(1, bbox[3] - bbox[1])
+    pad = max(4, render_size // 5)
+
+    # Transparent canvas — table cell supplies the green background
+    img = Image.new('RGBA', (text_w + pad * 2, text_h + pad * 2), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.text((pad - bbox[0], pad - bbox[1]), text, font=font, fill=(17, 17, 17, 255))
+
+    # PIL rotate(90) = counter-clockwise = Rotate Text Up
+    rotated = img.rotate(90, expand=True, fillcolor=(0, 0, 0, 0), resample=Image.Resampling.BICUBIC)
+
+    # Keep full pixel density; CSS width/height will be display size (÷ scale)
+    display_w = max(1, int(round(rotated.width / scale)))
+    display_h = max(1, int(round(rotated.height / scale)))
+
+    buf = io.BytesIO()
+    rotated.save(buf, format='PNG', compress_level=1)
+    data_uri = 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode('ascii')
+    return data_uri, display_w, display_h
 
 
 def _cap_classes_per_day(count_value):
@@ -6952,14 +6994,13 @@ def download_attendance_sheet(session_id):
         header_keys = []
         for date in sorted_dates:
             count = daily_class_counts.get(date, 0)
+            day_label = date.strftime('%d %b')
             if count <= 1:
-                # Full date format: "Nov 20, 2025" or "20 Nov 2025"
-                headers.append(date.strftime('%b %d, %Y'))
+                headers.append(day_label)
                 header_keys.append((date, 1))
             else:
                 for i in range(1, count + 1):
-                    # Full date format with session: "Nov 20, 2025 (1)"
-                    headers.append(f"{date.strftime('%b %d, %Y')} ({i})")
+                    headers.append(f"{day_label}-{i}")
                     header_keys.append((date, i))
 
         if not headers:
@@ -7251,12 +7292,14 @@ def download_attendance_sheet_weasyprint(session_id):
         header_keys = []
         for date in sorted_dates:
             count = daily_class_counts.get(date, 0)
+            # Include year; compact for vertical SVG headers: "19 Jul 2024" / "19 Jul 2024·1"
+            day_label = f"{date.day} {date.strftime('%b')} {date.year}"
             if count <= 1:
-                headers.append(date.strftime('%b %d'))
+                headers.append(day_label)
                 header_keys.append((date, 1))
             else:
                 for i in range(1, count + 1):
-                    headers.append(f"{date.strftime('%b %d')} ({i})")
+                    headers.append(f"{day_label}·{i}")
                     header_keys.append((date, i))
         
         if not headers:
@@ -7303,7 +7346,7 @@ def download_attendance_sheet_weasyprint(session_id):
                 'attendance': attendance_list,
                 'total_classes': str(agg_stats.get('effective_total_classes', total_classes)),
                 'present_days': str(agg_stats['present']),
-                'percentage': f"{agg_stats['percentage']:.2f}",
+                'percentage': f"{agg_stats['percentage']:.1f}",
                 'marks': str(agg_stats['marks'])
             })
         
@@ -7345,6 +7388,57 @@ def download_attendance_sheet_weasyprint(session_id):
         elif session.teacher:
             course_teacher = session.teacher.name
         
+        # Layout scales with date-column count so the sheet always fits legal landscape
+        n_dates = max(len(headers), 1)
+        if n_dates <= 10:
+            date_font_size = 9
+            pdf_layout = {
+                'body_font_size': 9,
+                'header_font_size': 8,
+                'date_font_size': date_font_size,
+                'mark_font_size': 9,
+                'name_font_size': 8.5,
+                'summary_font_size': 8.5,
+                'summary_label_size': 7.5,
+                'si_width': '3%',
+                'id_width': '7%',
+                'name_col_width': '16%',
+                'date_col_width': f'{52 / n_dates:.2f}%',
+                'summary_width': '5.5%',
+            }
+        elif n_dates <= 20:
+            date_font_size = 8
+            pdf_layout = {
+                'body_font_size': 8,
+                'header_font_size': 7.5,
+                'date_font_size': date_font_size,
+                'mark_font_size': 8,
+                'name_font_size': 7.5,
+                'summary_font_size': 7.5,
+                'summary_label_size': 7,
+                'si_width': '2.5%',
+                'id_width': '6.5%',
+                'name_col_width': '14%',
+                'date_col_width': f'{56 / n_dates:.2f}%',
+                'summary_width': '5.25%',
+            }
+        else:
+            date_font_size = 7
+            pdf_layout = {
+                'body_font_size': 7,
+                'header_font_size': 7,
+                'date_font_size': date_font_size,
+                'mark_font_size': 7.5,
+                'name_font_size': 7,
+                'summary_font_size': 7,
+                'summary_label_size': 6.5,
+                'si_width': '2.2%',
+                'id_width': '6%',
+                'name_col_width': '12%',
+                'date_col_width': f'{60 / n_dates:.2f}%',
+                'summary_width': '4.95%',
+            }
+
         # Absolute file:// font URIs — required on cPanel where system fonts are Type1-only
         from utils.pdf_fonts import resolve_dejavu_pdf_fonts
         pdf_font_regular, pdf_font_bold, fonts_dir = resolve_dejavu_pdf_fonts()
@@ -7354,6 +7448,22 @@ def download_attendance_sheet_weasyprint(session_id):
                 'error'
             )
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
+
+        # Pre-render Rotate Text Up headers as PNGs (CSS/SVG rotate fails in WeasyPrint)
+        bold_font_path = fonts_dir / 'DejaVuSans-Bold.ttf'
+        header_images = []
+        max_header_h = 0
+        for label in headers:
+            src, w, h = _attendance_rotate_up_header_png(
+                label,
+                bold_font_path,
+                font_size=date_font_size,
+                scale=4,
+            )
+            header_images.append({'src': src, 'width': w, 'height': h, 'label': label})
+            if h > max_header_h:
+                max_header_h = h
+        pdf_layout['date_header_height'] = max(max_header_h + 4, 64)
 
         # Render template
         html_content = render_template(
@@ -7365,9 +7475,11 @@ def download_attendance_sheet_weasyprint(session_id):
             term=term,
             course_teacher=course_teacher,
             headers=headers,
+            header_images=header_images,
             data_rows=data_rows,
             pdf_font_regular=pdf_font_regular,
             pdf_font_bold=pdf_font_bold,
+            **pdf_layout,
         )
         
         # Generate PDF with WeasyPrint (lazy import already done above)
@@ -9517,8 +9629,9 @@ def course_assessment_form(session_id, invite_id):
             db.session.rollback()
             flash(f'Error submitting form: {str(e)}', 'danger')
 
-    current_date_str = date.today().isoformat()
-    current_time_str = datetime.now().strftime('%H:%M')
+    _bd = bd_now()
+    current_date_str = _bd.date().isoformat()
+    current_time_str = _bd.strftime('%H:%M')
     return render_template(
         'class_management/evaluation_course_assessment_form.html',
         session=session,
@@ -10571,7 +10684,7 @@ def student_feedback_responses_pdf(session_id):
 
         elements.append(Paragraph('Student Feedback Form', title_style))
         elements.append(Paragraph('Khulna University', subtitle_style))
-        elements.append(Paragraph(f"Response {idx} - {item.submitted_at.strftime('%Y-%m-%d %H:%M')}", value_bold_style))
+        elements.append(Paragraph(f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}", value_bold_style))
         elements.append(Spacer(1, 6))
 
         info_data = [
@@ -10720,7 +10833,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             
             feedback_data.append({
                 'index': idx,
-                'submitted_at': item.submitted_at.strftime('%Y-%m-%d'),
+                'submitted_at': format_bd(item.submitted_at, '%Y-%m-%d'),
                 'academic': academic,
                 'section_a': section_a,
                 'section_b': section_b,
@@ -10864,7 +10977,7 @@ def student_feedback_responses_docx(session_id):
         uni_para.runs[0].bold = True
         uni_para.runs[0].font.size = Pt(12)
 
-        meta_para = document.add_paragraph(f"Response {idx} - {item.submitted_at.strftime('%Y-%m-%d %H:%M')}")
+        meta_para = document.add_paragraph(f"Response {idx} - {format_bd(item.submitted_at, '%Y-%m-%d %H:%M')}")
         meta_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
         meta_para.runs[0].font.size = Pt(10)
 

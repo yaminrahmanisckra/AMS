@@ -23,6 +23,9 @@ load_dotenv()
 def create_app():
     app = Flask(__name__)
 
+    from utils.timezone import register_template_filters
+    register_template_filters(app)
+
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a_very_secret_default_key')
     app.config['TEMPLATES_AUTO_RELOAD'] = False
     app.config['SESSION_COOKIE_HTTPONLY'] = True

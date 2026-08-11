@@ -304,7 +304,7 @@
                                             {{ f.title }}
                                             {% endif %}
                                         </td>
-                                        <td>{{ f.created_at.strftime('%d %b %Y') if f.created_at else '—' }}</td>
+                                        <td>{{ f.created_at|bd('%d %b %Y') if f.created_at else '—' }}</td>
                                         <td class="text-end">
                                             {% if can_manage %}
                                             <form method="post" action="{{ url_for('class_management.delete_question_bank_file', file_id=f.id) }}" onsubmit="return confirm('Delete this question paper?');" class="d-inline">

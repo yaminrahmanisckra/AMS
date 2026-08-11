@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Noticeboard — Manage{% endblock %}
+{% block mobile_title %}Notices{% endblock %}
+
+{% block content %}
+<div class="container my-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Noticeboard</h1>
+            <p class="text-muted mb-0 small">Create and manage notices for students.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('noticeboard.board') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-thumbtack me-1"></i> View board
+            </a>
+            <a href="{{ url_for('noticeboard.create') }}" class="btn btn-primary btn-sm">
+                <i class="fas fa-plus me-1"></i> New notice
+            </a>
+        </div>
+    </div>
+
+    {% if not rows %}
+    <div class="alert alert-light border text-center py-5">
+        <i class="fas fa-bullhorn fa-2x text-muted mb-3"></i>
+        <p class="mb-0 text-muted">No notices yet. Create one to post on the student noticeboard.</p>
+    </div>
+    {% else %}
+    <div class="table-responsive bg-white border rounded shadow-sm">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Date</th>
+                    <th>Title</th>
+                    <th class="d-none d-md-table-cell">Audience</th>
+                    {% if can_broadcast %}<th class="d-none d-lg-table-cell">Author</th>{% endif %}
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="text-nowrap small">
+                        {{ row.notice.notice_date.strftime('%d %b %Y') }}
+                        {% if row.notice.created_at %}
+                        <div class="text-muted" style="font-size:0.7rem;">{{ row.notice.created_at|bd('%I:%M %p') }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('noticeboard.notice_detail', notice_id=row.notice.id) }}" class="fw-semibold text-decoration-none">
+                            {{ row.notice.title }}
+                        </a>
+                        <div class="small text-muted d-md-none">{{ row.audience }}</div>
+                    </td>
+                    <td class="d-none d-md-table-cell small text-muted" style="max-width: 220px;">{{ row.audience }}</td>
+                    {% if can_broadcast %}
+                    <td class="d-none d-lg-table-cell small">{{ row.author }}</td>
+                    {% endif %}
+                    <td class="text-end text-nowrap">
+                        <a href="{{ url_for('noticeboard.notice_pdf', notice_id=row.notice.id) }}" class="btn btn-sm btn-outline-secondary" title="PDF">
+                            <i class="fas fa-file-pdf"></i>
+                        </a>
+                        {% if row.can_manage %}
+                        <a href="{{ url_for('noticeboard.edit', notice_id=row.notice.id) }}" class="btn btn-sm btn-outline-primary" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </a>
+                        <form method="post" action="{{ url_for('noticeboard.delete', notice_id=row.notice.id) }}" class="d-inline"
+                              onsubmit="return confirm('Delete this notice?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

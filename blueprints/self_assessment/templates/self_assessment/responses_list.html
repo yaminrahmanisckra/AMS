@@ -46,7 +46,7 @@
                 {% for r in responses %}
                 <tr class="{% if not (r.is_read|default(true)) %}fw-bold{% endif %}">
                     <td>{{ loop.index }}</td>
-                    <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
+                    <td>{{ r.created_at|bd('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
                     <td>
                         <form method="post" action="{{ url_for('self_assessment.survey_response_toggle_read', survey_type=survey_type, response_id=r.id) }}" class="d-inline">
                             <button type="submit" class="btn btn-sm {% if r.is_read|default(true) %}btn-outline-secondary{% else %}btn-secondary{% endif %}" title="{% if r.is_read|default(true) %}Mark as unread{% else %}Mark as read{% endif %}">
@@ -103,7 +103,7 @@
                 {% for r in responses %}
                 <tr class="{% if not (r.is_read|default(true)) %}fw-bold{% endif %}">
                     <td>{{ loop.index }}</td>
-                    <td>{{ r.created_at.strftime('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
+                    <td>{{ r.created_at|bd('%Y-%m-%d %H:%M') if r.created_at else '–' }}</td>
                     <td>
                         <form method="post" action="{{ url_for('self_assessment.survey_response_toggle_read', survey_type=survey_type, response_id=r.id) }}" class="d-inline">
                             <button type="submit" class="btn btn-sm {% if r.is_read|default(true) %}btn-outline-secondary{% else %}btn-secondary{% endif %}" title="{% if r.is_read|default(true) %}Mark as unread{% else %}Mark as read{% endif %}">

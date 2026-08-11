@@ -155,7 +155,7 @@ def _extract_text_openai_compatible(response):
     return content, usage
 
 
-def _call_openai(cfg, system_prompt, user_prompt, timeout=120):
+def _call_openai(cfg, system_prompt, user_prompt, timeout=120, json_mode=True):
     base = _clean_optional_url(cfg.get('api_base_url')) or 'https://api.openai.com/v1'
     url = f'{base}/chat/completions'
     body = {
@@ -166,8 +166,9 @@ def _call_openai(cfg, system_prompt, user_prompt, timeout=120):
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_prompt},
         ],
-        'response_format': {'type': 'json_object'},
     }
+    if json_mode:
+        body['response_format'] = {'type': 'json_object'}
     headers = {
         'Authorization': f'Bearer {cfg["api_key"]}',
         'Content-Type': 'application/json',
@@ -201,18 +202,20 @@ def _normalize_gemini_model(model_name):
     return lowered
 
 
-def _call_gemini(cfg, system_prompt, user_prompt, timeout=120):
+def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True):
     model = _normalize_gemini_model(cfg['model_name'])
     base = _clean_optional_url(cfg.get('api_base_url')) or 'https://generativelanguage.googleapis.com/v1beta'
     url = f'{base}/models/{model}:generateContent?key={cfg["api_key"].strip()}'
+    generation_config = {
+        'temperature': cfg['temperature'],
+        'maxOutputTokens': cfg['max_tokens'],
+    }
+    if json_mode:
+        generation_config['responseMimeType'] = 'application/json'
     body = {
         'systemInstruction': {'parts': [{'text': system_prompt}]},
         'contents': [{'role': 'user', 'parts': [{'text': user_prompt}]}],
-        'generationConfig': {
-            'temperature': cfg['temperature'],
-            'maxOutputTokens': cfg['max_tokens'],
-            'responseMimeType': 'application/json',
-        },
+        'generationConfig': generation_config,
     }
     headers = {'Content-Type': 'application/json'}
     response = _http_post_json(url, headers, body, timeout=timeout, provider='gemini')
@@ -264,9 +267,9 @@ def generate_outline_json_with_meta(system_prompt, user_prompt):
         if provider == AIProviderSetting.PROVIDER_DEEPSEEK and not cfg.get('api_base_url'):
             cfg = dict(cfg)
             cfg['api_base_url'] = 'https://api.deepseek.com/v1'
-        text, usage = _call_openai(cfg, system_prompt, user_prompt)
+        text, usage = _call_openai(cfg, system_prompt, user_prompt, json_mode=True)
     elif provider == AIProviderSetting.PROVIDER_GEMINI:
-        text, usage = _call_gemini(cfg, system_prompt, user_prompt)
+        text, usage = _call_gemini(cfg, system_prompt, user_prompt, json_mode=True)
     elif provider == AIProviderSetting.PROVIDER_ANTHROPIC:
         text, usage = _call_anthropic(cfg, system_prompt, user_prompt)
     else:
@@ -284,6 +287,34 @@ def generate_outline_json_with_meta(system_prompt, user_prompt):
 
 def generate_outline_json(system_prompt, user_prompt):
     return generate_outline_json_with_meta(system_prompt, user_prompt)['text']
+
+
+def generate_text_with_meta(system_prompt, user_prompt):
+    """Call AI for free-form text/HTML (no JSON response_format)."""
+    cfg = get_active_provider_setting()
+    provider = cfg['provider']
+    started = time.monotonic()
+
+    if provider in (AIProviderSetting.PROVIDER_OPENAI, AIProviderSetting.PROVIDER_DEEPSEEK):
+        if provider == AIProviderSetting.PROVIDER_DEEPSEEK and not cfg.get('api_base_url'):
+            cfg = dict(cfg)
+            cfg['api_base_url'] = 'https://api.deepseek.com/v1'
+        text, usage = _call_openai(cfg, system_prompt, user_prompt, json_mode=False)
+    elif provider == AIProviderSetting.PROVIDER_GEMINI:
+        text, usage = _call_gemini(cfg, system_prompt, user_prompt, json_mode=False)
+    elif provider == AIProviderSetting.PROVIDER_ANTHROPIC:
+        text, usage = _call_anthropic(cfg, system_prompt, user_prompt)
+    else:
+        raise AIClientError(f'Unsupported AI provider: {provider}')
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    return {
+        'text': text,
+        'provider': provider,
+        'model_name': cfg['model_name'],
+        'usage': usage,
+        'duration_ms': duration_ms,
+    }
 
 
 def test_provider_connection(provider, api_key, model_name=None, api_base_url=None):

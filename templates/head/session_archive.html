@@ -134,11 +134,11 @@
                             {% endif %}
                             <small class="text-muted">
                                 <i class="fas fa-user me-1"></i>{{ archive.archived_by or 'System' }}<br>
-                                <i class="fas fa-calendar me-1"></i>{{ archive.archived_at.strftime('%Y-%m-%d %H:%M') if archive.archived_at else 'N/A' }}
+                                <i class="fas fa-calendar me-1"></i>{{ archive.archived_at|bd('%Y-%m-%d %H:%M') if archive.archived_at else 'N/A' }}
                             </small>
                             {% if archive.restored_at %}
                             <br><small class="text-muted">
-                                <i class="fas fa-undo me-1"></i>Restored: {{ archive.restored_at.strftime('%Y-%m-%d %H:%M') }}
+                                <i class="fas fa-undo me-1"></i>Restored: {{ archive.restored_at|bd('%Y-%m-%d %H:%M') }}
                             </small>
                             {% endif %}
                         </div>

@@ -66,7 +66,7 @@
                                 {% for key, label in extra_field_defs %}
                                 <tr><th>{{ label }}</th><td>{{ extra.get(key) or '—' }}</td></tr>
                                 {% endfor %}
-                                <tr><th>Submitted At</th><td>{{ candidate.created_at.strftime('%d %b %Y, %I:%M %p') if candidate.created_at else '—' }}</td></tr>
+                                <tr><th>Submitted At</th><td>{{ candidate.created_at|bd('%d %b %Y, %I:%M %p') if candidate.created_at else '—' }}</td></tr>
                             </table>
                         </div>
                     </div>
@@ -179,7 +179,7 @@
                             {% if doc.verified_by and doc.verifier %}
                             <div class="small text-muted mb-2">
                                 Checked by {{ doc.verifier.full_name }}
-                                {% if doc.verified_at %} · {{ doc.verified_at.strftime('%d %b %Y, %I:%M %p') }}{% endif %}
+                                {% if doc.verified_at %} · {{ doc.verified_at|bd('%d %b %Y, %I:%M %p') }}{% endif %}
                             </div>
                             {% endif %}
                             {% if doc.note %}
@@ -284,7 +284,7 @@
                             <td>
                                 {{ candidate.verifier.full_name }}
                                 {% if candidate.verified_at %}
-                                <span class="text-muted">· {{ candidate.verified_at.strftime('%d %b %Y %I:%M %p') }}</span>
+                                <span class="text-muted">· {{ candidate.verified_at|bd('%d %b %Y %I:%M %p') }}</span>
                                 {% endif %}
                                 {% if candidate.verifier.signature_path %}
                                 <div class="mt-2">

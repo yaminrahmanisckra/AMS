@@ -55,7 +55,7 @@
               <td>{{ course_scope_labels.get(inv.invited_scope, 'Part') }}</td>
               <td>{{ inviter.name if inviter else '—' }}</td>
               <td><span class="badge {{ badge }} text-uppercase">{{ inv.status }}</span></td>
-              <td class="small">{{ inv.created_at.strftime('%Y-%m-%d') if inv.created_at else '—' }}</td>
+              <td class="small">{{ inv.created_at|bd('%Y-%m-%d') if inv.created_at else '—' }}</td>
               <td>
                 {% if inv.status == 'pending' %}
                 <div class="d-flex flex-wrap gap-2">
@@ -200,7 +200,7 @@
                     {% endif %}
                   </td>
                   <td style="font-size: 0.8rem;">{{ inv.remarks or '—' }}</td>
-                  <td style="font-size: 0.8rem;">{{ inv.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td style="font-size: 0.8rem;">{{ inv.created_at|bd('%Y-%m-%d') }}</td>
                   <td>
                     <div class="d-flex flex-wrap gap-1">
                       {% if inv.status == 'invited' %}

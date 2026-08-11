@@ -498,6 +498,16 @@ html {
         'show': true
     }) %}
     {% endif %}
+    {% if show_noticeboard|default(false) %}
+    {% set _ = cards.append({
+        'title': 'Noticeboard',
+        'desc': 'Post notices for your course students; download PDF copies.',
+        'icon': 'fas fa-thumbtack',
+        'color_class': 'card-orange',
+        'url': url_for('noticeboard.index'),
+        'show': not is_teaching_assistant and not is_officer
+    }) %}
+    {% endif %}
 
     <div class="row g-3 g-md-4">
         {% for card in cards if card.show %}

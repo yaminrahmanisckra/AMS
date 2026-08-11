@@ -244,7 +244,7 @@ class StudentNotification(db.Model):
     __tablename__ = 'student_notification'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
-    type = db.Column(db.String(40), nullable=False)  # 'question_reply' | 'marks_revealed' | 'file_shared'
+    type = db.Column(db.String(40), nullable=False)  # 'question_reply' | 'marks_revealed' | 'file_shared' | 'notice'
     title = db.Column(db.String(300), nullable=False)
     link_url = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

@@ -14,6 +14,7 @@ from .models import Teacher, Room, AssignedCourse, Routine, SavedRoutine
 from blueprints.course_management.models import Course, DutyAssignment
 from .forms import TeacherForm, RoomForm, AssignCourseForm
 from datetime import datetime
+from utils.timezone import format_bd
 from collections import defaultdict
 from io import BytesIO
 from reportlab.lib import colors
@@ -207,12 +208,16 @@ def _year_term_matches_semester(year, term, semester):
 
 def _assignment_matches_semester_record(assignment, semester):
     """
-    Match assignment to active semester by year/term only.
+    Match assignment to active semester by year/term (and academic_session when both set).
 
     assignment.batch is often stale or empty when saved from curriculum, so
     routine uses the semester the user selected for the batch label.
     """
     if not assignment or not semester:
+        return False
+    a_sess = str(getattr(assignment, 'academic_session', None) or '').strip()
+    s_sess = str(getattr(semester, 'academic_session', None) or '').strip()
+    if a_sess and s_sess and a_sess != s_sess:
         return False
     return _year_term_matches_semester(
         getattr(assignment, 'year', None),
@@ -452,7 +457,7 @@ def _sync_routine_teachers_from_assignment(assignment, new_teacher, old_teacher_
     }
 
     if 'batch' in routine_columns and batch:
-        where_parts.append("COALESCE(batch, '') = :batch")
+        where_parts.append("(COALESCE(batch, '') = :batch OR COALESCE(batch, '') = '')")
         params['batch'] = batch
 
     if 'part' in routine_columns and part:
@@ -498,7 +503,16 @@ def _enrich_routine_entries_with_live_teachers(routine_data, persist=False, save
         return routine_data
 
     by_key = {}
+    by_nobatch = {}
     by_loose = {}
+    by_code_part = {}
+    part_ab = {}  # (code, year, term, batch) -> {'A': payload, 'B': payload}
+
+    def _put(store, key, value):
+        prev = store.get(key)
+        if not prev or (value.get('assignment_id') or 0) >= (prev.get('assignment_id') or 0):
+            store[key] = value
+
     for assignment in assignments:
         course = assignment.course
         if not course or not course.course_code:
@@ -520,9 +534,62 @@ def _enrich_routine_entries_with_live_teachers(routine_data, persist=False, save
             'term': term,
             'batch': batch,
             'part': part,
+            'assignment_id': assignment.id,
+            'teachers': [{
+                'id': teacher.id,
+                'name': teacher.name,
+                'short_name': teacher.call_sign or getattr(teacher, 'short_name', ''),
+            }] if teacher else [],
         }
-        by_key[f'{code}|{year}|{term}|{batch}|{part}'] = payload
-        by_loose[f'{code}|{batch}|{part}'] = payload
+
+        _put(by_key, f'{code}|{year}|{term}|{batch}|{part}', payload)
+        _put(by_nobatch, f'{code}|{year}|{term}|{part}', payload)
+        _put(by_loose, f'{code}|{batch}|{part}', payload)
+        _put(by_code_part, f'{code}|{part}', payload)
+
+        section = str(assignment.section or '').strip()
+        if section in ('A', 'B'):
+            for ab_batch in ({batch, ''} if batch else {''}):
+                ab_map = part_ab.setdefault((code, year, term, ab_batch), {})
+                prev = ab_map.get(section)
+                if not prev or (payload.get('assignment_id') or 0) >= (prev.get('assignment_id') or 0):
+                    ab_map[section] = payload
+
+    # Build Shared overlays from live Part A+B teachers
+    for (code, year, term, batch), parts in part_ab.items():
+        if 'A' not in parts and 'B' not in parts:
+            continue
+        teachers = []
+        shorts = []
+        primary_tid = None
+        for sec in ('A', 'B'):
+            p = parts.get(sec)
+            if not p:
+                continue
+            for t in (p.get('teachers') or []):
+                if t.get('id') is None:
+                    continue
+                if any(str(existing.get('id')) == str(t.get('id')) for existing in teachers):
+                    continue
+                teachers.append(t)
+                if t.get('short_name'):
+                    shorts.append(t['short_name'])
+            if primary_tid is None:
+                primary_tid = p.get('teacher_id')
+        shared_payload = {
+            'teacher_id': primary_tid,
+            'teacher_short_name': '/'.join(shorts),
+            'year': year,
+            'term': term,
+            'batch': batch,
+            'part': 'Shared',
+            'assignment_id': max((parts[s].get('assignment_id') or 0) for s in parts),
+            'teachers': teachers,
+        }
+        _put(by_key, f'{code}|{year}|{term}|{batch}|Shared', shared_payload)
+        _put(by_nobatch, f'{code}|{year}|{term}|Shared', shared_payload)
+        _put(by_loose, f'{code}|{batch}|Shared', shared_payload)
+        _put(by_code_part, f'{code}|Shared', shared_payload)
 
     pending_writes = []
     for entry in routine_data:
@@ -541,7 +608,11 @@ def _enrich_routine_entries_with_live_teachers(routine_data, persist=False, save
 
         match = by_key.get(f'{code}|{year}|{term}|{batch}|{part}')
         if not match:
+            match = by_nobatch.get(f'{code}|{year}|{term}|{part}')
+        if not match:
             match = by_loose.get(f'{code}|{batch}|{part}')
+        if not match:
+            match = by_code_part.get(f'{code}|{part}')
         if not match:
             continue
 
@@ -552,13 +623,15 @@ def _enrich_routine_entries_with_live_teachers(routine_data, persist=False, save
 
         teacher_changed = (
             (new_short and new_short != old_short) or
-            (new_tid and str(new_tid) != str(old_tid or ''))
+            (new_tid and str(new_tid) != str(old_tid or '')) or
+            (not new_short and old_short) or
+            (not new_tid and old_tid)
         )
 
-        if new_short:
-            entry['teacher_short_name'] = new_short
-        if new_tid:
-            entry['teacher_id'] = new_tid
+        entry['teacher_short_name'] = new_short
+        entry['teacher_id'] = new_tid
+        if match.get('teachers') is not None:
+            entry['teachers'] = match.get('teachers')
         if not year and match.get('year'):
             entry['year'] = match['year']
         if not term and match.get('term'):
@@ -750,24 +823,8 @@ def index():
         # Convert to objects for template compatibility
         saved_routines = []
         for row in rows:
-            # Format dates for display (handle string dates from SQLite)
-            updated_at_display = 'N/A'
-            if row[5]:
-                try:
-                    if isinstance(row[5], str):
-                        updated_at_display = row[5][:16].replace('T', ' ')
-                    else:
-                        updated_at_display = row[5].strftime('%Y-%m-%d %H:%M')
-                except:
-                    updated_at_display = str(row[5])[:16]
-            elif row[4]:
-                try:
-                    if isinstance(row[4], str):
-                        updated_at_display = row[4][:16].replace('T', ' ')
-                    else:
-                        updated_at_display = row[4].strftime('%Y-%m-%d %H:%M')
-                except:
-                    updated_at_display = str(row[4])[:16]
+            # Format dates for display (UTC → Bangladesh Time)
+            updated_at_display = format_bd(row[5] or row[4], '%Y-%m-%d %H:%M', default='N/A')
             
             sr = type('SavedRoutine', (), {
                 'id': row[0],
@@ -817,24 +874,7 @@ def public_routines():
         # Convert to objects for template compatibility
         revealed_routines = []
         for row in rows:
-            # Format dates for display
-            updated_at_display = 'N/A'
-            if row[5]:
-                try:
-                    if isinstance(row[5], str):
-                        updated_at_display = row[5][:16].replace('T', ' ')
-                    else:
-                        updated_at_display = row[5].strftime('%Y-%m-%d %H:%M')
-                except:
-                    updated_at_display = str(row[5])[:16]
-            elif row[4]:
-                try:
-                    if isinstance(row[4], str):
-                        updated_at_display = row[4][:16].replace('T', ' ')
-                    else:
-                        updated_at_display = row[4].strftime('%Y-%m-%d %H:%M')
-                except:
-                    updated_at_display = str(row[4])[:16]
+            updated_at_display = format_bd(row[5] or row[4], '%Y-%m-%d %H:%M', default='N/A')
             
             sr = type('SavedRoutine', (), {
                 'id': row[0],
@@ -1191,6 +1231,141 @@ def can_edit_routine():
     # No Routine Maker assignment - user can only view, not edit
     return False
 
+
+def _resolve_current_teacher():
+    """Best-effort Teacher row for the logged-in user."""
+    full_name = (getattr(current_user, 'full_name', None) or '').strip()
+    if not full_name:
+        return None
+
+    teacher = Teacher.query.filter_by(name=full_name).first()
+    if teacher:
+        return teacher
+
+    teacher = Teacher.query.filter(func.lower(Teacher.name) == full_name.lower()).first()
+    if teacher:
+        return teacher
+
+    teacher = Teacher.query.filter(func.lower(Teacher.name).like(f'%{full_name.lower()}%')).first()
+    return teacher
+
+
+def _collect_teacher_assigned_course_codes(teacher):
+    """Course codes assigned to a teacher (curriculum + routine maker tables + placed routine cells)."""
+    from blueprints.course_management.models import CourseSessionAssignment
+
+    codes = set()
+    if not teacher:
+        return codes
+
+    # Primary source used by routine maker course palette
+    for assignment in _query_for_routine_window(CourseSessionAssignment).filter_by(
+        teacher_id=teacher.id
+    ).all():
+        course = getattr(assignment, 'course', None)
+        code = str(getattr(course, 'course_code', '') or '').strip()
+        if code:
+            codes.add(code)
+
+    # Legacy / alternate assignment table
+    for assignment in _query_for_routine_window(AssignedCourse).filter_by(
+        teacher_id=teacher.id
+    ).all():
+        course = getattr(assignment, 'course', None)
+        code = str(getattr(course, 'course_code', '') or '').strip()
+        if code:
+            codes.add(code)
+
+    # Codes already placed on routines for this teacher in the current window
+    short_names = {
+        str(getattr(teacher, 'call_sign', '') or '').strip(),
+        str(getattr(teacher, 'short_name', '') or '').strip(),
+    }
+    short_names = {s for s in short_names if s}
+
+    routine_filters = [Routine.teacher_id == teacher.id]
+    if short_names:
+        routine_filters.append(Routine.teacher_short_name.in_(list(short_names)))
+        # Shared teachers may be stored as "AB/CD"
+        for short in short_names:
+            routine_filters.append(Routine.teacher_short_name.ilike(f'%{short}%'))
+
+    routine_rows = _query_for_routine_window(Routine).filter(or_(*routine_filters)).all()
+    for row in routine_rows:
+        code = str(getattr(row, 'course_code', '') or '').strip()
+        if code:
+            codes.add(code)
+
+    return codes
+
+
+def _get_viewer_course_filter_context():
+    """Course codes for filter presets (student registered / teacher assigned)."""
+    from role_utils import has_teacher_privileges
+    from utils.window_utils import filter_by_active_window
+
+    roles = parse_roles(getattr(current_user, 'role', None))
+    is_student = 'student' in roles and not has_teacher_privileges(current_user)
+
+    if is_student:
+        from blueprints.student_management.models import Student
+        from blueprints.course_management.models import StudentCourseRegistration
+
+        codes = []
+        student = Student.query.filter_by(student_id=getattr(current_user, 'username', None)).first()
+        if student:
+            query = StudentCourseRegistration.query.filter(
+                StudentCourseRegistration.student_id == student.id,
+                StudentCourseRegistration.status != 'archived',
+            )
+            try:
+                query = filter_by_active_window(query, StudentCourseRegistration, admin_override=False)
+            except Exception:
+                pass
+            codes = sorted({
+                str(reg.course_code or '').strip()
+                for reg in query.all()
+                if str(reg.course_code or '').strip()
+            })
+        return {
+            'viewer_type': 'student',
+            'my_course_codes': codes,
+            'my_courses_label': 'My registered courses',
+            'my_teacher_id': None,
+            'my_teacher_shorts': [],
+        }
+
+    if has_teacher_privileges(current_user):
+        teacher = _resolve_current_teacher()
+        codes = sorted(_collect_teacher_assigned_course_codes(teacher)) if teacher else []
+        shorts = []
+        teacher_id = None
+        if teacher:
+            teacher_id = teacher.id
+            for value in (
+                getattr(teacher, 'call_sign', None),
+                getattr(teacher, 'short_name', None),
+            ):
+                text_value = str(value or '').strip()
+                if text_value and text_value not in shorts:
+                    shorts.append(text_value)
+        return {
+            'viewer_type': 'teacher',
+            'my_course_codes': codes,
+            'my_courses_label': 'My assigned courses',
+            'my_teacher_id': teacher_id,
+            'my_teacher_shorts': shorts,
+        }
+
+    return {
+        'viewer_type': 'other',
+        'my_course_codes': [],
+        'my_courses_label': 'My courses',
+        'my_teacher_id': None,
+        'my_teacher_shorts': [],
+    }
+
+
 @routine_management_bp.route('/api/check-edit-permission')
 @login_required
 def check_edit_permission():
@@ -1345,6 +1520,7 @@ def view_routine():
             current_app.logger.warning(f'Could not load saved routine meta for view_routine {saved_routine_id}: {e}')
 
     # can_edit is already defined at the beginning of this function
+    viewer_filter = _get_viewer_course_filter_context()
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
@@ -1353,7 +1529,12 @@ def view_routine():
                            current_saved_routine=current_saved_routine,
                            lunch_after_slot=lunch_after_slot,
                            break_type=break_type,
-                           break_time_label=break_time_label)
+                           break_time_label=break_time_label,
+                           viewer_type=viewer_filter.get('viewer_type', 'other'),
+                           my_course_codes=viewer_filter.get('my_course_codes', []),
+                           my_courses_label=viewer_filter.get('my_courses_label', 'My courses'),
+                           my_teacher_id=viewer_filter.get('my_teacher_id'),
+                           my_teacher_shorts=viewer_filter.get('my_teacher_shorts', []))
 
 # Generate Routine (Only for Routine Makers)
 @routine_management_bp.route('/generate_routine')
@@ -1425,6 +1606,7 @@ def generate_routine():
             current_app.logger.warning(f'Could not load saved routine meta for generate_routine {saved_routine_id}: {e}')
 
     # can_edit is already defined at the beginning of this function
+    viewer_filter = _get_viewer_course_filter_context()
     return render_template('routine_management/routine_new.html', 
                            teachers=teachers, rooms=rooms, days=days, 
                            time_slots=time_slots, curricula=curricula,
@@ -1433,7 +1615,12 @@ def generate_routine():
                            current_saved_routine=current_saved_routine,
                            lunch_after_slot=lunch_after_slot,
                            break_type=break_type,
-                           break_time_label=break_time_label)
+                           break_time_label=break_time_label,
+                           viewer_type=viewer_filter.get('viewer_type', 'other'),
+                           my_course_codes=viewer_filter.get('my_course_codes', []),
+                           my_courses_label=viewer_filter.get('my_courses_label', 'My courses'),
+                           my_teacher_id=viewer_filter.get('my_teacher_id'),
+                           my_teacher_shorts=viewer_filter.get('my_teacher_shorts', []))
 
 # --- API Endpoints for Routine ---
 
@@ -1673,6 +1860,17 @@ def get_courses_batch_wise():
         courses_list = []
         seen_keys = set()
         part_a_assignments = {}
+        # Track newest assigned_id per (dedupe_key, batch) so same-batch reassigns
+        # replace the teacher instead of stacking stale ones.
+        batch_assignment_ids = {}
+
+        def _parse_assigned_id(value):
+            raw = str(value or '').strip()
+            if not raw:
+                return 0
+            # Shared ids look like shared_12_34 — use max numeric fragment
+            nums = [int(p) for p in raw.replace('shared_', '').split('_') if p.isdigit()]
+            return max(nums) if nums else 0
 
         def _append_course_entry(course_data):
             if not course_data:
@@ -1685,8 +1883,10 @@ def get_courses_batch_wise():
                 course_data.get('year'),
                 course_data.get('term'),
             )
+            new_batch = str(course_data.get('batch') or '').strip()
+            new_aid = _parse_assigned_id(course_data.get('assigned_id'))
+
             if dedupe_key in seen_keys:
-                # Merge additional teachers onto the existing card
                 for existing in courses_list:
                     if (
                         existing.get('course_code') == course_data.get('course_code')
@@ -1694,6 +1894,31 @@ def get_courses_batch_wise():
                         and existing.get('year') == course_data.get('year')
                         and existing.get('term') == course_data.get('term')
                     ):
+                        is_shared = bool(
+                            course_data.get('is_shared_slot') or existing.get('is_shared_slot')
+                        )
+                        existing_batch = str(existing.get('batch') or '').strip()
+                        batch_key = (dedupe_key, new_batch or existing_batch)
+                        prev_aid = batch_assignment_ids.get(batch_key, 0)
+                        same_or_blank_batch = (
+                            (new_batch and existing_batch and new_batch == existing_batch)
+                            or (not new_batch and not existing_batch)
+                            or (bool(new_batch) != bool(existing_batch))  # one side blank
+                        )
+
+                        if not is_shared and same_or_blank_batch:
+                            # Same offering (incl. blank-batch legacy rows): keep newest CSA only
+                            if new_aid >= prev_aid:
+                                existing['teachers'] = list(course_data.get('teachers') or [])
+                                existing['teacher_id'] = course_data.get('teacher_id')
+                                existing['assigned_id'] = course_data.get('assigned_id')
+                                if new_batch:
+                                    existing['batch'] = new_batch
+                                batch_assignment_ids[batch_key] = new_aid
+                                batch_assignment_ids[(dedupe_key, existing_batch)] = new_aid
+                            break
+
+                        # Distinct non-empty batches: merge teachers onto one card
                         existing_ids = {
                             str(t.get('id')) for t in (existing.get('teachers') or []) if t.get('id') is not None
                         }
@@ -1702,9 +1927,12 @@ def get_courses_batch_wise():
                             if tid is not None and str(tid) not in existing_ids:
                                 existing.setdefault('teachers', []).append(teacher)
                                 existing_ids.add(str(tid))
+                        if new_aid >= prev_aid:
+                            batch_assignment_ids[batch_key] = new_aid
                         break
                 return
             seen_keys.add(dedupe_key)
+            batch_assignment_ids[(dedupe_key, new_batch)] = new_aid
             courses_by_batch[response_key].append(course_data)
             courses_list.append(course_data)
 
@@ -2892,9 +3120,23 @@ def download_pdf():
     try:
         # PDF download is view-only, so no permission check needed
         data = request.get_json() or {}
-        routine_list = data.get('routine', [])
+        routine_list = data.get('routine', []) or []
         title_text = request.args.get('title', 'Class Routine')
         date_text = request.args.get('date', '')
+
+        # Optional course-code filter (view-only client select-before-download)
+        course_codes_filter = data.get('course_codes')
+        if isinstance(course_codes_filter, list) and course_codes_filter:
+            allowed_codes = {
+                str(code).strip()
+                for code in course_codes_filter
+                if str(code).strip()
+            }
+            if allowed_codes:
+                routine_list = [
+                    item for item in routine_list
+                    if str((item or {}).get('course_code') or '').strip() in allowed_codes
+                ]
 
         # Create a mapping from the list for easy lookup
         # Use day, slot (which may be edited), and room_id as key

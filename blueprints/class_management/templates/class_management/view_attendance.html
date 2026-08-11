@@ -48,13 +48,24 @@
                 {% endif %}
             </div>
             {% endif %}
-             <div class="att-report-primary">
-             <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success mb-3">
-                <i class="fas fa-clipboard-check me-1"></i>Take or Update Attendance
-            </a>
-            <button type="button" class="btn btn-danger mb-3" data-bs-toggle="modal" data-bs-target="#deleteDateModal">
-                <i class="fas fa-trash-alt me-1"></i> Delete by Date
-            </button>
+             <div class="att-report-toolbar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <div class="att-report-primary">
+                    <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
+                        <i class="fas fa-clipboard-check me-1"></i><span class="att-btn-full">Take or Update Attendance</span><span class="att-btn-short d-none">Take / Update</span>
+                    </a>
+                    <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteDateModal">
+                        <i class="fas fa-trash-alt me-1"></i><span class="att-btn-full">Delete by Date</span><span class="att-btn-short d-none">Delete</span>
+                    </button>
+                </div>
+                {% if student_report_data or (is_split_course and teacher_attendance_data) %}
+                <div class="edit-toggle mb-0">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="editModeToggle">
+                        <label class="form-check-label" for="editModeToggle">Edit mode</label>
+                    </div>
+                    <small class="att-edit-hint text-muted d-none">Tap P / A / S to cycle</small>
+                </div>
+                {% endif %}
             </div>
             
             {% if is_split_course and teacher_attendance_data %}
@@ -117,9 +128,6 @@
                         text-align: left;
                         min-width: 180px;
                     }
-                    .edit-toggle {
-                        margin-bottom: 1rem;
-                    }
                     .attendance-cell.editable {
                         cursor: pointer;
                         transition: background-color 0.2s ease;
@@ -140,17 +148,13 @@
                     .status-skip {
                         color: #9a6700 !important;
                     }
+                    .att-date-short { display: none; }
+                    .att-date-full { display: inline; }
+                    .attendance-cell.saving { opacity: 0.55; pointer-events: none; }
                 </style>
                 
-                <div class="d-flex justify-content-end edit-toggle">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="editModeToggle">
-                        <label class="form-check-label" for="editModeToggle">Edit mode</label>
-                    </div>
-                </div>
-                
                 {% for teacher_data in teacher_attendance_data %}
-                <div class="card shadow-sm mb-4">
+                <div class="card shadow-sm mb-4 att-teacher-card">
                     <div class="card-header {% if teacher_data.session.id == session.id %}bg-primary{% else %}bg-secondary{% endif %} text-white">
                         <h5 class="mb-0">
                             <i class="fas fa-chalkboard-teacher me-2"></i>
@@ -164,34 +168,37 @@
                             Total classes for marks: {{ attendance_summary.total_classes }}
                         </small>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-2 p-md-3">
                         {% if teacher_data.student_report_data %}
-                            <div class="table-responsive m-table-scroll-sticky">
-                                <table class="attendance-table m-keep-table" data-session-id="{{ teacher_data.session.id }}">
+                            <div class="table-responsive m-table-scroll-sticky att-report-scroll">
+                                <table class="attendance-table m-keep-table att-report-table" data-session-id="{{ teacher_data.session.id }}">
                                     <thead>
                                         <tr>
-                                            <th rowspan="2" class="freeze-col-1">#</th>
-                                            <th rowspan="2" class="freeze-col-2">Student ID</th>
-                                            <th rowspan="2" class="student-name freeze-col-3">Name</th>
-                                            <th colspan="{{ teacher_data.headers_with_meta|length }}">Attendance ({{ teacher_data.scope_label }})</th>
-                                            <th rowspan="2">Classes (This Part)</th>
-                                            <th rowspan="2">Total Classes</th>
-                                            <th rowspan="2">Present Days</th>
-                                            <th rowspan="2">Percentage</th>
-                                            <th rowspan="2">Marks</th>
+                                            <th rowspan="2" class="freeze-col-1 att-col-si">#</th>
+                                            <th rowspan="2" class="freeze-col-2 att-col-id">ID</th>
+                                            <th rowspan="2" class="student-name freeze-col-3 att-col-name">Name</th>
+                                            <th colspan="{{ teacher_data.headers_with_meta|length }}" class="att-col-group">Attendance ({{ teacher_data.scope_label }})</th>
+                                            <th rowspan="2" class="att-col-part">Part</th>
+                                            <th rowspan="2" class="att-col-total">Total</th>
+                                            <th rowspan="2" class="att-col-present">Present</th>
+                                            <th rowspan="2" class="att-col-pct">%</th>
+                                            <th rowspan="2" class="att-col-marks">Marks</th>
                                         </tr>
                                         <tr>
                                             {% for header in teacher_data.headers_with_meta %}
-                                                <th data-date="{{ header.date }}" data-slot="{{ header.slot }}">{{ header.label }}</th>
+                                                <th class="att-date-th" data-date="{{ header.date }}" data-slot="{{ header.slot }}" title="{{ header.label }}">
+                                                    <span class="att-date-full">{{ header.label }}</span>
+                                                    <span class="att-date-short">{{ header.label.split(',')[0] }}</span>
+                                                </th>
                                             {% endfor %}
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {% for data in teacher_data.student_report_data %}
-                                        <tr data-student-db-id="{{ data.info.id }}">
-                                            <td class="freeze-col-1">{{ loop.index }}</td>
-                                            <td class="freeze-col-2"><strong>{{ data.info.student_id }}</strong></td>
-                                            <td class="student-name freeze-col-3">{{ data.info.name }}</td>
+                                        <tr data-student-db-id="{{ data.info.id }}" data-student-public-id="{{ data.info.student_id }}">
+                                            <td class="freeze-col-1 att-col-si">{{ loop.index }}</td>
+                                            <td class="freeze-col-2 att-col-id"><strong>{{ data.info.student_id }}</strong></td>
+                                            <td class="student-name freeze-col-3 att-col-name">{{ data.info.name }}</td>
                                             {% for cell in data.attendance_row %}
                                                 <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
                                                     {% if cell.status == 'P' %}
@@ -205,11 +212,11 @@
                                                     {% endif %}
                                                 </td>
                                             {% endfor %}
-                                            <td>{{ teacher_data.part_total_classes or 0 }}</td>
-                                            <td>{{ data.total_classes }}</td>
-                                            <td class="present-count">{{ data.present_count }}</td>
-                                            <td class="percentage-cell">{{ data.percentage }}</td>
-                                            <td class="marks-cell" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
+                                            <td class="att-col-part">{{ teacher_data.part_total_classes or 0 }}</td>
+                                            <td class="att-col-total total-classes-cell">{{ data.total_classes }}</td>
+                                            <td class="present-count att-col-present">{{ data.present_count }}</td>
+                                            <td class="percentage-cell att-col-pct">{{ data.percentage }}</td>
+                                            <td class="marks-cell att-col-marks" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
                                                 <div class="d-flex align-items-center gap-1 justify-content-center">
                                                     <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit" 
                                                            value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
@@ -320,9 +327,6 @@
                         text-align: left;
                         min-width: 180px;
                     }
-                    .edit-toggle {
-                        margin-bottom: 1rem;
-                    }
                     .attendance-cell.editable {
                         cursor: pointer;
                         transition: background-color 0.2s ease;
@@ -343,43 +347,42 @@
                     .status-skip {
                         color: #9a6700 !important;
                     }
+                    .att-date-short { display: none; }
+                    .att-date-full { display: inline; }
+                    .attendance-cell.saving { opacity: 0.55; pointer-events: none; }
                 </style>
-                
-                <div class="d-flex justify-content-end edit-toggle">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="editModeToggle">
-                        <label class="form-check-label" for="editModeToggle">Edit mode</label>
-                    </div>
-                </div>
 
-                <div class="table-responsive m-table-scroll-sticky">
-                    <table class="attendance-table m-keep-table" data-session-id="{{ session.id }}">
+                <div class="table-responsive m-table-scroll-sticky att-report-scroll">
+                    <table class="attendance-table m-keep-table att-report-table" data-session-id="{{ session.id }}">
                         <thead>
                             <tr>
-                                <th rowspan="2" class="freeze-col-1">#</th>
-                                <th rowspan="2" class="freeze-col-2">Student ID</th>
-                                <th rowspan="2" class="student-name freeze-col-3">Name</th>
-                                <th colspan="{{ headers_with_meta|length }}">Attendance</th>
+                                <th rowspan="2" class="freeze-col-1 att-col-si">#</th>
+                                <th rowspan="2" class="freeze-col-2 att-col-id">Student ID</th>
+                                <th rowspan="2" class="student-name freeze-col-3 att-col-name">Name</th>
+                                <th colspan="{{ headers_with_meta|length }}" class="att-col-group">Attendance</th>
                                 {% if session.course_scope in ['part_a', 'part_b'] %}
-                                <th rowspan="2">Classes (This Part)</th>
+                                <th rowspan="2" class="att-col-part">Classes (This Part)</th>
                                 {% endif %}
-                                <th rowspan="2">Total Classes</th>
-                                <th rowspan="2">Present Days</th>
-                                <th rowspan="2">Percentage</th>
-                                <th rowspan="2">Marks</th>
+                                <th rowspan="2" class="att-col-total">Total Classes</th>
+                                <th rowspan="2" class="att-col-present">Present Days</th>
+                                <th rowspan="2" class="att-col-pct">Percentage</th>
+                                <th rowspan="2" class="att-col-marks">Marks</th>
                             </tr>
                             <tr>
                                 {% for header in headers_with_meta %}
-                                    <th data-date="{{ header.date }}" data-slot="{{ header.slot }}">{{ header.label }}</th>
+                                    <th class="att-date-th" data-date="{{ header.date }}" data-slot="{{ header.slot }}" title="{{ header.label }}">
+                                        <span class="att-date-full">{{ header.label }}</span>
+                                        <span class="att-date-short">{{ header.label.split(',')[0] }}</span>
+                                    </th>
                                 {% endfor %}
                             </tr>
                         </thead>
                         <tbody>
                             {% for data in student_report_data %}
-                            <tr data-student-db-id="{{ data.info.id }}">
-                                <td class="freeze-col-1">{{ loop.index }}</td>
-                                <td class="freeze-col-2"><strong>{{ data.info.student_id }}</strong></td>
-                                <td class="student-name freeze-col-3">{{ data.info.name }}</td>
+                            <tr data-student-db-id="{{ data.info.id }}" data-student-public-id="{{ data.info.student_id }}">
+                                <td class="freeze-col-1 att-col-si">{{ loop.index }}</td>
+                                <td class="freeze-col-2 att-col-id"><strong>{{ data.info.student_id }}</strong></td>
+                                <td class="student-name freeze-col-3 att-col-name">{{ data.info.name }}</td>
                                 {% for cell in data.attendance_row %}
                                     <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
                                         {% if cell.status == 'P' %}
@@ -394,12 +397,12 @@
                                     </td>
                                 {% endfor %}
                                 {% if session.course_scope in ['part_a', 'part_b'] %}
-                                <td>{{ part_total_classes or 0 }}</td>
+                                <td class="att-col-part">{{ part_total_classes or 0 }}</td>
                                 {% endif %}
-                                <td>{{ data.total_classes }}</td>
-                                <td class="present-count">{{ data.present_count }}</td>
-                                <td class="percentage-cell">{{ data.percentage }}</td>
-                                <td class="marks-cell" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
+                                <td class="att-col-total total-classes-cell">{{ data.total_classes }}</td>
+                                <td class="present-count att-col-present">{{ data.present_count }}</td>
+                                <td class="percentage-cell att-col-pct">{{ data.percentage }}</td>
+                                <td class="marks-cell att-col-marks" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
                                     <div class="d-flex align-items-center gap-1 justify-content-center">
                                         <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit" 
                                                value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
@@ -442,33 +445,21 @@ const statusClassMap = {
     '-': 'status text-muted'
 };
 
-// Restore edit mode state from localStorage
 if (editToggle) {
-    const savedEditMode = localStorage.getItem('attendance_edit_mode_' + {{ session.id }});
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:410',message:'Restoring edit mode from localStorage',data:{savedEditMode:savedEditMode,sessionId:{{ session.id }}},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-    // #endregion
+    const savedEditMode = localStorage.getItem('attendance_edit_mode_' + sessionId);
     if (savedEditMode === 'true') {
         editToggle.checked = true;
         toggleEditableState(true);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:414',message:'Edit mode restored to true',data:{checkboxChecked:editToggle.checked},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
     }
-    
     editToggle.addEventListener('change', function() {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:418',message:'Edit mode checkbox changed',data:{checked:this.checked},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-        // #endregion
         toggleEditableState(this.checked);
-        // Save edit mode state to localStorage
-        localStorage.setItem('attendance_edit_mode_' + {{ session.id }}, this.checked ? 'true' : 'false');
+        localStorage.setItem('attendance_edit_mode_' + sessionId, this.checked ? 'true' : 'false');
+        document.body.classList.toggle('att-edit-on', this.checked);
     });
+    document.body.classList.toggle('att-edit-on', editToggle.checked);
 }
 
 function toggleEditableState(enabled) {
-    // Get all attendance cells from all tables (works for both split and non-split).
-    // When edit mode is on, all cells (including '-' with no record) are editable.
     const attendanceCells = document.querySelectorAll('.attendance-cell');
     attendanceCells.forEach(cell => {
         cell.classList.remove('editable', 'editing');
@@ -480,18 +471,48 @@ function toggleEditableState(enabled) {
     });
 }
 
+function applyStudentStats(publicStudentId, data) {
+    if (!publicStudentId) return;
+    document.querySelectorAll(`tr[data-student-public-id="${publicStudentId}"]`).forEach(row => {
+        const presentCell = row.querySelector('.present-count');
+        const percentageCell = row.querySelector('.percentage-cell');
+        const totalClassesCell = row.querySelector('.total-classes-cell');
+        const marksCell = row.querySelector('.marks-cell');
+        if (presentCell && data.present_count !== undefined) presentCell.textContent = data.present_count;
+        if (percentageCell && data.percentage !== undefined) percentageCell.textContent = data.percentage;
+        if (totalClassesCell && data.total_classes !== undefined) totalClassesCell.textContent = data.total_classes;
+        if (marksCell) {
+            const displaySpan = marksCell.querySelector('.marks-display');
+            const inputField = marksCell.querySelector('.marks-input-edit');
+            const manualBadge = marksCell.querySelector('.manual-badge');
+            if (!data.marks_manual && displaySpan) {
+                displaySpan.textContent = data.marks;
+                if (inputField) {
+                    inputField.value = data.marks;
+                    inputField.dataset.originalValue = data.marks;
+                }
+                if (manualBadge) manualBadge.style.display = 'none';
+            }
+        }
+    });
+}
+
 function onAttendanceCellClick(event) {
     const cell = event.currentTarget;
+    if (cell.classList.contains('saving')) return;
+
     const recordId = cell.dataset.recordId;
     const date = cell.dataset.date;
     const slot = parseInt(cell.dataset.slot || '0', 10);
     const row = cell.closest('tr');
     const classStudentId = row ? (row.dataset.studentDbId || cell.dataset.studentId) : null;
+    const publicStudentId = row ? row.dataset.studentPublicId : null;
 
     cell.classList.add('editing');
     setTimeout(() => cell.classList.remove('editing'), 200);
 
     function updateCellAndRow(data) {
+        cell.classList.remove('saving');
         if (!data.success) {
             alert(data.message || 'Failed to update attendance.');
             return;
@@ -502,61 +523,31 @@ function onAttendanceCellClick(event) {
         const normalizedStatus = (data.status || '-').toString().trim().toUpperCase();
         statusSpan.textContent = normalizedStatus;
         statusSpan.className = statusClassMap[normalizedStatus] || statusClassMap['-'];
-        if (data.record_id) {
-            cell.classList.add('has-record');
-        } else {
-            cell.classList.remove('has-record');
-        }
-        {% if is_split_course %}
-        const editModeState = editToggle ? editToggle.checked : false;
-        localStorage.setItem('attendance_edit_mode_' + sessionId, editModeState ? 'true' : 'false');
-        window.location.reload();
-        {% else %}
-        if (row) {
-            const presentCell = row.querySelector('.present-count');
-            const percentageCell = row.querySelector('.percentage-cell');
-            const totalClassesCell = row.children[row.children.length - 4];
-            const marksCell = row.querySelector('.marks-cell');
-            if (presentCell) presentCell.textContent = data.present_count;
-            if (percentageCell) percentageCell.textContent = data.percentage;
-            if (totalClassesCell && data.total_classes !== undefined) totalClassesCell.textContent = data.total_classes;
-            if (marksCell) {
-                const displaySpan = marksCell.querySelector('.marks-display');
-                const inputField = marksCell.querySelector('.marks-input-edit');
-                const manualBadge = marksCell.querySelector('.manual-badge');
-                if (data.marks_manual && displaySpan) { /* keep manual marks */ }
-                else if (displaySpan) {
-                    displaySpan.textContent = data.marks;
-                    if (inputField) {
-                        inputField.value = data.marks;
-                        inputField.dataset.originalValue = data.marks;
-                    }
-                    if (manualBadge && !data.marks_manual) manualBadge.style.display = 'none';
-                } else {
-                    marksCell.textContent = data.marks;
-                }
-            }
-        }
-        {% endif %}
+        if (data.record_id) cell.classList.add('has-record');
+        else cell.classList.remove('has-record');
+        applyStudentStats(publicStudentId, data);
     }
 
     const currentStatus = (cell.querySelector('.status')?.textContent || '-').trim().toUpperCase();
     const nextStatus = statusCycle[currentStatus] || 'P';
+    cell.classList.add('saving');
 
     if (recordId) {
-    fetch(`${toggleBaseUrl}${recordId}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ target_status: nextStatus })
-    })
-    .then(response => response.json())
-    .then(updateCellAndRow)
-    .catch(() => alert('Failed to update attendance.'));
+        fetch(`${toggleBaseUrl}${recordId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ target_status: nextStatus })
+        })
+        .then(response => response.json())
+        .then(updateCellAndRow)
+        .catch(() => {
+            cell.classList.remove('saving');
+            alert('Failed to update attendance.');
+        });
     } else {
         if (!classStudentId || !date || !slot) {
+            cell.classList.remove('saving');
             alert('Cannot add attendance: missing student, date, or slot.');
             return;
         }
@@ -567,121 +558,88 @@ function onAttendanceCellClick(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ class_student_id: parseInt(classStudentId, 10), date: date, slot: slot, target_status: nextStatus })
+            body: JSON.stringify({
+                class_student_id: parseInt(classStudentId, 10),
+                date: date,
+                slot: slot,
+                target_status: nextStatus
+            })
         })
         .then(response => response.json())
         .then(updateCellAndRow)
-        .catch(() => alert('Failed to create attendance record.'));
+        .catch(() => {
+            cell.classList.remove('saving');
+            alert('Failed to create attendance record.');
+        });
     }
 }
 
-// Initialize edit mode state (after localStorage restore)
-// #region agent log
-if (editToggle) {
-    fetch('http://127.0.0.1:7242/ingest/94c1359e-e6ba-48ed-8763-478a9abd1da0',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'view_attendance.html:515',message:'Initial toggleEditableState call',data:{editToggleExists:!!editToggle,checked:editToggle?editToggle.checked:false},timestamp:Date.now(),sessionId:'debug-session'})}).catch(()=>{});
-}
-// #endregion
 toggleEditableState(editToggle && editToggle.checked);
 
-// Manual attendance marks editing
 document.addEventListener('DOMContentLoaded', function() {
     const marksCells = document.querySelectorAll('.marks-cell');
-    const sessionId = {{ session.id }};
-    
+
     marksCells.forEach(cell => {
         const displaySpan = cell.querySelector('.marks-display');
         const inputField = cell.querySelector('.marks-input-edit');
         const manualBadge = cell.querySelector('.manual-badge');
         const studentId = cell.dataset.studentId;
-        
+
         if (!displaySpan || !inputField) return;
-        
-        // Make cell clickable to edit
+
         displaySpan.style.cursor = 'pointer';
         displaySpan.title = 'Click to edit marks';
-        
+
         displaySpan.addEventListener('click', function() {
             displaySpan.style.display = 'none';
             inputField.style.display = 'inline-block';
             inputField.focus();
             inputField.select();
         });
-        
-        // Make manual badge clickable to clear manual marks
+
         if (manualBadge) {
             manualBadge.title = 'Click to clear manual marks and use auto-calculation';
             manualBadge.style.cursor = 'pointer';
-            
+
             manualBadge.addEventListener('click', function(e) {
-                e.stopPropagation(); // Prevent triggering marks cell click
-                
-                if (!confirm('Clear manual marks and use auto-calculated marks?')) {
-                    return;
-                }
-                
-                // Clear manual marks by sending empty value
+                e.stopPropagation();
+                if (!confirm('Clear manual marks and use auto-calculated marks?')) return;
+
                 fetch(`/class-management/save_attendance_marks_manual/${sessionId}`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
-                    body: JSON.stringify({
-                        student_id: studentId,
-                        marks: '' // Empty value clears manual marks
-                    })
+                    body: JSON.stringify({ student_id: studentId, marks: '' })
                 })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        // Update marks display with auto-calculated value
-                        displaySpan.textContent = data.marks;
-                        inputField.value = data.marks;
-                        inputField.dataset.originalValue = data.marks;
-                        
-                        // Hide manual badge
+                        applyStudentStats(studentId, {
+                            present_count: data.present_count,
+                            percentage: data.percentage,
+                            marks: data.marks,
+                            marks_manual: false,
+                            total_classes: data.total_classes
+                        });
                         manualBadge.style.display = 'none';
-                        
-                        // Update present count and percentage if available
-                        const row = cell.closest('tr');
-                        if (row) {
-                            const presentCell = row.querySelector('.present-count');
-                            const percentageCell = row.querySelector('.percentage-cell');
-                            if (presentCell && data.present_count !== undefined) {
-                                presentCell.textContent = data.present_count;
-                            }
-                            if (percentageCell && data.percentage) {
-                                percentageCell.textContent = data.percentage;
-                            }
-                        }
                     } else {
                         alert(data.message || 'Failed to clear manual marks');
                     }
                 })
-                .catch(error => {
-                    console.error('Error clearing manual marks:', error);
-                    alert('Failed to clear manual marks');
-                });
+                .catch(() => alert('Failed to clear manual marks'));
             });
         }
-        
-        // Handle input blur (save on blur)
+
         inputField.addEventListener('blur', function() {
             const newValue = inputField.value;
             const originalValue = inputField.dataset.originalValue;
-            
+
             if (newValue !== originalValue) {
-                // Save the new value
                 fetch(`/class-management/save_attendance_marks_manual/${sessionId}`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
-                    body: JSON.stringify({
-                        student_id: studentId,
-                        marks: newValue
-                    })
+                    body: JSON.stringify({ student_id: studentId, marks: newValue })
                 })
                 .then(response => response.json())
                 .then(data => {
@@ -689,34 +647,27 @@ document.addEventListener('DOMContentLoaded', function() {
                         displaySpan.textContent = data.marks;
                         inputField.dataset.originalValue = data.marks;
                         inputField.value = data.marks;
-                        
-                        // Show/hide manual badge
-                        if (data.marks_manual) {
-                            if (manualBadge) manualBadge.style.display = 'inline-block';
-                        } else {
-                            if (manualBadge) manualBadge.style.display = 'none';
+                        if (manualBadge) {
+                            manualBadge.style.display = data.marks_manual ? 'inline-block' : 'none';
                         }
                     } else {
                         alert(data.message || 'Failed to save marks');
                         inputField.value = originalValue;
                     }
                 })
-                .catch(error => {
-                    console.error('Error saving marks:', error);
+                .catch(() => {
                     alert('Failed to save marks');
                     inputField.value = originalValue;
                 });
             }
-            
+
             displaySpan.style.display = 'inline';
             inputField.style.display = 'none';
         });
-        
-        // Handle Enter key
+
         inputField.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                inputField.blur();
-            } else if (e.key === 'Escape') {
+            if (e.key === 'Enter') inputField.blur();
+            else if (e.key === 'Escape') {
                 inputField.value = inputField.dataset.originalValue;
                 inputField.blur();
             }
@@ -724,118 +675,76 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Calculate and set left positions for freeze columns dynamically
-// Works for both split and non-split courses
 document.addEventListener('DOMContentLoaded', function() {
     const tables = document.querySelectorAll('.attendance-table');
     if (!tables.length) return;
-    
-    // Wait for tables to be fully rendered
+
     setTimeout(function() {
         tables.forEach((table, tableIndex) => {
             const col1 = table.querySelector('th.freeze-col-1');
             const col2 = table.querySelector('th.freeze-col-2');
             const col3 = table.querySelector('th.freeze-col-3');
-            
-            if (col1 && col2 && col3) {
-                const col1Width = col1.offsetWidth;
-                const col2Width = col2.offsetWidth;
-                
-                // Set left positions dynamically for this table's freeze columns
-                const style = document.createElement('style');
-                style.id = `freeze-columns-style-${tableIndex}`;
-                style.textContent = `
-                    .attendance-table:nth-of-type(${tableIndex + 1}) thead th.freeze-col-2,
-                    .attendance-table:nth-of-type(${tableIndex + 1}) tbody td.freeze-col-2 {
-                        left: ${col1Width}px !important;
-                    }
-                    .attendance-table:nth-of-type(${tableIndex + 1}) thead th.freeze-col-3,
-                    .attendance-table:nth-of-type(${tableIndex + 1}) tbody td.freeze-col-3 {
-                        left: ${col1Width + col2Width}px !important;
-                    }
-                `;
-                // Remove existing style if any
-                const existingStyle = document.getElementById(`freeze-columns-style-${tableIndex}`);
-                if (existingStyle) {
-                    existingStyle.remove();
+            if (!col1 || !col2 || !col3) return;
+            if (window.matchMedia('(max-width: 991.98px)').matches) return;
+
+            const col1Width = col1.offsetWidth;
+            const col2Width = col2.offsetWidth;
+            const style = document.createElement('style');
+            style.id = `freeze-columns-style-${tableIndex}`;
+            style.textContent = `
+                .attendance-table:nth-of-type(${tableIndex + 1}) thead th.freeze-col-2,
+                .attendance-table:nth-of-type(${tableIndex + 1}) tbody td.freeze-col-2 {
+                    left: ${col1Width}px !important;
                 }
-                document.head.appendChild(style);
-            }
+                .attendance-table:nth-of-type(${tableIndex + 1}) thead th.freeze-col-3,
+                .attendance-table:nth-of-type(${tableIndex + 1}) tbody td.freeze-col-3 {
+                    left: ${col1Width + col2Width}px !important;
+                }
+            `;
+            const existingStyle = document.getElementById(`freeze-columns-style-${tableIndex}`);
+            if (existingStyle) existingStyle.remove();
+            document.head.appendChild(style);
         });
     }, 100);
 });
 
-// WebSocket live update listeners
 document.addEventListener('DOMContentLoaded', function() {
-    const sessionId = {{ session.id }};
-    
-    // Join session room for live updates
     if (typeof window.joinSessionRoom === 'function') {
         window.joinSessionRoom(sessionId);
     }
-    
-    // Listen for attendance updates
+
     window.addEventListener('ws:attendance_updated', function(event) {
         const data = event.detail;
-        if (data.session_id === sessionId) {
-            // For split courses, reload the page
-            {% if is_split_course %}
-            const editModeState = editToggle ? editToggle.checked : false;
-            localStorage.setItem('attendance_edit_mode_' + sessionId, editModeState ? 'true' : 'false');
-            window.location.reload();
-            {% else %}
-            // For non-split courses, update the specific cell if we have record_id
-            if (data.data && data.data.record_id) {
-                const cell = document.querySelector(`.attendance-cell[data-record-id="${data.data.record_id}"]`);
-                if (cell) {
-                    const statusSpan = cell.querySelector('.status');
-                    if (statusSpan && data.data.status) {
-                        const wsStatus = String(data.data.status).trim().toUpperCase();
-                        statusSpan.textContent = wsStatus;
-                        statusSpan.className = statusClassMap[wsStatus] || statusClassMap['-'];
-                        if (data.data.record_id) {
-                            cell.dataset.recordId = String(data.data.record_id);
-                            cell.classList.add('has-record');
-                        } else {
-                            cell.dataset.recordId = '';
-                            cell.classList.remove('has-record');
-                        }
-                    }
-                    
-                    // Update student stats if available
-                    const row = cell.closest('tr');
-                    if (row && data.data.student_id) {
-                        const studentRow = document.querySelector(`tr[data-student-db-id="${data.data.student_db_id}"]`);
-                        if (studentRow) {
-                            const presentCell = studentRow.querySelector('.present-count');
-                            const percentageCell = studentRow.querySelector('.percentage-cell');
-                            const marksCell = studentRow.querySelector('.marks-cell .marks-display');
-                            
-                            if (presentCell && data.data.present_count !== undefined) {
-                                presentCell.textContent = data.data.present_count;
-                            }
-                            if (percentageCell && data.data.percentage !== undefined) {
-                                percentageCell.textContent = data.data.percentage.toFixed(2) + '%';
-                            }
-                            if (marksCell && data.data.marks !== undefined) {
-                                marksCell.textContent = data.data.marks;
-                            }
-                            if (data.data.total_classes !== undefined) {
-                                const totalClassesCell = studentRow.children[studentRow.children.length - 4];
-                                if (totalClassesCell) totalClassesCell.textContent = data.data.total_classes;
-                            }
-                        }
-                    }
+        if (data.session_id !== sessionId) return;
+
+        const payload = data.data || {};
+        if (payload.record_id) {
+            const cell = document.querySelector(`.attendance-cell[data-record-id="${payload.record_id}"]`);
+            if (cell) {
+                const statusSpan = cell.querySelector('.status');
+                if (statusSpan && payload.status) {
+                    const wsStatus = String(payload.status).trim().toUpperCase();
+                    statusSpan.textContent = wsStatus;
+                    statusSpan.className = statusClassMap[wsStatus] || statusClassMap['-'];
+                    cell.dataset.recordId = String(payload.record_id);
+                    cell.classList.add('has-record');
                 }
-            } else {
-                // If no specific record_id, reload the page
-                window.location.reload();
             }
-            {% endif %}
+        }
+
+        const publicId = payload.student_id;
+        if (publicId) {
+            const pct = payload.percentage;
+            applyStudentStats(publicId, {
+                present_count: payload.present_count,
+                percentage: (typeof pct === 'number') ? (pct.toFixed(2) + '%') : pct,
+                marks: payload.marks,
+                marks_manual: payload.marks_manual,
+                total_classes: payload.total_classes
+            });
         }
     });
-    
-    // Cleanup: Leave room when page unloads
+
     window.addEventListener('beforeunload', function() {
         if (typeof window.leaveSessionRoom === 'function') {
             window.leaveSessionRoom(sessionId);

@@ -94,6 +94,7 @@ from PIL import Image as PILImage
 import os
 import hashlib
 from datetime import datetime
+from utils.timezone import format_bd
 
 
 def _normalize_session_course_type(raw_course_type):
@@ -4598,7 +4599,12 @@ def _sync_routine_rows_for_assignment(assignment, new_teacher, old_teacher_id=No
     try:
         from sqlalchemy import inspect as sa_inspect
 
+        if not assignment or not new_teacher:
+            return
+
         course = assignment.course
+        if not course and getattr(assignment, 'course_id', None):
+            course = Course.query.get(assignment.course_id)
         course_code = str((course.course_code if course else '') or '').strip()
         if not course_code:
             return
@@ -4628,8 +4634,9 @@ def _sync_routine_rows_for_assignment(assignment, new_teacher, old_teacher_id=No
             'term': term,
         }
         set_parts = ['teacher_id = :new_tid', 'teacher_short_name = :call_sign']
+        # Match same batch OR blank batch on routine rows (legacy rows often omit batch)
         if 'batch' in routine_columns and batch:
-            where_parts.append("COALESCE(batch, '') = :batch")
+            where_parts.append("(COALESCE(batch, '') = :batch OR COALESCE(batch, '') = '')")
             params['batch'] = batch
         if 'part' in routine_columns:
             if old_part and old_part != part:
@@ -4665,6 +4672,72 @@ def _sync_routine_rows_for_assignment(assignment, new_teacher, old_teacher_id=No
             )
     except Exception as sync_err:
         current_app.logger.warning(f'Routine teacher sync skipped: {sync_err}')
+
+
+def _clear_routine_rows_for_unassign(assignment, teacher_id=None):
+    """Clear denormalized teacher fields on routine rows when a CSA is removed.
+
+    Leaves the course placement intact so a later assign can re-stamp the teacher.
+    """
+    try:
+        from sqlalchemy import inspect as sa_inspect
+
+        if not assignment:
+            return
+
+        course = assignment.course
+        if not course and getattr(assignment, 'course_id', None):
+            course = Course.query.get(assignment.course_id)
+        course_code = str((course.course_code if course else '') or '').strip()
+        if not course_code:
+            return
+
+        year = str(assignment.year or '').strip()
+        term = str(assignment.term or '').strip()
+        batch = str(assignment.batch or '').strip()
+        section = str(assignment.section or '').strip()
+        part = f'Part {section}' if section in ('A', 'B') else 'Full'
+        tid = teacher_id if teacher_id is not None else assignment.teacher_id
+
+        routine_columns = {col['name'] for col in sa_inspect(db.engine).get_columns('routine')}
+        where_parts = [
+            "course_code = :code",
+            "COALESCE(year, '') = :year",
+            "COALESCE(term, '') = :term",
+        ]
+        params = {
+            'code': course_code,
+            'year': year,
+            'term': term,
+        }
+        if 'batch' in routine_columns and batch:
+            where_parts.append("(COALESCE(batch, '') = :batch OR COALESCE(batch, '') = '')")
+            params['batch'] = batch
+        if 'part' in routine_columns:
+            where_parts.append(
+                "(COALESCE(part, '') = :part OR COALESCE(part, '') = '' OR :part = 'Full')"
+            )
+            params['part'] = part
+        if tid:
+            where_parts.append("(teacher_id = :old_tid OR teacher_id IS NULL)")
+            params['old_tid'] = tid
+        if 'is_custom' in routine_columns:
+            where_parts.append("(is_custom IS NULL OR is_custom = 0)")
+
+        result = db.session.execute(
+            text(
+                "UPDATE routine SET teacher_id = NULL, teacher_short_name = '' "
+                f"WHERE {' AND '.join(where_parts)}"
+            ),
+            params,
+        )
+        if result.rowcount:
+            current_app.logger.info(
+                f'Cleared teacher on {result.rowcount} routine row(s) after unassign '
+                f'for course {course_code} part={part}'
+            )
+    except Exception as sync_err:
+        current_app.logger.warning(f'Routine teacher clear on unassign skipped: {sync_err}')
 
 
 def _get_assignment_or_404_payload(assignment_id):
@@ -5022,7 +5095,11 @@ def assign_teacher_session():
             session_id=session_obj.id
         )
         db.session.add(assignment)
-        
+        db.session.flush()
+
+        # Stamp live teacher onto matching timetable rows (common path after unassign→assign)
+        _sync_routine_rows_for_assignment(assignment, teacher, None, section)
+
         db.session.commit()
         
         message = f'Teacher assigned and session {"restored" if reused_existing_session else "created"} successfully!'
@@ -5151,6 +5228,9 @@ def unassign_teacher_session():
                 db.session.flush()
             except Exception as sibling_error:
                 current_app.logger.warning(f'Error archiving sibling sessions on unassign: {sibling_error}')
+
+        # Clear denormalized teacher on timetable rows before deleting CSA
+        _clear_routine_rows_for_unassign(assignment, assignment_teacher_id)
 
         # Delete the assignment (even if session cleanup had issues)
         try:
@@ -5495,7 +5575,7 @@ def get_course_assignments(course_id):
                 'batch': assignment.batch or '',
                 'academic_session': assignment.academic_session or '',
                 'session_created': assignment.session_created,
-                'created_at': assignment.created_at.strftime('%Y-%m-%d %H:%M') if assignment.created_at else ''
+                'created_at': format_bd(assignment.created_at, '%Y-%m-%d %H:%M', default='')
             })
 
         return jsonify({'success': True, 'assignments': data})

@@ -94,6 +94,21 @@ body {
 .r-btn:hover { background: var(--bg); border-color: var(--primary); color: var(--primary); }
 .r-btn-pri { background: var(--primary); color: #fff; border-color: var(--primary); }
 .r-btn-pri:hover { background: var(--primary-dark); color: #fff; }
+.r-btn-filter-active { border-color: var(--primary); color: var(--primary); background: #eff6ff; }
+.r-filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+}
 .r-progress { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted); }
 .progress-bar { width: 60px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--primary); transition: width 0.2s; }
@@ -923,6 +938,146 @@ body.fullscreen-active .routine-table {
     background: var(--primary-dark);
 }
 
+/* Course filter (view-only) */
+.slot-cell.has-class.is-filtered-out {
+    background: transparent !important;
+    border-left: none !important;
+    box-shadow: none !important;
+}
+.slot-cell.has-class.is-filtered-out .slot-content > * {
+    display: none !important;
+}
+.slot-cell.has-class.is-filtered-out .slot-content::before {
+    content: '-';
+    color: var(--text-muted);
+    font-size: 12px;
+}
+.course-filter-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: min(52vh, 420px);
+    overflow-y: auto;
+    padding-right: 2px;
+}
+.course-filter-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    cursor: pointer;
+}
+.course-filter-item:hover {
+    border-color: #bfdbfe;
+    background: #f8fbff;
+}
+.course-filter-item input {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+.course-filter-item-main {
+    min-width: 0;
+    flex: 1;
+}
+.course-filter-code {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.3;
+}
+.course-filter-meta {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.course-filter-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.course-filter-toolbar .modal-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+.course-filter-toolbar .modal-btn-accent {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+}
+.course-filter-toolbar .modal-btn-accent:hover {
+    background: #dbeafe;
+    color: #1e40af;
+}
+.course-filter-scope {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.course-filter-scope label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.course-filter-scope select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    background: #fff;
+    color: var(--text);
+}
+.course-filter-item.is-hidden {
+    display: none !important;
+}
+.course-filter-item.is-mine {
+    border-color: #93c5fd;
+    background: #f8fbff;
+}
+.course-filter-mine-tag {
+    display: inline-block;
+    margin-top: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #1d4ed8;
+    background: #dbeafe;
+    border-radius: 999px;
+    padding: 1px 7px;
+}
+.course-filter-empty {
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 12px 4px;
+}
+#course-filter-modal .modal {
+    max-width: 480px;
+}
+@media (max-width: 575.98px) {
+    #course-filter-modal.modal-overlay.active {
+        align-items: flex-end;
+    }
+    #course-filter-modal .modal {
+        width: 100%;
+        max-width: 100%;
+        max-height: 85vh;
+        border-radius: 16px 16px 0 0;
+        animation: courseFilterSheetIn 0.28s ease;
+    }
+}
+@keyframes courseFilterSheetIn {
+    from { transform: translateY(24px); opacity: 0.6; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
 /* Form Elements */
 .form-group {
     margin-bottom: 20px;
@@ -1151,6 +1306,13 @@ body.fullscreen-active .routine-table {
             <button type="button" class="r-btn" id="btn-time-slots" title="Time Slots"><i class="fas fa-clock"></i></button>
             <button type="button" class="r-btn" id="btn-custom-entry" title="Add Entry"><i class="fas fa-plus"></i></button>
             {% endif %}
+            <button type="button" class="r-btn" id="btn-course-filter" title="Select classes to show">
+                <i class="fas fa-filter"></i> Filter
+                <span class="r-filter-count" id="course-filter-count" style="display:none;">0</span>
+            </button>
+            <button type="button" class="r-btn" id="btn-course-filter-clear" title="Show full routine" style="display:none;">
+                <i class="fas fa-eye"></i> Show all
+            </button>
             <button type="button" class="r-btn" id="btn-pdf" onclick="if(window.RoutineManager&&window.RoutineManager.downloadPDF){window.RoutineManager.downloadPDF();}else{alert('Please wait for page to load.');}"><i class="fas fa-file-pdf"></i> PDF</button>
             <button type="button" class="r-btn" id="btn-fullscreen" title="Fullscreen"><i class="fas fa-expand"></i></button>
             <a href="{{ url_for('routine_management.index') if can_edit else url_for('routine_management.public_routines') }}" class="r-btn" title="Back"><i class="fas fa-arrow-left"></i> Back</a>
@@ -1298,6 +1460,57 @@ body.fullscreen-active .routine-table {
                         </div>
                     </div>
                     
+<!-- Course Filter Modal -->
+<div class="modal-overlay" id="course-filter-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">Select Classes</div>
+            <button type="button" class="modal-close" id="course-filter-modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px;">
+                The full routine is shown by default. Apply a filter to focus on selected classes (screen + PDF).
+                {% if can_edit %}<br><span style="color: var(--warning);">Filter only changes the view/PDF — it does not remove classes from the saved routine.</span>{% endif %}
+            </p>
+            <div class="course-filter-toolbar">
+                {% if viewer_type in ['student', 'teacher'] %}
+                <button type="button" class="modal-btn modal-btn-accent" id="course-filter-my-courses">
+                    <i class="fas fa-user-check"></i>
+                    {{ my_courses_label or 'My courses' }}
+                </button>
+                {% endif %}
+                <button type="button" class="modal-btn" id="course-filter-select-visible">Select visible</button>
+                <button type="button" class="modal-btn" id="course-filter-select-all">Select all</button>
+                <button type="button" class="modal-btn" id="course-filter-clear">Clear</button>
+            </div>
+            <div class="course-filter-scope">
+                <div>
+                    <label for="course-filter-year">Year</label>
+                    <select id="course-filter-year">
+                        <option value="">All years</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="course-filter-term">Term</label>
+                    <select id="course-filter-term">
+                        <option value="">All terms</option>
+                    </select>
+                </div>
+            </div>
+            <div class="course-filter-list" id="course-filter-list">
+                <div class="course-filter-empty">Loading courses…</div>
+            </div>
+        </div>
+        <div class="modal-footer" style="flex-wrap: wrap; gap: 8px;">
+            <button type="button" class="modal-btn" id="course-filter-show-all" style="margin-right: auto;">
+                <i class="fas fa-eye"></i> Show all
+            </button>
+            <button type="button" class="modal-btn" id="course-filter-modal-cancel">Cancel</button>
+            <button type="button" class="modal-btn modal-btn-primary" id="course-filter-modal-apply">Apply filter</button>
+        </div>
+    </div>
+</div>
+
 <!-- Custom Entry Modal -->
 <div class="modal-overlay" id="custom-entry-modal">
     <div class="modal">
@@ -1376,7 +1589,12 @@ const RoutineManager = {
         timeSlots: {{ time_slots | tojson }},
         rooms: {{ rooms | map(attribute='id') | list | tojson }},
         savedRoutineId: {{ saved_routine_id if saved_routine_id else 'null' }},
-        teachers: {{ teachers | tojson }}
+        teachers: {{ teachers | tojson }},
+        viewerType: {{ (viewer_type if viewer_type is defined else 'other') | tojson }},
+        myCourseCodes: {{ (my_course_codes if my_course_codes is defined else []) | tojson }},
+        myCoursesLabel: {{ (my_courses_label if my_courses_label is defined else 'My courses') | tojson }},
+        myTeacherId: {{ (my_teacher_id if my_teacher_id is defined else none) | tojson }},
+        myTeacherShorts: {{ (my_teacher_shorts if my_teacher_shorts is defined else []) | tojson }}
     },
     
     // State
@@ -1394,7 +1612,12 @@ const RoutineManager = {
         lunchAfterSlotIndex: {{ lunch_after_slot | default(3, true) }},  // Default: break after slot index
         breakType: {{ break_type | default('lunch', true) | tojson }},     // 'lunch' | 'prayer' - label for the break
         breakTimeLabel: {{ break_time_label | default('01:00 PM - 02:00 PM', true) | tojson }},  // Editable break time (Prayer/Lunch)
-        isFullscreen: false
+        isFullscreen: false,
+        allCourseCodes: [],        // [{code, year, term, isCustom}]
+        courseFilterCodes: null,   // Set of selected course codes (view-only); null = no filter / all
+        courseFilterDraft: null,   // Set while modal is open
+        courseFilterYear: '',
+        courseFilterTerm: ''
     },
 
     // High-contrast categorical palette — hues spaced so no two look alike
@@ -1711,6 +1934,11 @@ const RoutineManager = {
             btnPdf: document.getElementById('btn-pdf'),
             btnTimeSlots: document.getElementById('btn-time-slots'),
             btnCustomEntry: document.getElementById('btn-custom-entry'),
+            btnCourseFilter: document.getElementById('btn-course-filter'),
+            btnCourseFilterClear: document.getElementById('btn-course-filter-clear'),
+            courseFilterCount: document.getElementById('course-filter-count'),
+            courseFilterModal: document.getElementById('course-filter-modal'),
+            courseFilterList: document.getElementById('course-filter-list'),
             progressIndicator: document.getElementById('progress-indicator'),
             progressText: document.getElementById('progress-text'),
             progressFill: document.getElementById('progress-fill'),
@@ -1732,6 +1960,14 @@ const RoutineManager = {
             // Modals
             timeSlotModal: document.getElementById('time-slot-modal'),
             customEntryModal: document.getElementById('custom-entry-modal'),
+            courseFilterSelectAll: document.getElementById('course-filter-select-all'),
+            courseFilterClear: document.getElementById('course-filter-clear'),
+            courseFilterApply: document.getElementById('course-filter-modal-apply'),
+            courseFilterShowAll: document.getElementById('course-filter-show-all'),
+            courseFilterMyCourses: document.getElementById('course-filter-my-courses'),
+            courseFilterSelectVisible: document.getElementById('course-filter-select-visible'),
+            courseFilterYear: document.getElementById('course-filter-year'),
+            courseFilterTerm: document.getElementById('course-filter-term'),
             
             // Fullscreen
             btnFullscreen: document.getElementById('btn-fullscreen'),
@@ -1785,6 +2021,55 @@ const RoutineManager = {
         }
         if (this.elements.btnCustomEntry) {
             this.elements.btnCustomEntry.addEventListener('click', () => this.showCustomEntryModal());
+        }
+        if (this.elements.btnCourseFilter) {
+            this.elements.btnCourseFilter.addEventListener('click', () => this.openCourseFilterModal());
+        }
+        if (this.elements.btnCourseFilterClear) {
+            this.elements.btnCourseFilterClear.addEventListener('click', () => this.showAllCoursesFilter());
+        }
+        if (this.elements.courseFilterSelectAll) {
+            this.elements.courseFilterSelectAll.addEventListener('click', () => this.setCourseFilterChecks(true, 'all'));
+        }
+        if (this.elements.courseFilterSelectVisible) {
+            this.elements.courseFilterSelectVisible.addEventListener('click', () => this.setCourseFilterChecks(true, 'visible'));
+        }
+        if (this.elements.courseFilterClear) {
+            this.elements.courseFilterClear.addEventListener('click', () => this.setCourseFilterChecks(false, 'all'));
+        }
+        if (this.elements.courseFilterMyCourses) {
+            this.elements.courseFilterMyCourses.addEventListener('click', () => this.selectMyCoursesInFilter());
+        }
+        if (this.elements.courseFilterYear) {
+            this.elements.courseFilterYear.addEventListener('change', () => {
+                this.state.courseFilterYear = this.elements.courseFilterYear.value || '';
+                this.applyCourseFilterListScope();
+            });
+        }
+        if (this.elements.courseFilterTerm) {
+            this.elements.courseFilterTerm.addEventListener('change', () => {
+                this.state.courseFilterTerm = this.elements.courseFilterTerm.value || '';
+                this.applyCourseFilterListScope();
+            });
+        }
+        if (this.elements.courseFilterApply) {
+            this.elements.courseFilterApply.addEventListener('click', () => this.applyCourseFilterFromModal());
+        }
+        if (this.elements.courseFilterShowAll) {
+            this.elements.courseFilterShowAll.addEventListener('click', () => this.showAllCoursesFilter());
+        }
+        if (this.elements.courseFilterList) {
+            this.elements.courseFilterList.addEventListener('change', (e) => {
+                const cb = e.target.closest('input[type="checkbox"][data-course-code]');
+                if (!cb) return;
+                if (!(this.state.courseFilterDraft instanceof Set)) {
+                    this.state.courseFilterDraft = new Set();
+                }
+                const code = (cb.dataset.courseCode || '').trim();
+                if (!code) return;
+                if (cb.checked) this.state.courseFilterDraft.add(code);
+                else this.state.courseFilterDraft.delete(code);
+            });
         }
         
         // Fullscreen toggle
@@ -2195,14 +2480,21 @@ const RoutineManager = {
         if (!Array.isArray(courses) || courses.length === 0) return false;
 
         const byKey = {};
+        const byNoBatch = {};
         const byLoose = {};
+        const byCodePart = {};
         courses.forEach(course => {
             const key = this.getPlacementKey(course);
             if (key) byKey[key] = course;
             const code = String(course.course_code || '').trim();
             if (!code) return;
-            const loose = `${code}|${String(course.batch || '').trim()}|${String(course.part || 'Full').trim() || 'Full'}`;
-            byLoose[loose] = course;
+            const year = String(course.year || '').trim();
+            const term = String(course.term || '').trim();
+            const batch = String(course.batch || '').trim();
+            const part = String(course.part || 'Full').trim() || 'Full';
+            byNoBatch[`${code}|${year}|${term}|${part}`] = course;
+            byLoose[`${code}|${batch}|${part}`] = course;
+            byCodePart[`${code}|${part}`] = course;
         });
 
         let changed = false;
@@ -2212,8 +2504,14 @@ const RoutineManager = {
 
             let course = byKey[this.getPlacementKey(item)];
             if (!course) {
-                const loose = `${String(item.courseCode).trim()}|${String(item.batch || '').trim()}|${String(item.part || 'Full').trim() || 'Full'}`;
-                course = byLoose[loose];
+                const code = String(item.courseCode || '').trim();
+                const year = String(item.year || '').trim();
+                const term = String(item.term || '').trim();
+                const batch = String(item.batch || '').trim();
+                const part = String(item.part || 'Full').trim() || 'Full';
+                course = byNoBatch[`${code}|${year}|${term}|${part}`]
+                    || byLoose[`${code}|${batch}|${part}`]
+                    || byCodePart[`${code}|${part}`];
             }
             if (!course) return;
 
@@ -2700,11 +2998,14 @@ const RoutineManager = {
             colorCode: this.state.draggedCourse.dataset.colorCode || '',
             isSharedSlot: this.state.draggedCourse.dataset.isSharedSlot === 'true'
         };
+
+        this.ensureCourseVisibleInFilter(this.state.routine[key]);
         
         this.rebuildPlacedCourses();
 
         // Render
         this.renderSlot(cell);
+        this.applyCourseFilter();
         this.updateCourseCards();
         this.updateProgress();
         this.checkConflicts();
@@ -2862,7 +3163,494 @@ const RoutineManager = {
             this.elements.slotCells.forEach(cell => {
                 this.renderSlot(cell);
             });
+            this.applyCourseFilter();
         });
+    },
+
+    _courseFilterStorageKey: function() {
+        return this.config.savedRoutineId
+            ? `routineFilter:${this.config.savedRoutineId}`
+            : 'routineFilter:default';
+    },
+
+    buildCourseFilterList: function() {
+        const map = new Map();
+        Object.values(this.state.routine || {}).forEach(item => {
+            if (!item) return;
+            const code = String(item.courseCode || '').trim();
+            if (!code) return;
+            if (!map.has(code)) {
+                map.set(code, {
+                    code: code,
+                    year: item.year || '',
+                    term: item.term || '',
+                    isCustom: !!item.isCustom
+                });
+            }
+        });
+
+        this.state.allCourseCodes = Array.from(map.values()).sort((a, b) =>
+            a.code.localeCompare(b.code, undefined, { sensitivity: 'base' })
+        );
+
+        // Default: no filter — full routine visible for everyone
+        if (this.state.courseFilterCodes instanceof Set) {
+            const allCodes = this.state.allCourseCodes.map(c => c.code);
+            const valid = new Set(
+                Array.from(this.state.courseFilterCodes).filter(code => allCodes.includes(code))
+            );
+            // If selection covers everything (or nothing valid left), treat as no filter
+            if (valid.size === 0 || valid.size >= allCodes.length) {
+                this.state.courseFilterCodes = null;
+            } else {
+                this.state.courseFilterCodes = valid;
+            }
+        } else {
+            this.state.courseFilterCodes = null;
+        }
+
+        this.updateCourseFilterBadge();
+    },
+
+    openCourseFilterModal: function() {
+        if (!this.state.allCourseCodes || !this.state.allCourseCodes.length) {
+            this.buildCourseFilterList();
+        }
+
+        const allCodes = (this.state.allCourseCodes || []).map(c => c.code);
+        if (this.state.courseFilterCodes instanceof Set && this._isCourseFilterActive()) {
+            this.state.courseFilterDraft = new Set(this.state.courseFilterCodes);
+        } else {
+            // No active filter: start with everything checked
+            this.state.courseFilterDraft = new Set(allCodes);
+        }
+
+        this.state.courseFilterYear = '';
+        this.state.courseFilterTerm = '';
+        this.populateCourseFilterScopeOptions();
+        if (this.elements.courseFilterYear) this.elements.courseFilterYear.value = '';
+        if (this.elements.courseFilterTerm) this.elements.courseFilterTerm.value = '';
+        this.renderCourseFilterList();
+        if (this.elements.courseFilterModal) {
+            this.elements.courseFilterModal.classList.add('active');
+        }
+    },
+
+    _isCourseFilterActive: function() {
+        if (!(this.state.courseFilterCodes instanceof Set)) return false;
+        const total = (this.state.allCourseCodes || []).length;
+        if (!total) return false;
+        return this.state.courseFilterCodes.size > 0 && this.state.courseFilterCodes.size < total;
+    },
+
+    showAllCoursesFilter: function() {
+        this.state.courseFilterCodes = null;
+        this.state.courseFilterDraft = new Set((this.state.allCourseCodes || []).map(c => c.code));
+        try {
+            sessionStorage.removeItem(this._courseFilterStorageKey());
+        } catch (e) { /* ignore */ }
+        this.applyCourseFilter();
+        this.updateCourseFilterBadge();
+        this.closeModal('course-filter-modal');
+    },
+
+    _normalizeCourseCode: function(code) {
+        return String(code || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    },
+
+    _normalizeYearTermLabel: function(value) {
+        return String(value || '').trim().toLowerCase()
+            .replace(/\s+year$/, '')
+            .replace(/\s+term$/, '')
+            .replace(/\s+/g, ' ');
+    },
+
+    _courseCodesMatch: function(routineCode, myCode) {
+        const a = this._normalizeCourseCode(routineCode);
+        const b = this._normalizeCourseCode(myCode);
+        if (!a || !b) return false;
+        if (a === b) return true;
+        if (a.endsWith(b) || b.endsWith(a)) return true;
+        const ta = a.split(' ').filter(Boolean);
+        const tb = b.split(' ').filter(Boolean);
+        if (ta.length >= 2 && tb.length >= 2) {
+            if (ta.slice(-2).join(' ') === tb.slice(-2).join(' ')) return true;
+        }
+        return false;
+    },
+
+    _isMyCourseCode: function(routineCode) {
+        const mine = this.config.myCourseCodes || [];
+        if (mine.some(code => this._courseCodesMatch(routineCode, code))) {
+            return true;
+        }
+        // Fallback: courses this teacher teaches in the loaded routine grid
+        return this._routineCodeTaughtByMe(routineCode);
+    },
+
+    _teacherShortsSet: function() {
+        return new Set(
+            (this.config.myTeacherShorts || [])
+                .map(s => String(s || '').trim().toLowerCase())
+                .filter(Boolean)
+        );
+    },
+
+    _itemTaughtByMe: function(item) {
+        if (!item) return false;
+        const myId = this.config.myTeacherId;
+        const shorts = this._teacherShortsSet();
+        if (!myId && !shorts.size) return false;
+
+        if (myId && item.teacherId && String(item.teacherId) === String(myId)) {
+            return true;
+        }
+        if (myId && Array.isArray(item.teachers)) {
+            if (item.teachers.some(t => String(t && t.id) === String(myId))) return true;
+        }
+
+        if (shorts.size) {
+            const shortField = String(item.teacherShort || '');
+            if (shortField) {
+                const parts = shortField.replace(/,/g, '/').split('/')
+                    .map(p => p.trim().toLowerCase())
+                    .filter(Boolean);
+                if (parts.some(p => shorts.has(p))) return true;
+            }
+            if (Array.isArray(item.teachers)) {
+                if (item.teachers.some(t => shorts.has(String((t && t.short_name) || '').trim().toLowerCase()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    },
+
+    _routineCodeTaughtByMe: function(routineCode) {
+        const target = this._normalizeCourseCode(routineCode);
+        if (!target) return false;
+        return Object.values(this.state.routine || {}).some(item => {
+            if (!item) return false;
+            if (this._normalizeCourseCode(item.courseCode) !== target) return false;
+            return this._itemTaughtByMe(item);
+        });
+    },
+
+    _yearTermRankLabel: function(value) {
+        const v = this._normalizeYearTermLabel(value);
+        const map = {
+            first: 1, '1st': 1, '1': 1,
+            second: 2, '2nd': 2, '2': 2,
+            third: 3, '3rd': 3, '3': 3,
+            fourth: 4, '4th': 4, '4': 4,
+            fifth: 5, '5th': 5, '5': 5,
+            llm: 6
+        };
+        if (Object.prototype.hasOwnProperty.call(map, v)) return map[v];
+        return 99;
+    },
+
+    populateCourseFilterScopeOptions: function() {
+        const years = new Set();
+        const terms = new Set();
+        (this.state.allCourseCodes || []).forEach(course => {
+            if (course.year) years.add(String(course.year).trim());
+            if (course.term) terms.add(String(course.term).trim());
+        });
+
+        const sortLabels = (a, b) => {
+            const ra = this._yearTermRankLabel(a) - this._yearTermRankLabel(b);
+            return ra !== 0 ? ra : a.localeCompare(b);
+        };
+
+        if (this.elements.courseFilterYear) {
+            const current = this.elements.courseFilterYear.value || '';
+            this.elements.courseFilterYear.innerHTML = '<option value="">All years</option>' +
+                Array.from(years).sort(sortLabels).map(y =>
+                    `<option value="${String(y).replace(/"/g, '&quot;')}">${String(y).replace(/</g, '&lt;')}</option>`
+                ).join('');
+            this.elements.courseFilterYear.value = current;
+        }
+        if (this.elements.courseFilterTerm) {
+            const current = this.elements.courseFilterTerm.value || '';
+            this.elements.courseFilterTerm.innerHTML = '<option value="">All terms</option>' +
+                Array.from(terms).sort(sortLabels).map(t =>
+                    `<option value="${String(t).replace(/"/g, '&quot;')}">${String(t).replace(/</g, '&lt;')}</option>`
+                ).join('');
+            this.elements.courseFilterTerm.value = current;
+        }
+    },
+
+    _courseMatchesScope: function(course) {
+        const yearFilter = this._normalizeYearTermLabel(this.state.courseFilterYear);
+        const termFilter = this._normalizeYearTermLabel(this.state.courseFilterTerm);
+        if (yearFilter && this._normalizeYearTermLabel(course.year) !== yearFilter) return false;
+        if (termFilter && this._normalizeYearTermLabel(course.term) !== termFilter) return false;
+        return true;
+    },
+
+    renderCourseFilterList: function() {
+        const list = this.elements.courseFilterList;
+        if (!list) return;
+
+        if (!this.state.allCourseCodes || !this.state.allCourseCodes.length) {
+            list.innerHTML = '<div class="course-filter-empty">No classes found in this routine.</div>';
+            return;
+        }
+
+        const selected = this.state.courseFilterDraft || this.state.courseFilterCodes || new Set();
+        list.innerHTML = this.state.allCourseCodes.map((course, index) => {
+            const checked = selected.has(course.code) ? 'checked' : '';
+            const isMine = this._isMyCourseCode(course.code);
+            const metaParts = [];
+            if (course.year || course.term) {
+                metaParts.push([course.year, course.term].filter(Boolean).join(' / '));
+            }
+            if (course.isCustom) metaParts.push('Custom');
+            const meta = metaParts.length
+                ? `<div class="course-filter-meta">${metaParts.join(' · ')}</div>`
+                : '';
+            const mineTag = isMine
+                ? `<span class="course-filter-mine-tag">${this.config.viewerType === 'teacher' ? 'Assigned' : 'Registered'}</span>`
+                : '';
+            const safeCode = String(course.code)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/"/g, '&quot;');
+            const safeYear = String(course.year || '').replace(/"/g, '&quot;');
+            const safeTerm = String(course.term || '').replace(/"/g, '&quot;');
+            return `
+                <label class="course-filter-item${isMine ? ' is-mine' : ''}" for="course-filter-cb-${index}"
+                       data-year="${safeYear}" data-term="${safeTerm}">
+                    <input type="checkbox" id="course-filter-cb-${index}" data-course-code="${safeCode}" ${checked}>
+                    <span class="course-filter-item-main">
+                        <span class="course-filter-code">${safeCode}</span>
+                        ${meta}
+                        ${mineTag}
+                    </span>
+                </label>
+            `;
+        }).join('');
+
+        this.applyCourseFilterListScope();
+    },
+
+    applyCourseFilterListScope: function() {
+        const list = this.elements.courseFilterList;
+        if (!list) return;
+
+        let visibleCount = 0;
+        list.querySelectorAll('.course-filter-item').forEach(item => {
+            const course = {
+                year: item.dataset.year || '',
+                term: item.dataset.term || ''
+            };
+            const visible = this._courseMatchesScope(course);
+            item.classList.toggle('is-hidden', !visible);
+            if (visible) visibleCount += 1;
+        });
+
+        let empty = list.querySelector('.course-filter-scope-empty');
+        if (visibleCount === 0) {
+            if (!empty) {
+                empty = document.createElement('div');
+                empty.className = 'course-filter-empty course-filter-scope-empty';
+                empty.textContent = 'No classes match this year/term filter.';
+                list.appendChild(empty);
+            }
+        } else if (empty) {
+            empty.remove();
+        }
+    },
+
+    setCourseFilterChecks: function(checked, scope) {
+        const list = this.elements.courseFilterList;
+        if (!list) return;
+        if (!(this.state.courseFilterDraft instanceof Set)) {
+            this.state.courseFilterDraft = new Set(this.state.courseFilterCodes || []);
+        }
+
+        const mode = scope || 'visible';
+        if (mode === 'all' && !checked) {
+            this.state.courseFilterDraft = new Set();
+        }
+
+        list.querySelectorAll('.course-filter-item').forEach(item => {
+            const cb = item.querySelector('input[type="checkbox"]');
+            if (!cb) return;
+            const isVisible = !item.classList.contains('is-hidden');
+            if (mode === 'visible' && !isVisible) return;
+            cb.checked = !!checked;
+            const code = (cb.dataset.courseCode || '').trim();
+            if (!code) return;
+            if (checked) this.state.courseFilterDraft.add(code);
+            else this.state.courseFilterDraft.delete(code);
+        });
+
+        if (mode === 'all' && checked) {
+            (this.state.allCourseCodes || []).forEach(course => {
+                this.state.courseFilterDraft.add(course.code);
+            });
+            list.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+        }
+    },
+
+    selectMyCoursesInFilter: function() {
+        const hasBackendCodes = (this.config.myCourseCodes || []).length > 0;
+        const canMatchFromRoutine = !!(this.config.myTeacherId || (this.config.myTeacherShorts || []).length);
+
+        if (!hasBackendCodes && !canMatchFromRoutine) {
+            alert(this.config.viewerType === 'teacher'
+                ? 'No assigned courses found for your account.'
+                : 'No registered courses found for your account.');
+            return;
+        }
+
+        if (!(this.state.courseFilterDraft instanceof Set)) {
+            this.state.courseFilterDraft = new Set();
+        } else {
+            this.state.courseFilterDraft.clear();
+        }
+
+        let matched = 0;
+        (this.state.allCourseCodes || []).forEach(course => {
+            if (this._isMyCourseCode(course.code)) {
+                this.state.courseFilterDraft.add(course.code);
+                matched += 1;
+            }
+        });
+
+        if (!matched) {
+            alert(this.config.viewerType === 'teacher'
+                ? 'None of your assigned courses appear in this routine.'
+                : 'None of your registered courses appear in this routine.');
+            this.renderCourseFilterList();
+            return;
+        }
+
+        // Clear year/term scope so selected courses are visible
+        this.state.courseFilterYear = '';
+        this.state.courseFilterTerm = '';
+        if (this.elements.courseFilterYear) this.elements.courseFilterYear.value = '';
+        if (this.elements.courseFilterTerm) this.elements.courseFilterTerm.value = '';
+        this.renderCourseFilterList();
+    },
+
+    applyCourseFilterFromModal: function() {
+        const list = this.elements.courseFilterList;
+        if (!list) return;
+
+        if (!(this.state.courseFilterDraft instanceof Set)) {
+            this.state.courseFilterDraft = new Set();
+        }
+
+        // Sync currently rendered checkbox states into draft (including hidden)
+        list.querySelectorAll('input[type="checkbox"][data-course-code]').forEach(cb => {
+            const code = (cb.dataset.courseCode || '').trim();
+            if (!code) return;
+            if (cb.checked) this.state.courseFilterDraft.add(code);
+            else this.state.courseFilterDraft.delete(code);
+        });
+
+        const selected = new Set(this.state.courseFilterDraft);
+        const total = (this.state.allCourseCodes || []).length;
+
+        if (selected.size === 0) {
+            alert('Select at least one class, or tap Show all to view the full routine.');
+            return;
+        }
+
+        // Selecting everything = no filter (full routine)
+        if (total > 0 && selected.size >= total) {
+            this.showAllCoursesFilter();
+            return;
+        }
+
+        this.state.courseFilterCodes = selected;
+        try {
+            sessionStorage.setItem(
+                this._courseFilterStorageKey(),
+                JSON.stringify(Array.from(selected))
+            );
+        } catch (e) { /* ignore */ }
+
+        this.applyCourseFilter();
+        this.updateCourseFilterBadge();
+        this.closeModal('course-filter-modal');
+    },
+
+    applyCourseFilter: function() {
+        this.elements.slotCells = document.querySelectorAll('.slot-cell');
+
+        if (!this._isCourseFilterActive()) {
+            this.elements.slotCells.forEach(cell => cell.classList.remove('is-filtered-out'));
+            return;
+        }
+
+        this.elements.slotCells.forEach(cell => {
+            if (cell.classList.contains('lunch-cell')) return;
+            const key = this.getSlotKey(cell);
+            const item = this.state.routine[key];
+            if (!item) {
+                cell.classList.remove('is-filtered-out');
+                return;
+            }
+            const code = String(item.courseCode || '').trim();
+            const visible = this.state.courseFilterCodes.has(code);
+            cell.classList.toggle('is-filtered-out', !visible);
+        });
+    },
+
+    ensureCourseVisibleInFilter: function(item) {
+        if (!item) return;
+        const code = String(item.courseCode || '').trim();
+        if (!code) return;
+
+        // Only force-include when a filter is already active
+        if (this.state.courseFilterCodes instanceof Set) {
+            this.state.courseFilterCodes.add(code);
+        }
+
+        if (!Array.isArray(this.state.allCourseCodes)) {
+            this.state.allCourseCodes = [];
+        }
+        if (!this.state.allCourseCodes.some(c => c.code === code)) {
+            this.state.allCourseCodes.push({
+                code: code,
+                year: item.year || '',
+                term: item.term || '',
+                isCustom: !!item.isCustom
+            });
+            this.state.allCourseCodes.sort((a, b) =>
+                a.code.localeCompare(b.code, undefined, { sensitivity: 'base' })
+            );
+        }
+        this.updateCourseFilterBadge();
+    },
+
+    updateCourseFilterBadge: function() {
+        const btn = this.elements.btnCourseFilter;
+        const badge = this.elements.courseFilterCount;
+        const clearBtn = this.elements.btnCourseFilterClear;
+        const total = (this.state.allCourseCodes || []).length;
+        const active = this._isCourseFilterActive();
+        const selected = active ? this.state.courseFilterCodes.size : total;
+
+        if (badge) {
+            if (active) {
+                badge.style.display = 'inline-flex';
+                badge.textContent = `${selected}/${total}`;
+            } else {
+                badge.style.display = 'none';
+                badge.textContent = '';
+            }
+        }
+        if (btn) {
+            btn.classList.toggle('r-btn-filter-active', active);
+        }
+        if (clearBtn) {
+            clearBtn.style.display = active ? 'inline-flex' : 'none';
+        }
     },
 
     // Update progress
@@ -3163,6 +3951,7 @@ const RoutineManager = {
                 }
 
                 // Update display after loading (or clearing)
+                this.buildCourseFilterList();
                 this.updateRoutineDisplay();
                 
                 // Editor-only operations
@@ -3501,6 +4290,14 @@ const RoutineManager = {
         console.log('savedRoutineId:', this.config.savedRoutineId);
             
         const routineData = [];
+        const selectedCodes = this._isCourseFilterActive()
+            ? this.state.courseFilterCodes
+            : null;
+
+        if (selectedCodes && selectedCodes.size === 0) {
+            alert('Select at least one class before downloading the PDF.');
+            return;
+        }
         
         // Read from DOM cells (works for both editors and non-editors now)
         this.elements.slotCells = document.querySelectorAll('.slot-cell');
@@ -3512,6 +4309,10 @@ const RoutineManager = {
             const key = this.getSlotKey(cell);
             const item = this.state.routine[key];
             if (item) {
+                const code = String(item.courseCode || '').trim();
+                if (selectedCodes && !selectedCodes.has(code)) {
+                    return;
+                }
                 routineData.push({
                     day: cell.dataset.day,
                     slot: cell.dataset.slot,
@@ -3531,6 +4332,11 @@ const RoutineManager = {
         });
         
         console.log('Routine data collected:', routineData.length, 'entries');
+
+        if (selectedCodes && routineData.length === 0) {
+            alert('No selected classes found to include in the PDF.');
+            return;
+        }
             
         const params = new URLSearchParams({
             title: title,
@@ -3569,12 +4375,16 @@ const RoutineManager = {
 
         const url = '/routine-management/download_pdf?' + params.toString();
         console.log('Fetching:', url);
-        console.log('Body:', JSON.stringify({routine: routineData}).substring(0, 500));
+        const pdfPayload = { routine: routineData };
+        if (selectedCodes) {
+            pdfPayload.course_codes = Array.from(selectedCodes);
+        }
+        console.log('Body:', JSON.stringify(pdfPayload).substring(0, 500));
 
         fetch(url, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({routine: routineData})
+            body: JSON.stringify(pdfPayload)
         })
         .then(response => {
             console.log('Response status:', response.status, response.statusText);
@@ -4355,7 +5165,9 @@ document.getElementById('custom-entry-modal-save')?.addEventListener('click', fu
         isCustom: true
     };
 
+    RoutineManager.ensureCourseVisibleInFilter(RoutineManager.state.routine[key]);
     RoutineManager.renderSlot(cell);
+    RoutineManager.applyCourseFilter();
     RoutineManager.updateProgress();
     RoutineManager.closeModal('custom-entry-modal');
 });

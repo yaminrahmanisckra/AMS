@@ -44,6 +44,12 @@ STUDENT_DASHBOARD_CARDS = (
         'description': 'Select session, year, term and download your registration form.',
         'sort_order': 6,
     },
+    {
+        'card_key': 'noticeboard',
+        'label': 'Noticeboard',
+        'description': 'Read notices from teachers and Head of Discipline.',
+        'sort_order': 7,
+    },
 )
 
 

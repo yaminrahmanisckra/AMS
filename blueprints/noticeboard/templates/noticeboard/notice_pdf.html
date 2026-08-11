@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ notice.title }}</title>
+    <style>
+        @page { size: A4; margin: 22mm 18mm; }
+        body {
+            font-family: 'PDFSerif', 'Times New Roman', Times, serif;
+            color: #1f1a14;
+            font-size: 12pt;
+            line-height: 1.55;
+        }
+        .kicker {
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            font-size: 9.5pt;
+            color: #555;
+            margin-bottom: 6px;
+        }
+        .org {
+            text-align: center;
+            font-weight: bold;
+            font-size: 13pt;
+            margin-bottom: 2px;
+        }
+        .sub {
+            text-align: center;
+            font-size: 10.5pt;
+            color: #444;
+            margin-bottom: 18px;
+        }
+        .rule {
+            border-top: 1.5pt solid #222;
+            border-bottom: 0.5pt solid #222;
+            height: 4px;
+            margin: 0 0 18px;
+        }
+        h1 {
+            font-size: 16pt;
+            text-align: center;
+            margin: 0 0 14px;
+            line-height: 1.3;
+        }
+        .meta {
+            font-size: 10.5pt;
+            margin-bottom: 16px;
+        }
+        .meta td { padding: 2px 8px 2px 0; vertical-align: top; }
+        .body { margin-top: 8px; }
+        .body p { margin: 0 0 10px; text-align: justify; }
+        .body ul, .body ol { margin: 0 0 10px; padding-left: 22px; }
+        .footer {
+            margin-top: 28px;
+            font-size: 10.5pt;
+        }
+        .sign {
+            margin-top: 36px;
+            text-align: right;
+        }
+        .sign .name { font-weight: bold; }
+        .sign img.signature {
+            display: block;
+            margin: 0 0 4px auto;
+            max-width: 160px;
+            max-height: 55px;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body>
+    <div class="kicker">Official Notice</div>
+    <div class="org">Law Discipline, Khulna University</div>
+    <div class="sub">Academic Management System — Noticeboard</div>
+    <div class="rule"></div>
+
+    <h1>{{ notice.title }}</h1>
+
+    <table class="meta">
+        <tr>
+            <td><strong>Date</strong></td>
+            <td>{{ notice.notice_date.strftime('%d %B %Y') if notice.notice_date else '—' }}</td>
+        </tr>
+        <tr>
+            <td><strong>From</strong></td>
+            <td>{{ author_name }}</td>
+        </tr>
+    </table>
+
+    <div class="body">
+        {{ notice.body_html | safe }}
+    </div>
+
+    <div class="sign">
+        {% if signature_data_uri %}
+        <img class="signature" src="{{ signature_data_uri }}" alt="Signature">
+        {% endif %}
+        <div class="name">{{ author_name }}</div>
+        <div>Law Discipline, Khulna University</div>
+    </div>
+</body>
+</html>

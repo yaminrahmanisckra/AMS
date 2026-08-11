@@ -3,13 +3,13 @@
 
 {% block mobile_title %}Registration{% endblock %}
 {% block content %}
-<div class="container my-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+<div class="container my-3 my-md-5 student-reg-page">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3 mb-md-4">
         <div>
-            <h1 class="mb-1">Course Registration</h1>
-            <p class="text-muted mb-0">Select your courses for the academic session</p>
+            <h1 class="mb-1 sr-title">Course Registration</h1>
+            <p class="text-muted mb-0 sr-sub">Select your courses for the academic session</p>
         </div>
-        <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline-secondary">
+        <a href="{{ url_for('student_dashboard') }}" class="btn btn-outline-secondary btn-sm d-none d-md-inline-flex">
             <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
         </a>
     </div>
@@ -82,10 +82,10 @@
 
             <!-- Actions (requested: show inside Available Courses) -->
             <div class="mt-3 text-end" id="availableActions" style="display:none;">
-                <button type="button" class="btn btn-primary me-2" id="saveRegistrationBtn" disabled>
+                <button type="button" class="btn btn-primary me-2 js-save-registration" disabled>
                     <i class="fas fa-save me-2"></i>Save Registration
                 </button>
-                <button type="button" class="btn btn-warning me-2" id="sendToCoordinatorBtn" disabled>
+                <button type="button" class="btn btn-warning me-2 js-send-coordinator" disabled>
                     <i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator
                 </button>
             </div>
@@ -107,7 +107,7 @@
         </div>
         <div class="card-body">
             <div class="table-responsive">
-                <table class="table table-bordered table-hover">
+                <table class="table table-bordered table-hover table-mobile-stack sr-selected-table">
                     <thead class="table-light">
                         <tr>
                             <th>SL</th>
@@ -127,17 +127,17 @@
                     </tbody>
                 </table>
             </div>
-            <div class="mt-3 d-flex justify-content-between align-items-center">
+            <div class="mt-3 d-flex justify-content-between align-items-stretch flex-wrap gap-2 sr-actions-bar">
                 <div>
                     <button type="button" class="btn btn-sm btn-danger" id="removeAllBtn" onclick="removeAllCourses()" style="display: none;">
                         <i class="fas fa-times-circle me-1"></i>Remove All Courses
                     </button>
                 </div>
-                <div>
-                    <button type="button" class="btn btn-primary me-2" id="saveRegistrationBtn" disabled>
+                <div class="d-flex flex-wrap gap-2 sr-primary-actions">
+                    <button type="button" class="btn btn-primary js-save-registration" id="saveRegistrationBtn" disabled>
                         <i class="fas fa-save me-2"></i>Save Registration
                     </button>
-                    <button type="button" class="btn btn-warning me-2" id="sendToCoordinatorBtn" disabled>
+                    <button type="button" class="btn btn-warning js-send-coordinator" id="sendToCoordinatorBtn" disabled>
                         <i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator
                     </button>
                     <button type="button" class="btn btn-success" id="downloadPdfBtn" disabled>
@@ -148,6 +148,37 @@
         </div>
     </div>
 </div>
+
+<style>
+.student-reg-page .sr-title {
+    font-size: clamp(1.25rem, 4vw, 1.75rem);
+    font-weight: 700;
+    color: #111827;
+}
+.student-reg-page .sr-sub {
+    font-size: 0.88rem;
+}
+@media (max-width: 575.98px) {
+    .student-reg-page {
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    .student-reg-page .card-header h5 {
+        font-size: 0.95rem;
+    }
+    .student-reg-page .sr-primary-actions {
+        width: 100%;
+    }
+    .student-reg-page .sr-primary-actions .btn,
+    .student-reg-page #availableActions .btn,
+    .student-reg-page #removeAllBtn {
+        width: 100%;
+    }
+    .student-reg-page .sr-actions-bar > div:first-child {
+        width: 100%;
+    }
+}
+</style>
 
 <script>
 let selectedCourses = [];
@@ -162,6 +193,21 @@ const editSelectionBtn = document.getElementById('editSelectionBtn');
 const hideAvailableBtn = document.getElementById('hideAvailableBtn');
 const availableActions = document.getElementById('availableActions');
 const coursesCardEl = document.getElementById('coursesCard');
+const saveRegistrationBtns = () => Array.from(document.querySelectorAll('.js-save-registration'));
+const sendCoordinatorBtns = () => Array.from(document.querySelectorAll('.js-send-coordinator'));
+
+function setSaveRegistrationEnabled(enabled) {
+    saveRegistrationBtns().forEach(btn => { btn.disabled = !enabled; });
+}
+function setSendCoordinatorEnabled(enabled) {
+    sendCoordinatorBtns().forEach(btn => { btn.disabled = !enabled; });
+}
+function setSaveRegistrationHtml(html) {
+    saveRegistrationBtns().forEach(btn => { btn.innerHTML = html; });
+}
+function setSendCoordinatorHtml(html) {
+    sendCoordinatorBtns().forEach(btn => { btn.innerHTML = html; });
+}
 
 let showAvailableCourses = true;
 
@@ -409,7 +455,7 @@ function loadCourses(year, term) {
         .then(data => {
             coursesLoading.style.display = 'none';
             if (data.success && data.courses.length > 0) {
-                let html = '<table class="table table-bordered table-hover"><thead class="table-light"><tr>';
+                let html = '<table class="table table-bordered table-hover table-mobile-stack sr-available-table"><thead class="table-light"><tr>';
                 html += '<th>Course Code</th><th>Course Name</th><th>Credit</th><th>Type</th><th>Nature</th><th>Remarks</th><th>Carry On</th><th>Action</th>';
                 html += '</tr></thead><tbody>';
                 
@@ -418,25 +464,25 @@ function loadCourses(year, term) {
                     const remarkSelectId = `remark-${course.id}`;
                     const carryOnCheckboxId = `carryOn-${course.id}`;
                     html += `<tr>
-                        <td>${course.course_code}</td>
-                        <td>${course.course_name}</td>
-                        <td>${course.credit}</td>
-                        <td>${course.course_type}</td>
-                        <td>${course.nature || 'Core'}</td>
-                        <td>
+                        <td data-label="Course Code"><strong>${course.course_code}</strong></td>
+                        <td data-label="Course Name">${course.course_name}</td>
+                        <td data-label="Credit">${course.credit}</td>
+                        <td data-label="Type">${course.course_type}</td>
+                        <td data-label="Nature">${course.nature || 'Core'}</td>
+                        <td data-label="Remarks">
                             <select id="${remarkSelectId}" class="form-select form-select-sm" onchange="updateCarryOnVisibility(${course.id})">
                                 <option value="Regular">Regular</option>
                                 <option value="Retake">Retake</option>
                                 <option value="Re-retake">Re-retake</option>
                             </select>
                         </td>
-                        <td id="carryOnCell_${course.id}">
+                        <td data-label="Carry On" id="carryOnCell_${course.id}">
                             <div class="form-check form-switch" style="display: none;">
                                 <input class="form-check-input" type="checkbox" id="${carryOnCheckboxId}">
                                 <label class="form-check-label" for="${carryOnCheckboxId}">Carry On</label>
                             </div>
                         </td>
-                        <td>
+                        <td data-label="Action">
                             ${isSelected ? 
                                 '<span class="badge bg-success">Selected</span>' : 
                                 `<button class="btn btn-sm btn-primary" onclick="addCourse(${course.id}, '${course.course_code.replace(/'/g, "\\'")}', '${course.course_name.replace(/'/g, "\\'")}', ${course.credit}, '${course.course_type}', '${course.nature || 'Core'}', document.getElementById('${remarkSelectId}').value, document.getElementById('${carryOnCheckboxId}') && document.getElementById('${carryOnCheckboxId}').checked)">
@@ -694,9 +740,9 @@ function updateSelectedTable() {
     if (selectedCourses.length === 0) {
         selectedCard.style.display = 'none';
         if (editSelectionBtn) editSelectionBtn.style.display = 'none';
-        saveBtn.disabled = true;
+        setSaveRegistrationEnabled(false);
         downloadBtn.disabled = true;
-        sendToCoordinatorBtn.disabled = true;
+        setSendCoordinatorEnabled(false);
         return;
     }
     
@@ -716,8 +762,8 @@ function updateSelectedTable() {
     selectedCard.style.display = 'block';
     if (editSelectionBtn) editSelectionBtn.style.display = 'inline-block';
     // Disable save and send buttons if coordinator/head registered any course OR if finalized
-    saveBtn.disabled = hasCoordinatorReg;
-    sendToCoordinatorBtn.disabled = hasCoordinatorReg;
+    setSaveRegistrationEnabled(!hasCoordinatorReg);
+    setSendCoordinatorEnabled(!hasCoordinatorReg);
     // Download button is always enabled
     downloadBtn.disabled = false;
     
@@ -730,14 +776,14 @@ function updateSelectedTable() {
         // Check if cannot edit: created by coordinator/head OR finalized
         const isCoordinatorReg = (course.registered_by && (course.registered_by === 'coordinator' || course.registered_by === 'head')) || course.status === 'finalized';
         html += `<tr>
-            <td>${index + 1}</td>
-            <td>${course.course_code}</td>
-            <td>${course.course_name}</td>
-            <td>${course.credit}</td>
-            <td>${course.course_type}</td>
-            <td>${course.nature || 'Core'}</td>
-            <td>${(course.source_year || currentYear || '-')}/${(course.source_term || currentTerm || '-')}</td>
-            <td>
+            <td data-label="SL">${index + 1}</td>
+            <td data-label="Course Code"><strong>${course.course_code}</strong></td>
+            <td data-label="Course Name">${course.course_name}</td>
+            <td data-label="Credit">${course.credit}</td>
+            <td data-label="Type">${course.course_type}</td>
+            <td data-label="Nature">${course.nature || 'Core'}</td>
+            <td data-label="Source Year/Term">${(course.source_year || currentYear || '-')}/${(course.source_term || currentTerm || '-')}</td>
+            <td data-label="Remarks">
                 ${isCoordinatorReg ? 
                     `<span class="badge bg-info">${course.remark || 'Regular'}</span>` :
                     `<select class="form-select form-select-sm" onchange="updateSelectedCourseRemark(${course.id || index}, this.value)">
@@ -747,7 +793,7 @@ function updateSelectedTable() {
                     </select>`
                 }
             </td>
-            <td>
+            <td data-label="Carry On">
                 ${isCoordinatorReg ? 
                     (isRetake && course.carry_on ? '<span class="badge bg-success">Carry On</span>' : '<span class="text-muted">-</span>') :
                     (isRetake ? `
@@ -760,7 +806,7 @@ function updateSelectedTable() {
                     ` : '<span class="text-muted">-</span>')
                 }
             </td>
-            <td>
+            <td data-label="Action">
                 ${isCoordinatorReg ? 
                     '<span class="text-muted small">Read-only</span>' :
                     `<button class="btn btn-sm btn-danger" onclick="removeCourse(${course.registration_id || 'null'}, '${course.course_code.replace(/'/g, "\\'")}')">
@@ -773,10 +819,10 @@ function updateSelectedTable() {
     });
     
     // Add total credits row
-    html += `<tr class="table-info fw-bold">
-        <td colspan="3" class="text-end">Total Credits:</td>
-        <td>${totalCredits.toFixed(1)}</td>
-        <td colspan="6"></td>
+    html += `<tr class="table-info fw-bold sr-total-row">
+        <td colspan="3" class="text-end" data-label="Summary">Total Credits:</td>
+        <td data-label="Total Credits">${totalCredits.toFixed(1)}</td>
+        <td colspan="6" data-label=""></td>
     </tr>`;
     
     selectedTable.innerHTML = html;
@@ -814,7 +860,7 @@ if (hideAvailableBtn) {
     });
 }
 
-saveBtn.addEventListener('click', function() {
+function handleSaveRegistration() {
     if (!currentSession || !currentYear || !currentTerm) {
         alert('Please select session, year, and term first.');
         return;
@@ -837,8 +883,8 @@ saveBtn.addEventListener('click', function() {
         alert('Cannot save: Some registrations are finalized or created by coordinator/head. You can only download these registrations.');
         return;
     }
-    saveBtn.disabled = true;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+    setSaveRegistrationEnabled(false);
+    setSaveRegistrationHtml('<i class="fas fa-spinner fa-spin me-2"></i>Saving...');
     fetch('/course-management/student/registration/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -862,9 +908,13 @@ saveBtn.addEventListener('click', function() {
         showStatus('Error saving registration.', 'error');
     })
     .finally(() => {
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = '<i class="fas fa-save me-2"></i>Save Registration';
+        setSaveRegistrationEnabled(true);
+        setSaveRegistrationHtml('<i class="fas fa-save me-2"></i>Save Registration');
     });
+}
+
+document.querySelectorAll('.js-save-registration').forEach(btn => {
+    btn.addEventListener('click', handleSaveRegistration);
 });
 
 downloadBtn.addEventListener('click', function() {
@@ -909,7 +959,7 @@ downloadBtn.addEventListener('click', function() {
     });
 });
 
-sendToCoordinatorBtn.addEventListener('click', function() {
+function handleSendToCoordinator() {
     if (!currentSession || !currentYear || !currentTerm) {
         alert('Please select session, year, and term first.');
         return;
@@ -938,9 +988,9 @@ sendToCoordinatorBtn.addEventListener('click', function() {
     }
     
     // First save the registration
-    saveBtn.disabled = true;
-    sendToCoordinatorBtn.disabled = true;
-    sendToCoordinatorBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Sending...';
+    setSaveRegistrationEnabled(false);
+    setSendCoordinatorEnabled(false);
+    setSendCoordinatorHtml('<i class="fas fa-spinner fa-spin me-2"></i>Sending...');
     
     // Save first
     fetch('/course-management/student/registration/save', {
@@ -982,10 +1032,14 @@ sendToCoordinatorBtn.addEventListener('click', function() {
         showStatus('Error sending registration to coordinator.', 'error');
     })
     .finally(() => {
-        saveBtn.disabled = false;
-        sendToCoordinatorBtn.disabled = false;
-        sendToCoordinatorBtn.innerHTML = '<i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator';
+        setSaveRegistrationEnabled(true);
+        setSendCoordinatorEnabled(true);
+        setSendCoordinatorHtml('<i class="fas fa-paper-plane me-2"></i>Send to Co-Ordinator');
     });
+}
+
+document.querySelectorAll('.js-send-coordinator').forEach(btn => {
+    btn.addEventListener('click', handleSendToCoordinator);
 });
 </script>
 {% endblock %}

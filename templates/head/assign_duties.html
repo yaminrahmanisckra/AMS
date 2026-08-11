@@ -169,7 +169,7 @@
                                     -
                                 {% endif %}
                             </td>
-                            <td>{{ assignment.created_at.strftime('%Y-%m-%d') if assignment.created_at else '-' }}</td>
+                            <td>{{ assignment.created_at|bd('%Y-%m-%d') if assignment.created_at else '-' }}</td>
                             <td>
                                 <div class="d-flex gap-1">
                                     {% if assignment.duty_type == 'exam_committee_chief' %}

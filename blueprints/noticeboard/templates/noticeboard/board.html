@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+{% block title %}Noticeboard{% endblock %}
+{% block mobile_title %}Noticeboard{% endblock %}
+
+{% block content %}
+<div class="nb-page">
+    <div class="container nb-wrap py-3 py-md-4">
+        <header class="nb-toolbar">
+            <div class="nb-toolbar-top">
+                <div>
+                    <p class="nb-eyebrow mb-0">Law Discipline</p>
+                    <h1 class="nb-heading mb-0">Noticeboard</h1>
+                </div>
+                <div class="nb-toolbar-actions">
+                    {% if cards %}
+                    <span class="nb-count" id="nbCountBadge">{{ cards|length }}</span>
+                    {% endif %}
+                    {% if is_composer %}
+                    <a href="{{ url_for('noticeboard.index') }}" class="btn btn-sm nb-manage-btn">
+                        <i class="fas fa-cog"></i><span class="d-none d-sm-inline ms-1">Manage</span>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+            {% if cards %}
+            <div class="nb-filter-row">
+                <label class="nb-search-wrap" for="nbSearch">
+                    <i class="fas fa-search" aria-hidden="true"></i>
+                    <input type="search" id="nbSearch" class="nb-search"
+                           placeholder="Search title or author…" autocomplete="off"
+                           enterkeyhint="search">
+                </label>
+            </div>
+            <p class="nb-sub d-none d-md-block mb-0">Pinned notices from your teachers and Head of Discipline.</p>
+            {% endif %}
+        </header>
+
+        {% if not cards %}
+        <div class="nb-empty text-center py-5 px-3">
+            <div class="nb-empty-icon"><i class="fas fa-thumbtack"></i></div>
+            <p class="mb-1 fw-semibold" style="color:var(--ink);">Board is clear</p>
+            <p class="mb-0 small">No notices for this window right now.</p>
+        </div>
+        {% else %}
+        <div class="nb-cork">
+            <div class="nb-grid" id="nbGrid">
+                {% for card in cards %}
+                <a href="{{ url_for('noticeboard.notice_detail', notice_id=card.notice.id) }}"
+                   class="nb-paper text-decoration-none"
+                   style="--nb-rot: {{ card.rotation }}deg; --nb-delay: {{ (loop.index0 % 8) * 0.04 }}s;"
+                   data-search="{{ (card.notice.title ~ ' ' ~ card.author)|lower|e }}">
+                    <span class="nb-pin" aria-hidden="true"></span>
+                    <div class="nb-paper-inner">
+                        <div class="nb-date">
+                            <time datetime="{{ card.notice.notice_date.isoformat() }}">
+                                {{ card.notice.notice_date.strftime('%d %b %Y') }}
+                            </time>
+                            {% if card.notice.created_at %}
+                            <span class="nb-time">{{ card.notice.created_at|bd('%I:%M %p') }}</span>
+                            {% endif %}
+                        </div>
+                        <h2 class="nb-title">{{ card.notice.title }}</h2>
+                        <p class="nb-preview">{{ card.preview }}</p>
+                        <div class="nb-meta">
+                            <span class="nb-author"><i class="fas fa-user-edit me-1" aria-hidden="true"></i>{{ card.author }}</span>
+                            <span class="nb-open" aria-hidden="true"><i class="fas fa-chevron-right"></i></span>
+                        </div>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            <div class="nb-no-match d-none text-center py-4" id="nbNoMatch">
+                <p class="mb-0 small">No notices match your search.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.nb-page {
+    --cork: #c4a574;
+    --cork-deep: #a8844f;
+    --paper: #fff8e7;
+    --ink: #2a2118;
+    --muted: #6b5a48;
+    --accent: #8b5a2b;
+    min-height: calc(100vh - 120px);
+    background:
+        radial-gradient(ellipse at top, #efe6d6 0%, #e5d7c0 55%, #dcc9a8 100%);
+}
+.nb-wrap { max-width: 1100px; }
+.nb-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    margin: -0.25rem -0.15rem 0.85rem;
+    padding: 0.55rem 0.15rem 0.65rem;
+    background: linear-gradient(180deg, rgba(239,230,214,0.97) 70%, rgba(239,230,214,0));
+    backdrop-filter: blur(6px);
+}
+.nb-toolbar-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+.nb-eyebrow {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+.nb-heading {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: 0.02em;
+    font-size: clamp(1.35rem, 4vw, 1.75rem);
+    line-height: 1.2;
+}
+.nb-toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-shrink: 0;
+}
+.nb-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.85rem;
+    height: 1.85rem;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    background: rgba(139,90,43,0.15);
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+.nb-manage-btn {
+    background: #2a2118;
+    color: #fff8e7;
+    border: none;
+    border-radius: 8px;
+}
+.nb-manage-btn:hover { color: #fff; background: #3d3228; }
+.nb-filter-row { margin-top: 0.65rem; }
+.nb-search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    background: rgba(255,248,231,0.9);
+    border: 1px solid rgba(42,33,24,0.12);
+    border-radius: 12px;
+    padding: 0.55rem 0.85rem;
+    box-shadow: 0 1px 2px rgba(60,40,20,0.06);
+}
+.nb-search-wrap i { color: var(--muted); font-size: 0.85rem; }
+.nb-search {
+    border: 0;
+    outline: 0;
+    background: transparent;
+    width: 100%;
+    font-size: 0.95rem;
+    color: var(--ink);
+}
+.nb-search::placeholder { color: #9a8774; }
+.nb-sub { color: var(--muted); font-size: 0.88rem; margin-top: 0.55rem; }
+.nb-empty {
+    background: rgba(255,248,231,0.7);
+    border: 1px dashed rgba(42,33,24,0.22);
+    border-radius: 14px;
+    color: var(--muted);
+}
+.nb-empty-icon {
+    width: 52px; height: 52px;
+    margin: 0 auto 0.75rem;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(139,90,43,0.12);
+    color: var(--accent);
+    font-size: 1.15rem;
+}
+.nb-cork {
+    background:
+        repeating-linear-gradient(90deg, rgba(0,0,0,0.03) 0 2px, transparent 2px 7px),
+        repeating-linear-gradient(0deg, rgba(0,0,0,0.025) 0 2px, transparent 2px 9px),
+        linear-gradient(145deg, var(--cork) 0%, var(--cork-deep) 100%);
+    border: 10px solid #5c4030;
+    border-radius: 6px;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.18), 0 12px 28px rgba(60,40,20,0.22);
+    padding: 1.15rem 1rem 1.5rem;
+    min-height: 200px;
+}
+.nb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 1.15rem 1rem;
+    align-items: start;
+}
+.nb-paper {
+    position: relative;
+    display: block;
+    color: var(--ink);
+    transform: rotate(var(--nb-rot, 0deg));
+    transition: transform 0.22s ease, box-shadow 0.22s ease, opacity 0.15s ease;
+    animation: nb-settle 0.5s ease both;
+    animation-delay: var(--nb-delay, 0s);
+}
+.nb-paper.is-hidden { display: none; }
+.nb-paper:hover,
+.nb-paper:focus-visible {
+    transform: rotate(0deg) translateY(-3px) scale(1.015);
+    z-index: 2;
+    outline: none;
+}
+.nb-paper-inner {
+    background: var(--paper);
+    background-image: linear-gradient(rgba(42,33,24,0.04) 1px, transparent 1px);
+    background-size: 100% 1.5rem;
+    border: 1px solid rgba(42,33,24,0.12);
+    box-shadow: 2px 3px 0 rgba(0,0,0,0.05), 0 8px 16px rgba(0,0,0,0.16);
+    padding: 1.25rem 0.95rem 0.85rem;
+    min-height: 168px;
+    border-radius: 2px;
+    display: flex;
+    flex-direction: column;
+}
+.nb-pin {
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    width: 13px;
+    height: 13px;
+    margin-left: -6.5px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #f2b8b8, #b33a3a 55%, #6e1d1d);
+    box-shadow: 0 2px 3px rgba(0,0,0,0.35);
+    z-index: 3;
+}
+.nb-date {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.55rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+}
+.nb-time {
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0.9;
+}
+.nb-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 1.02rem;
+    line-height: 1.3;
+    margin: 0 0 0.4rem;
+    font-weight: 700;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.nb-preview {
+    font-size: 0.8rem;
+    line-height: 1.4;
+    color: #3d3228;
+    margin: 0 0 0.65rem;
+    flex: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.nb-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.74rem;
+    color: var(--muted);
+    border-top: 1px dashed rgba(42,33,24,0.18);
+    padding-top: 0.4rem;
+    margin-top: auto;
+}
+.nb-author {
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.nb-open {
+    color: rgba(42,33,24,0.35);
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+.nb-no-match { color: rgba(255,248,231,0.92); }
+@keyframes nb-settle {
+    from { opacity: 0; transform: rotate(var(--nb-rot, 0deg)) translateY(-10px); }
+    to { opacity: 1; transform: rotate(var(--nb-rot, 0deg)) translateY(0); }
+}
+
+/* —— Mobile: dense, thumb-friendly feed —— */
+@media (max-width: 767.98px) {
+    .nb-page {
+        background: linear-gradient(180deg, #ebe2d2 0%, #e8dcc8 100%);
+    }
+    .nb-wrap {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+    .nb-toolbar {
+        top: env(safe-area-inset-top, 0);
+        margin: 0 0 0.65rem;
+        padding: 0.15rem 0 0.5rem;
+        background: rgba(235,226,210,0.94);
+    }
+    .nb-cork {
+        border-width: 0;
+        border-radius: 16px;
+        padding: 0.65rem 0.55rem 0.85rem;
+        box-shadow: inset 0 0 0 1px rgba(92,64,48,0.18), 0 8px 20px rgba(60,40,20,0.12);
+        min-height: 0;
+    }
+    .nb-grid {
+        grid-template-columns: 1fr;
+        gap: 0.55rem;
+    }
+    .nb-paper {
+        transform: none !important;
+        animation: nb-fade-in 0.28s ease both;
+    }
+    .nb-paper:hover,
+    .nb-paper:focus-visible,
+    .nb-paper:active {
+        transform: scale(0.992) !important;
+    }
+    .nb-pin {
+        top: 50%;
+        left: 10px;
+        margin: -5px 0 0;
+        width: 10px;
+        height: 10px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+    .nb-paper-inner {
+        min-height: 0;
+        padding: 0.7rem 0.75rem 0.65rem 1.55rem;
+        border-radius: 12px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        background-image: none;
+        background: var(--paper);
+        position: relative;
+    }
+    .nb-paper-inner::before {
+        content: '';
+        position: absolute;
+        left: 0; top: 0; bottom: 0;
+        width: 4px;
+        border-radius: 12px 0 0 12px;
+        background: linear-gradient(180deg, #a8844f, #8b5a2b);
+    }
+    .nb-date {
+        font-size: 0.68rem;
+        margin-bottom: 0.2rem;
+    }
+    .nb-title {
+        font-size: 0.95rem;
+        margin-bottom: 0.2rem;
+        -webkit-line-clamp: 2;
+    }
+    .nb-preview {
+        font-size: 0.76rem;
+        margin-bottom: 0.4rem;
+        -webkit-line-clamp: 2;
+        line-height: 1.35;
+    }
+    .nb-meta {
+        padding-top: 0.3rem;
+        font-size: 0.7rem;
+    }
+    .nb-search-wrap {
+        border-radius: 14px;
+        padding: 0.65rem 0.9rem;
+        min-height: 44px;
+    }
+    .nb-search { font-size: 1rem; }
+    .nb-count {
+        min-width: 2rem;
+        height: 2rem;
+    }
+}
+@media (min-width: 400px) and (max-width: 767.98px) {
+    .nb-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.55rem;
+    }
+    .nb-paper-inner { padding-left: 1.35rem; }
+    .nb-preview { -webkit-line-clamp: 3; }
+}
+@keyframes nb-fade-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .nb-paper, .nb-paper:hover { animation: none !important; transition: none !important; }
+}
+
+/* Mobile shell: sit cleanly under app topbar */
+body.m-shell .nb-page { min-height: calc(100vh - 56px); }
+body.m-shell .nb-toolbar { top: 0; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if cards %}
+<script>
+(function () {
+    var input = document.getElementById('nbSearch');
+    var grid = document.getElementById('nbGrid');
+    var badge = document.getElementById('nbCountBadge');
+    var empty = document.getElementById('nbNoMatch');
+    if (!input || !grid) return;
+    var papers = Array.prototype.slice.call(grid.querySelectorAll('.nb-paper'));
+    var total = papers.length;
+
+    function applyFilter() {
+        var q = (input.value || '').trim().toLowerCase();
+        var shown = 0;
+        papers.forEach(function (el) {
+            var hay = el.getAttribute('data-search') || '';
+            var ok = !q || hay.indexOf(q) !== -1;
+            el.classList.toggle('is-hidden', !ok);
+            if (ok) shown += 1;
+        });
+        if (badge) badge.textContent = shown === total ? String(total) : shown + '/' + total;
+        if (empty) empty.classList.toggle('d-none', shown !== 0);
+    }
+
+    var t = null;
+    input.addEventListener('input', function () {
+        clearTimeout(t);
+        t = setTimeout(applyFilter, 80);
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

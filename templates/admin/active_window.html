@@ -164,7 +164,7 @@
                                 {% endif %}
                             </td>
                             <td>{{ w.status }}</td>
-                            <td>{{ w.created_at[:10] if w.created_at else '—' }}</td>
+                            <td>{{ w.created_at|bd('%Y-%m-%d') if w.created_at else '—' }}</td>
                             <td>
                                 {% if not w.is_active %}
                                 <button class="btn btn-sm btn-outline-success activate-window-btn" data-id="{{ w.id }}" data-name="{{ w.name }}">

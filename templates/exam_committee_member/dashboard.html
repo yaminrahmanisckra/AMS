@@ -41,7 +41,7 @@
                                     <strong>{{ form.title or 'Untitled' }}</strong>
                                     <br>
                                     <small class="text-muted">
-                                        Created: {{ form.created_at.strftime('%Y-%m-%d %H:%M') if form.created_at else '-' }}
+                                        Created: {{ form.created_at|bd('%Y-%m-%d %H:%M') if form.created_at else '-' }}
                                     </small>
                                 </div>
                                 <a href="{{ url_for('exam_committee_member_remuneration', form_id=form.id, session=assignment.academic_session, year=assignment.year, term=assignment.term) }}" class="btn btn-sm btn-primary">

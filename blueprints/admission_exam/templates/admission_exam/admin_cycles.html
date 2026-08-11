@@ -44,7 +44,7 @@
                             {% if cycle.admit_published %}
                             <span class="badge bg-info text-dark">Admit Cards Published</span>
                             {% endif %}
-                            <span class="text-muted">Created {{ cycle.created_at.strftime('%d %b %Y') }}</span>
+                            <span class="text-muted">Created {{ cycle.created_at|bd('%d %b %Y') }}</span>
                         </div>
                     </div>
                     <div class="d-flex gap-3 text-center small">

@@ -5,404 +5,278 @@
 {% block mobile_title %}Scores{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="card shadow">
-        <div class="card-header bg-primary text-white">
-            <h5 class="mb-0">
-                <i class="fas fa-chart-line me-2"></i>My Assessment & Attendance Scores
-            </h5>
+{% macro score_value(reveal, score, highest=None, callsign=None, is_split=False) -%}
+    {% if reveal %}
+        {% if score is not none %}
+            <span class="sv-score-num">{{ score }}</span>
+        {% else %}
+            <span class="sv-score-absent">Absent</span>
+        {% endif %}
+        {% if highest is not none %}
+            <span class="sv-meta">Class highest: {{ highest }}</span>
+        {% endif %}
+        {% if is_split and callsign %}
+            <span class="sv-meta sv-meta-info">Revealed by: {{ callsign }}</span>
+        {% endif %}
+    {% else %}
+        <span class="sv-score-pending">Not revealed</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro score_tile(label, reveal, score, highest=None, callsign=None, is_split=False, highlight=False) %}
+<div class="sv-tile{% if highlight %} sv-tile-highlight{% endif %}">
+    <div class="sv-tile-label">{{ label }}</div>
+    <div class="sv-tile-value">
+        {{ score_value(reveal, score, highest, callsign, is_split) }}
+    </div>
+</div>
+{% endmacro %}
+
+<div class="container mt-3 mt-md-4 mb-4 student-scores-page">
+    <div class="sv-page-intro d-none d-md-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h4 class="mb-1"><i class="fas fa-chart-line me-2 text-primary"></i>My Assessment & Attendance Scores</h4>
+            <p class="text-muted mb-0 small">Open a course to see assessment marks, attendance, and ask your teacher.</p>
         </div>
-        <div class="card-body">
-            {% if courses_data %}
-                {% for course in courses_data %}
-                <div class="card mb-3 border">
-                    <div class="card-header bg-light" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#course-{{ loop.index }}" aria-expanded="false" aria-controls="course-{{ loop.index }}">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h6 class="mb-0">
-                                    <strong>{{ course.session.course_name or 'Course' }}</strong>
-                                    {% if course.session.course_code %}
-                                        <span class="badge bg-secondary ms-2">{{ course.session.course_code }}</span>
-                                    {% endif %}
-                                </h6>
-                                <small class="text-muted">
-                                    Session: {{ course.session.year }}-{{ course.session.term }} | 
-                                    Type: {{ course.session.course_type|title }} | 
-                                    Category: {{ course.session.category|upper }}
-                                </small>
-                            </div>
-                            {% if course.qa_new_reply_count and course.qa_new_reply_count > 0 %}
-                                <span class="badge bg-info">New Replies {{ course.qa_new_reply_count }}</span>
-                            {% endif %}
-                            <i class="fas fa-chevron-right collapse-icon" style="transition: transform 0.3s;"></i>
-                        </div>
+    </div>
+
+    {% if courses_data %}
+        <div class="sv-course-list">
+        {% for course in courses_data %}
+        <div class="sv-course-card">
+            <button type="button" class="sv-course-header" data-bs-toggle="collapse" data-bs-target="#course-{{ loop.index }}" aria-expanded="false" aria-controls="course-{{ loop.index }}">
+                <div class="sv-course-header-main">
+                    <div class="sv-course-title-row">
+                        <h6 class="sv-course-name">{{ course.session.course_name or 'Course' }}</h6>
+                        {% if course.session.course_code %}
+                            <span class="sv-code-badge">{{ course.session.course_code }}</span>
+                        {% endif %}
                     </div>
-                    <div class="collapse" id="course-{{ loop.index }}">
-                        <div class="card-body">
-                        {% if course.assessment_scores or course.attendance_data %}
-                            
-                            {% if course.session.course_type == 'theory' and course.session.category == 'ug' %}
-                                <!-- Theory Course Assessment Scores -->
-                                <div class="mb-3">
-                                    <h6 class="text-primary"><i class="fas fa-clipboard-check me-1"></i>Assessment Scores</h6>
-                                    <div class="table-responsive">
-                                        <table class="table table-bordered table-sm">
-                                            <thead class="table-light">
-                                                <tr>
-                                                    <th>Assessment 1</th>
-                                                    <th>Assessment 2</th>
-                                                    <th>Assessment 3</th>
-                                                    <th>Assessment 4</th>
-                                                    <th>Best 3 Total</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment1', False) %}
-                                                            {% if course.assessment_scores.get('assessment1') is not none %}
-                                                                {{ course.assessment_scores.get('assessment1') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment1') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment1') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment1') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment1') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment2', False) %}
-                                                            {% if course.assessment_scores.get('assessment2') is not none %}
-                                                                {{ course.assessment_scores.get('assessment2') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment2') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment2') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment2') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment2') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment3', False) %}
-                                                            {% if course.assessment_scores.get('assessment3') is not none %}
-                                                                {{ course.assessment_scores.get('assessment3') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment3') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment3') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment3') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment3') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment4', False) %}
-                                                            {% if course.assessment_scores.get('assessment4') is not none %}
-                                                                {{ course.assessment_scores.get('assessment4') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment4') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment4') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment4') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment4') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td class="fw-bold">
-                                                        {% if course.best3_total is not none %}
-                                                            {{ course.best3_total }}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            
-                            {% elif course.session.course_type == 'theory' and course.session.category == 'pg' %}
-                                <!-- PG Theory Course Assessment Scores -->
-                                <div class="mb-3">
-                                    <h6 class="text-primary"><i class="fas fa-clipboard-check me-1"></i>Assessment Scores</h6>
-                                    <div class="table-responsive">
-                                        <table class="table table-bordered table-sm">
-                                            <thead class="table-light">
-                                                <tr>
-                                                    <th>Assessment 1</th>
-                                                    <th>Assessment 2</th>
-                                                    <th>Assessment 3</th>
-                                                    <th>Assessment 4</th>
-                                                    <th>Total (40)</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment1', False) %}
-                                                            {% if course.assessment_scores.get('assessment1') is not none %}
-                                                                {{ course.assessment_scores.get('assessment1') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment1') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment1') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment1') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment1') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment2', False) %}
-                                                            {% if course.assessment_scores.get('assessment2') is not none %}
-                                                                {{ course.assessment_scores.get('assessment2') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment2') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment2') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment2') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment2') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment3', False) %}
-                                                            {% if course.assessment_scores.get('assessment3') is not none %}
-                                                                {{ course.assessment_scores.get('assessment3') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment3') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment3') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment3') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment3') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td>
-                                                        {% if course.reveal_status.get('assessment4', False) %}
-                                                            {% if course.assessment_scores.get('assessment4') is not none %}
-                                                                {{ course.assessment_scores.get('assessment4') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.highest_assessment_scores.get('assessment4') is not none %}
-                                                                <div class="small text-muted">Highest: {{ course.highest_assessment_scores.get('assessment4') }}</div>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('assessment4') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('assessment4') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td class="fw-bold">
-                                                        {% if course.pg_total is not none %}
-                                                            {{ course.pg_total }}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            
-                            {% elif course.session.course_type == 'sessional' and course.session.category == 'ug' %}
-                                <!-- Sessional Course Assessment Scores -->
-                                <div class="mb-3">
-                                    <h6 class="text-primary"><i class="fas fa-clipboard-check me-1"></i>Sessional Assessment Scores</h6>
-                                    <div class="table-responsive">
-                                        <table class="table table-bordered table-sm">
-                                            <thead class="table-light">
-                                                <tr>
-                                                    <th>Sessional Report (60)</th>
-                                                    <th>Sessional Viva (30)</th>
-                                                    <th>Total (90)</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td>
-                                                        {% if course.reveal_status.get('sessional_report', False) %}
-                                                            {% if course.assessment_scores.get('sessional_report') is not none %}
-                                                                {{ course.assessment_scores.get('sessional_report') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('sessional_report') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('sessional_report') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td>
-                                                        {% if course.reveal_status.get('sessional_viva', False) %}
-                                                            {% if course.assessment_scores.get('sessional_viva') is not none %}
-                                                                {{ course.assessment_scores.get('sessional_viva') }}
-                                                            {% else %}
-                                                                <span class="text-muted">Absent</span>
-                                                            {% endif %}
-                                                            {% if course.is_split_course and course.reveal_callsigns.get('sessional_viva') %}
-                                                                <div class="small text-info">Revealed by: {{ course.reveal_callsigns.get('sessional_viva') }}</div>
-                                                            {% endif %}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                    <td class="fw-bold">
-                                                        {% set report_score = course.assessment_scores.get('sessional_report') or 0 %}
-                                                        {% set viva_score = course.assessment_scores.get('sessional_viva') or 0 %}
-                                                        {% if (course.reveal_status.get('sessional_report', False) or report_score) and (course.reveal_status.get('sessional_viva', False) or viva_score) %}
-                                                            {{ report_score + viva_score }}
-                                                        {% else %}
-                                                            <span class="text-muted">-</span>
-                                                        {% endif %}
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            {% endif %}
-                            
-                            <!-- Attendance Data -->
-                            {% if course.attendance_data %}
-                            <div class="mt-3">
-                                <h6 class="text-success"><i class="fas fa-calendar-check me-1"></i>Attendance</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-bordered table-sm">
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th>Present</th>
-                                                <th>Total Classes</th>
-                                                <th>Percentage</th>
-                                                <th>Marks</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <tr>
-                                                <td>{{ course.attendance_data.present_count }}</td>
-                                                <td>{{ course.attendance_data.total_classes }}</td>
-                                                <td>{{ "%.2f"|format(course.attendance_data.percentage) }}%</td>
-                                                <td class="fw-bold">{{ course.attendance_data.marks }}</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                    <div class="sv-course-meta">
+                        <span><i class="fas fa-graduation-cap"></i> {{ course.session.year }}-{{ course.session.term }}</span>
+                        <span><i class="fas fa-book"></i> {{ course.session.course_type|title }}</span>
+                        <span><i class="fas fa-layer-group"></i> {{ course.session.category|upper }}</span>
+                    </div>
+                    {% if course.qa_new_reply_count and course.qa_new_reply_count > 0 %}
+                        <span class="sv-reply-badge">{{ course.qa_new_reply_count }} new {{ 'reply' if course.qa_new_reply_count == 1 else 'replies' }}</span>
+                    {% endif %}
+                </div>
+                <i class="fas fa-chevron-right sv-chevron"></i>
+            </button>
+
+            <div class="collapse" id="course-{{ loop.index }}">
+                <div class="sv-course-body">
+                    {% if course.assessment_scores or course.attendance_data %}
+
+                        {% if course.session.course_type == 'theory' and course.session.category == 'ug' %}
+                        <section class="sv-section">
+                            <div class="sv-section-title">
+                                <span class="sv-section-icon sv-icon-assess"><i class="fas fa-clipboard-check"></i></span>
+                                <div>
+                                    <h6>Assessment Scores</h6>
+                                    <p>Best 3 of 4 assessments count toward your total.</p>
                                 </div>
                             </div>
-                            {% endif %}
-                            
-                        {% else %}
-                            <div class="alert alert-info">
-                                <i class="fas fa-info-circle me-2"></i>
-                                No scores have been revealed yet by your teacher.
+                            <div class="sv-tile-grid">
+                                {{ score_tile('Assessment 1', course.reveal_status.get('assessment1', False), course.assessment_scores.get('assessment1') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment1'), (course.reveal_callsigns or {}).get('assessment1'), course.is_split_course) }}
+                                {{ score_tile('Assessment 2', course.reveal_status.get('assessment2', False), course.assessment_scores.get('assessment2') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment2'), (course.reveal_callsigns or {}).get('assessment2'), course.is_split_course) }}
+                                {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course) }}
+                                {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course) }}
+                                <div class="sv-tile sv-tile-highlight sv-tile-wide">
+                                    <div class="sv-tile-label">Best 3 Total</div>
+                                    <div class="sv-tile-value">
+                                        {% if course.best3_total is not none %}
+                                            <span class="sv-score-num">{{ course.best3_total }}</span>
+                                        {% else %}
+                                            <span class="sv-score-pending">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
                             </div>
+                        </section>
+
+                        {% elif course.session.course_type == 'theory' and course.session.category == 'pg' %}
+                        <section class="sv-section">
+                            <div class="sv-section-title">
+                                <span class="sv-section-icon sv-icon-assess"><i class="fas fa-clipboard-check"></i></span>
+                                <div>
+                                    <h6>Assessment Scores</h6>
+                                    <p>Continuous assessment marks out of 40.</p>
+                                </div>
+                            </div>
+                            <div class="sv-tile-grid">
+                                {{ score_tile('Assessment 1', course.reveal_status.get('assessment1', False), course.assessment_scores.get('assessment1') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment1'), (course.reveal_callsigns or {}).get('assessment1'), course.is_split_course) }}
+                                {{ score_tile('Assessment 2', course.reveal_status.get('assessment2', False), course.assessment_scores.get('assessment2') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment2'), (course.reveal_callsigns or {}).get('assessment2'), course.is_split_course) }}
+                                {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course) }}
+                                {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course) }}
+                                <div class="sv-tile sv-tile-highlight sv-tile-wide">
+                                    <div class="sv-tile-label">Total (out of 40)</div>
+                                    <div class="sv-tile-value">
+                                        {% if course.pg_total is not none %}
+                                            <span class="sv-score-num">{{ course.pg_total }}</span>
+                                        {% else %}
+                                            <span class="sv-score-pending">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        {% elif course.session.course_type == 'sessional' and course.session.category == 'ug' %}
+                        <section class="sv-section">
+                            <div class="sv-section-title">
+                                <span class="sv-section-icon sv-icon-assess"><i class="fas fa-clipboard-check"></i></span>
+                                <div>
+                                    <h6>Sessional Assessment Scores</h6>
+                                    <p>Report and viva marks for this sessional course.</p>
+                                </div>
+                            </div>
+                            <div class="sv-tile-grid">
+                                {{ score_tile('Sessional Report (60)', course.reveal_status.get('sessional_report', False), course.assessment_scores.get('sessional_report') if course.assessment_scores else None, None, (course.reveal_callsigns or {}).get('sessional_report'), course.is_split_course) }}
+                                {{ score_tile('Sessional Viva (30)', course.reveal_status.get('sessional_viva', False), course.assessment_scores.get('sessional_viva') if course.assessment_scores else None, None, (course.reveal_callsigns or {}).get('sessional_viva'), course.is_split_course) }}
+                                <div class="sv-tile sv-tile-highlight sv-tile-wide">
+                                    <div class="sv-tile-label">Total (out of 90)</div>
+                                    <div class="sv-tile-value">
+                                        {% set report_score = (course.assessment_scores or {}).get('sessional_report') or 0 %}
+                                        {% set viva_score = (course.assessment_scores or {}).get('sessional_viva') or 0 %}
+                                        {% if (course.reveal_status.get('sessional_report', False) or report_score) and (course.reveal_status.get('sessional_viva', False) or viva_score) %}
+                                            <span class="sv-score-num">{{ report_score + viva_score }}</span>
+                                        {% else %}
+                                            <span class="sv-score-pending">—</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
                         {% endif %}
 
-                        <!-- Ask Teacher (Q&A) -->
-                        <div class="mt-4">
-                            <h6 class="text-info">
-                                <i class="fas fa-question-circle me-1"></i>Ask Teacher
-                            </h6>
-                            <form class="border rounded p-3 bg-light mb-3" method="POST" action="{{ url_for('class_management.student_create_course_question', session_id=course.session.id) }}" enctype="multipart/form-data">
-                                {% if course.teacher_options and course.teacher_options|length > 1 %}
-                                    <div class="mb-2">
-                                        <label class="form-label mb-1">Select Teacher</label>
-                                        <select name="selected_session_id" class="form-select form-select-sm" required>
-                                            {% for option in course.teacher_options %}
-                                                <option value="{{ option.session_id }}">
-                                                    {{ option.teacher_name }}{% if option.teacher_short %} ({{ option.teacher_short }}){% endif %} - {{ option.scope_label }}
-                                                </option>
-                                            {% endfor %}
-                                        </select>
+                        {% if course.attendance_data %}
+                        {% set att_pct = course.attendance_data.percentage|float %}
+                        {% set att_pct_clamped = 100 if att_pct > 100 else (0 if att_pct < 0 else att_pct) %}
+                        <section class="sv-section">
+                            <div class="sv-section-title">
+                                <span class="sv-section-icon sv-icon-att"><i class="fas fa-calendar-check"></i></span>
+                                <div>
+                                    <h6>Attendance</h6>
+                                    <p>Class presence and attendance marks for this course.</p>
+                                </div>
+                            </div>
+                            <div class="sv-attendance">
+                                <div class="sv-att-ring" style="--att-pct: {{ att_pct_clamped }};" aria-label="Attendance {{ '%.2f'|format(att_pct) }} percent">
+                                    <div class="sv-att-ring-inner">
+                                        <strong>{{ '%.0f'|format(att_pct) }}%</strong>
+                                        <span>Present</span>
                                     </div>
-                                {% else %}
-                                    <input type="hidden" name="selected_session_id" value="{{ course.session.id }}">
-                                {% endif %}
-                                <div class="mb-2">
-                                    <label class="form-label mb-1">Subject</label>
-                                    <input type="text" name="subject" class="form-control form-control-sm" placeholder="Write a short subject" required>
                                 </div>
-                                <div class="mb-2">
-                                    <label class="form-label mb-1">Message</label>
-                                    <textarea name="message" class="form-control form-control-sm" rows="3" placeholder="Write your question"></textarea>
+                                <div class="sv-att-stats">
+                                    <div class="sv-att-stat">
+                                        <span class="sv-att-stat-label"><i class="fas fa-chalkboard-teacher"></i> Total Classes</span>
+                                        <span class="sv-att-stat-value">{{ course.attendance_data.total_classes }}</span>
+                                    </div>
+                                    <div class="sv-att-stat">
+                                        <span class="sv-att-stat-label"><i class="fas fa-user-check"></i> Present</span>
+                                        <span class="sv-att-stat-value sv-att-present">{{ course.attendance_data.present_count }}</span>
+                                    </div>
+                                    <div class="sv-att-stat">
+                                        <span class="sv-att-stat-label"><i class="fas fa-percentage"></i> Percentage</span>
+                                        <span class="sv-att-stat-value">{{ '%.2f'|format(att_pct) }}%</span>
+                                    </div>
+                                    <div class="sv-att-stat sv-att-stat-marks">
+                                        <span class="sv-att-stat-label"><i class="fas fa-star"></i> Attendance Marks</span>
+                                        <span class="sv-att-stat-value">{{ course.attendance_data.marks }}</span>
+                                    </div>
                                 </div>
-                                <div class="mb-2">
-                                    <label class="form-label mb-1">Attachments (optional)</label>
-                                    <input type="file" name="attachments" class="form-control form-control-sm" multiple>
-                                </div>
-                                <button type="submit" class="btn btn-sm btn-primary">
-                                    <i class="fas fa-paper-plane me-1"></i>Send
-                                </button>
-                            </form>
+                            </div>
+                            <div class="sv-att-bar" role="presentation">
+                                <div class="sv-att-bar-fill" style="width: {{ att_pct_clamped }}%;"></div>
+                            </div>
+                        </section>
+                        {% endif %}
 
-                            {% if course.qa_threads %}
+                    {% else %}
+                        <div class="sv-empty">
+                            <i class="fas fa-info-circle"></i>
+                            <p>No scores have been revealed yet by your teacher.</p>
+                        </div>
+                    {% endif %}
+
+                    <section class="sv-section sv-qa-section">
+                        <div class="sv-section-title">
+                            <span class="sv-section-icon sv-icon-qa"><i class="fas fa-question-circle"></i></span>
+                            <div>
+                                <h6>Ask Teacher</h6>
+                                <p>Send a question about this course. Attachments are optional.</p>
+                            </div>
+                        </div>
+
+                        <form class="sv-qa-form" method="POST" action="{{ url_for('class_management.student_create_course_question', session_id=course.session.id) }}" enctype="multipart/form-data">
+                            {% if course.teacher_options and course.teacher_options|length > 1 %}
+                                <div class="mb-2">
+                                    <label class="form-label">Select Teacher</label>
+                                    <select name="selected_session_id" class="form-select form-select-sm" required>
+                                        {% for option in course.teacher_options %}
+                                            <option value="{{ option.session_id }}">
+                                                {{ option.teacher_name }}{% if option.teacher_short %} ({{ option.teacher_short }}){% endif %} — {{ option.scope_label }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            {% else %}
+                                <input type="hidden" name="selected_session_id" value="{{ course.session.id }}">
+                            {% endif %}
+                            <div class="mb-2">
+                                <label class="form-label">Subject</label>
+                                <input type="text" name="subject" class="form-control form-control-sm" placeholder="Write a short subject" required>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label">Message</label>
+                                <textarea name="message" class="form-control form-control-sm" rows="3" placeholder="Write your question"></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Attachments <span class="text-muted">(optional)</span></label>
+                                <input type="file" name="attachments" class="form-control form-control-sm" multiple>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm sv-send-btn">
+                                <i class="fas fa-paper-plane me-1"></i>Send Question
+                            </button>
+                        </form>
+
+                        {% if course.qa_threads %}
+                            <div class="sv-threads">
                                 {% for thread in course.qa_threads %}
-                                <div class="border rounded p-3 mb-3">
-                                    <div class="d-flex justify-content-between align-items-start">
+                                <div class="sv-thread">
+                                    <div class="sv-thread-head">
                                         <div>
-                                            <strong>{{ thread.subject }}</strong>
-                                            <div class="text-muted small">
+                                            <strong class="sv-thread-subject">{{ thread.subject }}</strong>
+                                            <div class="sv-thread-meta">
                                                 Teacher: {{ thread.teacher.name if thread.teacher else 'Teacher' }}
-                                                {% if thread.created_at %} | Asked: {{ thread.created_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+                                                {% if thread.created_at %} · Asked: {{ thread.created_at|bd('%Y-%m-%d %H:%M') }}{% endif %}
                                             </div>
                                         </div>
-                                        <div class="d-flex gap-2 align-items-center">
+                                        <div class="sv-thread-badges">
                                             {% if thread.has_unseen_teacher_message %}
                                                 <span class="badge bg-info">New Reply</span>
                                             {% endif %}
                                             <span class="badge bg-secondary text-uppercase">{{ thread.status }}</span>
                                         </div>
                                     </div>
-                                    <div class="d-flex justify-content-between align-items-center mt-2">
-                                        <div></div>
+                                    <div class="sv-thread-actions">
                                         <form method="POST" action="{{ url_for('class_management.delete_course_question_thread', thread_id=thread.id) }}" onsubmit="return confirm('Delete this question?');">
                                             <button type="submit" class="btn btn-sm btn-outline-danger">
                                                 <i class="fas fa-trash me-1"></i>Delete Question
                                             </button>
                                         </form>
                                     </div>
-                                    <div class="mt-3">
+                                    <div class="sv-messages">
                                         {% for msg in thread.messages|sort(attribute='created_at') %}
-                                        <div class="mb-2">
-                                            <div class="small text-muted d-flex justify-content-between align-items-center">
+                                        <div class="sv-message {% if msg.sender_role == 'teacher' %}sv-message-teacher{% else %}sv-message-student{% endif %}">
+                                            <div class="sv-message-meta">
                                                 <div>
                                                     <span class="badge {% if msg.sender_role == 'teacher' %}bg-primary{% else %}bg-success{% endif %}">
                                                         {{ 'Teacher' if msg.sender_role == 'teacher' else 'You' }}
                                                     </span>
                                                     {% if msg.created_at %}
-                                                        <span class="ms-2">{{ msg.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                                        <span class="ms-1 text-muted small">{{ msg.created_at|bd('%Y-%m-%d %H:%M') }}</span>
                                                     {% endif %}
                                                 </div>
                                                 <div class="d-flex align-items-center gap-2">
@@ -411,7 +285,7 @@
                                                             {{ 'Seen by Teacher' if msg.seen_by_teacher_at else 'Unseen by Teacher' }}
                                                         </span>
                                                         <form method="POST" action="{{ url_for('class_management.delete_course_question_message', message_id=msg.id) }}" onsubmit="return confirm('Delete this message?');">
-                                                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1">
                                                                 <i class="fas fa-trash"></i>
                                                             </button>
                                                         </form>
@@ -423,12 +297,12 @@
                                                 </div>
                                             </div>
                                             {% if msg.body %}
-                                                <div class="mt-1 qa-message-body">{{ msg.body | qa_message_body }}</div>
+                                                <div class="sv-message-body qa-message-body">{{ msg.body | qa_message_body }}</div>
                                             {% endif %}
                                             {% if msg.attachments %}
-                                                <div class="mt-2">
+                                                <div class="sv-attachments">
                                                     {% for att in msg.attachments %}
-                                                        <a href="{{ url_for('class_management.download_course_question_attachment', attachment_id=att.id) }}" class="btn btn-sm btn-outline-secondary me-1 mb-1">
+                                                        <a href="{{ url_for('class_management.download_course_question_attachment', attachment_id=att.id) }}" class="btn btn-sm btn-outline-secondary">
                                                             <i class="fas fa-paperclip me-1"></i>{{ att.file_name }}
                                                         </a>
                                                     {% endfor %}
@@ -437,78 +311,594 @@
                                         </div>
                                         {% endfor %}
                                     </div>
-                                    <form class="mt-3" method="POST" action="{{ url_for('class_management.student_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data">
-                                        <div class="mb-2">
-                                            <textarea name="message" class="form-control form-control-sm" rows="2" placeholder="Reply..."></textarea>
-                                        </div>
-                                        <div class="mb-2">
-                                            <input type="file" name="attachments" class="form-control form-control-sm" multiple>
-                                        </div>
+                                    <form class="sv-reply-form" method="POST" action="{{ url_for('class_management.student_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data">
+                                        <textarea name="message" class="form-control form-control-sm mb-2" rows="2" placeholder="Reply..."></textarea>
+                                        <input type="file" name="attachments" class="form-control form-control-sm mb-2" multiple>
                                         <button type="submit" class="btn btn-sm btn-outline-primary">
                                             <i class="fas fa-reply me-1"></i>Reply
                                         </button>
                                     </form>
                                 </div>
                                 {% endfor %}
-                            {% else %}
-                                <div class="text-muted small">No questions yet.</div>
-                            {% endif %}
-                        </div>
-                        </div>
-                    </div>
+                            </div>
+                        {% else %}
+                            <p class="sv-no-threads">No questions yet for this course.</p>
+                        {% endif %}
+                    </section>
                 </div>
-                {% endfor %}
-            {% else %}
-                <div class="alert alert-info">
-                    <i class="fas fa-info-circle me-2"></i>
-                    You are not enrolled in any courses yet.
-                </div>
-            {% endif %}
+            </div>
         </div>
-    </div>
+        {% endfor %}
+        </div>
+    {% else %}
+        <div class="sv-empty sv-empty-page">
+            <i class="fas fa-info-circle"></i>
+            <p>You are not enrolled in any courses yet.</p>
+        </div>
+    {% endif %}
 </div>
 
 <style>
-    .card-header:hover {
-        background-color: #e9ecef !important;
+.student-scores-page {
+    --sv-accent: #0d9488;
+    --sv-accent-soft: rgba(13, 148, 136, 0.12);
+    --sv-assess: #2563eb;
+    --sv-assess-soft: rgba(37, 99, 235, 0.1);
+    --sv-att: #059669;
+    --sv-att-soft: rgba(5, 150, 105, 0.1);
+    --sv-qa: #0284c7;
+    --sv-qa-soft: rgba(2, 132, 199, 0.1);
+    --sv-border: #e5e7eb;
+    --sv-muted: #6b7280;
+    --sv-text: #111827;
+    max-width: 920px;
+}
+
+.sv-course-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.sv-course-card {
+    background: #fff;
+    border: 1px solid var(--sv-border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.sv-course-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.95rem 1rem;
+    border: none;
+    background: linear-gradient(180deg, #fafbfc 0%, #fff 100%);
+    text-align: left;
+    cursor: pointer;
+}
+
+.sv-course-header:hover {
+    background: #f3f4f6;
+}
+
+.sv-course-header-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.sv-course-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.55rem;
+    margin-bottom: 0.35rem;
+}
+
+.sv-course-name {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--sv-text);
+    line-height: 1.3;
+}
+
+.sv-code-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #fff;
+    background: #374151;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+}
+
+.sv-course-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.75rem;
+    font-size: 0.75rem;
+    color: var(--sv-muted);
+}
+
+.sv-course-meta i {
+    margin-right: 0.2rem;
+    opacity: 0.8;
+}
+
+.sv-reply-badge {
+    display: inline-block;
+    margin-top: 0.45rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #0369a1;
+    background: #e0f2fe;
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+}
+
+.sv-chevron {
+    color: #9ca3af;
+    font-size: 0.85rem;
+    transition: transform 0.25s ease;
+    flex-shrink: 0;
+}
+
+.sv-course-header[aria-expanded="true"] .sv-chevron,
+.sv-course-card.is-open .sv-chevron {
+    transform: rotate(90deg);
+}
+
+.sv-course-body {
+    padding: 0 1rem 1.1rem;
+    border-top: 1px solid var(--sv-border);
+}
+
+.sv-section {
+    margin-top: 1rem;
+    padding: 0.9rem;
+    background: #f8fafc;
+    border: 1px solid var(--sv-border);
+    border-radius: 12px;
+}
+
+.sv-section-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    margin-bottom: 0.85rem;
+}
+
+.sv-section-title h6 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--sv-text);
+}
+
+.sv-section-title p {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    color: var(--sv-muted);
+    line-height: 1.35;
+}
+
+.sv-section-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.sv-icon-assess { background: var(--sv-assess-soft); color: var(--sv-assess); }
+.sv-icon-att { background: var(--sv-att-soft); color: var(--sv-att); }
+.sv-icon-qa { background: var(--sv-qa-soft); color: var(--sv-qa); }
+
+.sv-tile-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem;
+}
+
+.sv-tile {
+    background: #fff;
+    border: 1px solid var(--sv-border);
+    border-radius: 10px;
+    padding: 0.7rem 0.75rem;
+    min-height: 76px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.sv-tile-wide {
+    grid-column: 1 / -1;
+}
+
+.sv-tile-highlight {
+    background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+    border-color: #bfdbfe;
+}
+
+.sv-tile-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--sv-muted);
+}
+
+.sv-tile-value {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.sv-score-num {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--sv-text);
+    line-height: 1.15;
+}
+
+.sv-tile-highlight .sv-score-num {
+    color: var(--sv-assess);
+}
+
+.sv-score-absent {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #b45309;
+}
+
+.sv-score-pending {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #9ca3af;
+}
+
+.sv-meta {
+    font-size: 0.68rem;
+    color: var(--sv-muted);
+}
+
+.sv-meta-info {
+    color: #0284c7;
+}
+
+.sv-attendance {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.sv-att-ring {
+    --att-pct: 0;
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    background: conic-gradient(var(--sv-att) calc(var(--att-pct) * 1%), #e5e7eb 0);
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+}
+
+.sv-att-ring-inner {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.1;
+}
+
+.sv-att-ring-inner strong {
+    font-size: 1.05rem;
+    color: var(--sv-att);
+}
+
+.sv-att-ring-inner span {
+    font-size: 0.62rem;
+    color: var(--sv-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.sv-att-stats {
+    flex: 1;
+    min-width: 180px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem;
+}
+
+.sv-att-stat {
+    background: #fff;
+    border: 1px solid var(--sv-border);
+    border-radius: 10px;
+    padding: 0.55rem 0.65rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.sv-att-stat-marks {
+    background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+    border-color: #a7f3d0;
+}
+
+.sv-att-stat-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--sv-muted);
+}
+
+.sv-att-stat-label i {
+    margin-right: 0.2rem;
+}
+
+.sv-att-stat-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--sv-text);
+}
+
+.sv-att-present {
+    color: var(--sv-att);
+}
+
+.sv-att-stat-marks .sv-att-stat-value {
+    color: #047857;
+}
+
+.sv-att-bar {
+    margin-top: 0.75rem;
+    height: 8px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    overflow: hidden;
+}
+
+.sv-att-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #34d399, #059669);
+}
+
+.sv-qa-form {
+    background: #fff;
+    border: 1px solid var(--sv-border);
+    border-radius: 10px;
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+}
+
+.sv-qa-form .form-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.sv-send-btn {
+    min-width: 140px;
+}
+
+.sv-threads {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.sv-thread {
+    background: #fff;
+    border: 1px solid var(--sv-border);
+    border-radius: 10px;
+    padding: 0.85rem;
+}
+
+.sv-thread-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.sv-thread-subject {
+    font-size: 0.92rem;
+    color: var(--sv-text);
+}
+
+.sv-thread-meta {
+    font-size: 0.72rem;
+    color: var(--sv-muted);
+    margin-top: 0.2rem;
+}
+
+.sv-thread-badges {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+}
+
+.sv-thread-actions {
+    margin-top: 0.55rem;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.sv-messages {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.sv-message {
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--sv-border);
+}
+
+.sv-message-teacher {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+
+.sv-message-student {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
+}
+
+.sv-message-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.35rem;
+}
+
+.sv-message-body {
+    font-size: 0.88rem;
+    line-height: 1.45;
+}
+
+.sv-attachments {
+    margin-top: 0.45rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.sv-reply-form {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed var(--sv-border);
+}
+
+.sv-no-threads {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--sv-muted);
+}
+
+.sv-empty {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.9rem;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    color: #1e40af;
+    margin-top: 1rem;
+}
+
+.sv-empty i {
+    font-size: 1.1rem;
+}
+
+.sv-empty p {
+    margin: 0;
+    font-size: 0.88rem;
+}
+
+.sv-empty-page {
+    margin-top: 1.5rem;
+    justify-content: center;
+    text-align: center;
+}
+
+@media (max-width: 575.98px) {
+    .student-scores-page {
+        padding-left: 0.25rem !important;
+        padding-right: 0.25rem !important;
     }
-    .collapse-icon {
-        font-size: 0.9rem;
-        color: #6c757d;
+
+    .sv-course-header {
+        padding: 0.85rem 0.85rem;
     }
-    .collapsed .collapse-icon {
-        transform: rotate(-90deg);
+
+    .sv-course-body {
+        padding: 0 0.75rem 0.95rem;
     }
+
+    .sv-section {
+        padding: 0.75rem;
+    }
+
+    .sv-course-name {
+        font-size: 0.95rem;
+    }
+
+    .sv-tile-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.45rem;
+    }
+
+    .sv-score-num {
+        font-size: 1.2rem;
+    }
+
+    .sv-attendance {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .sv-att-ring {
+        margin: 0 auto;
+    }
+
+    .sv-send-btn {
+        width: 100%;
+    }
+
+    .sv-thread-actions .btn,
+    .sv-reply-form .btn {
+        width: 100%;
+    }
+}
+
+@media (min-width: 768px) {
+    .sv-tile-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .sv-tile-wide {
+        grid-column: span 2;
+    }
+}
 </style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Handle collapse icon rotation
-    document.querySelectorAll('[data-bs-toggle="collapse"]').forEach(function(element) {
-        const icon = element.querySelector('.collapse-icon');
-        
-        // Update icon based on initial state (collapsed by default)
-        icon.style.transform = 'rotate(0deg)';
-        
-        // Listen for Bootstrap collapse events
-        const targetSelector = element.getAttribute('data-bs-target');
-        const target = document.querySelector(targetSelector);
-        
-        if (target) {
-            target.addEventListener('shown.bs.collapse', function() {
-                // When expanded, rotate chevron down
-                icon.classList.remove('fa-chevron-right');
-                icon.classList.add('fa-chevron-down');
-            });
-            
-            target.addEventListener('hidden.bs.collapse', function() {
-                // When collapsed, rotate chevron right
-                icon.classList.remove('fa-chevron-down');
-                icon.classList.add('fa-chevron-right');
-            });
-        }
+    document.querySelectorAll('.sv-course-header').forEach(function(btn) {
+        var target = document.querySelector(btn.getAttribute('data-bs-target'));
+        var card = btn.closest('.sv-course-card');
+        if (!target) return;
+
+        target.addEventListener('show.bs.collapse', function() {
+            btn.setAttribute('aria-expanded', 'true');
+            if (card) card.classList.add('is-open');
+        });
+        target.addEventListener('hide.bs.collapse', function() {
+            btn.setAttribute('aria-expanded', 'false');
+            if (card) card.classList.remove('is-open');
+        });
     });
 });
 </script>
 {% endblock %}
-

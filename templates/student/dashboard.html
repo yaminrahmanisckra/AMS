@@ -3,107 +3,123 @@
 
 {% block mobile_title %}Student{% endblock %}
 {% block content %}
-<div class="container my-4 my-md-5">
-    <div class="text-center mb-4 mb-md-5">
-        <h1 class="mb-2" style="font-size: 1.75rem;">Hi {{ current_user.full_name or 'Student' }} 👋</h1>
-        <p class="text-muted mb-0" style="font-size: 0.9rem;">Please complete your course registration to proceed with academic activities.</p>
+<div class="container my-4 my-md-5 student-dash-page">
+    <div class="sd-hero text-center mb-4 mb-md-5">
+        <p class="sd-eyebrow mb-1">Academic Management System</p>
+        <h1 class="sd-hello mb-2">Hi {{ current_user.full_name or 'Student' }}</h1>
+        <p class="sd-sub text-muted mb-0">Your courses, scores, files, and schedules in one place.</p>
     </div>
 
     {% set card_map = cards if cards is defined else {} %}
-    {% set any_card = card_map.course_files or card_map.question_bank or card_map.class_routine or card_map.academic_calendar or card_map.my_scores or card_map.course_registration %}
+    {% set any_card = card_map.course_files or card_map.question_bank or card_map.class_routine or card_map.academic_calendar or card_map.my_scores or card_map.course_registration or card_map.noticeboard %}
 
     {% if not any_card %}
-    <div class="alert alert-light border text-center py-5">
+    <div class="alert alert-light border text-center py-5 sd-empty">
         <i class="fas fa-info-circle fa-2x text-muted mb-3"></i>
         <p class="mb-0 text-muted">No dashboard features are available right now. Please contact your administrator.</p>
     </div>
     {% else %}
-    <div class="row justify-content-center g-3">
+    <div class="row justify-content-center g-3 sd-card-grid">
         {% if card_map.course_files %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="{{ url_for('class_management.student_course_files') }}" class="text-decoration-none">
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('class_management.student_course_files') }}" class="text-decoration-none sd-card-link">
                 <div class="card shadow-sm text-center course-card h-100">
-                    <div class="card-body py-3 px-2">
+                    <div class="card-body">
                         <div class="icon-circle mb-2" style="background-color: rgba(156,39,176,0.12);">
                             <i class="fas fa-folder-open fa-lg" style="color: #9c27b0;"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Course Files</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">Download course outlines and files uploaded by teachers.</p>
+                        <h5 class="card-title mb-1">Course Files</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Download outlines and files from teachers.</p>
                     </div>
                 </div>
             </a>
         </div>
         {% endif %}
         {% if card_map.question_bank %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="/class-management/question-bank" class="text-decoration-none">
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="/class-management/question-bank" class="text-decoration-none sd-card-link">
                 <div class="card shadow-sm text-center course-card h-100">
-                    <div class="card-body py-3 px-2">
+                    <div class="card-body">
                         <div class="icon-circle mb-2" style="background-color: rgba(220,53,69,0.12);">
                             <i class="fas fa-book-reader fa-lg" style="color: #dc3545;"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Question Bank</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">Download previous years' question papers in PDF.</p>
+                        <h5 class="card-title mb-1">Question Bank</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Past-year question papers in PDF.</p>
                     </div>
                 </div>
             </a>
         </div>
         {% endif %}
         {% if card_map.class_routine %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="{{ url_for('routine_management.view_routine') }}" class="text-decoration-none">
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('routine_management.view_routine') }}" class="text-decoration-none sd-card-link">
                 <div class="card shadow-sm text-center course-card h-100">
-                    <div class="card-body py-3 px-2">
+                    <div class="card-body">
                         <div class="icon-circle mb-2" style="background-color: rgba(255,152,0,0.12);">
                             <i class="fas fa-calendar-alt fa-lg" style="color: #ff9800;"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Class Routine</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">View and download your class routine.</p>
+                        <h5 class="card-title mb-1">Class Routine</h5>
+                        <p class="text-muted mb-0 sd-card-desc">View and download your class routine.</p>
                     </div>
                 </div>
             </a>
         </div>
         {% endif %}
         {% if card_map.academic_calendar %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="{{ url_for('academic_calendar.index') }}" class="text-decoration-none">
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('academic_calendar.index') }}" class="text-decoration-none sd-card-link">
                 <div class="card shadow-sm text-center course-card h-100">
-                    <div class="card-body py-3 px-2">
+                    <div class="card-body">
                         <div class="icon-circle mb-2" style="background-color: rgba(99,102,241,0.12);">
                             <i class="fas fa-calendar fa-lg" style="color: #6366f1;"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Academic Calendar</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">View holidays, events, and important academic dates.</p>
+                        <h5 class="card-title mb-1">Academic Calendar</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Holidays, events, and key dates.</p>
                     </div>
                 </div>
             </a>
         </div>
         {% endif %}
         {% if card_map.my_scores %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="{{ url_for('class_management.student_view_scores') }}" class="text-decoration-none">
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('class_management.student_view_scores') }}" class="text-decoration-none sd-card-link">
                 <div class="card shadow-sm text-center course-card h-100">
-                    <div class="card-body py-3 px-2">
+                    <div class="card-body">
                         <div class="icon-circle mb-2" style="background-color: rgba(40,167,69,0.12);">
                             <i class="fas fa-chart-line fa-lg text-success"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">My Scores</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">View your assessment and attendance scores.</p>
+                        <h5 class="card-title mb-1">My Scores</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Assessment and attendance scores.</p>
                     </div>
                 </div>
             </a>
         </div>
         {% endif %}
         {% if card_map.course_registration %}
-        <div class="col-6 col-sm-6 col-md-4 col-lg-3 mb-3">
-            <a href="{{ url_for('course_management.student_course_registration') }}" class="text-decoration-none">
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="{{ url_for('course_management.student_course_registration') }}" class="text-decoration-none sd-card-link">
                 <div class="card shadow-sm text-center course-card h-100">
-                    <div class="card-body py-3 px-2">
+                    <div class="card-body">
                         <div class="icon-circle mb-2">
                             <i class="fas fa-clipboard-check fa-lg text-primary"></i>
                         </div>
-                        <h5 class="card-title mb-1" style="font-size: 0.95rem; font-weight: 600;">Course Registration</h5>
-                        <p class="text-muted mb-0" style="font-size: 0.75rem; line-height: 1.3;">Select session, year, term and download your registration form.</p>
+                        <h5 class="card-title mb-1">Course Registration</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Register courses and download your form.</p>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% endif %}
+        {% if card_map.noticeboard %}
+        <div class="col-6 col-sm-6 col-md-4 col-lg-3">
+            <a href="/noticeboard/board" class="text-decoration-none sd-card-link">
+                <div class="card shadow-sm text-center course-card h-100">
+                    <div class="card-body">
+                        <div class="icon-circle mb-2" style="background-color: rgba(139,90,43,0.12);">
+                            <i class="fas fa-thumbtack fa-lg" style="color: #8b5a2b;"></i>
+                        </div>
+                        <h5 class="card-title mb-1">Noticeboard</h5>
+                        <p class="text-muted mb-0 sd-card-desc">Notices from teachers and Head.</p>
                     </div>
                 </div>
             </a>
@@ -114,20 +130,73 @@
 </div>
 
 <style>
+.student-dash-page {
+    max-width: 980px;
+}
+
+.sd-eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0d9488;
+    margin: 0;
+}
+
+.sd-hello {
+    font-size: clamp(1.45rem, 4vw, 1.85rem);
+    font-weight: 700;
+    color: #111827;
+    margin: 0;
+    line-height: 1.25;
+}
+
+.sd-sub {
+    font-size: 0.9rem;
+    max-width: 28rem;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.4;
+}
+
 .course-card {
-    border: none;
-    border-radius: 12px;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
     min-height: 100%;
+    background: #fff;
+    overflow: hidden;
 }
+
+.course-card .card-body {
+    padding: 1.15rem 0.9rem;
+}
+
+.sd-card-link:active .course-card {
+    transform: scale(0.98);
+}
+
 .course-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.1);
+    border-color: #d1d5db;
 }
+
+.course-card .card-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.sd-card-desc {
+    font-size: 0.75rem;
+    line-height: 1.35;
+}
+
 .icon-circle {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
     background-color: rgba(13,110,253,0.12);
     display: flex;
     align-items: center;
@@ -135,37 +204,72 @@
     margin: 0 auto;
 }
 
-/* Mobile optimizations */
-@media (max-width: 576px) {
+@media (max-width: 575.98px) {
+    .student-dash-page {
+        padding-left: 0.65rem !important;
+        padding-right: 0.65rem !important;
+    }
+
+    .sd-hero {
+        text-align: left !important;
+        background: linear-gradient(160deg, #f0fdfa 0%, #fff 55%, #f8fafc 100%);
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        padding: 1rem 1.05rem;
+        margin-bottom: 1rem !important;
+    }
+
+    .sd-sub {
+        margin-left: 0;
+        margin-right: 0;
+        font-size: 0.82rem;
+    }
+
+    .sd-card-grid {
+        --bs-gutter-x: 0.65rem;
+        --bs-gutter-y: 0.65rem;
+    }
+
+    .course-card {
+        border-radius: 14px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    }
+
     .course-card .card-body {
-        padding: 1rem 0.75rem !important;
+        padding: 1rem 0.7rem !important;
     }
+
     .icon-circle {
-        width: 45px;
-        height: 45px;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
     }
+
     .icon-circle i {
         font-size: 1rem !important;
     }
-    .course-card h5 {
-        font-size: 0.85rem !important;
+
+    .course-card .card-title {
+        font-size: 0.84rem !important;
     }
-    .course-card p {
-        font-size: 0.7rem !important;
+
+    .sd-card-desc {
+        font-size: 0.68rem !important;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
     }
 }
 
-@media (min-width: 577px) and (max-width: 768px) {
+@media (min-width: 576px) and (max-width: 991.98px) {
     .icon-circle {
-        width: 55px;
-        height: 55px;
+        width: 56px;
+        height: 56px;
     }
 }
 
 @media (min-width: 992px) {
-    .course-card {
-        border-radius: 14px;
-    }
     .icon-circle {
         width: 60px;
         height: 60px;

@@ -2,168 +2,132 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attendance Sheet</title>
     <style>
         @page {
-            size: A4 landscape;
-            margin: 0.1in 0.15in;
+            size: legal landscape;
+            margin: 0.22in 0.2in;
         }
-        
+
         body {
             font-family: Arial, sans-serif;
-            font-size: 7px;
-            margin: 0;
-            padding: 1px;
-        }
-        
-        .header {
-            text-align: center;
-            margin-bottom: 5px;
-        }
-        
-        .header h1 {
-            font-size: 12px;
-            font-weight: bold;
-            margin: 0 0 3px 0;
-            color: #000;
-        }
-        
-        .header .meta {
             font-size: 8px;
-            color: #000;
-            margin: 0.5px 0;
-            text-align: left;
-            padding-left: 2px;
+            margin: 0;
+            padding: 0;
+            color: #111;
         }
-        
-        table {
+
+        .sheet-head {
+            border: 1px solid #1f3d2a;
+            margin-bottom: 8px;
+        }
+
+        .sheet-title {
+            background: #1f3d2a;
+            color: #fff;
+            text-align: center;
+            font-size: 13px;
+            font-weight: bold;
+            letter-spacing: 0.08em;
+            padding: 5px 8px;
+            text-transform: uppercase;
+        }
+
+        .meta {
+            background: #f4f7f2;
+            padding: 4px 8px;
+            font-size: 8.5px;
+            border-top: 1px solid #c5d4c8;
+        }
+
+        table.att {
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
-            font-size: 7px;
-            margin-top: 2px;
+            border: 1px solid #1f3d2a;
         }
-        
-        th, td {
-            border: 0.5px solid #000;
-            padding: 1px;
-            text-align: center;
+
+        table.att th,
+        table.att td {
+            border: 0.5px solid #5f7466;
             vertical-align: middle;
-            word-wrap: break-word;
-            overflow: hidden;
+            text-align: center;
+            padding: 2px 1px;
         }
-        
-        thead th {
-            background-color: #D8E4BC;
-            color: #000;
+
+        table.att thead th {
+            background: #d8e4bc;
             font-weight: bold;
-            font-size: 6.5px;
         }
-        
-        /* Rotate attendance date headers -90 degrees using writing-mode (better WeasyPrint support) */
-        .attendance-header {
+
+        .c-name {
+            text-align: left !important;
+            padding-left: 4px !important;
+        }
+
+        .c-date .date-label {
+            display: inline-block;
             writing-mode: vertical-rl;
             text-orientation: mixed;
-            height: 60px;
-            min-height: 60px;
-            width: 14px;
-            min-width: 14px;
-            max-width: 14px;
-            padding: 2px 1px;
-            overflow: hidden;
-            font-size: 5px;
-            line-height: 1.0;
             white-space: nowrap;
+            font-size: 7.5px;
+            font-weight: bold;
+            letter-spacing: 0.04em;
+            padding: 3px 0;
         }
-        
-        
-        /* Fixed columns - optimized for one page */
-        th.si-col, td.si-col {
-            width: 0.2in;
-            max-width: 0.2in;
+
+        .c-sum {
+            background: #eef3e4;
+            font-weight: bold;
         }
-        
-        th.id-col, td.id-col {
-            width: 0.45in;
-            max-width: 0.45in;
+
+        thead .c-sum {
+            background: #c8d6a8;
         }
-        
-        th.name-col, td.name-col {
-            width: 0.65in;
-            max-width: 0.65in;
-            text-align: left;
-            font-size: 6.5px;
-        }
-        
-        /* Summary columns */
-        th.summary-col, td.summary-col {
-            width: 0.4in;
-            max-width: 0.4in;
-        }
-        
-        /* Attendance date columns - fixed width for better rotation */
-        tbody td:not(.si-col):not(.id-col):not(.name-col):not(.summary-col) {
-            width: 14px;
-            min-width: 14px;
-            max-width: 14px;
-            font-size: 6px;
-        }
-        
-        tbody tr:nth-child(even) {
-            background-color: #f8f9fa;
-        }
-        
-        tbody tr:nth-child(odd) {
-            background-color: white;
-        }
-        
-        tbody td {
-            font-size: 6.5px;
+
+        tbody tr:nth-child(even) td {
+            background: #f5f8f0;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>{{ header_text }}</h1>
-        <p class="meta">{{ subject_text }}</p>
-        <p class="meta">{{ year_text }}</p>
-        <p class="meta">{{ term_text }}</p>
-        <p class="meta">{{ session_text }}</p>
+    <div class="sheet-head">
+        <div class="sheet-title">Attendance Sheet</div>
+        <div class="meta">{{ header_text }}</div>
+        <div class="meta">{{ subject_text }} · {{ year_text }} · {{ term_text }} · {{ session_text }}</div>
     </div>
-    
-    <table>
+
+    <table class="att">
         <thead>
             <tr>
-                <th class="si-col">SI</th>
-                <th class="id-col">Student ID</th>
-                <th class="name-col">Name</th>
+                <th>SI</th>
+                <th>Student ID</th>
+                <th class="c-name">Name</th>
                 {% for header in headers %}
-                <th class="attendance-header" style="width: 14px; min-width: 14px; max-width: 14px;">{{ header }}</th>
+                <th class="c-date"><span class="date-label">{{ header }}</span></th>
                 {% endfor %}
-                <th class="summary-col">Total Classes</th>
-                <th class="summary-col">Present</th>
-                <th class="summary-col">Percentage</th>
-                <th class="summary-col">Marks</th>
+                <th class="c-sum">Total</th>
+                <th class="c-sum">Present</th>
+                <th class="c-sum">%</th>
+                <th class="c-sum">Marks</th>
             </tr>
         </thead>
         <tbody>
             {% for row in data_rows %}
             <tr>
-                <td class="si-col">{{ row.idx }}</td>
-                <td class="id-col">{{ row.student_id }}</td>
-                <td class="name-col">{{ row.name }}</td>
+                <td>{{ row.idx }}</td>
+                <td><strong>{{ row.student_id }}</strong></td>
+                <td class="c-name">{{ row.name }}</td>
                 {% for attendance in row.attendance %}
-                <td style="width: 14px; min-width: 14px; max-width: 14px;">{{ attendance }}</td>
+                <td><strong>{{ attendance }}</strong></td>
                 {% endfor %}
-                <td class="summary-col">{{ row.total_classes }}</td>
-                <td class="summary-col">{{ row.present_days }}</td>
-                <td class="summary-col">{{ row.percentage }}%</td>
-                <td class="summary-col">{{ row.marks }}</td>
+                <td class="c-sum">{{ row.total_classes }}</td>
+                <td class="c-sum">{{ row.present_days }}</td>
+                <td class="c-sum">{{ row.percentage }}</td>
+                <td class="c-sum">{{ row.marks }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
 </body>
 </html>
-

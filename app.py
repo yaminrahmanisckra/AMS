@@ -42,6 +42,7 @@ from utils.ai.models import AIProviderSetting, AIOutlineGenerationJob, AIOutline
 from utils.dashboard_settings import StudentDashboardCard  # noqa: F401
 from blueprints.remuneration_management.models import RemunerationForm
 from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window, filter_offered_courses
+from utils.timezone import format_bd, bd_now
 
 try:
     from openpyxl import Workbook
@@ -202,6 +203,10 @@ def create_app():
         if value == 'now':
             return datetime.utcnow().strftime(format)
         return value
+
+    # UTC-stored datetimes → Asia/Dhaka for display (see utils/timezone.py)
+    from utils.timezone import register_template_filters
+    register_template_filters(app)
 
     app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a_very_secret_default_key')
     # Dedicated secret for AI key Fernet; set before rotating SECRET_KEY (see utils/ai/encryption.py)
@@ -479,6 +484,15 @@ def create_app():
         import logging
         import traceback
         logging.warning('Admission Exam blueprint not loaded: %s', e)
+        logging.warning(traceback.format_exc())
+
+    try:
+        from blueprints.noticeboard import noticeboard_bp
+        app.register_blueprint(noticeboard_bp, url_prefix='/noticeboard')
+    except Exception as e:
+        import logging
+        import traceback
+        logging.warning('Noticeboard blueprint not loaded: %s', e)
         logging.warning(traceback.format_exc())
     
     @app.route('/debug-self-assessment')
@@ -823,6 +837,7 @@ def create_app():
 
         # Leave Application card: show for teacher-privilege users on main dashboard
         show_leave_application = has_teacher_privileges(current_user)
+        show_noticeboard = 'noticeboard.index' in current_app.view_functions
 
         response = make_response(render_template(
             'dashboard.html',
@@ -830,6 +845,7 @@ def create_app():
             show_self_assessment=show_self_assessment,
             show_admission_exam=show_admission_exam,
             show_leave_application=show_leave_application,
+            show_noticeboard=show_noticeboard,
         ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
@@ -844,7 +860,7 @@ def create_app():
             test_result = {
                 'name': request.form.get('test_name'),
                 'email': request.form.get('test_email'),
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                'timestamp': bd_now().strftime('%Y-%m-%d %H:%M:%S')
             }
             flash('Test form submitted successfully!', 'success')
         return render_template('test_form.html', test_result=test_result)
@@ -4269,6 +4285,15 @@ def create_app():
             {'title': 'Academic Calendar', 'desc': 'View academic calendar with holidays, events, and important dates',
              'icon': 'fas fa-calendar', 'color': '#6366f1', 'bg': 'rgba(99,102,241,0.15)', 'url': url_for('academic_calendar.index')},
         ]
+        if 'noticeboard.index' in current_app.view_functions:
+            head_cards.append({
+                'title': 'Noticeboard',
+                'desc': 'Post notices for all students, batches, or selected courses',
+                'icon': 'fas fa-thumbtack',
+                'color': '#8b5a2b',
+                'bg': 'rgba(139,90,43,0.15)',
+                'url': url_for('noticeboard.index'),
+            })
         # Self Assessment card: লিংক সবসময় /self-assessment (blueprints/self_assessment)
         if 'self_assessment.index' in current_app.view_functions:
             self_assessment_url = url_for('self_assessment.index')
@@ -12433,8 +12458,8 @@ def create_app():
                     'status': f.status,
                     'academic_session': academic_session,
                     'total_amount': f.total_amount,
-                    'created_at': f.created_at.strftime('%Y-%m-%d %H:%M') if f.created_at else '',
-                    'updated_at': f.updated_at.strftime('%Y-%m-%d %H:%M') if f.updated_at else ''
+                    'created_at': format_bd(f.created_at, '%Y-%m-%d %H:%M', default=''),
+                    'updated_at': format_bd(f.updated_at, '%Y-%m-%d %H:%M', default='')
                 })
             
             return render_template('remuneration_list.html', forms=forms_list, status_filter=status_filter)
@@ -14944,7 +14969,7 @@ def create_app():
                     font_path_absolute = os.path.abspath(font_path)
                     break
 
-            generated_at = datetime.now().strftime('%d %b %Y, %I:%M %p')
+            generated_at = format_bd(datetime.utcnow(), '%d %b %Y, %I:%M %p')
             vat_pct = int(round(float(payload.get('vat_rate') or 0.20) * 100))
 
             html_content = render_template(

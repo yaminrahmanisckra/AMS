@@ -18,6 +18,7 @@ from datetime import datetime
 from functools import wraps
 from html.parser import HTMLParser
 from markupsafe import Markup, escape
+from utils.timezone import format_bd
 
 from flask import (
     render_template, redirect, url_for, flash, request, session,
@@ -2233,10 +2234,7 @@ def _application_form_section_data(candidate):
         })
     identity_rows.append({
         'label': 'Applied At',
-        'value': (
-            candidate.created_at.strftime('%d %B %Y, %I:%M %p')
-            if candidate.created_at else '—'
-        ),
+        'value': format_bd(candidate.created_at, '%d %B %Y, %I:%M %p', default='—'),
         'is_bangla': False,
     })
 
@@ -4957,7 +4955,7 @@ def export_candidates(cycle):
             getattr(c, 'bank_slip_txn_no', None) or '',
             'Yes' if getattr(c, 'bank_slip_path', None) else '',
             c.payment_status, c.payment_note or '', c.application_status,
-            c.created_at.strftime('%Y-%m-%d %H:%M') if c.created_at else '',
+            format_bd(c.created_at, '%Y-%m-%d %H:%M', default=''),
         ]
         row += [extra.get(key, '') for key, _label in extras]
         ws.append(row)

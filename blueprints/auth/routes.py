@@ -383,7 +383,8 @@ def forgot_password():
 
                 display_name = (user.full_name or user.username or 'User').strip()
                 account_id = (user.username or user.email or '').strip()
-                requested_at = _dt.utcnow().strftime('%d %B %Y, %H:%M UTC')
+                from utils.timezone import format_bd as _format_bd
+                requested_at = _format_bd(_dt.utcnow(), '%d %B %Y, %H:%M') + ' (Bangladesh Time)'
                 subject = (
                     f"AMS account verification code for {display_name} "
                     f"(username: {account_id})"

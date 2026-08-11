@@ -3,23 +3,10 @@
 No coupling with the rest of the app except User (for committee access control
 and payment-verification audit fields).
 """
-from datetime import datetime, timedelta
+from datetime import datetime
 from extensions import db
 from werkzeug.security import generate_password_hash, check_password_hash
-
-
-def _bd_now_naive():
-    """Current Bangladesh wall time as naive datetime.
-
-    Cycle apply_start / apply_end are entered via HTML datetime-local in local
-    (BD) time and stored naive — never compare them with UTC.
-    """
-    try:
-        from zoneinfo import ZoneInfo
-        return datetime.now(ZoneInfo('Asia/Dhaka')).replace(tzinfo=None)
-    except Exception:
-        # Bangladesh has no DST; UTC+6 is a safe fallback.
-        return datetime.utcnow() + timedelta(hours=6)
+from utils.timezone import bd_now_naive as _bd_now_naive, format_bd
 
 
 class AdmissionCycle(db.Model):
@@ -161,12 +148,12 @@ class AdmissionCycle(db.Model):
         if start and now < start:
             return (
                 'Applications have not started yet'
-                f' (opens {start.strftime("%d %B %Y, %I:%M %p")}).'
+                f' (opens {format_bd(start, "%d %B %Y, %I:%M %p", assume_utc=False)}).'
             )
         if end and now > end:
             return (
                 'The application deadline has passed'
-                f' ({end.strftime("%d %B %Y, %I:%M %p")}).'
+                f' ({format_bd(end, "%d %B %Y, %I:%M %p", assume_utc=False)}).'
             )
         return None
 

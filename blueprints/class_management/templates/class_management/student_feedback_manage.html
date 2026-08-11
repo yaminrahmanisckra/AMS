@@ -151,7 +151,7 @@
                       data-mark-read-url="{{ url_for('class_management.mark_student_feedback_response_read', session_id=session.id, response_id=item.id) }}"
                     >
                       <div class="w-100 d-flex justify-content-between">
-                        <span><span class="me-2">{{ loop.index }}.</span>{{ item.submitted_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                        <span><span class="me-2">{{ loop.index }}.</span>{{ item.submitted_at|bd('%Y-%m-%d %H:%M') }}</span>
                         <span class="text-muted small">Academic Session: {{ academic.get('academic_session') or 'N/A' }} | Course: {{ academic.get('course_title') or 'N/A' }}</span>
                       </div>
                     </button>

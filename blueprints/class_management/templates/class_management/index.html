@@ -176,7 +176,7 @@
                                 <td><span class="badge bg-success">{{ session.term }}</span></td>
                                 <td>{{ assignment.get('academic_session') or session.academic_session or '-' }}</td>
                                 <td>{{ assignment.get('batch') or '-' }}</td>
-                                <td>{{ session.created_at.strftime('%Y-%m-%d') }}</td>
+                                <td>{{ session.created_at|bd('%Y-%m-%d') }}</td>
                             </tr>
                             <tr class="course-actions-row" id="actions-{{ session.id }}" style="display: none;">
                                 <td colspan="9">

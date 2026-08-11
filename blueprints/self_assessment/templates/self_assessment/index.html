@@ -55,7 +55,7 @@
                                                 <i class="fas fa-trash-alt"></i>
                                             </button>
                                         </form>
-                                        <small class="text-muted">{{ link.created_at.strftime('%Y-%m-%d %H:%M') if link.created_at else '' }}</small>
+                                        <small class="text-muted">{{ link.created_at|bd('%Y-%m-%d %H:%M') if link.created_at else '' }}</small>
                                     </li>
                                     {% endfor %}
                                 </ul>

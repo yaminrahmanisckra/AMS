@@ -323,8 +323,8 @@
                                 {% endif %}
                             </td>
                             <td>{{ config.activated_by or '-' }}</td>
-                            <td>{{ config.activated_at.strftime('%Y-%m-%d %H:%M') if config.activated_at else '-' }}</td>
-                            <td>{{ config.deactivated_at.strftime('%Y-%m-%d %H:%M') if config.deactivated_at else '-' }}</td>
+                            <td>{{ config.activated_at|bd('%Y-%m-%d %H:%M') if config.activated_at else '-' }}</td>
+                            <td>{{ config.deactivated_at|bd('%Y-%m-%d %H:%M') if config.deactivated_at else '-' }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>

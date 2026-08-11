@@ -109,7 +109,7 @@
                                                         <small class="text-muted form-meta-line">
                                                             <i class="fas fa-calendar me-1"></i>
                                                             {% if form.created_at %}
-                                                            {{ form.created_at.strftime('%Y-%m-%d') }}
+                                                            {{ form.created_at|bd('%Y-%m-%d') }}
                                                             {% else %}
                                                             -
                                                             {% endif %}

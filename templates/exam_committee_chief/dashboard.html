@@ -395,7 +395,7 @@
                                         <td>{{ scr.course_code or '-' }}</td>
                                         <td>{{ scrutinizer_part_labels.get(scr.id, '-') }}</td>
                                         <td>{{ scr.remarks or '-' }}</td>
-                                        <td>{{ scr.created_at.strftime('%Y-%m-%d') if scr.created_at else '-' }}</td>
+                                        <td>{{ scr.created_at|bd('%Y-%m-%d') if scr.created_at else '-' }}</td>
                                         <td>
                                             <button class="btn btn-sm btn-danger" onclick="removeAssignment({{ scr.id }})">
                                                 <i class="fas fa-trash me-1"></i>Remove
@@ -440,7 +440,7 @@
                                         <td>{{ tab.year or '-' }}</td>
                                         <td>{{ tab.term or '-' }}</td>
                                         <td>{{ tab.remarks or '-' }}</td>
-                                        <td>{{ tab.created_at.strftime('%Y-%m-%d') if tab.created_at else '-' }}</td>
+                                        <td>{{ tab.created_at|bd('%Y-%m-%d') if tab.created_at else '-' }}</td>
                                         <td>
                                             <button class="btn btn-sm btn-danger" onclick="removeAssignment({{ tab.id }})">
                                                 <i class="fas fa-trash me-1"></i>Remove
@@ -505,8 +505,8 @@
                                                 {{ form.status.title() if form.status else 'Draft' }}
                                             </span>
                                         </td>
-                                        <td>{{ form.created_at.strftime('%Y-%m-%d %H:%M') if form.created_at else '-' }}</td>
-                                        <td>{{ form.updated_at.strftime('%Y-%m-%d %H:%M') if form.updated_at else '-' }}</td>
+                                        <td>{{ form.created_at|bd('%Y-%m-%d %H:%M') if form.created_at else '-' }}</td>
+                                        <td>{{ form.updated_at|bd('%Y-%m-%d %H:%M') if form.updated_at else '-' }}</td>
                                         <td>
                                             <div class="d-flex gap-1">
                                                 {% if form.status == 'archived' %}

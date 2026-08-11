@@ -117,8 +117,8 @@
                                             </td>
                                             <td><span class="badge {{ status_class }} text-uppercase">{{ invite.status }}</span></td>
                                             <td class="small">{{ invite.remarks or '—' }}</td>
-                                            <td class="small">{{ invite.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                                            <td class="small">{{ invite.responded_at.strftime('%Y-%m-%d %H:%M') if invite.responded_at else '—' }}</td>
+                                            <td class="small">{{ invite.created_at|bd('%Y-%m-%d %H:%M') }}</td>
+                                            <td class="small">{{ invite.responded_at|bd('%Y-%m-%d %H:%M') if invite.responded_at else '—' }}</td>
                                             <td class="text-nowrap">
                                                 {% if invite.status in ['invited', 'accepted'] %}
                                                     <form method="POST" class="d-inline">

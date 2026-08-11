@@ -31,7 +31,7 @@
                     <strong>{{ thread.subject }}</strong>
                     <div class="text-muted small">
                         Student: {{ thread.student_name }} ({{ thread.student_id }})
-                        {% if thread.created_at %} • Asked: {{ thread.created_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+                        {% if thread.created_at %} • Asked: {{ thread.created_at|bd('%Y-%m-%d %H:%M') }}{% endif %}
                     </div>
                 </div>
                 <div class="d-flex gap-2 align-items-center">
@@ -60,7 +60,7 @@
                                 {{ 'Teacher' if msg.sender_role == 'teacher' else 'Student' }}
                             </span>
                             {% if msg.created_at %}
-                                <span class="ms-2">{{ msg.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                                <span class="ms-2">{{ msg.created_at|bd('%Y-%m-%d %H:%M') }}</span>
                             {% endif %}
                         </div>
                         <div class="d-flex align-items-center gap-2">
