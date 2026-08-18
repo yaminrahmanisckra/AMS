@@ -110,8 +110,9 @@
 {% block content %}
 <div class="container my-4 my-md-5">
     <div class="text-center mb-4 mb-md-5">
+        <p class="text-uppercase mb-2" style="letter-spacing: 0.08em; font-size: 0.8rem; font-weight: 600; color: #667eea;">{{ tenant.name }}</p>
         <h1 class="mb-2" style="font-size: 1.75rem;">Welcome, {{ current_user.full_name or 'Head' }} 👋</h1>
-        <p class="text-muted mb-0" style="font-size: 0.9rem;">Discipline Head Dashboard - Manage all academic activities and assignments</p>
+        <p class="text-muted mb-0" style="font-size: 0.9rem;">{{ tenant.head_title }} Dashboard — Manage all academic activities and assignments</p>
     </div>
 
     <div class="row g-2 g-md-3">

@@ -62,8 +62,11 @@
     }
 
     .m-topbar-brand img {
-        height: 32px;
+        height: 34px;
         width: auto;
+        object-fit: contain;
+        background: transparent;
+        filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
     }
 
     .m-topbar-brand-text {

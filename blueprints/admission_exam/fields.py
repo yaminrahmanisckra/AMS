@@ -45,7 +45,7 @@ PAYMENT_FIELD_KEYS = frozenset({
 
 FILE_FIELD_KEYS = frozenset({'photo', 'bank_slip', 'candidate_signature'})
 
-ACADEMIC_EXAM_ROWS = (
+_LAW_ACADEMIC_EXAM_ROWS = (
     ('ssc', 'S.S.C. / Equivalent'),
     ('hsc', 'H.S.C. / Equivalent'),
     ('llb', 'LL.B. (Hons.)'),
@@ -60,9 +60,31 @@ ACADEMIC_COL_SUFFIXES = (
 )
 
 
+def academic_exam_rows():
+    try:
+        from utils.tenant import current_tenant
+        rows = current_tenant().academic_exam_rows
+        if rows:
+            return rows
+    except Exception:
+        pass
+    return _LAW_ACADEMIC_EXAM_ROWS
+
+
+class _LazyRows:
+    def __iter__(self):
+        return iter(academic_exam_rows())
+
+    def __len__(self):
+        return len(academic_exam_rows())
+
+
+ACADEMIC_EXAM_ROWS = _LazyRows()
+
+
 def academic_field_keys():
     keys = []
-    for prefix, _label in ACADEMIC_EXAM_ROWS:
+    for prefix, _label in academic_exam_rows():
         if prefix == 'other':
             keys.append('other_exam_name')
         for suffix, _col in ACADEMIC_COL_SUFFIXES:
@@ -70,7 +92,18 @@ def academic_field_keys():
     return keys
 
 
-ACADEMIC_FIELD_KEYS = frozenset(academic_field_keys())
+class _LazyFrozenSet:
+    def __init__(self, factory):
+        self._factory = factory
+
+    def __contains__(self, item):
+        return item in self._factory()
+
+    def __iter__(self):
+        return iter(self._factory())
+
+
+ACADEMIC_FIELD_KEYS = _LazyFrozenSet(lambda: frozenset(academic_field_keys()))
 
 ACADEMIC_EXTRA_ROWS_KEY = 'academic_extra_rows'
 
@@ -139,7 +172,7 @@ def _f(key, label, source='extra', section='personal', field_type='text',
 
 def _academic_default_fields():
     fields = []
-    for prefix, exam_label in ACADEMIC_EXAM_ROWS:
+    for prefix, exam_label in academic_exam_rows():
         if prefix == 'other':
             fields.append(_f(
                 'other_exam_name', 'Others – Name of the Examination',
@@ -154,7 +187,7 @@ def _academic_default_fields():
     return fields
 
 
-_DEFAULT_FIELD_SCHEMA = [
+_DEFAULT_FIELD_SCHEMA_HEAD = [
     _f('application_id', 'Form / Application ID', source='system', section='identity',
        on_form=False, on_admit=True, locked=True),
     _f('roll_no', 'Roll Number', source='system', section='identity',
@@ -177,7 +210,8 @@ _DEFAULT_FIELD_SCHEMA = [
     _f('guardian_relation', 'Relation with Guardian', section='personal', required=True),
     _f('email', 'Email', source='core', section='personal', field_type='email',
        required=False, on_admit=False),
-    *_academic_default_fields(),
+]
+_DEFAULT_FIELD_SCHEMA_TAIL = [
     _f('photo', 'Passport-size Photo', source='core', section='personal',
        field_type='photo', required=True, on_admit=True, locked=True),
     _f('candidate_signature', 'Signature of the Applicant', source='core',
@@ -199,7 +233,7 @@ _DEFAULT_FIELD_SCHEMA = [
 
 
 def default_field_schema():
-    schema = deepcopy(_DEFAULT_FIELD_SCHEMA)
+    schema = deepcopy(_DEFAULT_FIELD_SCHEMA_HEAD) + _academic_default_fields() + deepcopy(_DEFAULT_FIELD_SCHEMA_TAIL)
     for i, f in enumerate(schema):
         f['order'] = i
     return schema
@@ -462,6 +496,13 @@ def academic_display_rows(extra):
 
 
 def default_document_tags():
+    try:
+        from utils.tenant import current_tenant
+        tags = current_tenant().raw.get('document_tags')
+        if tags:
+            return list(tags)
+    except Exception:
+        pass
     return list(DEFAULT_DOCUMENT_TAGS)
 
 

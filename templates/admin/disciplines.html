@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}Disciplines{% endblock %}
+{% block mobile_title %}Disciplines{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">Disciplines</h1>
+            <p class="text-muted mb-0">
+                Create a config pack for a new discipline. This does not create a database or switch this running site.
+                Each discipline still needs its own subdomain, MySQL database, and <code>TENANT_CODE</code>.
+            </p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Admin Dashboard
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% if created %}
+    <div class="alert alert-success">
+        <h5 class="alert-heading">Pack created: <code>{{ created.code }}</code></h5>
+        <p class="mb-2">Folder: <code>tenants/{{ created.code }}/</code></p>
+        <p class="mb-2">This site is still <strong>{{ tenant.name }}</strong> (<code>TENANT_CODE={{ tenant.code }}</code>). To go live:</p>
+        <ol class="mb-2">
+            <li>Create an empty MySQL database (do not copy this one).</li>
+            <li>Add a cPanel Python App / subdomain.</li>
+            <li>Set environment variables, then install requirements and run <code>flask db upgrade</code>.</li>
+            <li>Create a new admin user on that app. Then open Academic Rules there to tune marks if needed.</li>
+        </ol>
+        <pre class="bg-light border rounded p-3 small mb-0">TENANT_CODE={{ created.code }}
+DATABASE_URL=mysql+pymysql://USER:PASS@localhost/DBNAME
+PUBLIC_APP_URL=https://{{ created.code }}.example.com
+SECRET_KEY=&lt;new secret, not this site’s key&gt;</pre>
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-layer-group me-2"></i>Existing packs</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Name</th>
+                            <th>This app</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in packs %}
+                        <tr>
+                            <td><code>{{ item.code }}</code></td>
+                            <td>{{ item.name }}</td>
+                            <td>
+                                {% if item.code == tenant.code %}
+                                <span class="badge bg-primary">Running</span>
+                                {% else %}
+                                <span class="text-muted">Pack only</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-header bg-light">
+            <h5 class="mb-0"><i class="fas fa-plus me-2"></i>New discipline pack</h5>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('admin_create_discipline') }}">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Code <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="code" required pattern="[a-z][a-z0-9_]{1,20}" placeholder="e.g. eng">
+                        <div class="form-text">Lowercase, used as <code>TENANT_CODE</code> and folder name.</div>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Full name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name" required placeholder="e.g. English Discipline">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Short name</label>
+                        <input type="text" class="form-control" name="short_name" placeholder="e.g. English">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Institute label</label>
+                        <input type="text" class="form-control" name="institute_label" placeholder="e.g. English Discipline, KU">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Course prefix</label>
+                        <input type="text" class="form-control" name="course_code_prefix" placeholder="e.g. Eng">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Application ID prefix</label>
+                        <input type="text" class="form-control" name="app_id_prefix" placeholder="e.g. ENG">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Postgraduate year label</label>
+                        <input type="text" class="form-control" name="pg_year_label" value="Masters" placeholder="Masters">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">University</label>
+                        <input type="text" class="form-control" name="university_name" value="{{ tenant.university_name }}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Copy academic layout from</label>
+                        <select class="form-select" name="copy_from">
+                            {% for item in packs %}
+                            <option value="{{ item.code }}" {% if item.code == 'mcj' %}selected{% endif %}>{{ item.name }} ({{ item.code }})</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Copies academic.yaml / curriculator.yaml. Surveys always use the generic pack (not Law-specific questions).</div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="form-label">Modules</div>
+                    <div class="d-flex flex-wrap gap-3">
+                        {% for key, label in feature_choices %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="features" value="{{ key }}" id="feat_{{ key }}" checked>
+                            <label class="form-check-label" for="feat_{{ key }}">{{ label }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="d-flex justify-content-end gap-2 mt-4">
+                    <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-plus me-2"></i>Create pack
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

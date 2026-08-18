@@ -198,7 +198,7 @@
             <div class="header-logo-spacer"></div>
             <div class="header-text">
                 <div class="uni">Khulna University</div>
-                <div class="disc">Law Discipline</div>
+                <div class="disc">{{ tenant.name }}</div>
                 <div class="cycle">{{ cycle.name }}</div>
             </div>
             <div class="header-spacer"></div>
@@ -251,7 +251,7 @@
         <div class="footer-block">
             <div class="footer-note">
                 This admit card must be presented at the examination hall along with a valid photo ID.
-                Issued electronically by the Admission Committee, Law Discipline, Khulna University.
+                Issued electronically by the Admission Committee, {{ tenant.display_with_university }}.
             </div>
             <div class="print-note">
                 Important: Please bring a COLOUR PRINT of this admit card to the examination hall.

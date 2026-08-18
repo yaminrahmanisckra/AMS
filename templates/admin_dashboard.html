@@ -96,7 +96,12 @@
     .admin-dash .qi-sem { background: #059669; }
     .admin-dash .qi-win { background: #0284c7; }
     .admin-dash .qi-ai { background: #d97706; }
-    .admin-dash .qi-cards { background: #64748b; }
+    .admin-dash .qi-student { background: #7c3aed; }
+    .admin-dash .qi-officer { background: #be185d; }
+    .admin-dash .qi-rules { background: #c2410c; }
+    .admin-dash .qi-disc { background: #0f766e; }
+    .admin-dash .qi-admit { background: #1d4ed8; }
+    .admin-dash .qi-pay { background: #4338ca; }
     .admin-dash .panel {
         background: var(--ad-surface);
         border: 1px solid var(--ad-border);
@@ -293,7 +298,7 @@
     <div class="page-head">
         <div>
             <h1>Admin Dashboard</h1>
-            <p class="sub">Users, roles &amp; system settings</p>
+            <p class="sub">{{ tenant.name }} — Users, roles &amp; system settings</p>
         </div>
         <div class="stat-pills">
             <span class="stat-pill"><i class="fas fa-users text-primary"></i> Staff <span class="n">{{ users|length }}</span></span>
@@ -319,12 +324,28 @@
             AI Settings
         </a>
         <a href="{{ url_for('admin_student_dashboard_settings') }}" class="quick-link">
-            <span class="qi qi-cards"><i class="fas fa-th-large"></i></span>
+            <span class="qi qi-student"><i class="fas fa-th-large"></i></span>
             Student Cards
         </a>
+        <a href="{{ url_for('admin_officer_dashboard_settings') }}" class="quick-link">
+            <span class="qi qi-officer"><i class="fas fa-id-badge"></i></span>
+            Officer Cards
+        </a>
+        <a href="{{ url_for('admin_academic_rules') }}" class="quick-link">
+            <span class="qi qi-rules"><i class="fas fa-calculator"></i></span>
+            Academic Rules
+        </a>
+        <a href="{{ url_for('admin_disciplines') }}" class="quick-link">
+            <span class="qi qi-disc"><i class="fas fa-sitemap"></i></span>
+            Disciplines
+        </a>
         <a href="{{ url_for('admission_exam.index') }}" class="quick-link">
-            <span class="qi qi-cards"><i class="fas fa-id-card"></i></span>
+            <span class="qi qi-admit"><i class="fas fa-file-signature"></i></span>
             Admission Exam
+        </a>
+        <a href="{{ url_for('admin_remuneration_rates') }}" class="quick-link">
+            <span class="qi qi-pay"><i class="fas fa-money-bill-wave"></i></span>
+            Remuneration Rates
         </a>
     </nav>
 
@@ -428,7 +449,7 @@
                                     {% if is_teacher and teacher_record %}
                                     <div class="teacher-bits">
                                         <div>{{ teacher_record.designation or '—' }}</div>
-                                        <div class="muted">{{ teacher_record.institute or 'Law Discipline, KU' }}</div>
+                                        <div class="muted">{{ teacher_record.institute or tenant.institute_label }}</div>
                                         {% if teacher_record.call_sign or teacher_record.bank_account_no %}
                                         <div class="muted">
                                             {% if teacher_record.call_sign %}{{ teacher_record.call_sign }}{% endif %}
@@ -593,7 +614,7 @@
                             </div>
                             <div class="col-md-6">
                                 <label for="new_institute" class="form-label form-label-sm mb-1">Institute</label>
-                                <input type="text" class="form-control form-control-sm" id="new_institute" name="institute" value="Law Discipline, KU" placeholder="Law Discipline, KU">
+                                <input type="text" class="form-control form-control-sm" id="new_institute" name="institute" value={{ tenant.institute_label|tojson }} placeholder={{ tenant.institute_label|tojson }}>
                             </div>
                             <div class="col-md-4">
                                 <label for="new_call_sign" class="form-label form-label-sm mb-1">Call Sign</label>

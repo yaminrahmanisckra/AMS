@@ -39,10 +39,11 @@ from blueprints.class_management.models import (
 from blueprints.student_management.models import Student
 from blueprints.course_management.models import Course, DutyAssignment, Curriculum, CurriculumYearTerm, StudentCourseRegistration, SessionArchive, ActiveSemesterConfig, CourseSessionAssignment, OperationalWindow
 from utils.ai.models import AIProviderSetting, AIOutlineGenerationJob, AIOutlineGenerationLog, AIOutlineBatchJob  # noqa: F401
-from utils.dashboard_settings import StudentDashboardCard  # noqa: F401
+from utils.dashboard_settings import StudentDashboardCard, OfficerDashboardCard  # noqa: F401
 from blueprints.remuneration_management.models import RemunerationForm
 from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window, filter_offered_courses
 from utils.timezone import format_bd, bd_now
+from utils.tenant import current_tenant, init_tenant, public_app_url, year_is_postgraduate, course_year_digit_is_pg
 
 try:
     from openpyxl import Workbook
@@ -197,6 +198,7 @@ if platform.system() == 'Darwin':  # macOS
 
 def create_app():
     app = Flask(__name__)
+    init_tenant(app)
 
     @app.template_filter('date')
     def date_format_filter(value, format='%Y'):
@@ -413,6 +415,55 @@ def create_app():
             return
         flash('For your security, please set a new password before continuing.', 'warning')
         return redirect(url_for('profile'))
+
+    @app.context_processor
+    def inject_tenant_context():
+        t = current_tenant()
+        from utils.academic_rules import load_academic_rules
+        return {
+            'tenant': t.to_template_dict(),
+            'tenant_feature': t.feature_enabled,
+            'academic_rules': load_academic_rules(),
+        }
+
+    _FEATURE_ENDPOINT_PREFIXES = (
+        ('curriculator.', 'curriculator'),
+        ('self_assessment.', 'self_assessment'),
+        ('admission_exam.', 'admission_exam'),
+        ('leave_application.', 'leave_application'),
+    )
+
+    @app.before_request
+    def enforce_tenant_features():
+        from flask import abort
+        ep = request.endpoint or ''
+        t = current_tenant()
+        for prefix, feat in _FEATURE_ENDPOINT_PREFIXES:
+            if ep.startswith(prefix) and not t.feature_enabled(feat):
+                abort(404)
+        if 'remuneration' in ep and not t.feature_enabled('remuneration'):
+            abort(404)
+
+    @app.route('/site.webmanifest')
+    def web_manifest():
+        t = current_tenant()
+        logo = url_for('static', filename=t.logo_static)
+        payload = {
+            'name': f'Academic Management System - {t.university_name}',
+            'short_name': 'AMS KU',
+            'description': f'Academic Management System for {t.display_with_university}',
+            'start_url': '/',
+            'display': 'standalone',
+            'background_color': '#f0f2f5',
+            'theme_color': '#667eea',
+            'orientation': 'portrait-primary',
+            'scope': '/',
+            'icons': [
+                {'src': logo, 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
+                {'src': logo, 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+            ],
+        }
+        return jsonify(payload)
 
     @app.context_processor
     def inject_operational_window_context():
@@ -741,18 +792,41 @@ def create_app():
                 assigned_teacher_id=teacher.id,
                 status='active'
             ).count() > 0
+
+        officer_cards = {}
+        if is_officer:
+            try:
+                from utils.dashboard_settings import get_officer_dashboard_card_map
+                officer_cards = get_officer_dashboard_card_map()
+            except Exception:
+                officer_cards = {}
         
+        t = current_tenant()
+        show_curriculum = (is_teaching_assistant or not is_teacher) and not is_officer
+        show_remuneration = (
+            (not is_teaching_assistant and not head_active and not is_officer)
+            or (is_officer and bool(officer_cards.get('remuneration', True)))
+        ) and t.feature_enabled('remuneration')
         return {
             'show_class_management': not is_teaching_assistant and not is_officer and not head_active,
             'show_result_management': (is_head or _is_tabulator()) and not is_teaching_assistant and not is_officer,
             'show_routine_management': (is_teaching_assistant or (not is_officer)) and not head_active,
+            'show_view_routine': (
+                (not is_officer) or bool(officer_cards.get('class_routine', True))
+            ),
             'show_exam_evaluation': not is_teaching_assistant and not is_officer and not head_active,
             'show_students_management': (is_teaching_assistant or not is_teacher) and not is_officer,
-            'show_curriculum_management': (is_teaching_assistant or not is_teacher) and not is_officer,
-            'show_remuneration': not is_teaching_assistant and not head_active,
-            'show_academic_calendar': True,  # Always visible
+            'show_curriculum_management': show_curriculum,
+            'show_curriculator': show_curriculum and t.feature_enabled('curriculator'),
+            'show_remuneration': show_remuneration,
+            'show_academic_calendar': (
+                (not is_officer) or bool(officer_cards.get('academic_calendar', True))
+            ),
             'show_course_registration': show_course_registration_review and not is_teaching_assistant,
             'show_exam_committee_management': (_is_exam_committee_chief() or _is_exam_committee_member()) and not is_teaching_assistant,
+            'officer_cards': officer_cards,
+            'show_officer_exam_info': is_officer and bool(officer_cards.get('exam_info', True)),
+            'show_officer_leave_application': is_officer and bool(officer_cards.get('leave_application', True)) and t.feature_enabled('leave_application'),
         }
 
     @app.context_processor
@@ -819,8 +893,9 @@ def create_app():
                 status='active'
             ).count() > 0
 
+        t = current_tenant()
         show_self_assessment = False
-        if 'self_assessment.index' in current_app.view_functions:
+        if t.feature_enabled('self_assessment') and 'self_assessment.index' in current_app.view_functions:
             try:
                 from blueprints.self_assessment.routes import is_psac_member_or_head
                 show_self_assessment = is_psac_member_or_head()
@@ -828,15 +903,30 @@ def create_app():
                 pass
 
         show_admission_exam = False
-        if 'admission_exam.index' in current_app.view_functions:
+        if t.feature_enabled('admission_exam') and 'admission_exam.index' in current_app.view_functions:
             try:
                 from blueprints.admission_exam.routes import user_can_access_admission
                 show_admission_exam = user_can_access_admission()
             except Exception:
                 pass
 
-        # Leave Application card: show for teacher-privilege users on main dashboard
-        show_leave_application = has_teacher_privileges(current_user)
+        is_officer = 'officer' in roles
+        officer_cards = {}
+        if is_officer:
+            try:
+                from utils.dashboard_settings import get_officer_dashboard_card_map
+                officer_cards = get_officer_dashboard_card_map()
+            except Exception:
+                officer_cards = {}
+            if show_admission_exam and not officer_cards.get('admission_exam', True):
+                show_admission_exam = False
+
+        # Leave Application: teachers always; officers when admin enables the card
+        show_leave_application = t.feature_enabled('leave_application') and (
+            has_teacher_privileges(current_user) or (
+                is_officer and officer_cards.get('leave_application', True)
+            )
+        )
         show_noticeboard = 'noticeboard.index' in current_app.view_functions
 
         response = make_response(render_template(
@@ -846,6 +936,7 @@ def create_app():
             show_admission_exam=show_admission_exam,
             show_leave_application=show_leave_application,
             show_noticeboard=show_noticeboard,
+            officer_cards=officer_cards,
         ))
         # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
@@ -912,7 +1003,7 @@ def create_app():
                 db.session.commit()
             return teacher
         short_name = _generate_teacher_short_name(user.username or user.full_name or 'teacher')
-        teacher = Teacher(name=user.full_name, short_name=short_name)
+        teacher = Teacher(name=user.full_name, short_name=short_name, institute=current_tenant().institute_label)
         db.session.add(teacher)
         if hasattr(user, 'teacher_id'):
             db.session.flush()
@@ -943,6 +1034,16 @@ def create_app():
             flash('This feature is restricted to teaching staff.', 'danger')
             return redirect(url_for('index'))
         return None
+
+    def _require_remuneration_access():
+        """Teachers always; officers only when Remuneration card is enabled."""
+        if has_teacher_privileges(current_user):
+            return None
+        if 'officer' in parse_roles(current_user.role):
+            from utils.dashboard_settings import require_officer_dashboard_card
+            return require_officer_dashboard_card('remuneration')
+        flash('This feature is restricted to teaching staff.', 'danger')
+        return redirect(url_for('index'))
 
     def _safe_next_url(next_url):
         """Return next_url if it's a safe same-site relative path, else None.
@@ -1245,8 +1346,8 @@ def create_app():
             course_id = request.form.get('course_id', type=int)
             course_name = request.form.get('course_name')
             course_code = request.form.get('course_code')
-            discipline = request.form.get('discipline', 'Law')
-            school = request.form.get('school', 'Law')
+            discipline = request.form.get('discipline', current_tenant().short_name)
+            school = request.form.get('school', current_tenant().short_name)
             year = (request.form.get('year') or '').strip() or None
             term = (request.form.get('term') or '').strip() or None
             section = request.form.get('section')
@@ -2553,7 +2654,7 @@ def create_app():
                 initial_data = {}
 
         # Auto-populate discipline and school from teacher's institute if missing
-        # Also normalize existing values (e.g., "Law Discipline, KU" -> "Law")
+        # Also normalize existing values that contain extra words (e.g. full institute label).
         needs_update = False
         
         # Normalize discipline: extract first word if it contains multiple words
@@ -2569,19 +2670,19 @@ def create_app():
                 if institute_parts:
                     entry.discipline = institute_parts[0]
                 else:
-                    entry.discipline = 'Law'
+                    entry.discipline = current_tenant().short_name
             else:
-                entry.discipline = 'Law'
+                entry.discipline = current_tenant().short_name
             needs_update = True
         
-        # Normalize school: extract first word if it contains multiple words or is "Law Discipline, KU"
+        # Normalize school: extract first word if it contains multiple words or is current_tenant().institute_label
         if entry.school:
-            if ' ' in entry.school or entry.school == 'Law Discipline, KU':
+            if ' ' in entry.school or entry.school == current_tenant().institute_label:
                 school_parts = entry.school.split()
                 if school_parts:
                     entry.school = school_parts[0]
                 else:
-                    entry.school = 'Law'
+                    entry.school = current_tenant().short_name
                 needs_update = True
         else:
             if entry.owner_teacher and entry.owner_teacher.institute:
@@ -2590,9 +2691,9 @@ def create_app():
                 if institute_parts:
                     entry.school = institute_parts[0]
                 else:
-                    entry.school = 'Law'
+                    entry.school = current_tenant().short_name
             else:
-                entry.school = 'Law'
+                entry.school = current_tenant().short_name
             needs_update = True
         
         if needs_update:
@@ -3376,6 +3477,39 @@ def create_app():
             current_app.logger.error(f'Error creating operational window: {e}', exc_info=True)
             return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
+    @app.route('/admin/active-window/update', methods=['POST'])
+    @login_required
+    def admin_update_active_window():
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+        data = request.get_json() or {}
+        try:
+            window_id = int(data.get('window_id'))
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': 'window_id is required'}), 400
+
+        name = (data.get('name') or '').strip()
+        if not name:
+            return jsonify({'success': False, 'message': 'Window name is required'}), 400
+
+        try:
+            from utils.window_utils import update_operational_window
+
+            window = update_operational_window(
+                window_id,
+                name=name,
+                description=data.get('description'),
+            )
+            return jsonify({
+                'success': True,
+                'message': f'Window renamed to "{window.name}".',
+                'window': window.to_dict(),
+            })
+        except Exception as e:
+            current_app.logger.error(f'Error updating operational window: {e}', exc_info=True)
+            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
     @app.route('/admin/active-window/activate', methods=['POST'])
     @login_required
     def admin_activate_active_window():
@@ -3707,6 +3841,262 @@ def create_app():
             'admin/student_dashboard_settings.html',
             cards=cards,
         )
+
+    @app.route('/admin/officer-dashboard-settings', methods=['GET', 'POST'])
+    @login_required
+    def admin_officer_dashboard_settings():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from utils.dashboard_settings import ensure_officer_dashboard_cards
+
+        cards = ensure_officer_dashboard_cards()
+
+        if request.method == 'POST':
+            enabled_keys = set(request.form.getlist('enabled_cards'))
+            for card in cards:
+                card.is_enabled = card.card_key in enabled_keys
+            db.session.commit()
+            flash('Officer dashboard card settings saved.', 'success')
+            return redirect(url_for('admin_officer_dashboard_settings'))
+
+        return render_template(
+            'admin/officer_dashboard_settings.html',
+            cards=cards,
+        )
+
+    @app.route('/admin/academic-rules', methods=['GET', 'POST'])
+    @login_required
+    def admin_academic_rules():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from utils.academic_rules import (
+            clear_instance_override,
+            instance_override_exists,
+            load_academic_rules,
+            pack_defaults,
+            save_academic_rules,
+        )
+
+        if request.method == 'POST':
+            action = (request.form.get('action') or 'save').strip().lower()
+            if action == 'reset':
+                clear_instance_override()
+                flash('Academic rules reset to this discipline’s pack defaults.', 'success')
+                return redirect(url_for('admin_academic_rules'))
+
+            def _num(name, default=0):
+                raw = request.form.get(name)
+                try:
+                    return int(float(raw))
+                except (TypeError, ValueError):
+                    return default
+
+            bands = []
+            letters = request.form.getlist('grade_letter')
+            mins = request.form.getlist('grade_min')
+            points = request.form.getlist('grade_point')
+            for letter, mn, pt in zip(letters, mins, points):
+                letter = (letter or '').strip()
+                if not letter:
+                    continue
+                try:
+                    bands.append({
+                        'letter': letter,
+                        'min': int(float(mn)),
+                        'point': float(pt),
+                    })
+                except (TypeError, ValueError):
+                    continue
+            payload = {
+                'assessment': {
+                    'slots': _num('assessment_slots', 4),
+                    'take_best': _num('assessment_take_best', 3),
+                    'slot_max': _num('assessment_slot_max', 10),
+                    'ug_out_of': _num('assessment_ug_out_of', 30),
+                    'pg_out_of': _num('assessment_pg_out_of', 40),
+                    'pg_scale_from': _num('assessment_pg_scale_from', 30),
+                    'part_a_b_each': _num('assessment_part_a_b_each', 15),
+                    'available_total_modes': request.form.getlist('available_total_modes'),
+                    'allow_internal_total_modes': request.form.get('allow_internal_total_modes') == 'on',
+                },
+                'results': {
+                    'theory_ug': {
+                        'attendance': _num('theory_ug_attendance', 10),
+                        'ca': _num('theory_ug_ca', 30),
+                        'part_a': _num('theory_ug_part_a', 30),
+                        'part_b': _num('theory_ug_part_b', 30),
+                    },
+                    'theory_pg': {
+                        'attendance': _num('theory_pg_attendance', 10),
+                        'ca': _num('theory_pg_ca', 40),
+                        'part_a': _num('theory_pg_part_a', 25),
+                        'part_b': _num('theory_pg_part_b', 25),
+                    },
+                    'sessional': {
+                        'attendance': _num('sessional_attendance', 10),
+                        'report': _num('sessional_report', 60),
+                        'viva': _num('sessional_viva', 30),
+                    },
+                    'thesis_ug': {
+                        'contact': _num('thesis_ug_contact', 10),
+                        'evaluation': _num('thesis_ug_evaluation', 60),
+                        'presentation': _num('thesis_ug_presentation', 30),
+                    },
+                    'dissertation_proposal': {
+                        'supervisor': _num('dissertation_proposal_supervisor', 30),
+                        'presentation': _num('dissertation_proposal_presentation', 70),
+                    },
+                    'dissertation_defence': {
+                        'supervisor': _num('dissertation_defence_supervisor', 20),
+                        'report': _num('dissertation_defence_report', 50),
+                        'defense': _num('dissertation_defence_defense', 30),
+                    },
+                    'viva': {'viva': _num('viva_viva', 100)},
+                },
+                'grades': {
+                    'retake_step_down': request.form.get('retake_step_down') == 'on',
+                    'bands': bands or pack_defaults()['grades']['bands'],
+                },
+            }
+            try:
+                save_academic_rules(payload)
+            except OSError:
+                flash('Could not write academic rules. Check that the instance folder is writable.', 'danger')
+                return redirect(url_for('admin_academic_rules'))
+            flash('Academic rules saved for this discipline.', 'success')
+            return redirect(url_for('admin_academic_rules'))
+
+        return render_template(
+            'admin/academic_rules.html',
+            rules=load_academic_rules(),
+            override_exists=instance_override_exists(),
+        )
+
+    @app.route('/admin/remuneration-rates', methods=['GET', 'POST'])
+    @login_required
+    def admin_remuneration_rates():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from utils.remuneration_rates import (
+            GROUP_ORDER,
+            clear_instance_override,
+            instance_override_exists,
+            rate_groups_for_admin,
+            save_remuneration_rates,
+        )
+
+        if request.method == 'POST':
+            action = (request.form.get('action') or 'save').strip().lower()
+            if action == 'reset':
+                clear_instance_override()
+                flash('Remuneration rates reset to built-in defaults.', 'success')
+                return redirect(url_for('admin_remuneration_rates'))
+
+            payload = {}
+            for key in GROUP_ORDER:
+                labels = request.form.getlist(f'label_{key}')
+                values = request.form.getlist(f'value_{key}')
+                rows = []
+                for label, value in zip(labels, values):
+                    label = (label or '').strip()
+                    if not label:
+                        continue
+                    rows.append({'label': label, 'value': (value or '').strip()})
+                if rows:
+                    payload[key] = rows
+            try:
+                save_remuneration_rates(payload)
+            except OSError:
+                flash('Could not write remuneration rates. Check that the instance folder is writable.', 'danger')
+                return redirect(url_for('admin_remuneration_rates'))
+            flash('Remuneration rates saved for this discipline.', 'success')
+            return redirect(url_for('admin_remuneration_rates'))
+
+        return render_template(
+            'admin/remuneration_rates.html',
+            groups=rate_groups_for_admin(),
+            override_exists=instance_override_exists(),
+        )
+
+    def _discipline_pack_rows():
+        from utils.tenant import TENANTS_ROOT, available_tenant_codes, _read_yaml
+        rows = []
+        for code in available_tenant_codes():
+            data = _read_yaml(TENANTS_ROOT / code / 'tenant.yaml')
+            rows.append({
+                'code': code,
+                'name': data.get('name') or code,
+            })
+        return rows
+
+    @app.route('/admin/disciplines', methods=['GET'])
+    @login_required
+    def admin_disciplines():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+        created_code = (request.args.get('created') or '').strip().lower()
+        created = None
+        if created_code:
+            from utils.tenant import TENANTS_ROOT, _read_yaml
+            data = _read_yaml(TENANTS_ROOT / created_code / 'tenant.yaml')
+            if data:
+                created = {'code': created_code, 'name': data.get('name') or created_code}
+        return render_template(
+            'admin/disciplines.html',
+            packs=_discipline_pack_rows(),
+            created=created,
+            feature_choices=(
+                ('curriculator', 'Curriculator'),
+                ('self_assessment', 'Self-assessment'),
+                ('admission_exam', 'Admission exam'),
+                ('remuneration', 'Remuneration'),
+                ('leave_application', 'Leave application'),
+            ),
+        )
+
+    @app.route('/admin/disciplines/create', methods=['POST'])
+    @login_required
+    def admin_create_discipline():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+        from utils.tenant import TenantConfigError, create_tenant_pack
+        enabled = set(request.form.getlist('features'))
+        features = {
+            key: key in enabled
+            for key in (
+                'curriculator', 'self_assessment', 'admission_exam',
+                'remuneration', 'leave_application',
+            )
+        }
+        try:
+            dest = create_tenant_pack(
+                code=request.form.get('code') or '',
+                name=request.form.get('name') or '',
+                short_name=request.form.get('short_name') or '',
+                copy_from=request.form.get('copy_from') or 'mcj',
+                institute_label=request.form.get('institute_label') or '',
+                university_name=request.form.get('university_name') or '',
+                course_code_prefix=request.form.get('course_code_prefix') or '',
+                app_id_prefix=request.form.get('app_id_prefix') or '',
+                pg_year_label=request.form.get('pg_year_label') or 'Masters',
+                features=features,
+            )
+        except TenantConfigError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('admin_disciplines'))
+        except OSError:
+            flash('Could not write the tenant folder. Check that tenants/ is writable on this server.', 'danger')
+            return redirect(url_for('admin_disciplines'))
+        flash(f'Discipline pack created at {dest}.', 'success')
+        return redirect(url_for('admin_disciplines', created=dest.name))
 
     @app.route('/admin/active-semester/preview-deletion', methods=['POST'])
     @login_required
@@ -4358,8 +4748,8 @@ def create_app():
                 
                 archived_committees[key]['chief'] = {
                     'name': assignment.assigned_teacher.name,
-                    'designation': chief_designation or assignment.assigned_teacher.designation or 'Head, Law Discipline, KU',
-                    'institute': chief_institute or assignment.assigned_teacher.institute or 'Law Discipline, KU'
+                    'designation': chief_designation or assignment.assigned_teacher.designation or current_tenant().head_designation,
+                    'institute': chief_institute or assignment.assigned_teacher.institute or current_tenant().institute_label
                 }
             elif assignment.duty_type == 'exam_committee_member':
                 if assignment.assigned_teacher_id:
@@ -4379,7 +4769,7 @@ def create_app():
                         archived_committees[key]['internal_members'].append({
                             'name': member_teacher.name,
                             'designation': member_designation or member_teacher.designation or 'Assistant Professor',
-                            'institute': member_institute or member_teacher.institute or 'Law Discipline, KU'
+                            'institute': member_institute or member_teacher.institute or current_tenant().institute_label
                         })
                 else:
                     # External member
@@ -6851,13 +7241,13 @@ def create_app():
                         if not designation and teacher.designation:
                             designation = teacher.designation
                         if not institute and teacher.institute:
-                            institute = teacher.institute or 'Law Discipline, KU'
+                            institute = teacher.institute or current_tenant().institute_label
                     
                     saved_committee_members['internal'].append({
                         'id': assignment.assigned_teacher_id,
                         'name': assignment.assigned_teacher.name if assignment.assigned_teacher else 'N/A',
                         'designation': designation,
-                        'institute': institute or 'Law Discipline, KU'
+                        'institute': institute or current_tenant().institute_label
                     })
                 else:
                     # External member (info stored in remarks as JSON)
@@ -6904,7 +7294,7 @@ def create_app():
             
             # Get from Teacher table if not in remarks
             chief_teacher = chief_assignment_details.assigned_teacher
-            institute = 'Law Discipline, KU'
+            institute = current_tenant().institute_label
             if chief_teacher:
                 if not designation and chief_teacher.designation:
                     designation = chief_teacher.designation
@@ -9061,7 +9451,7 @@ def create_app():
                         scrutinizer_map[teacher_id] = {
                             'name': scrutinizer.name,
                             'designation': scrutinizer.designation or '',
-                            'institute': scrutinizer.institute or 'Law Discipline, KU',
+                            'institute': scrutinizer.institute or current_tenant().institute_label,
                             'script_count': script_count
                         }
                 except (json.JSONDecodeError, TypeError):
@@ -9330,7 +9720,7 @@ def create_app():
             teachers_data.append({
                 'name': teacher.name or '',
                 'designation': teacher.designation or '',
-                'institute': teacher.institute or 'Law Discipline, KU'
+                'institute': teacher.institute or current_tenant().institute_label
             })
         
         # Get curriculum data (Year, Term, Batch, Session)
@@ -9471,9 +9861,9 @@ def create_app():
             
             # Final defaults
             if not chief_designation:
-                chief_designation = 'Head, Law Discipline, KU'
+                chief_designation = current_tenant().head_designation
             if not chief_institute:
-                chief_institute = 'Law Discipline, KU'
+                chief_institute = current_tenant().institute_label
             
             examination_committee.append({
                 'name': chief_teacher.name,
@@ -9519,7 +9909,7 @@ def create_app():
                         if not member_designation:
                             member_designation = 'Assistant Professor'
                         if not member_institute:
-                            member_institute = 'Law Discipline, KU'
+                            member_institute = current_tenant().institute_label
                         
                         examination_committee.append({
                             'name': teacher.name,
@@ -10287,9 +10677,9 @@ def create_app():
                     chief_institute = chief_teacher.institute
                 
                 if not chief_designation:
-                    chief_designation = 'Head, Law Discipline, KU'
+                    chief_designation = current_tenant().head_designation
                 if not chief_institute:
-                    chief_institute = 'Law Discipline, KU'
+                    chief_institute = current_tenant().institute_label
                 
                 examination_committee.append({
                     'name': chief_teacher.name,
@@ -10334,7 +10724,7 @@ def create_app():
                         if not member_designation:
                             member_designation = 'Assistant Professor'
                         if not member_institute:
-                            member_institute = 'Law Discipline, KU'
+                            member_institute = current_tenant().institute_label
                         
                         seen_members.add(member_key)
                         examination_committee.append({
@@ -10493,7 +10883,7 @@ def create_app():
             for member in examination_committee:
                 if member.get('position') == 'Chairman':
                     chief_name = member.get('name', '')
-                    # Extract title from designation (e.g., "Head, Law Discipline, KU" -> "Head")
+                    # Extract title from designation (e.g., current_tenant().head_designation -> "Head")
                     designation = member.get('designation', '')
                     if designation:
                         parts = designation.split(',')
@@ -11012,11 +11402,11 @@ def create_app():
                         teacher = assignment.teacher
                         teacher_name = teacher.name
                         designation = teacher.designation or 'Assistant Professor'
-                        institute = teacher.institute or 'Law Discipline, KU'
+                        institute = teacher.institute or current_tenant().institute_label
                     else:
                         teacher_name = 'Not Assigned'
                         designation = 'Assistant Professor'
-                        institute = 'Law Discipline, KU'
+                        institute = current_tenant().institute_label
                     
                     courses_data.append({
                         'course_id': assignment.course_id,
@@ -11106,14 +11496,14 @@ def create_app():
                         
                         teacher_name = 'Not Assigned'
                         designation = 'Assistant Professor'
-                        institute = 'Law Discipline, KU'
+                        institute = current_tenant().institute_label
                         section = 'Full'
                         
                         if course_assignment and course_assignment.teacher:
                             teacher = course_assignment.teacher
                             teacher_name = teacher.name
                             designation = teacher.designation or 'Assistant Professor'
-                            institute = teacher.institute or 'Law Discipline, KU'
+                            institute = teacher.institute or current_tenant().institute_label
                             section = course_assignment.section or 'Full'
                         
                         # FINAL STRICT CHECK: Only add courses matching the filter
@@ -11529,7 +11919,7 @@ def create_app():
                     'id': teacher.id,
                     'name': teacher.name,
                     'designation': teacher.designation or '',
-                    'institute': teacher.institute or 'Law Discipline, KU'
+                    'institute': teacher.institute or current_tenant().institute_label
                 }
             })
         except Exception as e:
@@ -11644,8 +12034,8 @@ def create_app():
                 
                 examination_committee.append({
                     'name': chief_teacher.name or '',
-                    'designation': chief_designation or (chief_teacher.designation if chief_teacher.designation else '') or 'Head, Law Discipline, KU',
-                    'institute': chief_institute or (chief_teacher.institute if chief_teacher.institute else '') or 'Law Discipline, KU',
+                    'designation': chief_designation or (chief_teacher.designation if chief_teacher.designation else '') or current_tenant().head_designation,
+                    'institute': chief_institute or (chief_teacher.institute if chief_teacher.institute else '') or current_tenant().institute_label,
                     'position': 'Chairman'
                 })
             
@@ -11676,7 +12066,7 @@ def create_app():
                         examination_committee.append({
                             'name': member_teacher.name or '',
                             'designation': member_designation or (member_teacher.designation if member_teacher.designation else '') or 'Assistant Professor',
-                            'institute': member_institute or (member_teacher.institute if member_teacher.institute else '') or 'Law Discipline, KU',
+                            'institute': member_institute or (member_teacher.institute if member_teacher.institute else '') or current_tenant().institute_label,
                             'position': 'Member'
                         })
                 else:
@@ -11703,7 +12093,7 @@ def create_app():
             teachers_data.append({
                 'name': teacher.name or '',
                 'designation': teacher.designation or '',
-                'institute': teacher.institute or 'Law Discipline, KU'
+                'institute': teacher.institute or current_tenant().institute_label
             })
         
         # Get curriculum data for members (they can see all, but we'll filter based on their assignment)
@@ -11809,7 +12199,7 @@ def create_app():
                     'id': teacher.id,
                     'name': teacher.name,
                     'designation': teacher.designation or '',
-                    'institute': teacher.institute or 'Law Discipline, KU'
+                    'institute': teacher.institute or current_tenant().institute_label
                 }
             })
         except Exception as e:
@@ -11891,9 +12281,9 @@ def create_app():
             
             # Final defaults
             if not chief_designation:
-                chief_designation = 'Head, Law Discipline, KU'
+                chief_designation = current_tenant().head_designation
             if not chief_institute:
-                chief_institute = 'Law Discipline, KU'
+                chief_institute = current_tenant().institute_label
             
             examination_committee.append({
                 'name': chief_teacher.name,
@@ -11937,7 +12327,7 @@ def create_app():
                     if not member_designation:
                         member_designation = 'Assistant Professor'
                     if not member_institute:
-                        member_institute = 'Law Discipline, KU'
+                        member_institute = current_tenant().institute_label
                     
                     examination_committee.append({
                         'name': teacher_member.name,
@@ -11971,13 +12361,18 @@ def create_app():
         if 'officer' not in roles and not is_admin(current_user):
             flash('This page is only accessible to officers.', 'danger')
             return redirect(url_for('index'))
+
+        from utils.dashboard_settings import require_officer_dashboard_card
+        blocked = require_officer_dashboard_card('exam_info')
+        if blocked:
+            return blocked
         
         return render_template('officer/exam_info.html')
 
     @app.route('/remuneration')
     @login_required
     def remuneration_portal():
-        restriction = _require_teacher_privileges()
+        restriction = _require_remuneration_access()
         if restriction:
             return restriction
         
@@ -12087,119 +12482,9 @@ def create_app():
         if has_warning:
             flash('Some data could not be loaded. Please refresh the page if needed.', 'warning')
         
-        # Define remuneration rates based on the scanned document
-        remuneration_rates = {
-            '1': [  # প্রশ্নপত্র প্রণয়ন
-                {'label': 'স্নাতক (প্রতি প্রশ্নপত্র)', 'value': '2300'},
-                {'label': 'স্নাতকোত্তর/এমফিল/পিএইচডি (প্রতি প্রশ্নপত্র)', 'value': '2400'}
-            ],
-            '2': [  # প্রশ্নপত্র মডারেশন
-                {'label': 'সর্বোচ্চ', 'value': '2400'},
-                {'label': 'সর্বনিম্ন', 'value': '1500'}
-            ],
-            '3': [  # উত্তরপত্র পরীক্ষণ
-                {'label': 'স্নাতক - অর্ধ পত্র (প্রতি উত্তরপত্র)', 'value': '80'},
-                {'label': 'স্নাতক - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী)', 'value': '30'},
-                {'label': 'স্নাতকোত্তর - অর্ধ পত্র (প্রতি উত্তরপত্র)', 'value': '100'},
-                {'label': 'স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী)', 'value': '80'},
-                {'label': 'স্নাতকোত্তর - মিড টার্ম পূর্ণপত্র (প্রতি উত্তরপত্র)', 'value': '60'},
-                {'label': 'স্নাতকোত্তর - টার্ম ফাইনাল পূর্ণপত্র (প্রতি উত্তরপত্র)', 'value': '160'},
-                {'label': 'ন্যূনতম (প্রতি কোর্স)', 'value': '600'}
-            ],
-            '4': [  # ক্লাস টেস্ট/টার্ম পেপার/ হোম ওয়ার্ক/ এ্যাসাইনমেন্ট
-                {'label': 'স্নাতক - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী)', 'value': '30'},
-                {'label': 'স্নাতকোত্তর - ক্লাস টেস্ট/টার্ম পেপার (প্রতি পরীক্ষার্থী)', 'value': '40'}
-            ],
-            '5': [  # সেশনাল
-                {'label': 'প্রজেক্ট পেপার/এ্যাসাইনমেন্ট (প্রতি পরীক্ষার্থী)', 'value': '230'},
-                {'label': 'ফিল্ড ওয়ার্ক/সার্ভে ওয়ার্ক (প্রতি পরীক্ষার্থী)', 'value': '300'},
-                {'label': 'মৌখিক পরীক্ষা (প্রতি পরীক্ষার্থী)', 'value': '50'},
-                {'label': 'ল্যাব কর্মকর্তা', 'value': '200'},
-                {'label': '৩য় শ্রেণির কর্মচারী', 'value': '150'},
-                {'label': '৪র্থ শ্রেণির কর্মচারী', 'value': '110'}
-            ],
-            '6': [  # সেশনাল মৌখিক পরীক্ষা
-                {'label': 'প্রতি পরীক্ষার্থী', 'value': '50'}
-            ],
-            '7': [  # প্রফেশনাল এ্যাটাসমেন্ট/ইন্ডাস্ট্রিয়াল
-                {'label': 'সুপারভিশন ও রিপোর্ট পরীক্ষণ (প্রতি পরীক্ষার্থী)', 'value': '100'}
-            ],
-            '8': [  # উত্তরপত্র নিরীক্ষণ
-                {'label': 'প্রতি উত্তরপত্র', 'value': '8'}
-            ],
-            '9': [  # টেবুলেশন
-                {'label': 'কোর্স ভিত্তিক (প্রতি কোর্স)', 'value': '200'},
-                {'label': 'পরীক্ষার্থী ভিত্তিক (প্রতি পরীক্ষার্থী)', 'value': '40'}
-            ],
-            '9a': [  # টেবুলেশন - কোর্স ভিত্তিক
-                {'label': 'কোর্স ভিত্তিক (প্রতি কোর্স)', 'value': '200'}
-            ],
-            '9b': [  # টেবুলেশন - পরীক্ষার্থী ভিত্তিক
-                {'label': 'পরীক্ষার্থী ভিত্তিক (প্রতি পরীক্ষার্থী)', 'value': '40'}
-            ],
-            '10': [  # প্রশ্নপত্র প্রস্তুতকরণ
-                {'label': 'অংকনসহ অন্যান্য কাজ (প্রতি প্রশ্নপত্র)', 'value': '250'},
-                {'label': 'ফটোকপি (প্রতি প্রশ্নপত্র)', 'value': '7'}
-            ],
-            '10a': [  # প্রশ্নপত্র প্রস্তুতকরণ - অংকন
-                {'label': 'অংকনসহ অন্যান্য কাজ (প্রতি প্রশ্নপত্র)', 'value': '250'}
-            ],
-            '10b': [  # প্রশ্নপত্র প্রস্তুতকরণ - ফটোকপি
-                {'label': 'ফটোকপি (প্রতি প্রশ্নপত্র)', 'value': '7'}
-            ],
-            '11': [  # পরীক্ষা কমিটির সভাপতি/সদস্য
-                {'label': 'স্নাতক - সভাপতি (প্রতি টার্ম)', 'value': '2500'},
-                {'label': 'স্নাতক - সদস্য (প্রতি টার্ম)', 'value': '1000'},
-                {'label': 'স্নাতকোত্তর - সভাপতি (প্রতি টার্ম)', 'value': '3000'},
-                {'label': 'স্নাতকোত্তর - সদস্য (প্রতি টার্ম)', 'value': '1000'}
-            ],
-            '12': [  # চীফ ইনভিজিলেশন / ইনভিজিলেশন
-                {'label': 'প্রধান তদারকী (প্রতি ঘন্টা)', 'value': '600'},
-                {'label': 'অন্যান্য তদারকী (প্রতি ঘন্টা)', 'value': '500'}
-            ],
-            '12a': [  # চীফ ইনভিজিলেশন
-                {'label': 'চীফ ইনভিজিলেশন', 'value': '1800'}
-            ],
-            '12b': [  # ইনভিজিলেশন
-                {'label': 'ইনভিজিলেশন', 'value': '1500'}
-            ],
-            '15': [  # কোডিং/ডিকোডিং
-                {'label': 'পরীক্ষার্থী প্রতি', 'value': '30'}
-            ],
-            '13': [  # থিসিস
-                # পরীক্ষণ
-                {'label': 'স্নাতক - থিসিস/প্রজেক্ট মূল্যায়ন (প্রতি পরীক্ষার্থী)', 'value': '1200'},
-                {'label': 'স্নাতকোত্তর - ডিজারটেশন মূল্যায়ন (প্রতি পরীক্ষার্থী)', 'value': '2500'},
-                {'label': 'পিএইচডি - ডিজারটেশন মূল্যায়ন (প্রতি পরীক্ষার্থী)', 'value': '10000'}
-            ],
-            '13a': [  # থিসিস - পরীক্ষণ
-                {'label': 'স্নাতক - থিসিস/প্রজেক্ট মূল্যায়ন (প্রতি পরীক্ষার্থী)', 'value': '1200'},
-                {'label': 'স্নাতকোত্তর - ডিজারটেশন মূল্যায়ন (প্রতি পরীক্ষার্থী)', 'value': '2500'},
-                {'label': 'পিএইচডি - ডিজারটেশন মূল্যায়ন (প্রতি পরীক্ষার্থী)', 'value': '10000'}
-            ],
-            '13b': [  # থিসিস - সুপারভিশন
-                {'label': 'স্নাতক - থিসিস/প্রজেক্ট সুপারভিশন (প্রতি পরীক্ষার্থী)', 'value': '2000'},
-                {'label': 'স্নাতকোত্তর - ডিজারটেশন সুপারভিশন (প্রতি পরীক্ষার্থী)', 'value': '5000'},
-                {'label': 'স্নাতকোত্তর - প্রজেক্ট সুপারভিশন (প্রতি পরীক্ষার্থী)', 'value': '2500'},
-                {'label': 'পিএইচডি - ডিজারটেশন সুপারভিশন (প্রতি পরীক্ষার্থী)', 'value': '35000'}
-            ],
-            '13c': [  # থিসিস - কো-সুপারভিশন
-                {'label': 'স্নাতকোত্তর - কো-সুপারভিশন (প্রতি পরীক্ষার্থী)', 'value': '1500'},
-                {'label': 'পিএইচডি - কো-সুপারভিশন (প্রতি পরীক্ষার্থী)', 'value': '15000'}
-            ],
-            '13d': [  # থিসিস - মৌখিক পরীক্ষা
-                {'label': 'স্নাতক - ফাইনাল ডিফেন্স/মৌখিক (প্রতি পরীক্ষার্থী)', 'value': '120'},
-                {'label': 'স্নাতকোত্তর - ফাইনাল ডিফেন্স/মৌখিক (প্রতি পরীক্ষার্থী)', 'value': '500'},
-                {'label': 'পিএইচডি - ফাইনাল ডিফেন্স/মৌখিক (প্রতি পরীক্ষার্থী)', 'value': '2000'}
-            ],
-            '14': [  # ভাইভা
-                {'label': 'পরীক্ষার্থী প্রতি ৫০টাকা', 'value': '50'}
-            ],
-            '16': [  # কোডিং/ডিকোডিং
-                {'label': 'প্রতি খাতা', 'value': '30'}
-            ]
-        }
-        
+        from utils.remuneration_rates import load_remuneration_rates
+        remuneration_rates = load_remuneration_rates()
+
         # Set logo path for remuneration form header
         logo_filename = 'KU_logo.svg'
         logo_folder = 'images'  # Direct path - file should be at static/images/KU_logo.svg
@@ -12541,33 +12826,8 @@ def create_app():
 
             session_years_terms_map = _build_bulk_session_years_terms_map(all_configs)
             
-            # Define remuneration rates (same as in main portal)
-            remuneration_rates = {
-                '1': [{'label': 'স্নাতক (প্রতি প্রশ্নপত্র)', 'value': '2300'}, {'label': 'স্নাতকোত্তর/এমফিল/পিএইচডি (প্রতি প্রশ্নপত্র)', 'value': '2400'}],
-                '2': [{'label': 'সর্বোচ্চ', 'value': '2400'}],
-                '3': [{'label': 'প্রতি খাতা', 'value': '400'}],
-                '4': [{'label': 'প্রতি ছাত্র', 'value': '50'}],
-                '5': [{'label': 'প্রতি কোর্স', 'value': '3000'}],
-                '6': [{'label': 'প্রতি কোর্স', 'value': '3000'}],
-                '7': [{'label': 'কাস্টম হার', 'value': ''}],
-                '8': [{'label': 'প্রতি খাতা', 'value': '100'}],
-                '9': [{'label': 'প্রতি কোর্স', 'value': '2500'}],
-                '10': [{'label': 'প্রতি প্রশ্নপত্র', 'value': '500'}],
-                '10a': [{'label': 'অংকনসহ অন্যান্য কাজ (প্রতি প্রশ্নপত্র)', 'value': '250'}],
-                '10b': [{'label': 'ফটোকপি (প্রতি প্রশ্নপত্র)', 'value': '7'}],
-                '11': [{'label': 'সভাপতি', 'value': '5000'}, {'label': 'সদস্য', 'value': '3000'}],
-                '12': [{'label': 'চীফ ইনভিজিলেশন', 'value': '1800'}, {'label': 'ইনভিজিলেশন', 'value': '1500'}],
-                '12a': [{'label': 'চীফ ইনভিজিলেশন', 'value': '1800'}],
-                '12b': [{'label': 'ইনভিজিলেশন', 'value': '1500'}],
-                '15': [{'label': 'পরীক্ষার্থী প্রতি', 'value': '30'}],
-                '13': [{'label': 'কাস্টম হার', 'value': ''}],
-                '13a': [{'label': 'কাস্টম হার', 'value': ''}],
-                '13b': [{'label': 'কাস্টম হার', 'value': ''}],
-                '13c': [{'label': 'কাস্টম হার', 'value': ''}],
-                '13d': [{'label': 'কাস্টম হার', 'value': ''}],
-                '14': [{'label': 'পরীক্ষার্থী প্রতি ৫০টাকা', 'value': '50'}],
-                '16': [{'label': 'প্রতি খাতা', 'value': '30'}]
-            }
+            from utils.remuneration_rates import load_remuneration_rates
+            remuneration_rates = load_remuneration_rates()
             
             logo_filename = 'KU_logo.svg'
             logo_folder = 'images'
@@ -12848,8 +13108,14 @@ def create_app():
             '2': 'Second', '2nd': 'Second', 'second': 'Second',
             '3': 'Third', '3rd': 'Third', 'third': 'Third',
             '4': 'Fourth', '4th': 'Fourth', 'fourth': 'Fourth',
-            '5': 'Fifth', '5th': 'Fifth', 'fifth': 'Fifth', 'llm': 'LLM',
+            '5': 'Fifth', '5th': 'Fifth', 'fifth': 'Fifth',
         }
+        for pg in current_tenant().pg_year_labels:
+            aliases[str(pg).lower()] = pg
+        primary_pg = current_tenant().pg_year_labels[0] if current_tenant().pg_year_labels else 'LLM'
+        aliases.setdefault('llm', primary_pg)
+        aliases.setdefault('masters', primary_pg)
+        aliases.setdefault('master', primary_pg)
         mapped = aliases.get(core.lower())
         if mapped:
             variants.add(mapped)
@@ -12857,7 +13123,7 @@ def create_app():
                 variants.add(f'{mapped} Year')
             else:
                 variants.add(f'{mapped} Term')
-            if mapped == 'LLM':
+            if mapped in set(current_tenant().pg_year_labels) or mapped == 'LLM':
                 variants.update({'Fifth', 'Fifth Year', '5', '5th'})
         return [v for v in variants if v]
 
@@ -12888,7 +13154,7 @@ def create_app():
             'section': section_label,
             'teacher_name': teacher.name,
             'teacher_designation': teacher.designation or '',
-            'teacher_institute': teacher.institute or 'Law Discipline, KU',
+            'teacher_institute': teacher.institute or current_tenant().institute_label,
             'is_split': is_split,
             'session_id': assignment.session_id,
             'assignment_id': assignment.id,
@@ -13326,7 +13592,7 @@ def create_app():
                     tabulators_data.append({
                         'name': name,
                         'designation': assignment.assigned_teacher.designation or '',
-                        'institute': assignment.assigned_teacher.institute or 'Law Discipline, KU'
+                        'institute': assignment.assigned_teacher.institute or current_tenant().institute_label
                     })
             
             return jsonify({'success': True, 'tabulators': tabulators_data})
@@ -14695,9 +14961,9 @@ def create_app():
                 voucher_date=get_val('voucher_date'),
                 applicant_name=applicant_name,
                 designation=get_val('designation'),
-                discipline=get_val('discipline') or 'Law',
+                discipline=get_val('discipline') or current_tenant().short_name,
                 address=get_val('address'),
-                exam_discipline=get_val('exam_discipline') or 'Law',
+                exam_discipline=get_val('exam_discipline') or current_tenant().short_name,
                 year=get_val('year'),
                 academic_year=get_val('academic_year'),
                 term=get_val('term'),
@@ -15367,8 +15633,7 @@ def create_app():
                     return default
 
             def is_postgraduate():
-                yr = (year or '').upper()
-                return any(token in yr for token in ['LLM', 'MASTER', 'M.PHIL', 'MPHIL', 'PHD'])
+                return year_is_postgraduate(year)
 
             is_pg = is_postgraduate()
 
@@ -15826,32 +16091,19 @@ def create_app():
         
         course_code = str(course_value).split(' - ')[0].strip()
         
-        # Method 1: Check course code pattern - year digit 5 typically means LLM (PG)
+        # Method 1: Check course code pattern - tenant PG year digit (Law: 5 = LLM)
         import re
         digits = re.findall(r'\d+', course_code)
         if digits and len(digits) > 0:
             last_digits = digits[-1]
             # IMPORTANT: UG course codes are often 3 digits (e.g. "042").
-            # In that case, don't let program year (e.g. LLM) force PG.
             if len(last_digits) <= 3:
                 return False
-            if len(last_digits) >= 4:
-                year_digit = int(last_digits[-4]) if len(last_digits) >= 4 else None
-                if year_digit == 5:
-                    return True
-        
-        # Method 2: Check if course code contains PG indicators
-        # IMPORTANT: don't use generic '5' substring here (causes false positives).
-        pg_indicators = ['LLM', 'MPHIL', 'M.PHIL', 'PHD', 'PG']
-        upper_code = course_code.upper()
-        if any(indicator in upper_code for indicator in pg_indicators):
-            return True
-        
-        # Method 3: Check year field if provided
-        if year:
-            year_upper = str(year).upper()
-            if any(token in year_upper for token in ['LLM', 'PG', 'MPHIL', 'PHD']):
+            if course_year_digit_is_pg(course_code):
                 return True
+        
+        if year_is_postgraduate(course_code) or year_is_postgraduate(year):
+            return True
         
         return False
 
@@ -16266,8 +16518,7 @@ def create_app():
                 return default
         
         def is_pg_year():
-            yr = (year or '').upper()
-            return any(token in yr for token in ['LLM', 'MASTER', 'M.PHIL', 'MPHIL', 'PHD'])
+            return year_is_postgraduate(year)
         
         is_pg = is_pg_year()
         
@@ -17306,9 +17557,9 @@ def create_app():
                                 'voucher_date': '',
                                 'applicant_name': applicant_name,
                                 'designation': participant_designation,
-                                'discipline': 'Law',
-                                'address': participant_institute or 'Law Discipline, KU',
-                                'exam_discipline': 'Law',
+                                'discipline': current_tenant().short_name,
+                                'address': participant_institute or current_tenant().institute_label,
+                                'exam_discipline': current_tenant().short_name,
                                 'year': year_val_clean,
                                 'academic_year': session_val_clean,
                                 'term': term_val_clean,
@@ -17513,7 +17764,7 @@ def create_app():
                 while Teacher.query.filter_by(short_name=short_name).first():
                     short_name = f"{base_short[:10-len(str(counter))]}{counter}"
                     counter += 1
-                teacher = Teacher(name=user_to_edit.full_name, short_name=short_name, is_external=is_ext_val)
+                teacher = Teacher(name=user_to_edit.full_name, short_name=short_name, is_external=is_ext_val, institute=current_tenant().institute_label)
                 db.session.add(teacher)
             
             if teacher:
@@ -17527,7 +17778,7 @@ def create_app():
                     bank_account_no = request.form.get('bank_account_no', '').strip()
                     tin_number = request.form.get('tin_number', '').strip()
                     teacher.designation = designation if designation else None
-                    teacher.institute = institute if institute else 'Law Discipline, KU'
+                    teacher.institute = institute if institute else current_tenant().institute_label
                     teacher.call_sign = call_sign if call_sign else None
                     teacher.bank_account_no = bank_account_no if bank_account_no else None
                     teacher.tin_number = tin_number if tin_number else None
@@ -17644,7 +17895,7 @@ def create_app():
                     name=full_name,
                     short_name=short_name,
                     designation=request.form.get('designation', '').strip() or None,
-                    institute=request.form.get('institute', '').strip() or 'Law Discipline, KU',
+                    institute=request.form.get('institute', '').strip() or current_tenant().institute_label,
                     call_sign=request.form.get('call_sign', '').strip() or None,
                     bank_account_no=request.form.get('bank_account_no', '').strip() or None,
                     tin_number=request.form.get('tin_number', '').strip() or None
@@ -17885,7 +18136,7 @@ def create_app():
                         suffix = str(counter)
                         short_name = f"{short_name_base[:10-len(suffix)]}{suffix}"
                         counter += 1
-                    teacher = Teacher(name=current_user.full_name, short_name=short_name)
+                    teacher = Teacher(name=current_user.full_name, short_name=short_name, institute=current_tenant().institute_label)
                     db.session.add(teacher)
                     db.session.flush()
                 

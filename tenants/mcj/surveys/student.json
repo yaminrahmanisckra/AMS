@@ -1,0 +1,181 @@
+{
+  "title": "Student Survey Questionnaire",
+  "form_version": "student_generic",
+  "purpose": "This survey collects feedback for the Self-Assessment Report of the Mass Communication and Journalism Discipline. Your responses help improve teaching, facilities, and graduate outcomes.",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "program",
+      "label": "Program (Optional)",
+      "type": "select",
+      "options": [
+        "BSS (Honours)",
+        "Masters"
+      ]
+    },
+    {
+      "key": "current_year_semester",
+      "label": "Current Year/Semester (Optional)",
+      "type": "text"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Governance & Environment",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "The academic calendar is followed without unexpected delays."
+        },
+        {
+          "key": "q2",
+          "text": "Theory class sizes are appropriate for effective learning."
+        },
+        {
+          "key": "q3",
+          "text": "Practical/studio class sizes allow individual attention."
+        },
+        {
+          "key": "q4",
+          "text": "I feel safe on campus and know how to report harassment."
+        },
+        {
+          "key": "q5",
+          "text": "I am aware of the program's vision, mission, and objectives."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Curriculum",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q6",
+          "text": "The curriculum provides contemporary knowledge of media and communication."
+        },
+        {
+          "key": "q7",
+          "text": "Coursework has improved my research skills."
+        },
+        {
+          "key": "q8",
+          "text": "The program develops oral and written communication skills."
+        },
+        {
+          "key": "q9",
+          "text": "The curriculum enhances my ability to analyze media problems."
+        },
+        {
+          "key": "q10",
+          "text": "The program emphasizes professional ethics."
+        },
+        {
+          "key": "q11",
+          "text": "General Education courses are relevant and useful."
+        },
+        {
+          "key": "q12",
+          "text": "Internship/practical training is well-structured and beneficial."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Teaching & Assessment",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q13",
+          "text": "Teachers use interactive methods rather than only lecturing."
+        },
+        {
+          "key": "q14",
+          "text": "Teaching encourages critical analysis and application."
+        },
+        {
+          "key": "q15",
+          "text": "Course outlines with outcomes and rubrics are provided at the start of term."
+        },
+        {
+          "key": "q16",
+          "text": "I receive timely feedback on assignments and exams."
+        },
+        {
+          "key": "q17",
+          "text": "Assessment fairly measures what I have learned."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Support & Facilities",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q18",
+          "text": "Studio, lab, and fieldwork facilities are adequate."
+        },
+        {
+          "key": "q19",
+          "text": "The discipline encourages co-curricular participation."
+        },
+        {
+          "key": "q20",
+          "text": "Academic and career counseling are available."
+        },
+        {
+          "key": "q21",
+          "text": "The library collection and databases are adequate."
+        },
+        {
+          "key": "q22",
+          "text": "Computer labs and internet are adequate for my work."
+        },
+        {
+          "key": "q23",
+          "text": "There is a fair mechanism to handle student grievances."
+        }
+      ]
+    },
+    {
+      "title": "Part E: Faculty",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q24",
+          "text": "Faculty members are knowledgeable and up-to-date."
+        },
+        {
+          "key": "q25",
+          "text": "Faculty members are accessible outside class hours."
+        },
+        {
+          "key": "q26",
+          "text": "Guest practitioners are invited to connect theory and practice."
+        }
+      ]
+    },
+    {
+      "title": "Part F: Open-ended",
+      "type": "text",
+      "questions": [
+        {
+          "key": "q27",
+          "text": "What are the three biggest strengths of this program?"
+        },
+        {
+          "key": "q28",
+          "text": "What are the major weaknesses or areas for improvement?"
+        },
+        {
+          "key": "q29",
+          "text": "Is the program preparing you well for media and communication careers? Why or why not?"
+        },
+        {
+          "key": "q30",
+          "text": "Any suggestions regarding studio, lab, or internship training?"
+        }
+      ]
+    }
+  ]
+}

@@ -9,6 +9,125 @@
             width: 85px !important;
             text-align: center;
         }
+        .atc-card {
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            border-radius: 12px;
+            background: linear-gradient(180deg, #f8fafc 0%, #fff 42%);
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+        .atc-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.9rem 1rem 0.15rem;
+        }
+        .atc-kicker {
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #64748b;
+            margin-bottom: 0.15rem;
+        }
+        .atc-head h6 {
+            margin: 0;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .atc-lock {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #166534;
+            background: #dcfce7;
+            border: 1px solid #bbf7d0;
+            border-radius: 999px;
+            padding: 0.2rem 0.6rem;
+            white-space: nowrap;
+        }
+        .atc-current {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin: 0.65rem 1rem 1rem;
+            padding: 0.85rem 1rem;
+            background: #fff;
+            border: 1px solid rgba(79, 70, 229, 0.18);
+            border-radius: 10px;
+        }
+        .atc-current-label {
+            font-size: 0.72rem;
+            color: #64748b;
+            font-weight: 600;
+            margin-bottom: 0.1rem;
+        }
+        .atc-current-value {
+            font-size: 1.02rem;
+            font-weight: 700;
+            color: #312e81;
+        }
+        .atc-editor {
+            padding: 0 1rem 1rem;
+        }
+        .atc-hint {
+            font-size: 0.78rem;
+            color: #64748b;
+            margin-bottom: 0.75rem;
+        }
+        .atc-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 0.6rem;
+            margin-bottom: 0.85rem;
+        }
+        .atc-option {
+            display: block;
+            position: relative;
+            border: 1px solid rgba(15, 23, 42, 0.1);
+            border-radius: 10px;
+            padding: 0.8rem 0.85rem;
+            background: #fff;
+            cursor: pointer;
+            transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+        }
+        .atc-option:hover {
+            border-color: rgba(79, 70, 229, 0.35);
+        }
+        .atc-option.is-selected {
+            border-color: #4f46e5;
+            background: #eef2ff;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+        }
+        .atc-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .atc-option-title {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 0.2rem;
+        }
+        .atc-option-note {
+            font-size: 0.75rem;
+            color: #64748b;
+            line-height: 1.35;
+            margin: 0;
+        }
+        .atc-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 0.45rem;
+        }
     </style>
     <div class="card shadow">
         <div class="card-header bg-primary text-white m-page-header">
@@ -30,26 +149,56 @@
                         {% if split_meta.peers %}
                             • Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
                         {% endif %}
-                        • Each teacher records {{ assessment_slot_count }} assessment(s); overall best three calculated automatically.
+                        • Each teacher records {{ assessment_slot_count }} assessment(s); overall best {{ academic_rules.assessment.take_best }} calculated automatically.
                     </small>
                 </div>
                 {% endif %}
             </div>
             
-            {% if session.is_external_course and session.course_type == 'theory' %}
-            <div class="card mb-3 border-secondary">
-                <div class="card-body py-3">
-                    <label for="externalAssessmentMode" class="form-label mb-1 fw-semibold">
-                        <i class="fas fa-calculator me-1"></i>Assessment Total Calculation
-                    </label>
-                    <select class="form-select form-select-sm" id="externalAssessmentMode" style="max-width: 420px;">
-                        {% for mode_key, mode_label in external_assessment_modes.items() %}
-                        <option value="{{ mode_key }}" {% if external_assessment_mode == mode_key %}selected{% endif %}>{{ mode_label }}</option>
-                        {% endfor %}
-                    </select>
-                    <small class="text-muted d-block mt-1">External course only — changes apply to this table and PDF/Excel export.</small>
-                    <small class="text-muted d-block">Part A/B mode: enter each assessment out of 15; total = best(A1,A2) + best(A3,A4).</small>
+            {% if uses_assessment_mode_picker %}
+            {% set atc_notes = {
+                'best_three': 'Sum of the best ' ~ academic_rules.assessment.take_best ~ ' assessments (out of ' ~ academic_rules.assessment.ug_out_of ~ ').',
+                'part_a_b_15': 'Best of A1/A2 + best of A3/A4. Enter each assessment out of ' ~ academic_rules.assessment.part_a_b_each ~ '.',
+                'best_three_40': 'Best ' ~ academic_rules.assessment.take_best ~ ' converted into ' ~ academic_rules.assessment.pg_out_of ~ '.'
+            } %}
+            <div class="atc-card" id="assessmentTotalCard">
+                <div class="atc-head">
+                    <div>
+                        <div class="atc-kicker"><i class="fas fa-calculator me-1"></i>This course only</div>
+                        <h6>Assessment Total Calculation</h6>
+                    </div>
+                    <span class="atc-lock" id="atcLockBadge"><i class="fas fa-lock"></i> Locked</span>
                 </div>
+                <div class="atc-current">
+                    <div>
+                        <div class="atc-current-label">Active system</div>
+                        <div class="atc-current-value" id="atcCurrentLabel">{{ external_assessment_modes.get(external_assessment_mode, external_assessment_mode) }}</div>
+                    </div>
+                    {% if external_assessment_modes|length > 1 %}
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="atcUnlockBtn">
+                        <i class="fas fa-pen me-1"></i>Change system
+                    </button>
+                    {% endif %}
+                </div>
+                <div class="atc-editor d-none" id="atcEditor">
+                    <p class="atc-hint mb-2">Pick a system, then click <strong>Apply</strong>. Totals, PDF and Excel update only after you apply — a single tap will not switch it.</p>
+                    <div class="atc-options" id="atcOptions">
+                        {% for mode_key, mode_label in external_assessment_modes.items() %}
+                        <label class="atc-option {% if external_assessment_mode == mode_key %}is-selected{% endif %}" data-mode="{{ mode_key }}">
+                            <input type="radio" name="atc_mode_choice" value="{{ mode_key }}" {% if external_assessment_mode == mode_key %}checked{% endif %}>
+                            <div class="atc-option-title">{{ mode_label }}</div>
+                            <p class="atc-option-note">{{ atc_notes.get(mode_key, 'Recalculates this course’s assessment total.') }}</p>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <div class="atc-actions">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="atcCancelBtn">Cancel</button>
+                        <button type="button" class="btn btn-primary btn-sm" id="atcApplyBtn" disabled>
+                            <i class="fas fa-check me-1"></i>Apply
+                        </button>
+                    </div>
+                </div>
+                <input type="hidden" id="externalAssessmentMode" value="{{ external_assessment_mode }}">
             </div>
             {% endif %}
 
@@ -129,7 +278,7 @@
                                     <strong>Attendance Marks</strong>
                                 </label>
                             </div>
-                            {% if session.course_type == 'theory' and session.category == 'pg' and not session.is_external_course %}
+                            {% if session.course_type == 'theory' and external_assessment_mode == 'best_three_40' %}
                             {# PG totals are already converted/rounded on the 40 scale #}
                             {% else %}
                             <div class="mt-3 mb-2">
@@ -166,8 +315,8 @@
             <form method="POST">
                 <div class="table-responsive m-table-scroll-sticky">
                     <table class="table table-bordered align-middle table-sm assessment-marks-table m-keep-table" style="min-width: 700px; font-size: 0.95em;">
-                        {% if session.is_external_course and session.course_type == 'theory' %}
-                        {% set ext_mark_max = 15 if external_assessment_mode == 'part_a_b_15' else 10 %}
+                        {% if uses_assessment_mode_picker %}
+                        {% set ext_mark_max = academic_rules.assessment.part_a_b_each if external_assessment_mode == 'part_a_b_15' else academic_rules.assessment.slot_max %}
                         <thead class="table-light">
                             <tr>
                                 <th class="fw-bold text-center">Student ID</th>
@@ -187,8 +336,10 @@
                                 <td class="text-end">
                                     {% set combined_val_dict = combined_assessment_values.get(student.student_id, {}) %}
                                     {% set value = combined_val_dict.get(i) if combined_val_dict else None %}
+                                    {% set is_editable = i in editable_indices %}
                                     {% set student_absent = absent_status_map.get(student.id, {}) %}
                                     {% set is_absent = student_absent.get('assessment' ~ i, False) %}
+                                    {% if is_editable %}
                                     <div class="d-flex align-items-center gap-2">
                                         {% if is_absent %}
                                         <span class="text-muted fw-bold">Absent</span>
@@ -201,6 +352,16 @@
                                             <label class="form-check-label" for="absent_{{i}}_{{student.id}}" style="font-size: 0.9em;">Absent</label>
                                         </div>
                                     </div>
+                                    {% else %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        {% if value is not none %}
+                                            <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field external-assessment-input" value="{{ value }}" readonly disabled data-editable="0" data-assessment-value="{{ value }}" data-student-id="{{ student.id }}" data-mark-max="{{ ext_mark_max }}" style="background-color: #f8f9fa;">
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                            <input type="hidden" name="assessment{{i}}_{{ student.id }}" value="" data-editable="0" data-assessment-value="" data-student-id="{{ student.id }}">
+                                        {% endif %}
+                                    </div>
+                                    {% endif %}
                                 </td>
                                 {% endfor %}
                                 <td class="fw-bold text-end">
@@ -222,15 +383,15 @@
                             </tr>
                             {% endfor %}
                         </tbody>
-                        {% elif session.course_type == 'theory' and session.category == 'ug' %}
+                        {% elif not uses_assessment_mode_picker and session.course_type == 'theory' and session.category == 'ug' %}
                         <thead class="table-light">
                             <tr>
                                 <th class="fw-bold text-center">Student ID</th>
                                 <th class="fw-bold text-center">Name</th>
                                 {% for i in range(1,5) %}
-                                <th class="fw-bold text-center">Assessment {{ i }} (10)</th>
+                                <th class="fw-bold text-center">Assessment {{ i }} ({{ academic_rules.assessment.slot_max }})</th>
                                 {% endfor %}
-                                <th class="fw-bold text-center">Total of Best 3 (30)</th>
+                                <th class="fw-bold text-center">Total of Best {{ academic_rules.assessment.take_best }} ({{ academic_rules.assessment.ug_out_of }})</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -249,9 +410,9 @@
                                     <div class="d-flex align-items-center gap-2">
                                         {% if is_absent %}
                                         <span class="text-muted fw-bold">Absent</span>
-                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field" min="0" max="10" step="0.01" value="" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" disabled style="display: none;">
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field" min="0" max="{{ academic_rules.assessment.slot_max }}" step="0.01" value="" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" disabled style="display: none;">
                                         {% else %}
-                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field" min="0" max="10" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1">
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control assessment-input assessment-input-field" min="0" max="{{ academic_rules.assessment.slot_max }}" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1">
                                         {% endif %}
                                         <div class="form-check">
                                             <input class="form-check-input absent-checkbox" type="checkbox" id="absent_{{i}}_{{student.id}}" name="absent_{{i}}_{{student.id}}" data-student-id="{{student.id}}" data-assess-idx="{{i}}" {% if is_absent %}checked{% endif %}>
@@ -350,15 +511,15 @@
                             </tr>
                             {% endfor %}
                         </tbody>
-                        {% elif session.course_type == 'theory' and session.category == 'pg' %}
+                        {% elif not uses_assessment_mode_picker and session.course_type == 'theory' and session.category == 'pg' %}
                         <thead class="table-light">
                             <tr>
                                 <th class="fw-bold text-center">Student ID</th>
                                 <th class="fw-bold text-center">Name</th>
                                 {% for i in range(1,5) %}
-                                <th class="fw-bold text-center">Assessment {{ i }} (10)</th>
+                                <th class="fw-bold text-center">Assessment {{ i }} ({{ academic_rules.assessment.slot_max }})</th>
                                 {% endfor %}
-                                <th class="fw-bold text-center">Total (40)</th>
+                                <th class="fw-bold text-center">Total ({{ academic_rules.assessment.pg_out_of }})</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -377,9 +538,9 @@
                                     <div class="d-flex align-items-center gap-2">
                                         {% if is_absent %}
                                         <span class="text-muted fw-bold">Absent</span>
-                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" min="0" max="10" step="0.01" value="" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" disabled style="display: none;">
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" min="0" max="{{ academic_rules.assessment.slot_max }}" step="0.01" value="" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1" disabled style="display: none;">
                                         {% else %}
-                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" min="0" max="10" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1">
+                                        <input type="number" name="assessment{{i}}_{{ student.id }}" class="form-control pg-assessment-input assessment-input-field" min="0" max="{{ academic_rules.assessment.slot_max }}" step="0.01" value="{{ value if value is not none else '' }}" data-student-id="{{ student.id }}" data-assess-idx="{{i}}" data-editable="1">
                                         {% endif %}
                                         <div class="form-check">
                                             <input class="form-check-input pg-absent-checkbox" type="checkbox" id="pg_absent_{{i}}_{{student.id}}" name="absent_{{i}}_{{student.id}}" data-student-id="{{student.id}}" data-assess-idx="{{i}}" {% if is_absent %}checked{% endif %}>
@@ -468,20 +629,42 @@ window.applyOptionalTotalRounding = function (value) {
     if (value === null || value === undefined || isNaN(value)) return value;
     return window.ROUND_ASSESSMENT_TOTAL ? window.roundHalfUpInt(value) : value;
 };
+window.ACADEMIC_ASSESSMENT = {{ academic_rules.assessment|tojson }};
+window.takeBestMarks = function(vals) {
+    const n = Number((window.ACADEMIC_ASSESSMENT || {}).take_best) || 3;
+    return [...vals].sort(function(a, b) { return b - a; }).slice(0, n);
+};
+window.scalePgTotal = function(bestSum) {
+    const cfg = window.ACADEMIC_ASSESSMENT || {};
+    const from = Number(cfg.pg_scale_from) || 30;
+    const out = Number(cfg.pg_out_of) || 40;
+    return Math.round((bestSum / from) * out);
+};
 </script>
-{% if session.is_external_course and session.course_type == 'theory' %}
+{% if uses_assessment_mode_picker %}
 <script>
 const EXTERNAL_ASSESSMENT_COLUMN_LABELS = {{ {
-    'best_three': 'Total of Best 3 (30)',
-    'part_a_b_15': 'Part A (15) + Part B (15) (30)',
-    'best_three_40': 'Total (40)'
+    'best_three': 'Total of Best ' ~ academic_rules.assessment.take_best ~ ' (' ~ academic_rules.assessment.ug_out_of ~ ')',
+    'part_a_b_15': 'Part A (' ~ academic_rules.assessment.part_a_b_each ~ ') + Part B (' ~ academic_rules.assessment.part_a_b_each ~ ') (' ~ academic_rules.assessment.ug_out_of ~ ')',
+    'best_three_40': 'Total (' ~ academic_rules.assessment.pg_out_of ~ ')'
 }|tojson }};
 const EXTERNAL_ASSESSMENT_MARK_MAX = {{ {
-    'best_three': 10,
-    'part_a_b_15': 15,
-    'best_three_40': 10
+    'best_three': academic_rules.assessment.slot_max,
+    'part_a_b_15': academic_rules.assessment.part_a_b_each,
+    'best_three_40': academic_rules.assessment.slot_max
 }|tojson }};
 const SET_EXTERNAL_MODE_URL = {{ url_for('class_management.set_external_assessment_mode', session_id=session.id)|tojson }};
+const ATC_MODE_LABELS = {{ external_assessment_modes|tojson }};
+
+function getActiveAssessmentMode() {
+    const hidden = document.getElementById('externalAssessmentMode');
+    return (hidden && hidden.value) ? hidden.value : 'best_three';
+}
+
+function getChosenAssessmentMode() {
+    const checked = document.querySelector('input[name="atc_mode_choice"]:checked');
+    return checked ? checked.value : getActiveAssessmentMode();
+}
 
 function getExternalAssessmentMarks(studentId) {
     const marks = {1: null, 2: null, 3: null, 4: null};
@@ -515,10 +698,10 @@ function computeExternalTotal(marks, mode) {
     const vals = Object.values(marks).filter(v => v !== null);
     if (!vals.length) return null;
     vals.sort((a, b) => b - a);
-    const best = vals.length >= 3 ? vals.slice(0, 3) : vals;
+    const best = window.takeBestMarks(vals);
     const bestSum = best.reduce((a, b) => a + b, 0);
     if (mode === 'best_three_40') {
-        return Math.round((bestSum / 30) * 40);
+        return window.scalePgTotal(bestSum);
     }
     return bestSum;
 }
@@ -577,8 +760,7 @@ function applyExternalModeUi(mode) {
 document.querySelectorAll('.external-assessment-input').forEach(input => {
     if (input.dataset.editable !== '1') return;
     input.addEventListener('input', function() {
-        const modeSelect = document.getElementById('externalAssessmentMode');
-        calcExternalTotal(this.dataset.studentId, modeSelect ? modeSelect.value : 'best_three');
+        calcExternalTotal(this.dataset.studentId, getActiveAssessmentMode());
     });
 });
 
@@ -609,49 +791,120 @@ document.querySelectorAll('.external-absent-checkbox').forEach(chk => {
             const absentSpan = td.querySelector('.absent-text');
             if (absentSpan) absentSpan.remove();
         }
-        const modeSelect = document.getElementById('externalAssessmentMode');
-        calcExternalTotal(studentId, modeSelect ? modeSelect.value : 'best_three');
+        calcExternalTotal(studentId, getActiveAssessmentMode());
     });
 });
 
-const externalModeSelect = document.getElementById('externalAssessmentMode');
-if (externalModeSelect) {
-    externalModeSelect.addEventListener('change', function() {
-        const mode = this.value;
-        applyExternalModeUi(mode);
-        fetch(SET_EXTERNAL_MODE_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest'
-            },
-            body: JSON.stringify({ mode: mode })
-        }).then(response => response.json()).then(data => {
-            if (!data.success) {
-                alert(data.message || 'Failed to save assessment calculation mode.');
-                return;
-            }
-            if (data.column_label) {
-                updateExternalHeader(data.mode || mode);
-            }
-            if (data.totals) {
-                Object.keys(data.totals).forEach(studentRowId => {
-                    const cell = document.getElementById('assessment-total-' + studentRowId);
-                    if (cell) {
-                        cell.innerHTML = formatExternalTotal(data.totals[studentRowId], data.mode || mode);
-                    }
-                });
-            }
-        }).catch(() => {
-            alert('Failed to save assessment calculation mode.');
-        });
+function setAtcEditorOpen(open) {
+    const editor = document.getElementById('atcEditor');
+    const unlockBtn = document.getElementById('atcUnlockBtn');
+    const badge = document.getElementById('atcLockBadge');
+    if (!editor) return;
+    editor.classList.toggle('d-none', !open);
+    if (unlockBtn) unlockBtn.classList.toggle('d-none', open);
+    if (badge) {
+        badge.innerHTML = open
+            ? '<i class="fas fa-unlock me-1"></i> Editing'
+            : '<i class="fas fa-lock"></i> Locked';
+        badge.style.color = open ? '#9a3412' : '#166534';
+        badge.style.background = open ? '#ffedd5' : '#dcfce7';
+        badge.style.borderColor = open ? '#fed7aa' : '#bbf7d0';
+    }
+}
+
+function syncAtcOptionSelection(mode) {
+    document.querySelectorAll('.atc-option').forEach(function(card) {
+        const isActive = card.getAttribute('data-mode') === mode;
+        card.classList.toggle('is-selected', isActive);
+        const radio = card.querySelector('input[type="radio"]');
+        if (radio) radio.checked = isActive;
+    });
+    const applyBtn = document.getElementById('atcApplyBtn');
+    if (applyBtn) applyBtn.disabled = mode === getActiveAssessmentMode();
+}
+
+function saveAssessmentMode(mode) {
+    const hidden = document.getElementById('externalAssessmentMode');
+    const labelEl = document.getElementById('atcCurrentLabel');
+    const applyBtn = document.getElementById('atcApplyBtn');
+    if (applyBtn) {
+        applyBtn.disabled = true;
+        applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Applying';
+    }
+    applyExternalModeUi(mode);
+    fetch(SET_EXTERNAL_MODE_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ mode: mode })
+    }).then(response => response.json()).then(data => {
+        if (!data.success) {
+            alert(data.message || 'Failed to save assessment calculation mode.');
+            return;
+        }
+        const savedMode = data.mode || mode;
+        if (hidden) hidden.value = savedMode;
+        if (labelEl) labelEl.textContent = ATC_MODE_LABELS[savedMode] || savedMode;
+        if (data.column_label) {
+            updateExternalHeader(savedMode);
+        }
+        if (data.totals) {
+            Object.keys(data.totals).forEach(studentRowId => {
+                const cell = document.getElementById('assessment-total-' + studentRowId);
+                if (cell) {
+                    cell.innerHTML = formatExternalTotal(data.totals[studentRowId], savedMode);
+                }
+            });
+        }
+        syncAtcOptionSelection(savedMode);
+        setAtcEditorOpen(false);
+    }).catch(() => {
+        alert('Failed to save assessment calculation mode.');
+    }).finally(() => {
+        if (applyBtn) {
+            applyBtn.innerHTML = '<i class="fas fa-check me-1"></i>Apply';
+            applyBtn.disabled = getChosenAssessmentMode() === getActiveAssessmentMode();
+        }
+    });
+}
+
+const atcUnlockBtn = document.getElementById('atcUnlockBtn');
+if (atcUnlockBtn) {
+    atcUnlockBtn.addEventListener('click', function() {
+        syncAtcOptionSelection(getActiveAssessmentMode());
+        setAtcEditorOpen(true);
+    });
+}
+const atcCancelBtn = document.getElementById('atcCancelBtn');
+if (atcCancelBtn) {
+    atcCancelBtn.addEventListener('click', function() {
+        syncAtcOptionSelection(getActiveAssessmentMode());
+        setAtcEditorOpen(false);
+    });
+}
+document.querySelectorAll('.atc-option').forEach(function(card) {
+    card.addEventListener('click', function() {
+        syncAtcOptionSelection(card.getAttribute('data-mode'));
+    });
+});
+const atcApplyBtn = document.getElementById('atcApplyBtn');
+if (atcApplyBtn) {
+    atcApplyBtn.addEventListener('click', function() {
+        const mode = getChosenAssessmentMode();
+        if (!mode || mode === getActiveAssessmentMode()) return;
+        const label = ATC_MODE_LABELS[mode] || mode;
+        if (!confirm('Switch this course to “' + label + '”? Totals, PDF and Excel will be recalculated. This does not happen from a single tap.')) {
+            return;
+        }
+        saveAssessmentMode(mode);
     });
 }
 
 (function() {
     function runExternalInitialCalc() {
-        const modeSelect = document.getElementById('externalAssessmentMode');
-        const mode = modeSelect ? modeSelect.value : 'best_three';
+        const mode = getActiveAssessmentMode();
         applyExternalModeUi(mode);
     }
     if (document.readyState === 'loading') {
@@ -693,12 +946,9 @@ function calcBest3Total(studentId) {
     if (!cell) return;
     if (vals.length === 0) {
         cell.innerHTML = '<span class="text-muted">-</span>';
-    } else if (vals.length < 3) {
-        const sum = window.applyOptionalTotalRounding(vals.reduce((a,b) => a+b, 0));
-        cell.innerHTML = window.formatAssessmentTotalDisplay(sum);
     } else {
-        vals.sort((a,b) => b-a);
-        const sum = window.applyOptionalTotalRounding(vals.slice(0,3).reduce((a,b) => a+b, 0));
+        const best = window.takeBestMarks(vals);
+        const sum = window.applyOptionalTotalRounding(best.reduce((a,b) => a+b, 0));
         cell.innerHTML = window.formatAssessmentTotalDisplay(sum);
     }
 }
@@ -851,7 +1101,7 @@ document.querySelectorAll('.sessional-input').forEach(input => {
     calcSessionalTotal(input.dataset.studentId);
 });
 </script>
-{% elif session.course_type == 'theory' and session.category == 'pg' %}
+{% elif not uses_assessment_mode_picker and session.course_type == 'theory' and session.category == 'pg' %}
 <script>
 function calcPGTotal(studentId) {
     let vals = [];
@@ -886,13 +1136,10 @@ function calcPGTotal(studentId) {
     if (vals.length === 0) {
         totalCell.innerHTML = '<span class="text-muted">-</span>';
     } else {
-        // Always use best 3 (or available marks if less than 3)
-        vals.sort((a,b) => b-a);
-        const best = vals.length >= 3 ? vals.slice(0,3) : vals;
-        // Convert to 40 marks scale: always use 30 as max (sum / 30) * 40
+        const best = window.takeBestMarks(vals);
         const bestSum = best.reduce((a,b) => a+b, 0);
-        const total = Math.round((bestSum / 30) * 40);  // Round for PG courses
-        totalCell.textContent = total;  // Integer for PG
+        const total = window.scalePgTotal(bestSum);
+        totalCell.textContent = total;
     }
 }
 

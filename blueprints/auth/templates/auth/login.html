@@ -54,10 +54,13 @@
         }
         
         .university-logo {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 0.75rem;
+            width: 92px;
+            height: auto;
+            margin: 0 auto 0.85rem;
             display: block;
+            background: transparent;
+            object-fit: contain;
+            filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.22));
             animation: iconFloat 3s ease-in-out infinite;
         }
         
@@ -322,8 +325,8 @@
             }
             
             .university-logo {
-                width: 70px;
-                height: 70px;
+                width: 78px;
+                height: auto;
             }
             
             .university-title {
@@ -368,9 +371,9 @@
 <body class="m-auth-page">
     <div class="login-container">
         <div class="university-header">
-            <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="Khulna University Logo" class="university-logo">
+            <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}?v=5" alt="Khulna University Logo" class="university-logo">
             <h1 class="university-title">Academic Management System</h1>
-            <p class="university-subtitle">Khulna University</p>
+            <p class="university-subtitle">{{ tenant.name if tenant else 'Khulna University' }}</p>
         </div>
         
         <div class="login-card">

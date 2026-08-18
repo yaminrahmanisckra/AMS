@@ -858,9 +858,9 @@
             </tr>
             <tr>
                 <td class="meta-label">ঠিকানা:</td>
-                <td><input type="text" name="address" value="Law Discipline, KU" style="font-size: 0.8rem;"></td>
+                <td><input type="text" name="address" value={{ tenant.institute_label|tojson }} style="font-size: 0.8rem;"></td>
                 <td class="meta-label">ডিসিপ্লিন / বিভাগ:</td>
-                <td><input type="text" name="discipline" value="Law" style="font-size: 0.8rem;"></td>
+                <td><input type="text" name="discipline" value={{ tenant.short_name|tojson }} style="font-size: 0.8rem;"></td>
             </tr>
             <tr>
                 <td class="meta-label">বর্ষ:</td>
@@ -884,7 +884,7 @@
             </tr>
             <tr>
                 <td class="meta-label">যে ডিসিপ্লিনের পরীক্ষা:</td>
-                <td><input type="text" name="exam_discipline" value="Law" style="font-size: 0.8rem;"></td>
+                <td><input type="text" name="exam_discipline" value={{ tenant.short_name|tojson }} style="font-size: 0.8rem;"></td>
                 <td class="meta-label">শিক্ষাবর্ষ:</td>
                 <td>
                     <select class="form-select form-select-sm" name="academic_year" id="academic_year" style="border: none; outline: none; width: 100%; font-size: 0.8rem;">
@@ -2681,6 +2681,18 @@ function populateBillFormFromRemunerationStatement(remunerationData) {
 }
 
 // Helper function to detect if a course is UG or PG
+const tenantPgYearDigit = {{ tenant.pg_course_year_digit|int }};
+const tenantPgLabels = {{ tenant.pg_year_labels|tojson }};
+
+function yearLooksPostgraduate(yearValue) {
+    const u = (yearValue || '').toString().toUpperCase().trim();
+    if (!u) return false;
+    if ((tenantPgLabels || []).some(function (label) {
+        return u.includes(String(label).toUpperCase());
+    })) return true;
+    return u.includes('LLM');
+}
+
 function isPostgraduateCourse(courseValue, courseData = null) {
     if (!courseValue) return false;
     
@@ -2699,8 +2711,7 @@ function isPostgraduateCourse(courseValue, courseData = null) {
         const lastDigits = digits[digits.length - 1];
         if (lastDigits && lastDigits.length >= 4) {
             const yearDigit = parseInt(lastDigits.charAt(lastDigits.length - 4));
-            // Year digit 5 typically means LLM (PG)
-            if (yearDigit === 5) {
+            if (yearDigit === tenantPgYearDigit) {
                 return true;
             }
         }
@@ -2708,7 +2719,7 @@ function isPostgraduateCourse(courseValue, courseData = null) {
     
     // Method 3: Check if course code contains PG indicators
     // IMPORTANT: Don't use generic '5' substring checks here, it misclassifies UG codes.
-    const pgIndicators = ['LLM', 'MPHIL', 'M.PHIL', 'PHD', 'PG'];
+    const pgIndicators = ['LLM', 'MPHIL', 'M.PHIL', 'PHD', 'PG'].concat(tenantPgLabels || []);
     const upperCode = courseCode.toUpperCase();
     if (pgIndicators.some(indicator => upperCode.includes(indicator))) {
         return true;
@@ -2776,6 +2787,47 @@ function autoPopulateCoursesAndRates() {
     }, 1500); // Wait for course dropdowns to be populated
 }
 
+function rateOptionLabel(opt) {
+    return opt.getAttribute('data-label') || '';
+}
+
+function concreteRateOptions(selectEl) {
+    return Array.from(selectEl.options).filter(opt => opt.value && opt.value !== 'custom');
+}
+
+function isUgRateLabel(label) {
+    return label.includes('স্নাতক') && !label.includes('স্নাতকোত্তর');
+}
+
+function isPgRateLabel(label) {
+    return label.includes('স্নাতকোত্তর') || label.includes('এমফিল') || label.includes('পিএইচডি');
+}
+
+function applyRateOption(selectEl, option) {
+    if (!selectEl || !option) return false;
+    selectEl.value = option.value;
+    selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+}
+
+function pickRateOption(selectEl, matcher, preferredValue) {
+    if (!selectEl) return null;
+    const options = concreteRateOptions(selectEl);
+    if (typeof matcher === 'function') {
+        const byLabel = options.find(opt => matcher(rateOptionLabel(opt), opt.value));
+        if (byLabel) return byLabel;
+    }
+    if (preferredValue != null && preferredValue !== '') {
+        const byValue = options.find(opt => opt.value === String(preferredValue));
+        if (byValue) return byValue;
+    }
+    return options[0] || null;
+}
+
+function selectRateByHints(selectEl, matcher, preferredValue) {
+    return applyRateOption(selectEl, pickRateOption(selectEl, matcher, preferredValue));
+}
+
 // Auto-select rate for Row 1 based on course type
 function autoSelectRateForRow1(courseValue) {
     if (!courseValue) return;
@@ -2784,21 +2836,10 @@ function autoSelectRateForRow1(courseValue) {
     if (!rateSelect || rateSelect.value) return; // Don't override if already selected
     
     const isPG = isPostgraduateCourse(courseValue);
-    
     if (isPG) {
-        const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
-        if (pgOption) {
-            rateSelect.value = '2400';
-            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('✅ Row 1: Auto-selected PG rate (2400) for course:', courseValue);
-        }
+        selectRateByHints(rateSelect, isPgRateLabel, '2400');
     } else {
-        const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '2300');
-        if (ugOption) {
-            rateSelect.value = '2300';
-            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('✅ Row 1: Auto-selected UG rate (2300) for course:', courseValue);
-        }
+        selectRateByHints(rateSelect, isUgRateLabel, '2300');
     }
 }
 
@@ -2818,31 +2859,24 @@ function autoSelectRateForRow3(container) {
     const sectionValue = (sectionSelect?.value || 'Full').toUpperCase();
     const isPG = isPostgraduateCourse(courseValue);
     
-    let rateValue = null;
+    let matcher = null;
+    let preferredValue = null;
     if (sectionValue === 'FULL' || sectionValue === '') {
-        // Full paper
         if (isPG) {
-            rateValue = '160'; // PG Final Term full paper
+            matcher = (label) => label.includes('টার্ম ফাইনাল পূর্ণপত্র');
+            preferredValue = '160';
         } else {
-            rateValue = '80'; // UG half paper rate for full paper
+            matcher = (label) => isUgRateLabel(label) && label.includes('অর্ধ পত্র');
+            preferredValue = '80';
         }
+    } else if (isPG) {
+        matcher = (label) => isPgRateLabel(label) && label.includes('অর্ধ পত্র');
+        preferredValue = '100';
     } else {
-        // Half paper (A or B)
-        if (isPG) {
-            rateValue = '100'; // PG half paper
-        } else {
-            rateValue = '80'; // UG half paper
-        }
+        matcher = (label) => isUgRateLabel(label) && label.includes('অর্ধ পত্র');
+        preferredValue = '80';
     }
-    
-    if (rateValue) {
-        const option = Array.from(rateSelect.options).find(opt => opt.value === rateValue);
-        if (option) {
-            rateSelect.value = rateValue;
-            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log(`✅ Row 3: Auto-selected rate (${rateValue}) for ${isPG ? 'PG' : 'UG'} course, section: ${sectionValue}`);
-        }
-    }
+    selectRateByHints(rateSelect, matcher, preferredValue);
 }
 
 // Auto-select rate for Row 4 based on course type
@@ -2859,19 +2893,9 @@ function autoSelectRateForRow4(container) {
     const isPG = isPostgraduateCourse(courseValue);
     
     if (isPG) {
-        const pgOption = Array.from(rateSelect.options).find(opt => opt.value === '80');
-        if (pgOption) {
-            rateSelect.value = '80';
-            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('✅ Row 4: Auto-selected PG rate (80) for course:', courseValue);
-        }
+        selectRateByHints(rateSelect, isPgRateLabel, '80');
     } else {
-        const ugOption = Array.from(rateSelect.options).find(opt => opt.value === '30');
-        if (ugOption) {
-            rateSelect.value = '30';
-            rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-            console.log('✅ Row 4: Auto-selected UG rate (30) for course:', courseValue);
-        }
+        selectRateByHints(rateSelect, isUgRateLabel, '30');
     }
 }
 
@@ -2946,15 +2970,9 @@ function autoPopulateRow2() {
                 console.log('✅ Row 2: Set quantity to "All"');
             }
             
-            // Auto-select rate (সর্বোচ্চ - 2400)
             const rateSelect = document.getElementById('rate_2');
             if (rateSelect && !rateSelect.value) {
-                const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
-                if (maxOption) {
-                    rateSelect.value = '2400';
-                    rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                    console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
-                }
+                selectRateByHints(rateSelect, (label) => label.includes('সর্বোচ্চ'), '2400');
             }
             
             // Calculate row total
@@ -3003,8 +3021,7 @@ function autoPopulateRow1(teacherName) {
             if (rateSelect && !rateSelect.value && entries[0]) {
                 const courseValue = entries[0].course;
                 const isPG = isPostgraduateCourse(courseValue);
-                rateSelect.value = isPG ? '2400' : '2300';
-                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                selectRateByHints(rateSelect, isPG ? isPgRateLabel : isUgRateLabel, isPG ? '2400' : '2300');
             }
             loadQuestionCountForRow1();
             setTimeout(() => calculateRow(1), 200);
@@ -3158,11 +3175,7 @@ function autoPopulateRow6(teacherName) {
         onComplete: (container6) => {
             const rateSelect = document.getElementById('rate_6');
             if (rateSelect && !rateSelect.value) {
-                const option = Array.from(rateSelect.options).find(opt => opt.value === '50');
-                if (option) {
-                    rateSelect.value = '50';
-                    rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                }
+                selectRateByHints(rateSelect, null, '50');
             }
             setTimeout(() => loadDataForRow6(container6), 300);
         }
@@ -3197,11 +3210,7 @@ function autoPopulateRow7(teacherName) {
         onComplete: (container7) => {
             const rateSelect = document.getElementById('rate_7');
             if (rateSelect && !rateSelect.value) {
-                const option = Array.from(rateSelect.options).find(opt => opt.value === '100');
-                if (option) {
-                    rateSelect.value = '100';
-                    rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                }
+                selectRateByHints(rateSelect, null, '100');
             }
             setTimeout(() => loadDataForRow7(container7), 300);
         }
@@ -4091,7 +4100,7 @@ function loadDataForRow11() {
     }
     
     const yearValue = yearField.value.toString().toUpperCase().trim();
-    isPostgraduate = yearValue.includes('LLM');
+    isPostgraduate = yearLooksPostgraduate(yearField.value);
     console.log(`Row 11: Year = "${yearField.value}", isPostgraduate = ${isPostgraduate}`);
     
     console.log('Row 11: Checking if teacher is in exam committee:', currentTeacherName);
@@ -4456,7 +4465,7 @@ function loadDataForRow13() {
     let isPostgraduate = false;
     if (yearField && yearField.value) {
         const yearValue = yearField.value.toString().toUpperCase();
-        isPostgraduate = yearValue.includes('LLM');
+        isPostgraduate = yearLooksPostgraduate(yearField.value);
         console.log(`Row 13: Year = "${yearField.value}", isPostgraduate = ${isPostgraduate}`);
     } else {
         console.log('Row 13: Year field not found or empty, defaulting to UG');
@@ -5585,12 +5594,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         
                                         const rateSelect = document.getElementById('rate_2');
                                         if (rateSelect && !rateSelect.value) {
-                                            const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
-                                            if (maxOption) {
-                                                rateSelect.value = '2400';
-                                                rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                                                console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
-                                            }
+                                            selectRateByHints(rateSelect, (label) => label.includes('সর্বোচ্চ'), '2400');
                                         }
                                         
                                         // Calculate row total
@@ -5899,12 +5903,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             setTimeout(() => {
                                 const rateSelect = document.getElementById('rate_2');
                                 if (rateSelect && !rateSelect.value) {
-                                    const maxOption = Array.from(rateSelect.options).find(opt => opt.value === '2400');
-                                    if (maxOption) {
-                                        rateSelect.value = '2400';
-                                        rateSelect.dispatchEvent(new Event('change', { bubbles: true }));
-                                        console.log('✅ Row 2: Auto-selected rate (2400 - সর্বোচ্চ) for "All"');
-                                    }
+                                    selectRateByHints(rateSelect, (label) => label.includes('সর্বোচ্চ'), '2400');
                                 }
                                 // Calculate row total
                                 calculateRow(2);
@@ -6050,7 +6049,7 @@ function populateFormData(data) {
                 } else {
                     // Special handling for address field - keep default value if empty
                     if (name === 'address') {
-                        input.value = data[name] || 'Law Discipline, KU';
+                        input.value = data[name] || {{ tenant.institute_label|tojson }};
                     } else {
                         input.value = data[name] || '';
                     }
@@ -6762,7 +6761,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set default address if empty - check after a delay to ensure populateFormData has run
     setTimeout(function() {
         if (addressInput && (!addressInput.value || addressInput.value.trim() === '')) {
-            addressInput.value = 'Law Discipline, KU';
+            addressInput.value = {{ tenant.institute_label|tojson }};
         }
     }, 1000);
     

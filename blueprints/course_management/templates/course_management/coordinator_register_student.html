@@ -47,12 +47,9 @@
                     <label for="runningYear" class="form-label small mb-0">Year</label>
                     <select class="form-select form-select-sm" id="runningYear">
                         <option value="">Select</option>
-                        <option value="First">First</option>
-                        <option value="Second">Second</option>
-                        <option value="Third">Third</option>
-                        <option value="Fourth">Fourth</option>
-                        <option value="Fifth">Fifth</option>
-                        <option value="LLM">LLM</option>
+                        {% for y in tenant.year_select_options %}
+                        <option value="{{ y }}">{{ y }}</option>
+                        {% endfor %}
                     </select>
                 </div>
                 <div class="col-md-2">
@@ -205,7 +202,7 @@ function escapeForAttr(value) {
         .replace(/>/g, '&gt;');
 }
 
-const SERIAL_YEAR_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+const SERIAL_YEAR_ORDER = {{ tenant.year_select_options|tojson }};
 const SERIAL_TERM_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Thesis Term'];
 
 function sortYearsSerial(years) {
@@ -396,7 +393,7 @@ document.getElementById('runningSession').addEventListener('change', function() 
                     sourceTermEl.appendChild(new Option(t, t));
                 });
             } else {
-                ['First','Second','Third','Fourth','Fifth','LLM'].forEach(y => {
+                {{ tenant.year_select_options|tojson }}.forEach(y => {
                     yearEl.appendChild(new Option(y, y));
                     sourceYearEl.appendChild(new Option(y, y));
                 });
@@ -470,12 +467,12 @@ function loadRelevantYearTermOptions() {
                 years.forEach(y => relevantYearEl.appendChild(new Option(y, y)));
                 terms.forEach(t => relevantTermEl.appendChild(new Option(t, t)));
             } else {
-                ['First','Second','Third','Fourth','Fifth','LLM'].forEach(y => relevantYearEl.appendChild(new Option(y, y)));
+                {{ tenant.year_select_options|tojson }}.forEach(y => relevantYearEl.appendChild(new Option(y, y)));
                 ['First','Second','Thesis Term'].forEach(t => relevantTermEl.appendChild(new Option(t, t)));
             }
         })
         .catch(() => {
-            ['First','Second','Third','Fourth','Fifth','LLM'].forEach(y => relevantYearEl.appendChild(new Option(y, y)));
+            {{ tenant.year_select_options|tojson }}.forEach(y => relevantYearEl.appendChild(new Option(y, y)));
             ['First','Second','Thesis Term'].forEach(t => relevantTermEl.appendChild(new Option(t, t)));
         });
 }

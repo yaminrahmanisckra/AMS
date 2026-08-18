@@ -95,12 +95,12 @@
                 <div class="mb-3">
                     <label class="form-label">Cycle Name <span class="text-danger">*</span></label>
                     <input type="text" class="form-control" name="name" required
-                           placeholder="e.g. LL.M Admission Test 2026">
+                           placeholder="e.g. {{ (tenant.pg_year_labels[0] if tenant.pg_year_labels else 'PG') }} Admission Test 2026">
                 </div>
                 <div class="mb-3">
                     <label class="form-label">Application ID Prefix</label>
-                    <input type="text" class="form-control" name="app_id_prefix" value="LLM" maxlength="20">
-                    <div class="form-text">Application IDs will look like LLM-0001, LLM-0002, …</div>
+                    <input type="text" class="form-control" name="app_id_prefix" value="{{ tenant.app_id_prefix }}" maxlength="20">
+                    <div class="form-text">Application IDs will look like {{ tenant.app_id_prefix }}-0001, {{ tenant.app_id_prefix }}-0002, …</div>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Short Public Link <span class="text-danger">*</span></label>

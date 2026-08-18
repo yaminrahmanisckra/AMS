@@ -238,7 +238,7 @@
             <div class="header-logo-spacer"></div>
             <div class="header-text">
                 <div class="uni">Khulna University</div>
-                <div class="disc">Law Discipline</div>
+                <div class="disc">{{ tenant.name }}</div>
                 <div class="cycle">{{ cycle.name }}</div>
             </div>
             <div class="header-spacer"></div>
@@ -339,7 +339,7 @@
 
         <div class="footer-note">
             This is a system-generated copy of the admission application submitted through
-            the Law Discipline Academic Management System, Khulna University.
+            the {{ tenant.name }} Academic Management System, {{ tenant.university_name }}.
         </div>
     </div>
 </div>

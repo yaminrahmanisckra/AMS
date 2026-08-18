@@ -1,0 +1,12 @@
+parts:
+  - key: A
+    title: Part A
+  - key: B
+    title: Part B
+  - key: C
+    title: Part C
+  - key: D
+    title: Part D
+year_term_grid: []
+part_a_sections: []
+mapping_course_plo_year_term: {}

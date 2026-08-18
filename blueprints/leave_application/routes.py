@@ -4,15 +4,26 @@ from flask_login import login_required, current_user
 
 from extensions import db
 from . import leave_application_bp
-from role_utils import has_teacher_privileges, get_teachers_excluding_head
+from role_utils import has_teacher_privileges, get_teachers_excluding_head, parse_roles
+
+
+def _require_leave_access():
+    """Allow teacher-privilege users, or officers when the Leave card is enabled."""
+    if not current_user.is_authenticated:
+        flash('Please log in to use Leave Application.', 'danger')
+        return redirect(url_for('auth.login'))
+    if has_teacher_privileges(current_user):
+        return None
+    if 'officer' in parse_roles(current_user.role):
+        from utils.dashboard_settings import require_officer_dashboard_card
+        return require_officer_dashboard_card('leave_application')
+    flash('Leave Application is available only for teacher and officer accounts.', 'danger')
+    return redirect(url_for('index'))
 
 
 def _require_teacher():
-    """Allow only users with teacher privileges to use Leave Application."""
-    if not current_user.is_authenticated or not has_teacher_privileges(current_user):
-        flash('Leave Application is available only for teacher accounts.', 'danger')
-        return redirect(url_for('index'))
-    return None
+    """Backward-compatible alias for leave route guards."""
+    return _require_leave_access()
 
 
 def _get_kalpurush_font_path():

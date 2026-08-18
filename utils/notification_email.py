@@ -89,8 +89,7 @@ def send_notification_batch(subject: str | None, entries: list[dict]) -> int:
     if not _notification_smtp_configured():
         current_app.logger.error(
             'notification email skipped: set NOTIFICATION_MAIL_USERNAME, '
-            'NOTIFICATION_MAIL_PASSWORD, and NOTIFICATION_MAIL_SENDER '
-            '(noreply@kulawams.xyz)'
+            'NOTIFICATION_MAIL_PASSWORD, and NOTIFICATION_MAIL_SENDER'
         )
         return 0
 

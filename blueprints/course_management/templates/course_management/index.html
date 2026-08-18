@@ -1662,26 +1662,11 @@ function getYearTermFromCourseCode(courseCode) {
     
     const yearDigit = parseInt(lastDigits.charAt(lastDigits.length - 4));
     const termDigit = parseInt(lastDigits.charAt(lastDigits.length - 3));
+    const yearDigitMap = {{ tenant.year_digit_map|tojson }};
+    const termDigitMap = {{ tenant.term_digit_map|tojson }};
     
-    let year = '';
-    if (yearDigit === 1) {
-        year = 'First';
-    } else if (yearDigit === 2) {
-        year = 'Second';
-    } else if (yearDigit === 3) {
-        year = 'Third';
-    } else if (yearDigit === 4) {
-        year = 'Fourth';
-    } else if (yearDigit === 5) {
-        year = 'LLM';
-    }
-    
-    let term = '';
-    if (termDigit === 1) {
-        term = 'First';
-    } else if (termDigit === 2) {
-        term = 'Second';
-    }
+    let year = (yearDigitMap && yearDigitMap[String(yearDigit)]) || '';
+    let term = (termDigitMap && termDigitMap[String(termDigit)]) || '';
     
     return { year, term };
 }

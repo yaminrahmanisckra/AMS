@@ -19,12 +19,12 @@
 <div class="container my-5 px-2 px-md-3 self-assessment-form">
     <div class="text-center mb-5">
         <h2 class="fw-bold">Student Survey Questionnaire</h2>
-        <h4 class="text-muted">Law Discipline, Khulna University</h4>
+        <h4 class="text-muted">{{ tenant.display_with_university }}</h4>
     </div>
 
     <div class="card shadow-sm mb-4">
         <div class="card-body">
-            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the {{ tenant.name }}. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
             <p class="card-text"><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
             <p class="card-text mb-0"><strong>Scale:</strong><br>
             1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
@@ -43,8 +43,9 @@
                         <label class="form-label">Program (Optional)</label>
                         <select class="form-select" name="program">
                             <option value="">— Select —</option>
-                            <option value="LL.B (Honours)">LL.B (Honours)</option>
-                            <option value="LL.M">LL.M</option>
+                            {% for p in tenant.program_options %}
+                            <option value="{{ p }}">{{ p }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -191,7 +192,7 @@
             <div class="card-header bg-light"><h5 class="mb-0">Part F: Qualitative Questions (Open-Ended)</h5></div>
             <div class="card-body">
                 <div class="mb-4">
-                    <label class="form-label fw-bold">27. What are the three biggest strengths of this Law program?</label>
+                    <label class="form-label fw-bold">27. What are the three biggest strengths of this {{ tenant.short_name }} program?</label>
                     <p class="small text-muted">(e.g., quality of teachers, moot court facilities, internship support, etc.)</p>
                     <textarea class="form-control" name="q27" id="q27" rows="3" placeholder="Your answer..."></textarea>
                 </div>

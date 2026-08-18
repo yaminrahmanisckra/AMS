@@ -33,7 +33,7 @@
 
     <header class="m-topbar d-lg-none">
         <a class="m-topbar-brand" href="{{ url_for('routine_management.index') }}">
-            <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}" alt="KU">
+            <img src="{{ url_for('static', filename='images/KU_logo_2.png') }}?v=5" alt="KU">
             <span class="m-topbar-brand-text">Routine</span>
         </a>
         <span class="m-topbar-title">{% block mobile_title %}Routine{% endblock %}</span>
@@ -68,7 +68,7 @@
         <div class="container">
             <p class="mb-0">
                 <i class="fas fa-copyright me-1"></i>
-                2024 Academic Management System - Law Discipline, Khulna University
+                2024 Academic Management System - {{ tenant.display_with_university }}
             </p>
         </div>
     </footer>

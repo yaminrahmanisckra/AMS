@@ -19,12 +19,12 @@
 <div class="container my-5 px-2 px-md-3 self-assessment-form">
     <div class="text-center mb-5">
         <h2 class="fw-bold">Employer Survey Questionnaire</h2>
-        <h4 class="text-muted">Law Discipline, Khulna University</h4>
+        <h4 class="text-muted">{{ tenant.display_with_university }}</h4>
     </div>
 
     <div class="card shadow-sm mb-4">
         <div class="card-body">
-            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the {{ tenant.name }}. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
             <p class="card-text"><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
             <p class="card-text mb-0"><strong>Scale:</strong><br>
             1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
@@ -51,7 +51,7 @@
                         </select>
                         <input type="text" class="form-control mt-2" name="type_of_organization_other" placeholder="If Other, specify" style="display:none" id="type_other_box">
                     </div>
-                    <div class="col-md-6"><label for="number_graduates_employed" class="form-label">Number of KU Law Graduates employed/supervised by you (Optional)</label><input type="text" class="form-control" id="number_graduates_employed" name="number_graduates_employed"></div>
+                    <div class="col-md-6"><label for="number_graduates_employed" class="form-label">Number of {{ tenant.short_name }} Graduates employed/supervised by you (Optional)</label><input type="text" class="form-control" id="number_graduates_employed" name="number_graduates_employed"></div>
                 </div>
             </div>
         </div>
@@ -169,7 +169,7 @@
                     <textarea class="form-control" name="q18" id="q18" rows="3" placeholder="Your answer..."></textarea>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label fw-bold">19. What new legal trends or skills should be added to the Law curriculum to make graduates more employable? (e.g., Cyber Law, ADR, Corporate Compliance, etc.)</label>
+                    <label class="form-label fw-bold">19. What new legal trends or skills should be added to the {{ tenant.short_name }} curriculum to make graduates more employable? (e.g., Cyber Law, ADR, Corporate Compliance, etc.)</label>
                     <textarea class="form-control" name="q19" id="q19" rows="3" placeholder="Your answer..."></textarea>
                 </div>
                 <div class="mb-4">

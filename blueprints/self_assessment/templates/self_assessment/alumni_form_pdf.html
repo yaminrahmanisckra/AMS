@@ -37,11 +37,11 @@
 <body>
     <div class="doc-header">
         <div class="doc-title">Alumni Survey Questionnaire</div>
-        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+        <div class="doc-subtitle">{{ tenant.display_with_university }}</div>
     </div>
 
     <div class="intro-box">
-        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the {{ tenant.name }}. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
         <p><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
         <p><strong>Scale:</strong> 1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
     </div>
@@ -65,7 +65,7 @@
 
     <div class="section">
         <div class="section-header">Part B: Attainment of Graduate Attributes (Standard 4 &amp; Discipline Specifics)</div>
-        <p class="section-note">Focus: Assessing the 11 Law Graduate Attributes. Please rate how well the program helped you develop these specific skills.</p>
+        <p class="section-note">Focus: Assessing graduate attributes of the {{ tenant.name }}. Please rate how well the program helped you develop these specific skills.</p>
         <table class="rating-table">
             <thead><tr><th>#</th><th>Attribute / Skill</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th></tr></thead>
             <tbody>
@@ -115,7 +115,7 @@
         <div class="q-open">&nbsp;</div>
         <p class="q" style="margin-top: 6pt;"><strong>23.</strong> How would you evaluate the effectiveness of the Moot Court/Practical training during your time? How can it be improved?</p>
         <div class="q-open">&nbsp;</div>
-        <p class="q" style="margin-top: 6pt;"><strong>24.</strong> What are the major strengths of the Department of Law that we should maintain?</p>
+        <p class="q" style="margin-top: 6pt;"><strong>24.</strong> What are the major strengths of the {{ tenant.name }} that we should maintain?</p>
         <div class="q-open">&nbsp;</div>
         <p class="q" style="margin-top: 6pt;"><strong>25.</strong> Would you recommend this program to a prospective law student? Why or why not?</p>
         <div class="q-open">&nbsp;</div>

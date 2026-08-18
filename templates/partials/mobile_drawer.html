@@ -34,8 +34,35 @@
         </a>
         {% endif %}
 
-        {% if has_teacher_privileges(current_user) or is_admin(current_user) %}
+        {% if has_teacher_privileges(current_user) or is_admin(current_user) or 'officer' in user_roles %}
         <div class="m-drawer-section">Modules</div>
+        {% if 'officer' in user_roles and not has_teacher_privileges(current_user) and not is_admin(current_user) %}
+        {% if show_view_routine|default(true) %}
+        <a class="m-drawer-link" href="{{ url_for('routine_management.public_routines') }}" data-endpoint="routine_management.public_routines">
+            <i class="fas fa-calendar-check"></i><span>View Routine</span>
+        </a>
+        {% endif %}
+        {% if show_academic_calendar|default(true) %}
+        <a class="m-drawer-link" href="{{ url_for('academic_calendar.index') }}" data-endpoint="academic_calendar.index">
+            <i class="fas fa-calendar"></i><span>Academic Calendar</span>
+        </a>
+        {% endif %}
+        {% if show_officer_exam_info|default(false) %}
+        <a class="m-drawer-link" href="{{ url_for('officer_exam_info') }}" data-endpoint="officer_exam_info">
+            <i class="fas fa-clipboard-list"></i><span>Exam Info</span>
+        </a>
+        {% endif %}
+        {% if show_officer_leave_application|default(false) %}
+        <a class="m-drawer-link" href="{{ url_for('leave_application.index') }}" data-endpoint="leave_application.index">
+            <i class="fas fa-file-signature"></i><span>Leave Application</span>
+        </a>
+        {% endif %}
+        {% if show_remuneration|default(false) %}
+        <a class="m-drawer-link" href="{{ url_for('remuneration_portal') }}" data-endpoint="remuneration_portal">
+            <i class="fas fa-money-bill-wave"></i><span>Remuneration</span>
+        </a>
+        {% endif %}
+        {% endif %}
         {% if has_teacher_privileges(current_user) %}
         {% if show_class_management %}
         <a class="m-drawer-link" href="{{ url_for('class_management.index') }}" data-endpoint="class_management.index">
@@ -74,9 +101,11 @@
         <a class="m-drawer-link" href="{{ url_for('course_management.index') }}" data-endpoint="course_management.index">
             <i class="fas fa-book"></i><span>Curriculum Management</span>
         </a>
+        {% if show_curriculator|default(show_curriculum_management) %}
         <a class="m-drawer-link" href="{{ url_for('curriculator.index') }}" data-endpoint="curriculator.index">
             <i class="fas fa-book-open"></i><span>Curriculator</span>
         </a>
+        {% endif %}
         {% endif %}
         {% if show_course_registration %}
         <a class="m-drawer-link" href="{{ url_for('course_management.coordinator_registrations') }}" data-endpoint="course_management.coordinator_registrations">

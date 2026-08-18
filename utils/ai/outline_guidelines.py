@@ -15,9 +15,17 @@ LANGUAGE_OPTIONS = {
 
 DETAIL_OPTIONS = {
     'concise': 'সংক্ষিপ্ত — মূল বিষয়, কম বিস্তারিত',
-    'standard': 'স্ট্যান্ডার্ড — KU Law Discipline সাধারণ ফরম্যাট',
+    'standard': 'স্ট্যান্ডার্ড — {discipline} সাধারণ ফরম্যাট',
     'detailed': 'বিস্তারিত — প্রতিটি সপ্তাহে বেশি কার্যক্রম ও উদাহরণ',
 }
+
+
+def _detail_option_label(key):
+    from utils.tenant import current_tenant
+    raw = DETAIL_OPTIONS.get(key, key)
+    if isinstance(raw, str) and '{discipline}' in raw:
+        return raw.format(discipline=current_tenant().name)
+    return raw
 
 ASSESSMENT_TYPE_OPTIONS = {
     'class_test': 'Class Test',
@@ -222,7 +230,7 @@ def build_guidelines_block(options):
         '=== GENERATION GUIDELINES (follow strictly) ===',
         f'Course delivery mode: {delivery.upper()}',
         'Language: English only (all outline text, headings, lesson plan, and assessment descriptions).',
-        f'Detail level: {DETAIL_OPTIONS.get(options.get("detail_level"), options.get("detail_level"))}',
+        f'Detail level: {_detail_option_label(options.get("detail_level"))}',
     ]
     if options.get('delivery_type_detected') and options['delivery_type_detected'] != delivery:
         lines.append(

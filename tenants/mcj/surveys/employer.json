@@ -1,0 +1,109 @@
+{
+  "title": "Employer Survey Questionnaire",
+  "form_version": "employer_generic",
+  "purpose": "This survey collects feedback for the Self-Assessment Report of the Mass Communication and Journalism Discipline. Your responses help improve teaching, facilities, and graduate outcomes.",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "organization",
+      "label": "Organization (Optional)",
+      "type": "text"
+    },
+    {
+      "key": "designation",
+      "label": "Your Designation (Optional)",
+      "type": "text"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Professional Competence",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "Graduates demonstrate sound knowledge relevant to media and communication work."
+        },
+        {
+          "key": "q2",
+          "text": "They possess strong research and information-gathering skills."
+        },
+        {
+          "key": "q3",
+          "text": "Their writing, production, or campaign work meets professional standards."
+        },
+        {
+          "key": "q4",
+          "text": "They communicate clearly with audiences and teams."
+        },
+        {
+          "key": "q5",
+          "text": "They can analyze complex situations and propose practical solutions."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Professional Attributes",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q6",
+          "text": "Graduates uphold professional ethics."
+        },
+        {
+          "key": "q7",
+          "text": "They are proficient with relevant technology and tools."
+        },
+        {
+          "key": "q8",
+          "text": "They meet deadlines."
+        },
+        {
+          "key": "q9",
+          "text": "They work well in teams and show leadership potential."
+        },
+        {
+          "key": "q10",
+          "text": "They adapt to changing media environments."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Curriculum Relevance",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q11",
+          "text": "The curriculum appears relevant to current industry practice."
+        },
+        {
+          "key": "q12",
+          "text": "Graduates show evidence of practical training during their studies."
+        },
+        {
+          "key": "q13",
+          "text": "Interns from this program are well-prepared and eager to learn."
+        },
+        {
+          "key": "q14",
+          "text": "Graduates display creativity and innovation."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Engagement",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q15",
+          "text": "The university engages with employers to update the curriculum."
+        },
+        {
+          "key": "q16",
+          "text": "I am satisfied with the overall performance of these graduates."
+        }
+      ]
+    }
+  ]
+}

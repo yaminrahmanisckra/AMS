@@ -1,0 +1,184 @@
+{
+  "title": "Faculty Survey Questionnaire",
+  "form_version": "faculty_generic",
+  "purpose": "This survey collects feedback for the Self-Assessment Report of the Mass Communication and Journalism Discipline. Your responses help improve teaching, facilities, and graduate outcomes.",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "designation",
+      "label": "Designation (Optional)",
+      "type": "select",
+      "options": [
+        "Professor",
+        "Associate Professor",
+        "Assistant Professor",
+        "Lecturer"
+      ]
+    },
+    {
+      "key": "employment_status",
+      "label": "Employment Status (Optional)",
+      "type": "select",
+      "options": [
+        "Full-time",
+        "Part-time/Adjunct"
+      ]
+    },
+    {
+      "key": "years_experience_ku",
+      "label": "Years of Experience at KU (Optional)",
+      "type": "text"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Governance & Workload",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "My teaching load allows adequate time for research, mentoring, and administrative duties."
+        },
+        {
+          "key": "q2",
+          "text": "Class sizes are appropriate for effective teaching and feedback."
+        },
+        {
+          "key": "q3",
+          "text": "I am involved in strategic planning and aware of the program's vision and mission."
+        },
+        {
+          "key": "q4",
+          "text": "The teacher-student ratio is reasonable."
+        },
+        {
+          "key": "q5",
+          "text": "I have sufficient academic autonomy to design courses and teaching methods."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Curriculum & Teaching",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q6",
+          "text": "The curriculum is reviewed regularly with input from media professionals and alumni."
+        },
+        {
+          "key": "q7",
+          "text": "Course Learning Outcomes are clearly aligned with Program Learning Outcomes."
+        },
+        {
+          "key": "q8",
+          "text": "I use interactive methods (studio work, case studies, fieldwork) alongside lectures."
+        },
+        {
+          "key": "q9",
+          "text": "Assessment focuses on analysis, production, and professional communication skills."
+        },
+        {
+          "key": "q10",
+          "text": "I maintain course files (plans, assessments, rubrics) for every course."
+        },
+        {
+          "key": "q11",
+          "text": "I provide timely feedback on student work."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Research & Development",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q12",
+          "text": "The institution provides adequate support for research and creative work."
+        },
+        {
+          "key": "q13",
+          "text": "I am encouraged to publish and present in my field."
+        },
+        {
+          "key": "q14",
+          "text": "The university supports participation in training, seminars, or conferences."
+        },
+        {
+          "key": "q15",
+          "text": "There is a clear policy for incentives for research and teaching excellence."
+        },
+        {
+          "key": "q16",
+          "text": "Study leave policy supports faculty pursuing advanced degrees."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Facilities",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q17",
+          "text": "Studios, labs, and production spaces are adequate and available for teaching."
+        },
+        {
+          "key": "q18",
+          "text": "The library has sufficient books, journals, and media databases for teaching and research."
+        },
+        {
+          "key": "q19",
+          "text": "IT facilities (internet, computers, software) are adequate."
+        },
+        {
+          "key": "q20",
+          "text": "I have a dedicated workstation and a congenial office environment."
+        }
+      ]
+    },
+    {
+      "title": "Part E: Integrity & Support",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q21",
+          "text": "Faculty recruitment and promotion are transparent, fair, and merit-based."
+        },
+        {
+          "key": "q22",
+          "text": "There is a well-defined code of conduct for faculty and staff."
+        },
+        {
+          "key": "q23",
+          "text": "I am actively involved in academic guidance and counseling."
+        },
+        {
+          "key": "q24",
+          "text": "Performance evaluation (KPIs) is clear, fair, and communicated effectively."
+        }
+      ]
+    },
+    {
+      "title": "Part F: Open-ended",
+      "type": "text",
+      "questions": [
+        {
+          "key": "q25",
+          "text": "What are the major challenges you face in teaching this program?"
+        },
+        {
+          "key": "q26",
+          "text": "How can research and creative-work support be improved?"
+        },
+        {
+          "key": "q27",
+          "text": "Are studios, labs, and the library adequate? What is missing?"
+        },
+        {
+          "key": "q28",
+          "text": "What professional development should the university organize?"
+        }
+      ]
+    }
+  ]
+}

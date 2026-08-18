@@ -9,7 +9,7 @@ from itsdangerous import URLSafeTimedSerializer
 from flask import current_app
 import traceback
 import sys
-from utils.recovery_email import send_recovery_email
+from utils.tenant import current_tenant
 from utils.login_throttle import is_locked, record_failure, clear as clear_login_throttle
 from role_utils import (
     ADMIN_ROLE,
@@ -385,6 +385,12 @@ def forgot_password():
                 account_id = (user.username or user.email or '').strip()
                 from utils.timezone import format_bd as _format_bd
                 requested_at = _format_bd(_dt.utcnow(), '%d %B %Y, %H:%M') + ' (Bangladesh Time)'
+                t = current_tenant()
+                recovery_from = (
+                    current_app.config.get('MAIL_USERNAME')
+                    or current_app.config.get('MAIL_DEFAULT_SENDER')
+                    or ''
+                ).strip()
                 subject = (
                     f"AMS account verification code for {display_name} "
                     f"(username: {account_id})"
@@ -393,7 +399,7 @@ def forgot_password():
                     f"Dear {display_name},\n\n"
                     "You are receiving this email because an account recovery was requested "
                     "for your account in the Academic Management System (AMS) used by the "
-                    "Law Discipline, Khulna University.\n\n"
+                    f"{t.display_with_university}.\n\n"
                     "Account details related to this request:\n"
                     f"- Full name: {display_name}\n"
                     f"- Username: {account_id}\n"
@@ -416,17 +422,17 @@ def forgot_password():
                     "Do not share the code. Your existing password will stay the same and no "
                     "change will be made to your account.\n\n"
                     "This message was sent only to the email registered on your AMS account. "
-                    "For assistance, contact the Law Discipline office or your AMS administrator.\n\n"
+                    f"For assistance, contact the {t.office_label} or your AMS administrator.\n\n"
                     "Regards,\n"
                     "Academic Management System\n"
-                    "Law Discipline, Khulna University\n"
-                    "Sender: recovery@kulawams.xyz\n"
+                    f"{t.display_with_university}\n"
+                    f"Sender: {recovery_from}\n"
                 )
                 html_body = (
                     f"<p>Dear {display_name},</p>"
                     "<p>You are receiving this email because an account recovery was requested "
                     "for your account in the Academic Management System (AMS) used by the "
-                    "Law Discipline, Khulna University.</p>"
+                    f"{t.display_with_university}.</p>"
                     "<p><strong>Account details related to this request:</strong></p>"
                     "<ul>"
                     f"<li>Full name: {display_name}</li>"
@@ -450,11 +456,11 @@ def forgot_password():
                     "<p>If you did not request this account recovery, please ignore this email. "
                     "Do not share the code. Your existing password will stay the same.</p>"
                     "<p>This message was sent only to the email registered on your AMS account. "
-                    "For assistance, contact the Law Discipline office or your AMS administrator.</p>"
+                    f"For assistance, contact the {t.office_label} or your AMS administrator.</p>"
                     "<p>Regards,<br>"
                     "Academic Management System<br>"
-                    "Law Discipline, Khulna University<br>"
-                    "Sender: recovery@kulawams.xyz</p>"
+                    f"{t.display_with_university}<br>"
+                    f"Sender: {recovery_from}</p>"
                 )
                 send_recovery_email(
                     subject=subject,

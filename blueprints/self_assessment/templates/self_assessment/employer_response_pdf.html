@@ -32,7 +32,7 @@
     <div class="meta-line">Serial No.: {{ serial_no or r.id }} | Submitted: {{ r.created_at|bd('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
     <div class="doc-header">
         <div class="doc-title">Employer Survey Questionnaire – Response</div>
-        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+        <div class="doc-subtitle">{{ tenant.display_with_university }}</div>
     </div>
 
     {% if payload.get('form_version') == 'employer_law' or 'q1' in payload %}
@@ -149,7 +149,7 @@
         <table class="info">
             <tr class="open-ended"><td>17. What are the strongest attributes of graduates from this university? (e.g., strong research skills, good drafting, discipline, etc.)</td><td>{{ payload.get('q17') or '–' }}</td></tr>
             <tr class="open-ended"><td>18. In what specific areas do these graduates need improvement? (e.g., English proficiency, practical procedural knowledge, soft skills, etc.)</td><td>{{ payload.get('q18') or '–' }}</td></tr>
-            <tr class="open-ended"><td>19. What new legal trends or skills should be added to the Law curriculum to make graduates more employable? (e.g., Cyber Law, ADR, Corporate Compliance, etc.)</td><td>{{ payload.get('q19') or '–' }}</td></tr>
+            <tr class="open-ended"><td>19. What new legal trends or skills should be added to the {{ tenant.short_name }} curriculum to make graduates more employable? (e.g., Cyber Law, ADR, Corporate Compliance, etc.)</td><td>{{ payload.get('q19') or '–' }}</td></tr>
             <tr class="open-ended"><td>20. Would you prefer to hire more graduates/interns from this university in the future? Why or why not?</td><td>{{ payload.get('q20') or '–' }}</td></tr>
         </table>
     </div>
@@ -294,7 +294,7 @@
     <div class="section part-e">
         <div class="section-header">Part E: Open-Ended Feedback</div>
         <table class="info">
-            <tr class="open-ended"><td>20. Strongest qualities of KU Law graduates</td><td>{{ payload.get('strongest_qualities') or '–' }}</td></tr>
+            <tr class="open-ended"><td>20. Strongest qualities of {{ tenant.short_name }} graduates</td><td>{{ payload.get('strongest_qualities') or '–' }}</td></tr>
             <tr class="open-ended"><td>21. Skills or knowledge areas LACKING in graduates</td><td>{{ payload.get('skills_lacking') or '–' }}</td></tr>
             <tr class="open-ended"><td>22. Emerging legal fields to add to curriculum</td><td>{{ payload.get('emerging_fields_curriculum') or '–' }}</td></tr>
         </table>

@@ -37,7 +37,7 @@
     <div class="meta-line">Serial No.: {{ serial_no or r.id }} | Submitted: {{ r.created_at|bd('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
     <div class="doc-header">
         <div class="doc-title">NON-ACADEMIC STAFF SURVEY QUESTIONNAIRE – Response</div>
-        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+        <div class="doc-subtitle">{{ tenant.display_with_university }}</div>
     </div>
 
     {% if payload.get('form_version') == 'non_academic_law' or 'q1' in payload %}
@@ -168,7 +168,7 @@
     </div>
 
     {% set na_labels = [
-        '1. I am aware of the Vision and Mission of the University and the Law Discipline.',
+        '1. I am aware of the Vision and Mission of the University and the ' ~ tenant.name ~ '.',
         '2. The recruitment policy for staff is transparent, fair, and well-communicated.',
         '3. There is a clear Code of Conduct for professional staff, and I am fully aware of it.',
         '4. I have a clear job description and fully understand my duties and responsibilities.',
@@ -244,7 +244,7 @@
     <div class="section part-e">
         <div class="section-header">Part E: Open-Ended Feedback</div>
         <table class="info">
-            <tr class="open-ended"><td>19. Best aspects of working at the Law Discipline, Khulna University?</td><td>{{ payload.get('best_aspects') or '–' }}</td></tr>
+            <tr class="open-ended"><td>19. Best aspects of working at the {{ tenant.display_with_university }}?</td><td>{{ payload.get('best_aspects') or '–' }}</td></tr>
             <tr class="open-ended"><td>20. Major challenges or difficulties in daily work?</td><td>{{ payload.get('challenges') or '–' }}</td></tr>
             <tr class="open-ended"><td>21. Specific training or facilities needed to improve performance?</td><td>{{ payload.get('training_facilities_needed') or '–' }}</td></tr>
         </table>

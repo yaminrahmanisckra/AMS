@@ -44,7 +44,7 @@
         <div class="meta-line">Serial No.: {{ loop.index }} | Submitted: {{ r.created_at|bd('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
         <div class="doc-header">
             <div class="doc-title">ALUMNI SURVEY QUESTIONNAIRE – Response</div>
-            <div class="doc-subtitle">Law Discipline, Khulna University</div>
+            <div class="doc-subtitle">{{ tenant.display_with_university }}</div>
         </div>
 
         <div class="section part-a">
@@ -212,7 +212,7 @@
             <div class="section-header">Part C: Career Progression &amp; Graduate Attributes</div>
             <table class="info">
                 <tr><td>How long did it take you to find your first employment after graduation?</td><td>{{ r.time_to_first_job or '–' }}</td></tr>
-                <tr><td>Do you feel the Khulna University Law degree makes you competitive in the job market compared to graduates from other institutions?</td><td>{{ r.job_market_competitiveness or '–' }}</td></tr>
+                <tr><td>Do you feel the {{ tenant.university_name }} {{ tenant.short_name }} degree makes you competitive in the job market compared to graduates from other institutions?</td><td>{{ r.job_market_competitiveness or '–' }}</td></tr>
                 <tr><td>Which of the following skills acquired at KU have been most useful in your career? (Check all that apply)</td><td>{{ (r.skills_acquired | join(', ')) if r.skills_acquired else '–' }}</td></tr>
             </table>
         </div>
@@ -221,7 +221,7 @@
             <div class="section-header">Part D: Alumni Engagement &amp; Suggestions</div>
             <table class="info">
                 <tr class="open-ended"><td>Which specific course or co-curricular activity was most beneficial for your professional life?</td><td>{{ r.beneficial_course_activity or '–' }}</td></tr>
-                <tr><td>Are you a member of the Khulna University Law Alumni Association?</td><td>{% if r.alumni_association_member is none %}–{% elif r.alumni_association_member %}Yes{% else %}No{% endif %}</td></tr>
+                <tr><td>Are you a member of the {{ tenant.university_name }} {{ tenant.short_name }} Alumni Association?</td><td>{% if r.alumni_association_member is none %}–{% elif r.alumni_association_member %}Yes{% else %}No{% endif %}</td></tr>
                 <tr><td>How would you like to contribute to the Discipline? (Check all that apply)</td><td>{{ (r.contribute_to_discipline | join(', ')) if r.contribute_to_discipline else '–' }}</td></tr>
                 <tr class="open-ended"><td>What specific changes would you suggest for the current curriculum to meet modern legal challenges?</td><td>{{ r.curriculum_suggestions or '–' }}</td></tr>
                 <tr class="open-ended"><td>Any other comments regarding the strengths or weaknesses of the program?</td><td>{{ r.other_comments or '–' }}</td></tr>

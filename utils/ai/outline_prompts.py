@@ -3,6 +3,18 @@ import json
 
 from utils.ai.curriculum_anchor import build_curriculum_anchor, curriculum_grounding_rules
 from utils.ai.outline_examples import FEW_SHOT_BY_PART
+from utils.tenant import current_tenant
+
+
+def _localize_outline_text(text: str) -> str:
+    from utils.tenant import current_tenant
+    t = current_tenant()
+    return (
+        text.replace('Khulna University Law Discipline', t.display_with_university)
+            .replace('KU Law Discipline', t.name)
+            .replace('Law Discipline', t.name)
+    )
+
 
 OUTLINE_PART_FIELDS = {
     'A': [
@@ -215,7 +227,7 @@ def build_outline_prompt(context, part='full', few_shot=True, prior_parts=None, 
         guidelines_section = f'\n\n{guidelines_block}\n'
 
     system = (
-        'You are an expert academic course outline author for Khulna University Law Discipline. '
+        f'You are an expert academic course outline author for {current_tenant().display_with_university}. '
         'Generate course outline content as STRICT JSON only. '
         'CURRICULUM DATA IS MANDATORY: rationale, CLOs, and course content must come from CONTEXT — never invent substitutes. '
         'Use academic calendar dates for lesson_plan scheduling. '
@@ -223,6 +235,7 @@ def build_outline_prompt(context, part='full', few_shot=True, prior_parts=None, 
         'Follow GENERATION GUIDELINES when present. '
         'Return ONLY valid JSON matching the schema keys. No markdown fences.'
     )
+    few_shot_block = _localize_outline_text(few_shot_block)
     user = (
         f'Create {part_label} JSON for this course.\n\n'
         f'CONTEXT:\n{context_json}\n'

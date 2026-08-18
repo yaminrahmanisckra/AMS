@@ -346,7 +346,7 @@
                             {% endfor %}
                             <input type="text" class="form-control" name="course_instructor" value="{{ instructor_names|join('; ') }}" readonly>
                         {% else %}
-                            <input type="text" class="form-control" name="course_instructor" value="{{ current_user.full_name or '' }}, {{ current_user.designation or 'Assistant Professor' }}, {{ current_user.department or 'Law Discipline' }}" readonly>
+                            <input type="text" class="form-control" name="course_instructor" value="{{ current_user.full_name or '' }}, {{ current_user.designation or 'Assistant Professor' }}, {{ current_user.department or tenant.name }}" readonly>
                         {% endif %}
                     </div>
                     <div class="col-12 col-md-6 mb-3">
@@ -829,10 +829,10 @@
                             <tr>
                                 <td>Continuous Assessment</td>
                                 <td>
-                                    <input type="text" class="form-control form-control-sm" name="ca_percent" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_percent') %}{{ outline_data.assessment_strategy.ca_percent }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}40{% else %}30{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}40{% else %}30{% endif %}">
+                                    <input type="text" class="form-control form-control-sm" name="ca_percent" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_percent') %}{{ outline_data.assessment_strategy.ca_percent }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}{{ academic_rules.assessment.pg_out_of }}{% else %}{{ academic_rules.assessment.ug_out_of }}{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}{{ academic_rules.assessment.pg_out_of }}{% else %}{{ academic_rules.assessment.ug_out_of }}{% endif %}">
                                 </td>
                                 <td>
-                                    <input type="text" class="form-control form-control-sm" name="ca_comment" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_comment') %}{{ outline_data.assessment_strategy.ca_comment }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best 3 of 4 Assessments{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best 3 of 4 Assessments{% endif %}">
+                                    <input type="text" class="form-control form-control-sm" name="ca_comment" value="{% if outline_data.assessment_strategy and outline_data.assessment_strategy.get('ca_comment') %}{{ outline_data.assessment_strategy.ca_comment }}{% elif course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best {{ academic_rules.assessment.take_best }} of {{ academic_rules.assessment.slots }} Assessments{% endif %}" placeholder="{% if course_data and course_data.category and course_data.category.lower() == 'pg' %}As per Master's Ordinance{% else %}Best {{ academic_rules.assessment.take_best }} of {{ academic_rules.assessment.slots }} Assessments{% endif %}">
                                 </td>
                             </tr>
                             <tr>
@@ -3056,8 +3056,8 @@ function saveCourseOutline(isAutoSave = false) {
         } : {
             attendance_percent: formData.get('attendance_percent') || '10',
             attendance_comment: formData.get('attendance_comment') || 'Minimum mark is 4 for 60% attendance',
-            ca_percent: formData.get('ca_percent') || '30',
-            ca_comment: formData.get('ca_comment') || 'Best 3 of 4 Assessments',
+            ca_percent: formData.get('ca_percent') || {{ academic_rules.assessment.ug_out_of|tojson }},
+            ca_comment: formData.get('ca_comment') || {{ ('Best ' ~ academic_rules.assessment.take_best ~ ' of ' ~ academic_rules.assessment.slots ~ ' Assessments')|tojson }},
             final_exam_percent: formData.get('final_exam_percent') || '60',
             final_exam_comment: formData.get('final_exam_comment') || 'Section A and B combined',
             ca_section_a_total: formData.get('ca_section_a_total') || '2',

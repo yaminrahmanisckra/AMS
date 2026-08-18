@@ -1,0 +1,182 @@
+{
+  "title": "Student Survey Questionnaire",
+  "form_version": "student_law",
+  "purpose": "This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "program",
+      "label": "Program (Optional)",
+      "type": "select",
+      "options": [
+        "LL.B (Honours)",
+        "LL.M"
+      ]
+    },
+    {
+      "key": "current_year_semester",
+      "label": "Current Year/Semester (Optional)",
+      "type": "text",
+      "placeholder": "e.g. 1st Year, 2nd Semester"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Governance & Institutional Environment",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "The academic calendar (class start dates, exam schedules) is strictly followed without unexpected delays."
+        },
+        {
+          "key": "q2",
+          "text": "The class size in theory courses (max 40 students) is appropriate for effective learning."
+        },
+        {
+          "key": "q3",
+          "text": "The class size in practical/tutorial courses (max 20 students) allows for individual attention."
+        },
+        {
+          "key": "q4",
+          "text": "The institution has a clear policy to address sexual harassment, and I feel safe on campus."
+        },
+        {
+          "key": "q5",
+          "text": "I am aware of the program's vision, mission, and objectives."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Curriculum & Graduate Attributes",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q6",
+          "text": "The curriculum provides contemporary knowledge of substantive and procedural law."
+        },
+        {
+          "key": "q7",
+          "text": "Research Skills: The coursework has improved my ability to conduct legal research."
+        },
+        {
+          "key": "q8",
+          "text": "Communication Skills: The program effectively develops my oral advocacy and written communication skills."
+        },
+        {
+          "key": "q9",
+          "text": "Problem Solving: The curriculum enhances my ability to analyze facts and solve legal problems."
+        },
+        {
+          "key": "q10",
+          "text": "Ethical Development: The program emphasizes legal ethics and moral responsibility."
+        },
+        {
+          "key": "q11",
+          "text": "General Education: The non-law courses (e.g., English, ICT, History) are relevant and useful."
+        },
+        {
+          "key": "q12",
+          "text": "The internship/practical training component is well-structured and beneficial."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Teaching-Learning & Assessment",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q13",
+          "text": "Teachers use interactive methods (e.g., case studies, group discussions) rather than just lecturing."
+        },
+        {
+          "key": "q14",
+          "text": "The teaching methods encourage Higher Order Thinking Skills (critical analysis, application of law)."
+        },
+        {
+          "key": "q15",
+          "text": "Course outlines (plans) are provided at the start of the semester with clear learning outcomes and assessment rubrics."
+        },
+        {
+          "key": "q16",
+          "text": "I receive timely feedback on my assignments and mid-term exams to help me improve."
+        },
+        {
+          "key": "q17",
+          "text": "The assessment methods (exams, assignments) fairly measure what I have learned."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Student Support & Facilities",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q18",
+          "text": "Moot Court: There are sufficient opportunities and facilities (Moot Court Room) to practice mooting and mock trials."
+        },
+        {
+          "key": "q19",
+          "text": "Co-Curriculars: The department encourages participation in debating, negotiation, and public speaking."
+        },
+        {
+          "key": "q20",
+          "text": "Counseling: Academic guidance and career counseling are available to help plan my legal career."
+        },
+        {
+          "key": "q21",
+          "text": "Library: The library has an adequate collection of law books, journals, and access to legal databases."
+        },
+        {
+          "key": "q22",
+          "text": "IT Facilities: The computer labs and internet facilities are adequate for my legal research needs."
+        },
+        {
+          "key": "q23",
+          "text": "There is a transparent and fair mechanism to handle student grievances (e.g., grades, harassment)."
+        }
+      ]
+    },
+    {
+      "title": "Part E: Faculty Quality",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q24",
+          "text": "Faculty members are knowledgeable and up-to-date in their legal fields."
+        },
+        {
+          "key": "q25",
+          "text": "Faculty members are accessible for consultation outside of class hours."
+        },
+        {
+          "key": "q26",
+          "text": "Guest speakers (practitioners, judges) are invited to bridge the gap between theory and practice."
+        }
+      ]
+    },
+    {
+      "title": "Part F: Qualitative Questions (Open-Ended)",
+      "type": "text",
+      "questions": [
+        {
+          "key": "q27",
+          "text": "27. What are the three biggest strengths of this Law program?"
+        },
+        {
+          "key": "q28",
+          "text": "28. What are the major weaknesses or areas for improvement?"
+        },
+        {
+          "key": "q29",
+          "text": "29. Do you feel the program is adequately preparing you for the legal profession?"
+        },
+        {
+          "key": "q30",
+          "text": "30. Any specific suggestions regarding the Moot Court or practical training sessions?"
+        }
+      ]
+    }
+  ]
+}

@@ -112,7 +112,7 @@
     <div class="card-body">
         <p class="small text-muted mb-3">5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree</p>
         {% set na_labels = [
-            '1. I am aware of the Vision and Mission of the University and the Law Discipline.',
+            '1. I am aware of the Vision and Mission of the University and the ' ~ tenant.name ~ '.',
             '2. The recruitment policy for staff is transparent, fair, and well-communicated.',
             '3. There is a clear Code of Conduct for professional staff, and I am fully aware of it.',
             '4. I have a clear job description and fully understand my duties and responsibilities.',
@@ -156,7 +156,7 @@
     </div>
     <div class="card-body p-0">
         <table class="table table-bordered table-sm mb-0">
-            <tr><td class="bg-light fw-bold" style="width: 35%;">19. What are the best aspects of working at the Law Discipline, Khulna University?</td><td>{{ payload.get('best_aspects') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold" style="width: 35%;">19. What are the best aspects of working at the {{ tenant.display_with_university }}?</td><td>{{ payload.get('best_aspects') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">20. What are the major challenges or difficulties you face in your daily work?</td><td>{{ payload.get('challenges') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">21. What specific training or facilities do you need to improve your performance?</td><td>{{ payload.get('training_facilities_needed') or '–' }}</td></tr>
         </table>

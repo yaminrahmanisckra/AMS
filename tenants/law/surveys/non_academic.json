@@ -1,0 +1,116 @@
+{
+  "title": "Non-Academic Staff Survey Questionnaire",
+  "form_version": "non_academic_law",
+  "purpose": "This survey collects feedback from non-academic staff for the Self-Assessment Report (SAR).",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "designation",
+      "label": "Designation (Optional)",
+      "type": "text"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Recruitment & Ethics",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "Recruitment: The recruitment process for my position was transparent, fair, and merit-based."
+        },
+        {
+          "key": "q2",
+          "text": "Job Description: My roles and responsibilities are clearly defined and communicated to me."
+        },
+        {
+          "key": "q3",
+          "text": "Code of Conduct: I am fully aware of the Code of Conduct and ethical guidelines for staff."
+        },
+        {
+          "key": "q4",
+          "text": "Orientation: I received a proper orientation/induction when I joined the department/institution."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Development & Compensation",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q5",
+          "text": "Training: The institution provides adequate training and workshops to upgrade my professional skills."
+        },
+        {
+          "key": "q6",
+          "text": "Performance Evaluation: My performance is evaluated regularly based on clear Key Performance Indicators (KPIs)."
+        },
+        {
+          "key": "q7",
+          "text": "Feedback: I receive constructive feedback from my supervisors to help me improve my work."
+        },
+        {
+          "key": "q8",
+          "text": "Promotion/Incentives: There are opportunities for promotion or incentives based on my performance."
+        },
+        {
+          "key": "q9",
+          "text": "Salary: The salary structure and benefits are satisfactory and competitive."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Work Environment",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q10",
+          "text": "Workload: My workload is reasonable and distributed fairly."
+        },
+        {
+          "key": "q11",
+          "text": "Office Space: I have adequate office space and a suitable workstation to perform my duties."
+        },
+        {
+          "key": "q12",
+          "text": "Equipment: I have access to necessary equipment (computers, internet, printers) to do my job effectively."
+        },
+        {
+          "key": "q13",
+          "text": "Safety: The workplace is safe, secure, and hygienic (including washrooms, prayer rooms, canteen)."
+        },
+        {
+          "key": "q14",
+          "text": "Technology: The software or IT tools (e.g., student database, library software) I use are up-to-date and functional."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Leadership & Culture",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q15",
+          "text": "Vision/Mission: I am aware of the Vision and Mission of the institution/department."
+        },
+        {
+          "key": "q16",
+          "text": "Leadership: The management is approachable and responsive to staff needs."
+        },
+        {
+          "key": "q17",
+          "text": "Grievance Redressal: There is an effective mechanism to address staff grievances or complaints."
+        },
+        {
+          "key": "q18",
+          "text": "Respect: I am treated with respect and dignity by faculty members and students."
+        },
+        {
+          "key": "q19",
+          "text": "Harassment Policy: I am aware of the policy regarding sexual harassment and know how to report issues."
+        }
+      ]
+    }
+  ]
+}

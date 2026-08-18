@@ -21,6 +21,7 @@ from sqlalchemy import or_
 from extensions import db
 from role_utils import parse_roles
 from user_models import User
+from utils.tenant import current_tenant
 from utils.window_utils import get_or_404_for_window, query_for_window, stamp_window_id
 
 from . import noticeboard_bp
@@ -125,10 +126,11 @@ def _fanout_notifications_and_email(notice: Notice, recipients: list[User]):
         name = (user.full_name or user.username or 'Student').strip()
         sid = (user.username or '').strip()
         subject = f'New notice: {title} — {name} ({sid})'
+        t = current_tenant()
         text_body = (
             f'Dear {name},\n\n'
             'A new notice has been posted on the Academic Management System (AMS) '
-            'noticeboard of the Law Discipline, Khulna University.\n\n'
+            f'noticeboard of the {t.display_with_university}.\n\n'
             f'- Title: {title}\n'
             f'- Posted by: {author_name}\n'
             f'- Notice date: {notice.notice_date.isoformat() if notice.notice_date else ""}\n\n'
@@ -136,12 +138,12 @@ def _fanout_notifications_and_email(notice: Notice, recipients: list[User]):
             f'{absolute_url}\n\n'
             'Regards,\n'
             'Academic Management System\n'
-            'Law Discipline, Khulna University\n'
+            f'{t.display_with_university}\n'
         )
         html_body = (
             f'<p>Dear {name},</p>'
             '<p>A new notice has been posted on the AMS noticeboard '
-            '(Law Discipline, Khulna University).</p>'
+            f'({t.display_with_university}).</p>'
             '<ul>'
             f'<li><strong>Title:</strong> {title}</li>'
             f'<li><strong>Posted by:</strong> {author_name}</li>'
@@ -150,7 +152,7 @@ def _fanout_notifications_and_email(notice: Notice, recipients: list[User]):
             f'<p><a href="{absolute_url}">Open notice on noticeboard</a></p>'
             f'<p style="word-break:break-all;">{absolute_url}</p>'
             '<p>Regards,<br>Academic Management System<br>'
-            'Law Discipline, Khulna University</p>'
+            f'{t.display_with_university}</p>'
         )
         entries.append({
             'recipient': email,
@@ -601,7 +603,7 @@ def ai_draft():
         return jsonify({'ok': False, 'error': 'Prompt is required.'}), 400
 
     system_prompt = (
-        'You write official academic notices for a university Law Discipline. '
+        f'You write official academic notices for {current_tenant().display_with_university}. '
         'Return ONLY an HTML fragment suitable for a rich-text editor body '
         '(use <p>, <ul>, <ol>, <li>, <strong>, <em>, <h3>). '
         'Do not wrap in <html> or <body>. Do not invent official letterheads. '

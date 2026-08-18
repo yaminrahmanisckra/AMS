@@ -38,7 +38,7 @@
     <div class="meta-line">Serial No.: {{ serial_no or r.id }} | Submitted: {{ r.created_at|bd('%Y-%m-%d %H:%M') if r.created_at else '–' }}</div>
     <div class="doc-header">
         <div class="doc-title">STUDENT SURVEY QUESTIONNAIRE – Response</div>
-        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+        <div class="doc-subtitle">{{ tenant.display_with_university }}</div>
     </div>
 
     {% if payload.get('form_version') == 'student_law' or 'q1' in payload %}
@@ -175,7 +175,7 @@
     <div class="section part-f">
         <div class="section-header">Part F: Qualitative (Open-Ended)</div>
         <table class="info">
-            <tr class="open-ended"><td>27. What are the three biggest strengths of this Law program?</td><td>{{ payload.get('q27') or '–' }}</td></tr>
+            <tr class="open-ended"><td>27. What are the three biggest strengths of this {{ tenant.short_name }} program?</td><td>{{ payload.get('q27') or '–' }}</td></tr>
             <tr class="open-ended"><td>28. What are the major weaknesses or areas for improvement?</td><td>{{ payload.get('q28') or '–' }}</td></tr>
             <tr class="open-ended"><td>29. Do you feel the program is adequately preparing you for the legal profession? Why or why not?</td><td>{{ payload.get('q29') or '–' }}</td></tr>
             <tr class="open-ended"><td>30. Any specific suggestions regarding the Moot Court or practical training sessions?</td><td>{{ payload.get('q30') or '–' }}</td></tr>
@@ -193,7 +193,7 @@
     </div>
 
     {% set student_labels = [
-        '1. I am aware of the Vision and Mission of the Law Discipline and the University.',
+        '1. I am aware of the Vision and Mission of the ' ~ tenant.name ~ ' and the University.',
         '2. The Academic Calendar is strictly followed (classes start on time; exams are held as scheduled).',
         '3. The Student Handbook (containing curriculum, rules, and code of conduct) is available to me.',
         '4. The Discipline/University Website is informative, up-to-date, and easy to access.',
@@ -295,7 +295,7 @@
     <div class="section part-f">
         <div class="section-header">Part F: Open-Ended Feedback</div>
         <table class="info">
-            <tr class="open-ended"><td>27. Strongest aspects of the Law Discipline at Khulna University?</td><td>{{ payload.get('strongest_aspects') or '–' }}</td></tr>
+            <tr class="open-ended"><td>27. Strongest aspects of the {{ tenant.name }} at {{ tenant.university_name }}?</td><td>{{ payload.get('strongest_aspects') or '–' }}</td></tr>
             <tr class="open-ended"><td>28. Specific areas (facilities, teaching, or administration) needing immediate improvement?</td><td>{{ payload.get('areas_improvement') or '–' }}</td></tr>
             <tr class="open-ended"><td>29. Do you feel safe and supported on campus? If no, please explain.</td><td>{{ payload.get('safe_supported') or '–' }}</td></tr>
         </table>

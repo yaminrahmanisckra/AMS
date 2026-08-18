@@ -60,7 +60,13 @@
                             </td>
                             <td><span class="badge bg-success">{{ w.status }}</span></td>
                             <td>{{ w.activated_by or '—' }}</td>
-                            <td>
+                            <td class="text-nowrap">
+                                <button type="button" class="btn btn-sm btn-outline-primary edit-window-btn"
+                                        data-id="{{ w.id }}"
+                                        data-name="{{ w.name }}"
+                                        data-description="{{ w.description or '' }}">
+                                    <i class="fas fa-pen me-1"></i>Edit name
+                                </button>
                                 <button class="btn btn-sm btn-outline-danger deactivate-window-btn" data-id="{{ w.id }}" data-name="{{ w.name }}">
                                     <i class="fas fa-times me-1"></i>Deactivate
                                 </button>
@@ -165,7 +171,13 @@
                             </td>
                             <td>{{ w.status }}</td>
                             <td>{{ w.created_at|bd('%Y-%m-%d') if w.created_at else '—' }}</td>
-                            <td>
+                            <td class="text-nowrap">
+                                <button type="button" class="btn btn-sm btn-outline-primary edit-window-btn"
+                                        data-id="{{ w.id }}"
+                                        data-name="{{ w.name }}"
+                                        data-description="{{ w.description or '' }}">
+                                    <i class="fas fa-pen me-1"></i>Edit name
+                                </button>
                                 {% if not w.is_active %}
                                 <button class="btn btn-sm btn-outline-success activate-window-btn" data-id="{{ w.id }}" data-name="{{ w.name }}">
                                     Activate
@@ -176,6 +188,32 @@
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editWindowModal" tabindex="-1" aria-labelledby="editWindowModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editWindowModalLabel">Edit window</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editWindowId">
+                <div class="mb-3">
+                    <label class="form-label" for="editWindowName">Window name <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="editWindowName" required maxlength="100">
+                </div>
+                <div class="mb-0">
+                    <label class="form-label" for="editWindowDescription">Description</label>
+                    <input type="text" class="form-control" id="editWindowDescription" maxlength="500">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveWindowNameBtn">Save</button>
             </div>
         </div>
     </div>
@@ -216,6 +254,63 @@ document.querySelectorAll('.deactivate-window-btn').forEach(btn => {
             if (data.success) location.reload();
         });
     });
+});
+
+document.querySelectorAll('.edit-window-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.getElementById('editWindowId').value = this.dataset.id;
+        document.getElementById('editWindowName').value = this.dataset.name || '';
+        document.getElementById('editWindowDescription').value = this.dataset.description || '';
+        const el = document.getElementById('editWindowModal');
+        if (el && window.bootstrap && bootstrap.Modal) {
+            bootstrap.Modal.getOrCreateInstance(el).show();
+            return;
+        }
+        const name = window.prompt('Window name', this.dataset.name || '');
+        if (name === null) return;
+        const trimmed = name.trim();
+        if (!trimmed) {
+            alert('Window name is required');
+            return;
+        }
+        fetch('{{ url_for("admin_update_active_window") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                window_id: parseInt(this.dataset.id, 10),
+                name: trimmed,
+                description: this.dataset.description || '',
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert(data.message || (data.success ? 'Saved' : 'Failed'));
+            if (data.success) location.reload();
+        })
+        .catch(() => alert('Request failed'));
+    });
+});
+document.getElementById('saveWindowNameBtn').addEventListener('click', function() {
+    const name = document.getElementById('editWindowName').value.trim();
+    if (!name) {
+        alert('Window name is required');
+        return;
+    }
+    fetch('{{ url_for("admin_update_active_window") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            window_id: parseInt(document.getElementById('editWindowId').value, 10),
+            name: name,
+            description: document.getElementById('editWindowDescription').value,
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        alert(data.message || (data.success ? 'Saved' : 'Failed'));
+        if (data.success) location.reload();
+    })
+    .catch(() => alert('Request failed'));
 });
 
 document.querySelectorAll('.activate-window-btn').forEach(btn => {

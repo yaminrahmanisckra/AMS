@@ -1,7 +1,7 @@
 {
   "name": "Academic Management System - Khulna University",
   "short_name": "AMS KU",
-  "description": "Academic Management System for Law Discipline, Khulna University",
+  "description": "Academic Management System for Khulna University disciplines"
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f0f2f5",

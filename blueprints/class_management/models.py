@@ -9,7 +9,7 @@ class Teacher(db.Model):
     name = db.Column(db.String(100), nullable=False)
     short_name = db.Column(db.String(10), nullable=False, unique=True)
     designation = db.Column(db.String(50), nullable=True)  # Professor, Associate Professor, Assistant Professor, Lecturer
-    institute = db.Column(db.String(100), nullable=True, default='Law Discipline, KU')  # Default: Law Discipline, KU
+    institute = db.Column(db.String(100), nullable=True)  # Set from current_tenant().institute_label on insert
     call_sign = db.Column(db.String(50), nullable=True)  # Call Sign for teacher
     bank_account_no = db.Column(db.String(100), nullable=True)  # Bank Account Number for teacher
     tin_number = db.Column(db.String(50), nullable=True)  # TIN number for teacher

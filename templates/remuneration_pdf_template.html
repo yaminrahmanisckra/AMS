@@ -647,7 +647,7 @@
                 <td class="meta-label">পদবী:</td>
                 <td class="english-text">{{ designation or '' }}</td>
                 <td class="meta-label">ডিসিপ্লিন / বিভাগ:</td>
-                <td class="english-text">{{ discipline or 'Law' }}</td>
+                <td class="english-text">{{ discipline or tenant.short_name }}</td>
             </tr>
             <tr>
                 <td class="meta-label">ঠিকানা:</td>
@@ -655,7 +655,7 @@
             </tr>
             <tr>
                 <td class="meta-label">যে ডিসিপ্লিনের পরীক্ষা:</td>
-                <td class="english-text">{{ exam_discipline or 'Law' }}</td>
+                <td class="english-text">{{ exam_discipline or tenant.short_name }}</td>
                 <td class="meta-label">বর্ষ:</td>
                 <td class="english-text">{{ year or '' }}</td>
             </tr>

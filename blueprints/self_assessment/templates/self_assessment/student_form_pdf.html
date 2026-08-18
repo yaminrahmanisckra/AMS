@@ -36,18 +36,18 @@
 <body>
     <div class="doc-header">
         <div class="doc-title">Student Survey Questionnaire</div>
-        <div class="doc-subtitle">Law Discipline, Khulna University</div>
+        <div class="doc-subtitle">{{ tenant.display_with_university }}</div>
     </div>
 
     <div class="intro-box">
-        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+        <p><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the {{ tenant.name }}. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
         <p><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
         <p><strong>Scale:</strong> 1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
     </div>
 
     <div class="section part-a">
         <div class="section-header">Optional Identification</div>
-        <p class="q"><span class="q-label">Program:</span> [ ] LL.B (Honours)  [ ] LL.M</p>
+        <p class="q"><span class="q-label">Program:</span>{% for p in tenant.program_options %} [ ] {{ p }}{% endfor %}</p>
         <p class="q"><span class="q-label">Current Year/Semester:</span> <span style="border-bottom: 1px solid #333; display: inline-block; min-width: 6em;">&nbsp;</span></p>
     </div>
 
@@ -129,7 +129,7 @@
 
     <div class="section part-f">
         <div class="section-header">Part F: Qualitative Questions (Open-Ended)</div>
-        <p class="q"><span class="q-label">27. What are the three biggest strengths of this Law program?</span></p>
+        <p class="q"><span class="q-label">27. What are the three biggest strengths of this {{ tenant.short_name }} program?</span></p>
         <p class="section-note">(e.g., quality of teachers, moot court facilities, internship support, etc.)</p>
         <div class="q-open">&nbsp;</div>
         <p class="q" style="margin-top: 6pt;"><span class="q-label">28. What are the major weaknesses or areas for improvement?</span></p>

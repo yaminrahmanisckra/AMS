@@ -1,0 +1,190 @@
+{
+  "title": "Faculty Survey Questionnaire",
+  "form_version": "faculty_law",
+  "purpose": "This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "designation",
+      "label": "Designation (Optional)",
+      "type": "select",
+      "options": [
+        "Professor",
+        "Associate Professor",
+        "Assistant Professor",
+        "Lecturer"
+      ]
+    },
+    {
+      "key": "employment_status",
+      "label": "Employment Status (Optional)",
+      "type": "select",
+      "options": [
+        "Full-time",
+        "Part-time/Adjunct"
+      ]
+    },
+    {
+      "key": "years_experience_ku",
+      "label": "Years of Experience at KU (Optional)",
+      "type": "text",
+      "placeholder": "e.g. 2, 5"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Governance, Workload & Strategy (Standard 1 & 7)",
+      "focus": "Adherence to Law-specific mandates on workload and planning.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "Workload: My teaching load per semester does not exceed 12 credits, allowing time for research and counseling."
+        },
+        {
+          "key": "q2",
+          "text": "Class Size: The number of students in my theory classes (max 40) and practical classes (max 20) is appropriate for effective teaching."
+        },
+        {
+          "key": "q3",
+          "text": "Strategic Planning: I am involved in the strategic planning process and aware of the program's vision and mission."
+        },
+        {
+          "key": "q4",
+          "text": "Teacher-Student Ratio: The department maintains a reasonable teacher-student ratio (approx. 1:20)."
+        },
+        {
+          "key": "q5",
+          "text": "Autonomy: I have sufficient academic autonomy to design courses and introduce innovative teaching methods."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Curriculum & Teaching-Learning (Standard 4 & 5)",
+      "focus": "Outcome-Based Education (OBE) and Practical Training.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q6",
+          "text": "Curriculum Review: The curriculum is reviewed regularly with input from industry experts and alumni."
+        },
+        {
+          "key": "q7",
+          "text": "Alignment: My Course Learning Outcomes (CLOs) are clearly aligned with the Program Learning Outcomes (PLOs) and Graduate Attributes."
+        },
+        {
+          "key": "q8",
+          "text": "Pedagogy: I frequently use interactive methods (e.g., case studies, mooting, problem-based learning) rather than traditional lecturing."
+        },
+        {
+          "key": "q9",
+          "text": "HOTS: My teaching and assessment methods focus on Higher Order Thinking Skills (analysis, evaluation, creation)."
+        },
+        {
+          "key": "q10",
+          "text": "Course Files: I maintain a documented course file (lesson plan, assessment tools, rubrics) for every course I teach."
+        },
+        {
+          "key": "q11",
+          "text": "Feedback: I provide timely feedback to students on their assignments and continuous assessments."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Research & Professional Development (Standard 7 & 9)",
+      "focus": "Research culture and support.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q12",
+          "text": "Research Support: The institution provides adequate financial support/grants for research activities."
+        },
+        {
+          "key": "q13",
+          "text": "Publications: I am encouraged and supported to publish research in peer-reviewed journals."
+        },
+        {
+          "key": "q14",
+          "text": "Professional Development: The university sponsors my participation in training, seminars, or conferences (home/abroad)."
+        },
+        {
+          "key": "q15",
+          "text": "Incentives: There is a clear policy for incentives/rewards for high-quality research and teaching excellence."
+        },
+        {
+          "key": "q16",
+          "text": "Leave Policy: The study leave policy supports faculty pursuing advanced degrees (PhD/MPhil)."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Facilities & Resources (Standard 8)",
+      "focus": "Infrastructure required for Law.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q17",
+          "text": "Moot Court: The Moot Court Room is well-equipped (internet, sound system) and available for my classes."
+        },
+        {
+          "key": "q18",
+          "text": "Library: The library has sufficient law books, journals, and e-resources to support my teaching and research."
+        },
+        {
+          "key": "q19",
+          "text": "IT Resources: The IT facilities (internet, computers, software) are adequate for academic purposes."
+        },
+        {
+          "key": "q20",
+          "text": "Office Environment: I have a dedicated workstation and a congenial office environment."
+        }
+      ]
+    },
+    {
+      "title": "Part E: Institutional Integrity & Student Support (Standard 3 & 6)",
+      "focus": "Ethics, recruitment, and counseling.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q21",
+          "text": "Recruitment: The faculty recruitment and promotion process is transparent, fair, and merit-based."
+        },
+        {
+          "key": "q22",
+          "text": "Code of Conduct: There is a well-defined code of conduct for faculty and staff."
+        },
+        {
+          "key": "q23",
+          "text": "Counseling: I am actively involved in academic guidance and counseling for students."
+        },
+        {
+          "key": "q24",
+          "text": "Performance Evaluation: The performance evaluation system (KPIs) is clear, fair, and communicated effectively."
+        }
+      ]
+    },
+    {
+      "title": "Part F: Qualitative Questions (Open-Ended)",
+      "type": "text",
+      "questions": [
+        {
+          "key": "q25",
+          "text": "25. What are the major challenges you face in delivering Outcome-Based Education (OBE)?"
+        },
+        {
+          "key": "q26",
+          "text": "26. How effective are the current research incentives? What improvements would you suggest?"
+        },
+        {
+          "key": "q27",
+          "text": "27. Do you feel the facilities (Moot Court, Library) are adequate for a modern Law program? If not, what is missing?"
+        },
+        {
+          "key": "q28",
+          "text": "28. What specific training or professional development programs would you like the university to organize?"
+        }
+      ]
+    }
+  ]
+}

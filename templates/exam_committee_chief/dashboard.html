@@ -104,12 +104,9 @@
                         <label for="committee_year" class="form-label">Year <span class="text-danger">*</span></label>
                         <select class="form-select" id="committee_year" name="committee_year" required disabled>
                             <option value="">Select Year</option>
-                            <option value="First" {% if current_year == 'First' %}selected{% endif %}>First</option>
-                            <option value="Second" {% if current_year == 'Second' %}selected{% endif %}>Second</option>
-                            <option value="Third" {% if current_year == 'Third' %}selected{% endif %}>Third</option>
-                            <option value="Fourth" {% if current_year == 'Fourth' %}selected{% endif %}>Fourth</option>
-                            <option value="Fifth" {% if current_year == 'Fifth' %}selected{% endif %}>Fifth</option>
-                            <option value="LLM" {% if current_year == 'LLM' %}selected{% endif %}>LLM</option>
+                            {% for y in tenant.year_select_options %}
+                            <option value="{{ y }}" {% if current_year == y %}selected{% endif %}>{{ y }}</option>
+                            {% endfor %}
                         </select>
                         <input type="hidden" id="committee_year_hidden" name="committee_year" value="{{ current_year or '' }}">
                     </div>
@@ -132,7 +129,7 @@
                                 <select class="form-select" id="committee_chief_select" disabled>
                                     <option value="">Select Chief</option>
                                     {% for teacher in teachers %}
-                                    <option value="{{ teacher.id }}" data-name="{{ teacher.name }}" data-designation="{{ teacher.designation or '' }}" data-institute="{{ teacher.institute or 'Law Discipline, KU' }}" {% if chief_info and chief_info.name == teacher.name %}selected{% endif %}>{{ teacher.name }}</option>
+                                    <option value="{{ teacher.id }}" data-name="{{ teacher.name }}" data-designation="{{ teacher.designation or '' }}" data-institute="{{ teacher.institute or tenant.institute_label }}" {% if chief_info and chief_info.name == teacher.name %}selected{% endif %}>{{ teacher.name }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -148,7 +145,7 @@
                             </div>
                             <div class="col-md-3">
                                 <label for="chief_institute" class="form-label">Institute</label>
-                                <input type="text" class="form-control" id="chief_institute" value="Law Discipline, KU" placeholder="Law Discipline, KU" disabled>
+                                <input type="text" class="form-control" id="chief_institute" value={{ tenant.institute_label|tojson }} placeholder={{ tenant.institute_label|tojson }} disabled>
                             </div>
                             <div class="col-md-3">
                                 <label class="form-label">&nbsp;</label>
@@ -176,7 +173,7 @@
                                 <select class="form-select" id="committee_member_select">
                                     <option value="">Select a member</option>
                                     {% for teacher in teachers %}
-                                    <option value="{{ teacher.id }}" data-name="{{ teacher.name }}" data-designation="{{ teacher.designation or '' }}" data-institute="{{ teacher.institute or 'Law Discipline, KU' }}">{{ teacher.name }}</option>
+                                    <option value="{{ teacher.id }}" data-name="{{ teacher.name }}" data-designation="{{ teacher.designation or '' }}" data-institute="{{ teacher.institute or tenant.institute_label }}">{{ teacher.name }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -192,7 +189,7 @@
                             </div>
                             <div class="col-md-3">
                                 <label for="internal_member_institute" class="form-label">Institute</label>
-                                <input type="text" class="form-control" id="internal_member_institute" value="Law Discipline, KU" placeholder="Law Discipline, KU">
+                                <input type="text" class="form-control" id="internal_member_institute" value={{ tenant.institute_label|tojson }} placeholder={{ tenant.institute_label|tojson }}>
                             </div>
                             <div class="col-md-3 d-flex align-items-end">
                                 <button type="button" class="btn btn-primary w-100" id="addMemberBtn">
@@ -782,7 +779,7 @@ document.getElementById('setChiefBtn').addEventListener('click', function() {
         id: chiefId,
         name: chiefName,
         designation: designation,
-        institute: institute || 'Law Discipline, KU'
+        institute: institute || {{ tenant.institute_label|tojson }}
     };
     
     updateChiefDisplay();
@@ -795,7 +792,7 @@ function removeChief() {
     document.getElementById('committee_chief_select').value = '';
     document.getElementById('chief_designation').value = '';
     const chiefInstituteInput = document.getElementById('chief_institute');
-    if (chiefInstituteInput) chiefInstituteInput.value = 'Law Discipline, KU';
+    if (chiefInstituteInput) chiefInstituteInput.value = {{ tenant.institute_label|tojson }};
 }
 
 // Update Chief Display
@@ -808,7 +805,7 @@ function updateChiefDisplay() {
         
         if (chiefNameDisplay) chiefNameDisplay.textContent = selectedChief.name;
         if (chiefDesignationDisplay) chiefDesignationDisplay.textContent = selectedChief.designation || 'No designation';
-        if (chiefInstituteDisplay) chiefInstituteDisplay.textContent = selectedChief.institute || 'Law Discipline, KU';
+        if (chiefInstituteDisplay) chiefInstituteDisplay.textContent = selectedChief.institute || {{ tenant.institute_label|tojson }};
         
         if (displayDiv) displayDiv.style.display = 'block';
     } else {
@@ -825,7 +822,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (selectedOption.value) {
                 // Get from data attributes first (faster)
                 const designation = selectedOption.getAttribute('data-designation') || '';
-                const institute = selectedOption.getAttribute('data-institute') || 'Law Discipline, KU';
+                const institute = selectedOption.getAttribute('data-institute') || {{ tenant.institute_label|tojson }};
                 
                 // Update fields
                 const designationSelect = document.getElementById('chief_designation');
@@ -839,7 +836,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 // If data attributes don't have values, fetch from API
-                if (!designation || !institute || institute === 'Law Discipline, KU') {
+                if (!designation || !institute || institute === {{ tenant.institute_label|tojson }}) {
                     fetch(`/api/get-teacher-info/${selectedOption.value}`)
                         .then(response => response.json())
                         .then(data => {
@@ -861,7 +858,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const designationSelect = document.getElementById('chief_designation');
                 const instituteInput = document.getElementById('chief_institute');
                 if (designationSelect) designationSelect.value = '';
-                if (instituteInput) instituteInput.value = 'Law Discipline, KU';
+                if (instituteInput) instituteInput.value = {{ tenant.institute_label|tojson }};
             }
         });
     }
@@ -885,7 +882,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (savedCommitteeData.chief) {
         selectedChief = savedCommitteeData.chief;
         if (!selectedChief.institute) {
-            selectedChief.institute = 'Law Discipline, KU';
+            selectedChief.institute = {{ tenant.institute_label|tojson }};
         }
         updateChiefDisplay();
     }
@@ -934,7 +931,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (selectedOption.value) {
                 // Get from data attributes
                 const designation = selectedOption.getAttribute('data-designation') || '';
-                const institute = selectedOption.getAttribute('data-institute') || 'Law Discipline, KU';
+                const institute = selectedOption.getAttribute('data-institute') || {{ tenant.institute_label|tojson }};
                 
                 const designationSelect = document.getElementById('internal_member_designation');
                 const instituteInput = document.getElementById('internal_member_institute');
@@ -947,7 +944,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 // If not in data attributes, fetch from API
-                if (!designation || !institute || institute === 'Law Discipline, KU') {
+                if (!designation || !institute || institute === {{ tenant.institute_label|tojson }}) {
                     fetch(`/api/get-teacher-info/${selectedOption.value}`)
                         .then(response => response.json())
                         .then(data => {
@@ -996,7 +993,7 @@ document.getElementById('addMemberBtn').addEventListener('click', function() {
     }
     
     const designation = designationSelect.value.trim();
-    const institute = instituteInput.value.trim() || 'Law Discipline, KU';
+    const institute = instituteInput.value.trim() || {{ tenant.institute_label|tojson }};
     
     selectedInternalMembers.push({ 
         id: memberId, 
@@ -1007,7 +1004,7 @@ document.getElementById('addMemberBtn').addEventListener('click', function() {
     updateInternalMembersList();
     select.value = ''; // Reset dropdown
     designationSelect.value = ''; // Reset designation dropdown
-    instituteInput.value = 'Law Discipline, KU'; // Reset to default
+    instituteInput.value = {{ tenant.institute_label|tojson }}; // Reset to default
 });
 
 // Add External Member
@@ -1055,7 +1052,7 @@ function updateInternalMembersList() {
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="flex-grow-1">
                         <strong><i class="fas fa-user me-2"></i>${member.name}</strong><br>
-                        <small class="text-muted">${member.designation || 'No designation'}, ${member.institute || 'Law Discipline, KU'}</small>
+                        <small class="text-muted">${member.designation || 'No designation'}, ${member.institute || {{ tenant.institute_label|tojson }}}</small>
                         <button type="button" class="btn btn-sm btn-outline-secondary ms-2" onclick="editInternalMember(${index})">
                             <i class="fas fa-edit"></i> Edit
                         </button>
@@ -1077,9 +1074,9 @@ function editInternalMember(index) {
     const newDesignation = prompt('Enter Designation (Professor/Associate Professor/Assistant Professor/Lecturer):', member.designation || '');
     if (newDesignation !== null && newDesignation !== '') {
         selectedInternalMembers[index].designation = newDesignation;
-        const newInstitute = prompt('Enter Institute:', member.institute || 'Law Discipline, KU');
+        const newInstitute = prompt('Enter Institute:', member.institute || {{ tenant.institute_label|tojson }});
         if (newInstitute !== null) {
-            selectedInternalMembers[index].institute = newInstitute || 'Law Discipline, KU';
+            selectedInternalMembers[index].institute = newInstitute || {{ tenant.institute_label|tojson }};
         }
         updateInternalMembersList();
     }
@@ -1221,7 +1218,7 @@ function showCommitteeMembersList() {
     let chiefHtml = '';
     if (savedCommitteeData.chief && savedCommitteeData.chief.name) {
         const designation = savedCommitteeData.chief.designation || 'No designation';
-        const institute = savedCommitteeData.chief.institute || 'Law Discipline, KU';
+        const institute = savedCommitteeData.chief.institute || {{ tenant.institute_label|tojson }};
         chiefHtml = `
             <div class="list-group-item">
                 <i class="fas fa-crown me-2 text-warning"></i><strong>${savedCommitteeData.chief.name}</strong>
@@ -1244,7 +1241,7 @@ function showCommitteeMembersList() {
     if (savedCommitteeData.internal && savedCommitteeData.internal.length > 0) {
         savedCommitteeData.internal.forEach(member => {
             const designation = member.designation || 'No designation';
-            const institute = member.institute || 'Law Discipline, KU';
+            const institute = member.institute || {{ tenant.institute_label|tojson }};
             internalHtml += `
                 <div class="list-group-item">
                     <i class="fas fa-user me-2"></i><strong>${member.name}</strong>
@@ -1406,7 +1403,7 @@ window.showCommitteeMembersForm = function() {
     if (savedCommitteeData.chief) {
         selectedChief = savedCommitteeData.chief;
         if (!selectedChief.institute) {
-            selectedChief.institute = 'Law Discipline, KU';
+            selectedChief.institute = {{ tenant.institute_label|tojson }};
         }
         const chiefSelect = document.getElementById('committee_chief_select');
         if (chiefSelect) {
@@ -1424,7 +1421,7 @@ window.showCommitteeMembersForm = function() {
         }
         const chiefInstituteInput = document.getElementById('chief_institute');
         if (chiefInstituteInput) {
-            chiefInstituteInput.value = selectedChief.institute || 'Law Discipline, KU';
+            chiefInstituteInput.value = selectedChief.institute || {{ tenant.institute_label|tojson }};
         }
         updateChiefDisplay();
     } else {

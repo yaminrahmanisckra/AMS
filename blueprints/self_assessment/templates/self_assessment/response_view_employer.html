@@ -169,7 +169,7 @@
     </div>
     <div class="card-body p-0">
         <table class="table table-bordered table-sm mb-0">
-            <tr><td class="bg-light fw-bold" style="width: 35%;">20. What are the strongest qualities of Khulna University Law graduates?</td><td>{{ payload.get('strongest_qualities') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold" style="width: 35%;">20. What are the strongest qualities of {{ tenant.display_with_university }} graduates?</td><td>{{ payload.get('strongest_qualities') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">21. What specific skills or knowledge areas are LACKING in our graduates?</td><td>{{ payload.get('skills_lacking') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">22. What emerging legal fields should we add to our curriculum to make graduates more employable?</td><td>{{ payload.get('emerging_fields_curriculum') or '–' }}</td></tr>
         </table>

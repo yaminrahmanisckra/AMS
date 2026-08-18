@@ -1,0 +1,55 @@
+code: mcj
+name: Mass Communication and Journalism Discipline
+short_name: MCJ
+institute_label: MCJ Discipline, KU
+head_title: Head
+office_label: MCJ Discipline office
+university_name: Khulna University
+public_url: ""
+course_code_prefix: MCJ
+app_id_prefix: MCJ
+developer_title: Assistant Professor, Mass Communication and Journalism Discipline, Khulna University
+logo_static: images/KU_logo_2.png
+
+year_digit_map:
+  "1": First
+  "2": Second
+  "3": Third
+  "4": Fourth
+  "5": Masters
+
+term_digit_map:
+  "1": First
+  "2": Second
+
+pg_year_labels:
+  - Masters
+pg_course_year_digit: "5"
+
+surveys_use_pack: true
+default_program: Bachelor (Hons.)
+program_options:
+  - Bachelor (Hons.)
+  - Masters
+
+features:
+  curriculator: true
+  self_assessment: true
+  admission_exam: true
+  remuneration: true
+  leave_application: true
+
+academic_exam_rows:
+  - [ssc, "S.S.C. / Equivalent"]
+  - [hsc, "H.S.C. / Equivalent"]
+  - [honours, "Bachelor (Hons.)"]
+  - [other, "Others"]
+
+document_tags:
+  - SSC Certificate
+  - SSC Transcript / Marksheet
+  - HSC Certificate
+  - HSC Transcript / Marksheet
+  - Bachelor Certificate
+  - Bachelor Transcript / Marksheet
+  - Other Certificate / Transcript

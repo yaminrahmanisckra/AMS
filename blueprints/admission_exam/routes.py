@@ -19,6 +19,7 @@ from functools import wraps
 from html.parser import HTMLParser
 from markupsafe import Markup, escape
 from utils.timezone import format_bd
+from utils.tenant import current_tenant, public_app_url
 
 from flask import (
     render_template, redirect, url_for, flash, request, session,
@@ -2067,8 +2068,8 @@ def _render_admit_card_pdf_reportlab(candidate):
         logo_cell = logo_img
     header_text = Table(
         [
-            [Paragraph('Khulna University', style_uni)],
-            [Paragraph('Law Discipline', style_disc)],
+            [Paragraph(escape(current_tenant().university_name), style_uni)],
+            [Paragraph(escape(current_tenant().name), style_disc)],
             [Paragraph(escape(_rl_safe_text(cycle.name if cycle else 'Admission Exam')), style_cycle)],
         ],
         colWidths=[content_w - 82 * mm],
@@ -2095,7 +2096,7 @@ def _render_admit_card_pdf_reportlab(candidate):
     footer_note = Paragraph(
         escape(_rl_safe_text(
             'This admit card must be presented at the examination hall along with a valid photo ID. '
-            'Issued electronically by the Admission Committee, Law Discipline, Khulna University.'
+            f'Issued electronically by the Admission Committee, {current_tenant().display_with_university}.'
         )),
         style_footer,
     )
@@ -2665,8 +2666,8 @@ def _render_application_form_pdf_reportlab(candidate):
     ]))
     header_text = Table(
         [
-            [Paragraph('Khulna University', style_uni)],
-            [Paragraph('Law Discipline', style_sub)],
+            [Paragraph(escape(current_tenant().university_name), style_uni)],
+            [Paragraph(escape(current_tenant().name), style_sub)],
             [Paragraph(escape(_rl_safe_text(cycle.name if cycle else 'Admission')), style_sub)],
         ],
         colWidths=[content_w - 66 * mm],
@@ -2747,7 +2748,7 @@ def _render_application_form_pdf_reportlab(candidate):
     body.append(Paragraph(
         escape(_rl_safe_text(
             'This is a system-generated copy of the admission application submitted through '
-            'the Law Discipline Academic Management System, Khulna University.'
+            f'the {current_tenant().name} Academic Management System, {current_tenant().university_name}.'
         )),
         style_foot,
     ))
@@ -3659,7 +3660,7 @@ def _touch_passenger_restart():
 def admit_engine():
     """Diagnostic: memory engine vs disk engine (stale Passenger) + photo folders.
 
-    Visit: https://kulawams.xyz/admission-exam/admit-engine
+    Visit: {public_app_url()}/admission-exam/admit-engine
     If passenger_stale=true → Restart Python app (or open /admission-exam/force-restart).
     """
     import hashlib
@@ -3749,7 +3750,7 @@ def admit_engine():
         'hint': (
             'If passenger_stale is true, the .py file on disk is newer than the running '
             'process — open /admission-exam/force-restart or Restart the Python app in cPanel. '
-            'PDF must open as https://kulawams.xyz/.../admit-card.pdf (NOT file:// from Downloads) '
+            f'PDF must open as {public_app_url() or "https://<host>"}/.../admit-card.pdf (NOT file:// from Downloads) '
             'App root: /home/kulawams/public_html/ams'
         ),
     })
@@ -3806,6 +3807,10 @@ def index():
     if not user_can_access_admission():
         flash('You do not have access to the Admission Exam module.', 'danger')
         abort(403)
+    from utils.dashboard_settings import require_officer_dashboard_card
+    blocked = require_officer_dashboard_card('admission_exam')
+    if blocked:
+        return blocked
     if _user_is_manager():
         cycles = AdmissionCycle.query.order_by(AdmissionCycle.created_at.desc()).all()
     else:
@@ -3833,7 +3838,7 @@ def cycle_new():
     if not name:
         flash('Cycle name is required.', 'danger')
         return redirect(url_for('admission_exam.index'))
-    app_id_prefix = (request.form.get('app_id_prefix') or 'APP').strip().upper() or 'APP'
+    app_id_prefix = (request.form.get('app_id_prefix') or current_tenant().app_id_prefix or 'APP').strip().upper() or 'APP'
     slug = _normalize_slug(request.form.get('public_slug'))
     if not slug:
         slug = _default_slug_from_prefix(app_id_prefix)

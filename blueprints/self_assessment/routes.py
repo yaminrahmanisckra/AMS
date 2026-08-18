@@ -6,13 +6,38 @@ from flask import render_template, redirect, url_for, flash, request, jsonify, c
 from flask_login import login_required, current_user
 from extensions import csrf
 from role_utils import parse_roles, get_teachers_excluding_head
-from utils.window_utils import query_for_window, stamp_window_id, get_effective_window_id, get_for_window, get_or_404_for_window
+from utils.tenant import current_tenant, load_survey_pack
 
 from . import self_assessment_bp
 from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse
 from blueprints.class_management.models import Teacher
 
-SURVEY_TYPES = ('alumni', 'employer', 'faculty', 'non_academic', 'student')
+def _survey_form_template(survey_type):
+    pack = load_survey_pack(survey_type)
+    if pack and current_tenant().surveys_use_pack:
+        return 'self_assessment/survey_from_pack.html', pack
+    mapping = {
+        'alumni': 'self_assessment/alumni_survey.html',
+        'employer': 'self_assessment/employer_survey.html',
+        'student': 'self_assessment/student_survey.html',
+        'faculty': 'self_assessment/faculty_survey.html',
+        'non_academic': 'self_assessment/non_academic_survey.html',
+    }
+    return mapping.get(survey_type, 'self_assessment/survey_placeholder.html'), pack
+
+
+def _survey_pdf_template(survey_type):
+    pack = load_survey_pack(survey_type)
+    if pack and current_tenant().surveys_use_pack:
+        return 'self_assessment/survey_from_pack_pdf.html', pack
+    mapping = {
+        'alumni': 'self_assessment/alumni_form_pdf.html',
+        'employer': 'self_assessment/employer_form_pdf.html',
+        'student': 'self_assessment/student_form_pdf.html',
+        'faculty': 'self_assessment/faculty_form_pdf.html',
+        'non_academic': 'self_assessment/non_academic_form_pdf.html',
+    }
+    return mapping.get(survey_type, 'self_assessment/generic_form_pdf.html'), pack
 
 
 def _committee_ids_subquery():
@@ -361,33 +386,29 @@ def public_survey_form(survey_type, code):
             return _save_alumni_response(link, client_ip, survey_type, code)
         return _save_generic_response(link, client_ip, survey_type, code)
 
-    if survey_type == 'alumni':
-        return render_template('self_assessment/alumni_survey.html', link=link)
-    if survey_type == 'employer':
-        return render_template('self_assessment/employer_survey.html', link=link)
-    if survey_type == 'student':
-        return render_template('self_assessment/student_survey.html', link=link)
-    if survey_type == 'faculty':
-        return render_template('self_assessment/faculty_survey.html', link=link)
-    if survey_type == 'non_academic':
-        return render_template('self_assessment/non_academic_survey.html', link=link)
-    return render_template('self_assessment/survey_placeholder.html', link=link, survey_type=survey_type)
+    template_name, pack = _survey_form_template(survey_type)
+    return render_template(
+        template_name,
+        link=link,
+        survey_type=survey_type,
+        pack=pack,
+    )
 
 
 def _save_alumni_response(link, client_ip, survey_type, code):
     """Save alumni form and redirect to success. New form (Law Program Accreditation) saves to payload; legacy form uses columns."""
     from extensions import db
-    if request.form.get('form_version') == 'law_accreditation':
-        # New form: Parts A–E (q1..q21 ratings, q22..q25 open-ended); store in payload
+    form_version = (request.form.get('form_version') or '').strip()
+    if form_version and form_version != 'legacy':
+        skip = {'csrf_token', 'form_version'}
         payload = {}
-        for i in range(1, 22):
-            val = request.form.get(f'q{i}')
-            payload[f'q{i}'] = int(val) if val and str(val).isdigit() and 1 <= int(val) <= 5 else None
-        for i in range(22, 26):
-            payload[f'q{i}'] = (request.form.get(f'q{i}') or '').strip() or None
-        payload['name'] = (request.form.get('name') or '').strip() or None
-        payload['batch'] = (request.form.get('batch') or '').strip() or None
-        payload['graduation_year'] = (request.form.get('graduation_year') or '').strip() or None
+        for key in request.form:
+            if key in skip:
+                continue
+            vals = request.form.getlist(key)
+            if not vals:
+                continue
+            payload[key] = vals[0] if len(vals) == 1 else vals
         response = AlumniSurveyResponse(
             survey_link_id=link.id,
             payload=json.dumps(payload),
@@ -475,51 +496,14 @@ def public_survey_form_pdf(survey_type, code):
         from flask import abort
         abort(404)
     font_path = _get_kalpurush_font_path()
-    if survey_type == 'alumni':
-        html_content = render_template(
-            'self_assessment/alumni_form_pdf.html',
-            link=link,
-            survey_type=survey_type,
-            kalpurush_font_path=font_path,
-        )
-    elif survey_type == 'employer':
-        html_content = render_template(
-            'self_assessment/employer_form_pdf.html',
-            link=link,
-            survey_type=survey_type,
-            kalpurush_font_path=font_path,
-        )
-    elif survey_type == 'student':
-        html_content = render_template(
-            'self_assessment/student_form_pdf.html',
-            link=link,
-            survey_type=survey_type,
-            kalpurush_font_path=font_path,
-        )
-    elif survey_type == 'faculty':
-        html_content = render_template(
-            'self_assessment/faculty_form_pdf.html',
-            link=link,
-            survey_type=survey_type,
-            kalpurush_font_path=font_path,
-        )
-    elif survey_type == 'non_academic':
-        html_content = render_template(
-            'self_assessment/non_academic_form_pdf.html',
-            link=link,
-            survey_type=survey_type,
-            kalpurush_font_path=font_path,
-        )
-    else:
-        titles = {'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
-                  'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
-        html_content = render_template(
-            'self_assessment/generic_form_pdf.html',
-            link=link,
-            survey_type=survey_type,
-            survey_title=titles.get(survey_type, survey_type),
-            kalpurush_font_path=font_path,
-        )
+    template_name, pack = _survey_pdf_template(survey_type)
+    html_content = render_template(
+        template_name,
+        link=link,
+        survey_type=survey_type,
+        pack=pack,
+        kalpurush_font_path=font_path,
+    )
     try:
         from flask import Response
         import io
@@ -1207,7 +1191,8 @@ def alumni_survey():
         
         return redirect(url_for('self_assessment.alumni_survey_success'))
 
-    return render_template('self_assessment/alumni_survey.html')
+    template_name, pack = _survey_form_template('alumni')
+    return render_template(template_name, pack=pack, survey_type='alumni')
 
 
 @self_assessment_bp.route('/alumni-survey/success')

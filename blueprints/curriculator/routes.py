@@ -7,6 +7,7 @@ from io import BytesIO
 from datetime import datetime
 
 from extensions import db
+from utils.tenant import current_tenant, load_curriculator_pack, infer_year_term_from_code
 from . import curriculator_bp
 from .models import (
     SyllabusDocument,
@@ -78,7 +79,42 @@ def _can_edit_part_a_section(part_id, section_key):
 
 # Part A section keys and types (key_value | text | serial_description | peos | plos | mapping | mapping_course_plo)
 # mapping_course_plo section_key suffix -> (year, term) for filtering Part C entries
-MAPPING_COURSE_PLO_YEAR_TERM = {
+def _curriculator_pack():
+    return load_curriculator_pack() or {}
+
+
+def _syllabus_parts_spec():
+    parts = _curriculator_pack().get('parts') or [
+        {'key': 'A', 'title': 'Part A'},
+        {'key': 'B', 'title': 'Part B'},
+        {'key': 'C', 'title': 'Part C'},
+        {'key': 'D', 'title': 'Part D'},
+    ]
+    return parts
+
+
+def _year_term_grid():
+    grid = _curriculator_pack().get('year_term_grid') or []
+    return [(str(y), str(t)) for y, t in grid]
+
+
+def _part_a_sections():
+    sections = _curriculator_pack().get('part_a_sections')
+    if sections:
+        return sections
+    return PART_A_SECTIONS_FALLBACK
+
+
+def _mapping_course_plo_year_term():
+    raw = _curriculator_pack().get('mapping_course_plo_year_term') or {}
+    result = {}
+    for key, val in raw.items():
+        if isinstance(val, (list, tuple)) and len(val) >= 2:
+            result[str(key)] = (str(val[0]), str(val[1]))
+    return result or MAPPING_COURSE_PLO_YEAR_TERM_FALLBACK
+
+
+MAPPING_COURSE_PLO_YEAR_TERM_FALLBACK = {
     '1_1': ('First', 'First'),
     '1_2': ('First', 'Second'),
     '2_1': ('Second', 'First'),
@@ -88,7 +124,7 @@ MAPPING_COURSE_PLO_YEAR_TERM = {
     '4_2': ('Fourth', 'Second'),
 }
 
-PART_A_SECTIONS = [
+PART_A_SECTIONS_FALLBACK = [
     {'key': 'overview', 'label': 'Program Overview', 'type': 'key_value'},
     {'key': 'vision_university', 'label': 'Vision of the University', 'type': 'text'},
     {'key': 'vision_discipline', 'label': 'Vision of the Discipline', 'type': 'text'},
@@ -223,7 +259,7 @@ def part_view(doc_id, part_key):
         for a in SyllabusSectionAssignment.query.filter_by(part_id=part.id).all():
             assign_by_key[a.section_key] = a
         from user_models import User
-        for cfg in PART_A_SECTIONS:
+        for cfg in _part_a_sections():
             sk = cfg['key']
             sec = sections_by_key.get(sk)
             a = assign_by_key.get(sk)
@@ -268,7 +304,7 @@ def part_view(doc_id, part_key):
         can_edit=can_edit,
         can_assign=can_assign,
         is_head=is_head,
-        part_a_sections=PART_A_SECTIONS,
+        part_a_sections=_part_a_sections(),
         part_a_section_list=part_a_section_list,
         part_a_eligible_users=part_a_eligible_users,
         part_b_config=part_b_config,
@@ -449,9 +485,7 @@ def document_import():
     doc = SyllabusDocument(name=name, applicable_batches=batches)
     db.session.add(doc)
     db.session.flush()
-    for i, key in enumerate(('A', 'B', 'C', 'D')):
-        p = SyllabusPart(document_id=doc.id, part_key=key, title=f'Part {key}', sort_order=i)
-        db.session.add(p)
+    _seed_syllabus_parts(doc.id)
     db.session.flush()
     part_map = {p.part_key: p for p in SyllabusPart.query.filter_by(document_id=doc.id).all()}
     part_a, part_b, part_d = part_map.get('A'), part_map.get('B'), part_map.get('D')
@@ -495,9 +529,7 @@ def document_create():
         doc = SyllabusDocument(name=name, applicable_batches=batches)
         db.session.add(doc)
         db.session.flush()
-        for i, key in enumerate(('A', 'B', 'C', 'D')):
-            p = SyllabusPart(document_id=doc.id, part_key=key, title=f'Part {key}', sort_order=i)
-            db.session.add(p)
+        _seed_syllabus_parts(doc.id)
         db.session.commit()
         flash(f'Syllabus "{name}" created. Add content to each part.', 'success')
         return redirect(url_for('curriculator.document_detail', doc_id=doc.id))
@@ -644,7 +676,7 @@ def part_a_section_edit(doc_id, section_key):
     if not part:
         flash('Part A not found.', 'warning')
         return redirect(url_for('curriculator.document_detail', doc_id=doc_id))
-    cfg = next((c for c in PART_A_SECTIONS if c['key'] == section_key), None)
+    cfg = next((c for c in _part_a_sections() if c['key'] == section_key), None)
     if not cfg:
         flash(f'Unknown section: {section_key}.', 'warning')
         return redirect(url_for('curriculator.part_view', doc_id=doc_id, part_key='A'))
@@ -665,7 +697,7 @@ def part_a_section_edit(doc_id, section_key):
                 SyllabusCourseEntry.sort_order, SyllabusCourseEntry.id
             ).all()
             suffix = section_key.replace('mapping_course_plo_', '') if section_key.startswith('mapping_course_plo_') else ''
-            yt = MAPPING_COURSE_PLO_YEAR_TERM.get(suffix)
+            yt = _mapping_course_plo_year_term().get(suffix)
             if yt:
                 year, term = yt
                 part_c_entries = [e for e in all_entries if (e.year or '').strip() == year and (e.term or '').strip() == term]
@@ -750,7 +782,7 @@ def part_section_save(part_id):
     if part.part_key == 'A':
         if not _can_edit_part_a_section(part_id, section_key):
             return jsonify({'success': False, 'message': 'Forbidden'}), 403
-        cfg = next((c for c in PART_A_SECTIONS if c['key'] == section_key), None)
+        cfg = next((c for c in _part_a_sections() if c['key'] == section_key), None)
         if not cfg:
             return jsonify({'success': False, 'message': 'Unknown section'}), 400
         payload = data.get('data')
@@ -898,6 +930,17 @@ def _derive_part_b_from_c(part_c_entries):
     return area_wise, category
 
 
+def _seed_syllabus_parts(doc_id):
+    for i, spec in enumerate(_syllabus_parts_spec()):
+        key = spec.get('key') or spec.get('part_key')
+        if not key:
+            continue
+        title = spec.get('title') or f'Part {key}'
+        db.session.add(SyllabusPart(
+            document_id=doc_id, part_key=key, title=title, sort_order=spec.get('sort_order', i)
+        ))
+
+
 def _course_distribution_by_term(part_c_entries):
     """Group Part C entries by year-term. Returns dict (year, term) -> list of entries."""
     from collections import defaultdict
@@ -907,7 +950,7 @@ def _course_distribution_by_term(part_c_entries):
         t = (e.term or '').strip()
         key = (y or '—', t or '—')
         groups[key].append(e)
-    order = [
+    order = _year_term_grid() or [
         ('First', 'First'), ('First', 'Second'), ('Second', 'First'), ('Second', 'Second'),
         ('Third', 'First'), ('Fourth', 'First'), ('Fourth', 'Second'), ('LLM', 'First'), ('LLM', 'Second'),
     ]
@@ -1121,15 +1164,7 @@ def course_entry_save(entry_id):
 
 def _infer_year_term_from_code(course_code):
     """Infer year and term from last 4 digits of course code (matches course_management)."""
-    if not course_code:
-        return '', ''
-    digits = ''.join(ch for ch in str(course_code) if ch.isdigit())
-    if len(digits) < 4:
-        return '', ''
-    relevant = digits[-4:]
-    year_map = {'1': 'First', '2': 'Second', '3': 'Third', '4': 'Fourth', '5': 'LLM'}
-    term_map = {'1': 'First', '2': 'Second'}
-    return year_map.get(relevant[0], ''), term_map.get(relevant[1], '')
+    return infer_year_term_from_code(course_code)
 
 
 def _map_course_type_to_entry_type(ct):
@@ -1426,7 +1461,7 @@ def _export_docx(doc, parts, course_ids):
             peo_rec = SyllabusPartASection.query.filter_by(part_id=part_a.id, section_key='peos').first()
             if peo_rec and peo_rec.get_data():
                 peos_data = peo_rec.get_data() if isinstance(peo_rec.get_data(), list) else []
-            for cfg in PART_A_SECTIONS:
+            for cfg in _part_a_sections():
                 sk = cfg['key']
                 rec = sections_by_key.get(sk)
                 data = rec.get_data() if rec else None
@@ -1581,7 +1616,7 @@ def _export_docx(doc, parts, course_ids):
                         table_sep()
                 elif cfg['type'] == 'mapping_course_plo' and all_c and plos_data:
                     suffix = sk.replace('mapping_course_plo_', '') if sk.startswith('mapping_course_plo_') else ''
-                    yt = MAPPING_COURSE_PLO_YEAR_TERM.get(suffix)
+                    yt = _mapping_course_plo_year_term().get(suffix)
                     if yt:
                         year, term = yt
                         entries = [e for e in all_c if (e.year or '').strip() == year and (e.term or '').strip() == term]
@@ -2035,7 +2070,7 @@ def _export_pdf(doc, parts, course_ids, req):
             peo_rec = SyllabusPartASection.query.filter_by(part_id=part_a.id, section_key='peos').first()
             if peo_rec and peo_rec.get_data():
                 peos_data = peo_rec.get_data() if isinstance(peo_rec.get_data(), list) else []
-            for cfg in PART_A_SECTIONS:
+            for cfg in _part_a_sections():
                 sk = cfg['key']
                 rec = sections_by_key.get(sk)
                 data = rec.get_data() if rec else None
@@ -2130,7 +2165,7 @@ def _export_pdf(doc, parts, course_ids, req):
                     pdf_table_sep()
                 elif cfg['type'] == 'mapping_course_plo' and all_c and plos_data:
                     suffix = sk.replace('mapping_course_plo_', '') if sk.startswith('mapping_course_plo_') else ''
-                    yt = MAPPING_COURSE_PLO_YEAR_TERM.get(suffix)
+                    yt = _mapping_course_plo_year_term().get(suffix)
                     entries = [e for e in all_c if (e.year or '').strip() == yt[0] and (e.term or '').strip() == yt[1]] if yt else all_c
                     stored = (data or {}).get('cells', []) if isinstance(data, dict) else []
                     nplo = len(plos_data)

@@ -95,6 +95,7 @@ import os
 import hashlib
 from datetime import datetime
 from utils.timezone import format_bd
+from utils.tenant import current_tenant, infer_year_term_from_code, normalize_registration_year
 
 
 def _normalize_session_course_type(raw_course_type):
@@ -612,51 +613,12 @@ def _get_teachers_excluding_head():
 
 def infer_year_and_term(course_code: str):
     """Infer academic year and term from course code (uses last 4 digits)."""
-    if not course_code:
-        return '', ''
-    
-    digits = ''.join(ch for ch in course_code if ch.isdigit())
-    if len(digits) < 4:
-        return '', ''
-    
-    relevant = digits[-4:]
-    year_digit = relevant[0]
-    term_digit = relevant[1]
-    
-    year_map = {
-        '1': 'First',
-        '2': 'Second',
-        '3': 'Third',
-        '4': 'Fourth',
-        '5': 'LLM'
-    }
-    term_map = {
-        '1': 'First',
-        '2': 'Second'
-    }
-    return year_map.get(year_digit, ''), term_map.get(term_digit, '')
+    return infer_year_term_from_code(course_code)
 
 
 def _normalize_registration_year(label):
-    """Normalize year labels for registration matching (LLM <-> Fifth, etc.)."""
-    if not label:
-        return ''
-    value = str(label).strip().lower()
-    for suffix in [' year', 'yr', ' years']:
-        if value.endswith(suffix):
-            value = value[:-len(suffix)].strip()
-    year_map = {
-        '1': 'first', '1st': 'first', 'first': 'first',
-        '2': 'second', '2nd': 'second', 'second': 'second',
-        '3': 'third', '3rd': 'third', 'third': 'third',
-        '4': 'fourth', '4th': 'fourth', 'fourth': 'fourth',
-        '5': 'fifth', '5th': 'fifth', 'fifth': 'fifth',
-        'llm': 'llm',
-    }
-    canonical = year_map.get(value, value)
-    if canonical in {'fifth', 'llm'}:
-        return 'llm'
-    return canonical
+    """Normalize year labels for registration matching (tenant PG aliases)."""
+    return normalize_registration_year(label)
 
 
 def _normalize_registration_term(label):
@@ -889,7 +851,8 @@ def view_curriculum(curriculum_id):
         courses_by_year_term[key].append(course)
     
     # Sort the groups: First by year (First, Second, Third, Fourth, LLM), then by term (First, Second)
-    year_order = {'First': 1, 'Second': 2, 'Third': 3, 'Fourth': 4, 'LLM': 5, 'Unspecified Year': 99}
+    year_order = {label: i + 1 for i, label in enumerate(current_tenant().year_labels_in_order)}
+    year_order['Unspecified Year'] = 99
     term_order = {'First': 1, 'Second': 2, 'Thesis Term': 3, 'Unspecified Term': 99}
     
     sorted_groups = sorted(courses_by_year_term.items(), 
@@ -2291,7 +2254,7 @@ def download_registration_pdf():
         
         # Center: University name and title (create a table for vertical stacking)
         center_table = Table([
-            [Paragraph('KHULNA UNIVERSITY, KHULNA', university_style)],
+            [Paragraph(current_tenant().university_name.upper() + ', KHULNA', university_style)],
             [Paragraph('Course Registration Card', title_style)],
             [Paragraph(f'Session: {session_name}', session_style)],
         ], colWidths=[100*mm])
@@ -2369,8 +2332,8 @@ def download_registration_pdf():
         elements.append(header_table)
         elements.append(Spacer(1, 12))
         
-        # Law Discipline section
-        elements.append(Paragraph('Law Discipline', discipline_style))
+        # Discipline heading
+        elements.append(Paragraph(current_tenant().name, discipline_style))
         
         # Student information in numbered list format
         student_info = [
@@ -2524,7 +2487,7 @@ def send_to_coordinator():
             coordinator_teacher = Teacher.query.filter_by(name=head_user.full_name).first()
             if not coordinator_teacher:
                 short_name = head_user.username[:20] if head_user.username else head_user.full_name[:20]
-                coordinator_teacher = Teacher(name=head_user.full_name, short_name=short_name)
+                coordinator_teacher = Teacher(name=head_user.full_name, short_name=short_name, institute=current_tenant().institute_label)
                 db.session.add(coordinator_teacher)
                 db.session.flush()
 

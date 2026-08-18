@@ -1292,7 +1292,7 @@ body.fullscreen-active .routine-table {
     <!-- Toolbar -->
     <header class="r-toolbar m-page-header">
         <div class="r-toolbar-left">
-            <span class="r-logo">KU Law</span>
+            <span class="r-logo">{{ tenant.short_name }}</span>
             {% if current_saved_routine %}
             <span class="r-badge">{{ current_saved_routine.year }}{% if current_saved_routine.name and current_saved_routine.name != current_saved_routine.year %} {{ current_saved_routine.name }}{% endif %}</span>
             {% endif %}

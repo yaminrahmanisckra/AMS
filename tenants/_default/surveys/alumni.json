@@ -1,0 +1,156 @@
+{
+  "title": "Alumni Survey Questionnaire",
+  "form_version": "alumni_generic",
+  "purpose": "This survey collects feedback for the Self-Assessment Report of the Mass Communication and Journalism Discipline. Your responses help improve teaching, facilities, and graduate outcomes.",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "name",
+      "label": "Name (Optional)",
+      "type": "text"
+    },
+    {
+      "key": "batch",
+      "label": "Batch (Optional)",
+      "type": "text"
+    },
+    {
+      "key": "graduation_year",
+      "label": "Year of Graduation (Optional)",
+      "type": "text"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Career Relevance",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "The program prepared me well for my current profession in media, communication, or related fields."
+        },
+        {
+          "key": "q2",
+          "text": "The knowledge I gained is relevant to my daily work."
+        },
+        {
+          "key": "q3",
+          "text": "The curriculum balanced theory with practical skills (reporting, production, research, writing)."
+        },
+        {
+          "key": "q4",
+          "text": "General Education courses helped broaden my professional skills."
+        },
+        {
+          "key": "q5",
+          "text": "The program helped me adapt to changes in media technology and practice."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Graduate Attributes",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q6",
+          "text": "Research and information-gathering skills."
+        },
+        {
+          "key": "q7",
+          "text": "Oral and written communication skills."
+        },
+        {
+          "key": "q8",
+          "text": "Problem solving and critical thinking."
+        },
+        {
+          "key": "q9",
+          "text": "Professional ethics and social responsibility."
+        },
+        {
+          "key": "q10",
+          "text": "ICT and production-technology skills."
+        },
+        {
+          "key": "q11",
+          "text": "Teamwork and leadership."
+        },
+        {
+          "key": "q12",
+          "text": "Creativity and innovation."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Teaching & Environment",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q13",
+          "text": "Faculty members were qualified and effective."
+        },
+        {
+          "key": "q14",
+          "text": "Assessment methods were fair and challenged my thinking."
+        },
+        {
+          "key": "q15",
+          "text": "Studio, lab, and fieldwork were sufficient and useful for my career."
+        },
+        {
+          "key": "q16",
+          "text": "Library and IT resources were adequate during my study."
+        },
+        {
+          "key": "q17",
+          "text": "Co-curricular activities helped develop my professional personality."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Engagement",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q18",
+          "text": "Career guidance was useful for internships and job search."
+        },
+        {
+          "key": "q19",
+          "text": "I feel a strong connection to the university."
+        },
+        {
+          "key": "q20",
+          "text": "The alumni network provides useful opportunities."
+        },
+        {
+          "key": "q21",
+          "text": "The discipline seeks alumni feedback on curriculum."
+        }
+      ]
+    },
+    {
+      "title": "Part E: Open-ended",
+      "type": "text",
+      "questions": [
+        {
+          "key": "q22",
+          "text": "What skills were missing from the curriculum that you needed professionally?"
+        },
+        {
+          "key": "q23",
+          "text": "How can practical training (studio, lab, internship) be improved?"
+        },
+        {
+          "key": "q24",
+          "text": "What are the major strengths of this discipline?"
+        },
+        {
+          "key": "q25",
+          "text": "Would you recommend this program? Why or why not?"
+        }
+      ]
+    }
+  ]
+}

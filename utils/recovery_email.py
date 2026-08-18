@@ -402,7 +402,7 @@ def send_recovery_email(subject: str, recipient: str, text_body: str, html_body:
     if not sender or not mail_user:
         raise RuntimeError(
             'MAIL_USERNAME / MAIL_DEFAULT_SENDER not set. '
-            'Use recovery@kulawams.xyz for password recovery.'
+            'Set the recovery mailbox address for password recovery.'
         )
 
     # Bare From (no display name) — matches SMTP login exactly unless overridden

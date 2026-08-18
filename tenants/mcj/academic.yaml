@@ -1,0 +1,56 @@
+# MCJ starts with the same numeric rules as Law. Change here or in Admin → Academic Rules.
+assessment:
+  slots: 4
+  take_best: 3
+  slot_max: 10
+  ug_out_of: 30
+  pg_out_of: 40
+  pg_scale_from: 30
+  part_a_b_each: 15
+  available_total_modes:
+    - best_three
+    - part_a_b_15
+    - best_three_40
+  allow_internal_total_modes: true
+
+results:
+  theory_ug:
+    attendance: 10
+    ca: 30
+    part_a: 30
+    part_b: 30
+  theory_pg:
+    attendance: 10
+    ca: 40
+    part_a: 25
+    part_b: 25
+  sessional:
+    attendance: 10
+    report: 60
+    viva: 30
+  thesis_ug:
+    contact: 10
+    evaluation: 60
+    presentation: 30
+  dissertation_proposal:
+    supervisor: 30
+    presentation: 70
+  dissertation_defence:
+    supervisor: 20
+    report: 50
+    defense: 30
+  viva:
+    viva: 100
+
+grades:
+  retake_step_down: true
+  bands:
+    - {letter: A+, min: 80, point: 4.0}
+    - {letter: A, min: 75, point: 3.75}
+    - {letter: A-, min: 70, point: 3.5}
+    - {letter: B+, min: 65, point: 3.25}
+    - {letter: B, min: 60, point: 3.0}
+    - {letter: B-, min: 55, point: 2.75}
+    - {letter: C+, min: 50, point: 2.5}
+    - {letter: C, min: 45, point: 2.25}
+    - {letter: D, min: 40, point: 2.0}

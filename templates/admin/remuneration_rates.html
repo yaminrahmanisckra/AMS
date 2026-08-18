@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Remuneration Rates{% endblock %}
+{% block mobile_title %}Rates{% endblock %}
+
+{% block content %}
+<div class="container my-5" style="max-width: 960px;">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">Remuneration Rates</h1>
+            <p class="text-muted mb-0">
+                Exam bill rates for {{ tenant.name }}. Saved changes apply only to this app and survive code updates.
+            </p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Admin Dashboard
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% if override_exists %}
+    <div class="alert alert-info">This site is using admin-edited rates (override of built-in defaults).</div>
+    {% else %}
+    <div class="alert alert-secondary">Using built-in default rates. Edit and save to customize this discipline.</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('admin_remuneration_rates') }}">
+        {% for group in groups %}
+        <div class="card shadow-sm mb-3">
+            <div class="card-header bg-light py-2">
+                <h6 class="mb-0">{{ group.title }}</h6>
+            </div>
+            <div class="card-body py-3">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Rate description</th>
+                                <th style="width: 140px;">Amount (৳)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rate in group.rates %}
+                            <tr>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="label_{{ group.key }}"
+                                           value="{{ rate.label }}" required>
+                                </td>
+                                <td>
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="value_{{ group.key }}"
+                                           value="{{ rate.value }}" inputmode="decimal">
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="d-flex flex-wrap justify-content-end gap-2">
+            <button type="submit" name="action" value="reset" class="btn btn-outline-danger"
+                    onclick="return confirm('Reset all remuneration rates to built-in defaults?');">
+                Reset to defaults
+            </button>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" name="action" value="save" class="btn btn-primary">
+                <i class="fas fa-save me-2"></i>Save rates
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

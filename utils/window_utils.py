@@ -274,6 +274,18 @@ def create_operational_window(name, description=None, academic_session=None,
     return window
 
 
+def update_operational_window(window_id, name, description=None):
+    window = OperationalWindow.query.get_or_404(window_id)
+    name = (name or '').strip()
+    if not name:
+        raise ValueError('Window name is required')
+    window.name = name
+    if description is not None:
+        window.description = (description or '').strip() or None
+    db.session.commit()
+    return window
+
+
 def set_window_active(window_id, activated_by=None):
     window = OperationalWindow.query.get_or_404(window_id)
     window.is_active = True

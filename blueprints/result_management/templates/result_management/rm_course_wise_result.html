@@ -36,30 +36,41 @@
             <tr>
                 <th>Student ID</th>
                 <th>Name</th>
-                {% if selected_subject and selected_subject.subject_type in ['Theory', 'Theory (UG)', 'Theory (PG)'] %}
-                    <th>Attendance (10)</th>
-                    <th>C.A. (40)</th>
-                    <th>Part A (25)</th>
-                    <th>Part B (25)</th>
+                {% if selected_subject and selected_subject.subject_type in ['Theory', 'Theory (PG)'] %}
+                    {% set pg = academic_rules.results.theory_pg %}
+                    <th>Attendance ({{ pg.attendance }})</th>
+                    <th>C.A. ({{ pg.ca }})</th>
+                    <th>Part A ({{ pg.part_a }})</th>
+                    <th>Part B ({{ pg.part_b }})</th>
+                {% elif selected_subject and selected_subject.subject_type == 'Theory (UG)' %}
+                    {% set ug = academic_rules.results.theory_ug %}
+                    <th>Attendance ({{ ug.attendance }})</th>
+                    <th>C.A. ({{ ug.ca }})</th>
+                    <th>Part A ({{ ug.part_a }})</th>
+                    <th>Part B ({{ ug.part_b }})</th>
                 {% elif selected_subject and selected_subject.subject_type == 'Sessional' %}
-                    <th>Attendance (10)</th>
-                    <th>Report (60)</th>
-                    <th>Viva (30)</th>
+                    {% set s = academic_rules.results.sessional %}
+                    <th>Attendance ({{ s.attendance }})</th>
+                    <th>Report ({{ s.report }})</th>
+                    <th>Viva ({{ s.viva }})</th>
                 {% elif selected_subject and selected_subject.subject_type in ['Thesis (UG)', 'Thesis I (UG)', 'Thesis II (UG)'] %}
-                    <th>Contact (10)</th>
-                    <th>Thesis Evaluation (60)</th>
-                    <th>Presentation (30)</th>
+                    {% set th = academic_rules.results.thesis_ug %}
+                    <th>Contact ({{ th.contact }})</th>
+                    <th>Thesis Evaluation ({{ th.evaluation }})</th>
+                    <th>Presentation ({{ th.presentation }})</th>
                 {% elif selected_subject and selected_subject.subject_type == 'Dissertation' %}
                     {% if selected_subject.dissertation_type == 'Type1' %}
-                        <th>Supervisor (70)</th>
-                        <th>Presentation (30)</th>
+                        {% set d1 = academic_rules.results.dissertation_proposal %}
+                        <th>Supervisor ({{ d1.supervisor }})</th>
+                        <th>Presentation ({{ d1.presentation }})</th>
                     {% else %}
-                        <th>Supervisor (20)</th>
-                        <th>Report (50)</th>
-                        <th>Defense (30)</th>
+                        {% set d2 = academic_rules.results.dissertation_defence %}
+                        <th>Supervisor ({{ d2.supervisor }})</th>
+                        <th>Report ({{ d2.report }})</th>
+                        <th>Defense ({{ d2.defense }})</th>
                     {% endif %}
                 {% elif selected_subject and selected_subject.subject_type == 'Viva' %}
-                    <th>Viva (100)</th>
+                    <th>Viva ({{ academic_rules.results.viva.viva }})</th>
                 {% endif %}
                 <th>Total Marks</th>
                 <th>Grade</th>

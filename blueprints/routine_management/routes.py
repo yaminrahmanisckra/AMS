@@ -15,6 +15,7 @@ from blueprints.course_management.models import Course, DutyAssignment
 from .forms import TeacherForm, RoomForm, AssignCourseForm
 from datetime import datetime
 from utils.timezone import format_bd
+from utils.tenant import current_tenant
 from collections import defaultdict
 from io import BytesIO
 from reportlab.lib import colors
@@ -849,8 +850,11 @@ def index():
 @login_required
 def public_routines():
     """View public (revealed) routines - accessible to all users"""
-    from utils.dashboard_settings import require_student_dashboard_card
+    from utils.dashboard_settings import require_student_dashboard_card, require_officer_dashboard_card
     blocked = require_student_dashboard_card('class_routine')
+    if blocked:
+        return blocked
+    blocked = require_officer_dashboard_card('class_routine')
     if blocked:
         return blocked
     from sqlalchemy import text
@@ -901,7 +905,7 @@ def public_routines():
 def manage_teachers():
     form = TeacherForm()
     if form.validate_on_submit():
-        new_teacher = Teacher(name=form.name.data, short_name=form.short_name.data)
+        new_teacher = Teacher(name=form.name.data, short_name=form.short_name.data, institute=current_tenant().institute_label)
         stamp_window_id(new_teacher)
         db.session.add(new_teacher)
         db.session.commit()
@@ -1440,13 +1444,16 @@ def check_edit_permission():
 @login_required
 def view_routine():
     """View routine - accessible to all users, but only routine makers can edit"""
-    from utils.dashboard_settings import require_student_dashboard_card
+    from utils.dashboard_settings import require_student_dashboard_card, require_officer_dashboard_card
     blocked = require_student_dashboard_card('class_routine')
+    if blocked:
+        return blocked
+    blocked = require_officer_dashboard_card('class_routine')
     if blocked:
         return blocked
     from blueprints.course_management.models import Curriculum
     from sqlalchemy import text, inspect
-    
+
     can_edit = can_edit_routine()
     
     # Get saved_routine_id from URL query params
@@ -3171,8 +3178,8 @@ def download_pdf():
             except ValueError:
                 formatted_date = date_text # Fallback to raw date
 
-        elements.append(Paragraph("Khulna University", h1_centered))
-        elements.append(Paragraph("Law Discipline", h2_centered))
+        elements.append(Paragraph(current_tenant().university_name, h1_centered))
+        elements.append(Paragraph(current_tenant().name, h2_centered))
         elements.append(Paragraph(title_text, h3_centered))
         if formatted_date:
             elements.append(Paragraph(f"Effective from {formatted_date}", h3_centered))
@@ -3492,13 +3499,7 @@ def download_pdf():
             grouped[(year_key, term_key)].append(info)
 
         # Sort groups by year/term for stable output using custom academic ordering
-        year_order_map = {
-            'First': 1,
-            'Second': 2,
-            'Third': 3,
-            'Fourth': 4,
-            'LLM': 5,
-        }
+        year_order_map = {label: i + 1 for i, label in enumerate(current_tenant().year_labels_in_order)}
         term_order_map = {
             'First': 1,
             'Second': 2,

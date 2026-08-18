@@ -71,7 +71,7 @@
 </head>
 <body>
     <div class="kicker">Official Notice</div>
-    <div class="org">Law Discipline, Khulna University</div>
+    <div class="org">{{ tenant.display_with_university }}</div>
     <div class="sub">Academic Management System — Noticeboard</div>
     <div class="rule"></div>
 
@@ -97,7 +97,7 @@
         <img class="signature" src="{{ signature_data_uri }}" alt="Signature">
         {% endif %}
         <div class="name">{{ author_name }}</div>
-        <div>Law Discipline, Khulna University</div>
+        <div>{{ tenant.display_with_university }}</div>
     </div>
 </body>
 </html>

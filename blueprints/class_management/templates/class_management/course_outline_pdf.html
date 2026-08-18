@@ -332,9 +332,9 @@
             {{ teacher.name }}<br>
             {% if teacher.designation %}{{ teacher.designation }}<br>{% endif %}
             {% set institute = (teacher.institute or '')|trim %}
-            {% if not institute or 'law discipline' in institute|lower %}
-            Law Discipline<br>
-            Khulna University
+            {% if not institute %}
+            {{ tenant.name }}<br>
+            {{ tenant.university_name }}
             {% else %}
             {{ institute }}
             {% endif %}
@@ -375,7 +375,7 @@
                     {% for t in course_teachers_pdf %}
                         {{ t.name }}{% if t.designation %}, {{ t.designation }}{% endif %}{% if not loop.last %}; {% endif %}
                     {% endfor %}
-                    <br>Law Discipline, Khulna University
+                    <br>{{ tenant.display_with_university }}
                 {% else %}
                     —
                 {% endif %}

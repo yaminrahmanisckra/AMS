@@ -19,12 +19,12 @@
 <div class="container my-5 px-2 px-md-3 self-assessment-form">
     <div class="text-center mb-5">
         <h2 class="fw-bold">Alumni Survey Questionnaire</h2>
-        <h4 class="text-muted">Law Discipline, Khulna University</h4>
+        <h4 class="text-muted">{{ tenant.display_with_university }}</h4>
     </div>
 
     <div class="card shadow-sm mb-4">
         <div class="card-body">
-            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
+            <p class="card-text"><strong>Purpose:</strong> This survey aims to assess the work environment, management efficiency, and resource adequacy within the {{ tenant.name }}. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.</p>
             <p class="card-text"><strong>Confidentiality:</strong> This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.</p>
             <p class="card-text mb-0"><strong>Scale:</strong><br>
             1 = Strongly Disagree / Very Poor &nbsp;|&nbsp; 2 = Disagree / Poor &nbsp;|&nbsp; 3 = Neutral / Average &nbsp;|&nbsp; 4 = Agree / Good &nbsp;|&nbsp; 5 = Strongly Agree / Excellent</p>
@@ -75,7 +75,7 @@
         <!-- Part B: Attainment of Graduate Attributes (Standard 4 & Discipline Specifics) -->
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-light"><h5 class="mb-0">Part B: Attainment of Graduate Attributes (Standard 4 &amp; Discipline Specifics)</h5></div>
-            <div class="card-body"><p class="text-muted fst-italic">Focus: Assessing the 11 Law Graduate Attributes. Please rate how well the program helped you develop these specific skills.</p>
+            <div class="card-body"><p class="text-muted fst-italic">Focus: Assessing graduate attributes of the {{ tenant.name }}. Please rate how well the program helped you develop these specific skills.</p>
                 <div class="table-responsive">
                     <table class="table table-bordered table-striped align-middle">
                         <thead class="table-light"><tr><th style="width:5%">#</th><th style="width:55%">Attribute / Skill</th><th style="width:40%">1 &nbsp; 2 &nbsp; 3 &nbsp; 4 &nbsp; 5</th></tr></thead>
@@ -164,7 +164,7 @@
                     <textarea class="form-control" name="q23" id="q23" rows="3" placeholder="Your answer..."></textarea>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label fw-bold">24. What are the major strengths of the Department of Law that we should maintain?</label>
+                    <label class="form-label fw-bold">24. What are the major strengths of the {{ tenant.name }} that we should maintain?</label>
                     <textarea class="form-control" name="q24" id="q24" rows="3" placeholder="Your answer..."></textarea>
                 </div>
                 <div class="mb-4">

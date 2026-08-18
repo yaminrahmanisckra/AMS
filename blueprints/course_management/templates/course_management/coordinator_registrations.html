@@ -1097,9 +1097,9 @@ function cwHideStatus() {
     if (box) box.innerHTML = '';
 }
 
-const CW_YEAR_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+const CW_YEAR_ORDER = {{ tenant.year_select_options|tojson }};
 const CW_TERM_ORDER = ['First', 'Second', 'Third', 'Fourth', 'Thesis Term'];
-const CW_DEFAULT_YEARS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'LLM'];
+const CW_DEFAULT_YEARS = {{ tenant.year_select_options|tojson }};
 const CW_DEFAULT_TERMS = ['First', 'Second', 'Thesis Term'];
 
 function cwSortYears(years) {

@@ -1,5 +1,5 @@
 // Service Worker for Academic Management System PWA
-const CACHE_NAME = 'ams-ku-v3'; // v3: never intercept /admission-exam/
+const CACHE_NAME = 'ams-ku-v5';
 const urlsToCache = [
   // Removed '/' - HTML pages should NEVER be cached
   '/static/css/style.css',

@@ -29,7 +29,7 @@
 {% block content %}
 <div class="container my-5 px-2 px-md-3 survey-form-mobile">
     <h2 class="mb-4">{% if survey_type == 'employer' %}Employer Survey{% elif survey_type == 'faculty' %}Faculty Survey{% elif survey_type == 'non_academic' %}Non Academic Staff Survey{% else %}Student Survey{% endif %}</h2>
-    <p class="text-muted mb-4">Law Discipline, Khulna University</p>
+    <p class="text-muted mb-4">{{ tenant.display_with_university }}</p>
     <div class="mb-4">
         <a href="{{ url_for('self_assessment.public_survey_form_pdf', survey_type=survey_type, code=link.access_code) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">
             <i class="fas fa-file-pdf me-1"></i>ফরম পিডিএফ ডাউনলোড করুন (অফলাইনে পূরণের জন্য)

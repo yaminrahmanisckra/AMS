@@ -53,7 +53,7 @@
                         </div>
                         <div class="mb-3">
                             <label for="institute" class="form-label">Institute</label>
-                            <input type="text" class="form-control" id="institute" name="institute" value="{% if teacher_record and teacher_record.institute %}{{ teacher_record.institute }}{% else %}Law Discipline, KU{% endif %}" placeholder="Law Discipline, KU">
+                            <input type="text" class="form-control" id="institute" name="institute" value="{% if teacher_record and teacher_record.institute %}{{ teacher_record.institute }}{% else %}{{ tenant.institute_label }}{% endif %}" placeholder="{{ tenant.institute_label }}">
                         </div>
                         <div class="mb-3">
                             <label for="call_sign" class="form-label">Call Sign</label>

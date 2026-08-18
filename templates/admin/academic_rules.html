@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}Academic Rules{% endblock %}
+{% block mobile_title %}Academic Rules{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">Academic Rules</h1>
+            <p class="text-muted mb-0">
+                Calculation rules for {{ tenant.name }}.
+                Saved changes apply only to this app (instance override) and survive code updates.
+            </p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Admin Dashboard
+        </a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    {% if override_exists %}
+    <div class="alert alert-info">This site is using an admin override on top of the {{ tenant.code }} pack.</div>
+    {% else %}
+    <div class="alert alert-secondary">Using pack defaults from <code>tenants/{{ tenant.code }}/academic.yaml</code>.</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('admin_academic_rules') }}">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="fas fa-calculator me-2"></i>Continuous assessment totals</h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">UG total = sum of the best N assessments. PG total = (that sum ÷ scale-from) × PG out-of. External (and optionally internal) courses can switch among the systems below.</p>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Take best (N)</label>
+                        <input type="number" class="form-control" name="assessment_take_best" min="1" max="4" value="{{ rules.assessment.take_best }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Each assessment max</label>
+                        <input type="number" class="form-control" name="assessment_slot_max" min="1" value="{{ rules.assessment.slot_max }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">UG total out of</label>
+                        <input type="number" class="form-control" name="assessment_ug_out_of" min="1" value="{{ rules.assessment.ug_out_of }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">PG total out of</label>
+                        <input type="number" class="form-control" name="assessment_pg_out_of" min="1" value="{{ rules.assessment.pg_out_of }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">PG scale from</label>
+                        <input type="number" class="form-control" name="assessment_pg_scale_from" min="1" value="{{ rules.assessment.pg_scale_from }}" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Part A/B each</label>
+                        <input type="number" class="form-control" name="assessment_part_a_b_each" min="1" value="{{ rules.assessment.part_a_b_each }}" required>
+                    </div>
+                    <input type="hidden" name="assessment_slots" value="{{ rules.assessment.slots }}">
+                </div>
+
+                <hr class="my-4">
+                <h6 class="mb-2">Total systems teachers may choose</h6>
+                <p class="text-muted small">These are the same options used on external theory courses. Tick the ones that should appear in the Assessment Total Calculation dropdown.</p>
+                {% set enabled_modes = rules.assessment.available_total_modes %}
+                <div class="row g-2 mb-3">
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="available_total_modes" id="mode_best_three" value="best_three" {% if 'best_three' in enabled_modes %}checked{% endif %}>
+                            <label class="form-check-label" for="mode_best_three">
+                                Best {{ rules.assessment.take_best }} (out of {{ rules.assessment.ug_out_of }})
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="available_total_modes" id="mode_part_ab" value="part_a_b_15" {% if 'part_a_b_15' in enabled_modes %}checked{% endif %}>
+                            <label class="form-check-label" for="mode_part_ab">
+                                Best of Part A + Best of Part B (each {{ rules.assessment.part_a_b_each }})
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="available_total_modes" id="mode_best_three_40" value="best_three_40" {% if 'best_three_40' in enabled_modes %}checked{% endif %}>
+                            <label class="form-check-label" for="mode_best_three_40">
+                                Best {{ rules.assessment.take_best }} converted into {{ rules.assessment.pg_out_of }}
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="allow_internal_total_modes" id="allow_internal_total_modes" {% if rules.assessment.allow_internal_total_modes %}checked{% endif %}>
+                    <label class="form-check-label" for="allow_internal_total_modes">
+                        Allow teachers of <strong>internal</strong> theory courses to choose one of these total systems per course
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="fas fa-table me-2"></i>Result mark distribution (out of 100)</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>Attendance / Contact</th>
+                                <th>CA / Report / Evaluation</th>
+                                <th>Part A / Viva / Presentation</th>
+                                <th>Part B / Defense</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Theory (UG)</strong></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_ug_attendance" value="{{ rules.results.theory_ug.attendance }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_ug_ca" value="{{ rules.results.theory_ug.ca }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_ug_part_a" value="{{ rules.results.theory_ug.part_a }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_ug_part_b" value="{{ rules.results.theory_ug.part_b }}" min="0"></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Theory (PG)</strong></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_pg_attendance" value="{{ rules.results.theory_pg.attendance }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_pg_ca" value="{{ rules.results.theory_pg.ca }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_pg_part_a" value="{{ rules.results.theory_pg.part_a }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="theory_pg_part_b" value="{{ rules.results.theory_pg.part_b }}" min="0"></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Sessional</strong></td>
+                                <td><input type="number" class="form-control form-control-sm" name="sessional_attendance" value="{{ rules.results.sessional.attendance }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="sessional_report" value="{{ rules.results.sessional.report }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="sessional_viva" value="{{ rules.results.sessional.viva }}" min="0"></td>
+                                <td class="text-muted">—</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Thesis (UG)</strong></td>
+                                <td><input type="number" class="form-control form-control-sm" name="thesis_ug_contact" value="{{ rules.results.thesis_ug.contact }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="thesis_ug_evaluation" value="{{ rules.results.thesis_ug.evaluation }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="thesis_ug_presentation" value="{{ rules.results.thesis_ug.presentation }}" min="0"></td>
+                                <td class="text-muted">—</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Dissertation proposal</strong></td>
+                                <td><input type="number" class="form-control form-control-sm" name="dissertation_proposal_supervisor" value="{{ rules.results.dissertation_proposal.supervisor }}" min="0"></td>
+                                <td class="text-muted">—</td>
+                                <td><input type="number" class="form-control form-control-sm" name="dissertation_proposal_presentation" value="{{ rules.results.dissertation_proposal.presentation }}" min="0"></td>
+                                <td class="text-muted">—</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Dissertation defence</strong></td>
+                                <td><input type="number" class="form-control form-control-sm" name="dissertation_defence_supervisor" value="{{ rules.results.dissertation_defence.supervisor }}" min="0"></td>
+                                <td><input type="number" class="form-control form-control-sm" name="dissertation_defence_report" value="{{ rules.results.dissertation_defence.report }}" min="0"></td>
+                                <td class="text-muted">—</td>
+                                <td><input type="number" class="form-control form-control-sm" name="dissertation_defence_defense" value="{{ rules.results.dissertation_defence.defense }}" min="0"></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Viva</strong></td>
+                                <td colspan="4"><input type="number" class="form-control form-control-sm" name="viva_viva" value="{{ rules.results.viva.viva }}" min="0" style="max-width: 8rem;"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <h5 class="mb-0"><i class="fas fa-award me-2"></i>Grade bands</h5>
+            </div>
+            <div class="card-body">
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="retake_step_down" id="retake_step_down" {% if rules.grades.retake_step_down %}checked{% endif %}>
+                    <label class="form-check-label" for="retake_step_down">Step retake grades down one band (A+ → A, …)</label>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Letter</th>
+                                <th>Minimum marks</th>
+                                <th>Grade point</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for band in rules.grades.bands %}
+                            <tr>
+                                <td><input type="text" class="form-control form-control-sm" name="grade_letter" value="{{ band.letter }}" required></td>
+                                <td><input type="number" class="form-control form-control-sm" name="grade_min" value="{{ band.min }}" min="0" max="100" required></td>
+                                <td><input type="number" step="0.01" class="form-control form-control-sm" name="grade_point" value="{{ band.point }}" min="0" max="4" required></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex flex-wrap justify-content-end gap-2">
+            <button type="submit" name="action" value="reset" class="btn btn-outline-danger" onclick="return confirm('Reset to pack defaults for this discipline?');">
+                Reset to pack defaults
+            </button>
+            <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+            <button type="submit" name="action" value="save" class="btn btn-primary">
+                <i class="fas fa-save me-2"></i>Save rules
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -127,7 +127,7 @@
     <div class="card-body">
         <p class="small text-muted mb-3">5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree</p>
         {% set faculty_labels = [
-            '1. I am clearly aware of the Vision and Mission of the University and the Law Discipline.',
+            '1. I am clearly aware of the Vision and Mission of the University and the ' ~ tenant.name ~ '.',
             '2. The recruitment and promotion policy is transparent, merit-based, and free from bias.',
             '3. I was consulted or given an opportunity to provide input during the preparation of the Strategic Plan.',
             '4. The academic calendar is strictly maintained, and examinations/results are published on time.',
@@ -192,7 +192,7 @@
     </div>
     <div class="card-body p-0">
         <table class="table table-bordered table-sm mb-0">
-            <tr><td class="bg-light fw-bold" style="width: 35%;">26. What are the top three STRENGTHS of the Law Discipline?</td><td>{{ payload.get('strengths') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold" style="width: 35%;">26. What are the top three STRENGTHS of the {{ tenant.name }}?</td><td>{{ payload.get('strengths') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">27. What are the major WEAKNESSES or areas that need immediate improvement?</td><td>{{ payload.get('weaknesses') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">28. What OPPORTUNITIES (e.g., external collaborations, new programs) should the discipline explore?</td><td>{{ payload.get('opportunities') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">29. Any other comments regarding the academic environment?</td><td>{{ payload.get('other_comments') or '–' }}</td></tr>

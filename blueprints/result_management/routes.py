@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request, send_file, Response, current_app, jsonify
 from flask_login import login_required, current_user
+from utils.academic_rules import assessment_cfg, calculate_grade as tenant_calculate_grade
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Frame, PageTemplate
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -286,16 +287,19 @@ def _round_theory_component_marks(mark):
 
 
 def _get_continuous_assessment_from_class_student(class_student):
-    """Extract continuous assessment (out of 40) from a ClassStudent row."""
+    """Extract continuous assessment from a ClassStudent row, scaled to PG CA if needed."""
     if not class_student:
         return None
+    cfg = assessment_cfg()
+    pg_out = float(cfg['pg_out_of'])
+    ug_out = float(cfg['ug_out_of'])
     if class_student.assessment_total_40 is not None:
         return _round_result_mark(class_student.assessment_total_40)
     if class_student.assessment_total is not None:
         assessment_total = float(class_student.assessment_total)
-        if assessment_total <= 40:
+        if assessment_total <= pg_out:
             return _round_result_mark(assessment_total)
-        return _round_result_mark(min(40.0, (assessment_total / 30) * 40))
+        return _round_result_mark(min(pg_out, (assessment_total / ug_out) * pg_out))
     return None
 
 
@@ -1026,27 +1030,7 @@ def _determine_subject_type(course):
     return course.course_type or 'Theory'
 
 def calculate_grade(total_marks, is_retake=False):
-    grade_point = 0.0
-    grade_letter = 'F'
-    if total_marks >= 80: grade_point, grade_letter = 4.0, 'A+'
-    elif total_marks >= 75: grade_point, grade_letter = 3.75, 'A'
-    elif total_marks >= 70: grade_point, grade_letter = 3.5, 'A-'
-    elif total_marks >= 65: grade_point, grade_letter = 3.25, 'B+'
-    elif total_marks >= 60: grade_point, grade_letter = 3.0, 'B'
-    elif total_marks >= 55: grade_point, grade_letter = 2.75, 'B-'
-    elif total_marks >= 50: grade_point, grade_letter = 2.5, 'C+'
-    elif total_marks >= 45: grade_point, grade_letter = 2.25, 'C'
-    elif total_marks >= 40: grade_point, grade_letter = 2.0, 'D'
-    if is_retake and grade_letter != 'F':
-        if grade_letter == 'A+': grade_point, grade_letter = 3.75, 'A'
-        elif grade_letter == 'A': grade_point, grade_letter = 3.5, 'A-'
-        elif grade_letter == 'A-': grade_point, grade_letter = 3.25, 'B+'
-        elif grade_letter == 'B+': grade_point, grade_letter = 3.0, 'B'
-        elif grade_letter == 'B': grade_point, grade_letter = 2.75, 'B-'
-        elif grade_letter == 'B-': grade_point, grade_letter = 2.5, 'C+'
-        elif grade_letter == 'C+': grade_point, grade_letter = 2.25, 'C'
-        elif grade_letter == 'C': grade_point, grade_letter = 2.0, 'D'
-    return grade_point, grade_letter
+    return tenant_calculate_grade(total_marks, is_retake=is_retake)
 
 def convert_to_roman(num):
     val = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1]

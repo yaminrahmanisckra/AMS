@@ -195,7 +195,7 @@
     <div class="pdf-container">
         <!-- Header -->
         <div class="header">
-            <h1>Law Discipline, Khulna University, Khulna</h1>
+            <h1>{{ tenant.display_with_university }}</h1>
             <h2>{{ program }} {{ year }} {{ term }} Examination{% if batch %} ({{ batch }} Batch){% endif %}</h2>
             <h3>(Session: {{ session }})</h3>
             <h2>Statement of Remuneration</h2>
@@ -356,9 +356,9 @@
         <div class="signature">
             <div class="signature-space"></div>
             <div class="signature-line">
-                <div class="signature-name">Head</div>
-                <div class="signature-title">Law Discipline</div>
-                <div class="signature-title">Khulna University</div>
+                <div class="signature-name">{{ tenant.head_title }}</div>
+                <div class="signature-title">{{ tenant.name }}</div>
+                <div class="signature-title">{{ tenant.university_name }}</div>
             </div>
         </div>
     </div>

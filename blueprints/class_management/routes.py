@@ -1,5 +1,15 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, Response, jsonify
 from flask_login import login_required, current_user
+from utils.timezone import format_bd
+from utils.tenant import current_tenant
+from utils.academic_rules import (
+    assessment_cfg,
+    take_best_marks,
+    scale_pg_total,
+    result_split,
+    available_assessment_total_modes,
+    allow_internal_assessment_total_modes,
+)
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from sqlalchemy import or_, text, func
@@ -163,8 +173,7 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
 
     if not _notification_smtp_configured():
         current_app.logger.error(
-            "marks_revealed email skipped: set NOTIFICATION_MAIL_USERNAME/PASSWORD/SENDER "
-            "(noreply@kulawams.xyz)"
+            'marks_revealed email skipped: set NOTIFICATION_MAIL_USERNAME/PASSWORD/SENDER'
         )
         return
 
@@ -199,10 +208,11 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
                 f"Your {assessment_label} result is now visible in AMS "
                 f"for {course_label} — {student_name} ({student_id})"
             )
+            t = current_tenant()
             text_body = (
                 f"Dear {student_name},\n\n"
                 "This academic notification is from the Academic Management System (AMS) "
-                "of the Law Discipline, Khulna University.\n\n"
+                f"of the {t.display_with_university}.\n\n"
                 "Your course teacher has published / revealed marks for an assessment in "
                 "your enrolled course session. The details for your account are:\n\n"
                 f"- Student name: {student_name}\n"
@@ -223,17 +233,17 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
                 "If the address does not open from a click, copy the full line and paste it "
                 "into your browser address bar.\n\n"
                 "If you are not enrolled in this course or believe this message was sent "
-                "by mistake, contact your course teacher or the Law Discipline office. "
+                f"by mistake, contact your course teacher or the {t.office_label}. "
                 "No action is required if you already reviewed your marks in AMS.\n\n"
                 "Regards,\n"
                 "Academic Management System\n"
-                "Law Discipline, Khulna University\n"
-                "Sender: noreply@kulawams.xyz\n"
+                f"{t.display_with_university}\n"
+                f"Sender: {(current_app.config.get('NOTIFICATION_MAIL_SENDER') or current_app.config.get('NOTIFICATION_MAIL_USERNAME') or '').strip()}\n"
             )
             html_body = (
                 f"<p>Dear {student_name},</p>"
                 "<p>This academic notification is from the Academic Management System (AMS) "
-                "of the Law Discipline, Khulna University.</p>"
+                f"of the {t.display_with_university}.</p>"
                 "<p>Your course teacher has published / revealed marks for an assessment in "
                 "your enrolled course session. The details for your account are:</p>"
                 "<ul>"
@@ -259,11 +269,11 @@ def _send_marks_revealed_email_to_session_students(session_id, course_label, ass
                 f"<li>Check the marks shown for {assessment_label} under {course_label}.</li>"
                 "</ol>"
                 "<p>If you are not enrolled in this course or believe this message was sent "
-                "by mistake, contact your course teacher or the Law Discipline office.</p>"
+                f"by mistake, contact your course teacher or the {t.office_label}.</p>"
                 "<p>Regards,<br>"
                 "Academic Management System<br>"
-                "Law Discipline, Khulna University<br>"
-                "Sender: noreply@kulawams.xyz</p>"
+                f"{t.display_with_university}<br>"
+                f"Sender: {(current_app.config.get('NOTIFICATION_MAIL_SENDER') or current_app.config.get('NOTIFICATION_MAIL_USERNAME') or '').strip()}</p>"
             )
             entries.append({
                 'recipient': student_email,
@@ -543,11 +553,37 @@ def _dedupe_active_sessions(sessions):
     return kept
 
 
+def _assessment_column_labels():
+    cfg = assessment_cfg()
+    return {
+        'best_three': f'Total of Best {cfg["take_best"]} ({cfg["ug_out_of"]})',
+        'part_a_b_15': (
+            f'Part A ({cfg["part_a_b_each"]}) + Part B ({cfg["part_a_b_each"]}) '
+            f'({cfg["ug_out_of"]})'
+        ),
+        'best_three_40': f'Total ({cfg["pg_out_of"]})',
+    }
+
+
+def _external_assessment_modes():
+    cfg = assessment_cfg()
+    labels = {
+        'best_three': f'Best {cfg["take_best"]}',
+        'part_a_b_15': (
+            f'Best of Part A ({cfg["part_a_b_each"]}) + Best of Part B ({cfg["part_a_b_each"]})'
+        ),
+        'best_three_40': f'Best {cfg["take_best"]} converted into {cfg["pg_out_of"]}',
+    }
+    allowed = available_assessment_total_modes()
+    return {key: labels[key] for key in allowed if key in labels}
+
+
 EXTERNAL_ASSESSMENT_MODES = {
     'best_three': 'Best three',
     'part_a_b_15': 'Best of Part A (15) + Best of Part B (15)',
     'best_three_40': 'Best three converted into 40',
 }
+INTERNAL_PG_BEST_THREE_STORAGE = 'best_three_30'
 DEFAULT_EXTERNAL_ASSESSMENT_MODE = 'best_three'
 EXTERNAL_ASSESSMENT_COLUMN_LABELS = {
     'best_three': 'Total of Best 3 (30)',
@@ -558,15 +594,72 @@ EXTERNAL_ASSESSMENT_COLUMN_LABELS = {
 
 def _normalize_external_assessment_mode(mode):
     normalized = (mode or DEFAULT_EXTERNAL_ASSESSMENT_MODE).strip().lower()
+    if normalized == INTERNAL_PG_BEST_THREE_STORAGE:
+        return 'best_three'
     if normalized not in EXTERNAL_ASSESSMENT_MODES:
         return DEFAULT_EXTERNAL_ASSESSMENT_MODE
     return normalized
 
 
+def _session_uses_assessment_mode_picker(session):
+    if not session or session.course_type != 'theory':
+        return False
+    if getattr(session, 'is_external_course', False):
+        return True
+    return allow_internal_assessment_total_modes()
+
+
+def _category_default_assessment_mode(session):
+    if session and (session.category or '').lower() == 'pg':
+        return 'best_three_40'
+    return 'best_three'
+
+
+def _effective_assessment_mode(session):
+    allowed = available_assessment_total_modes() or [DEFAULT_EXTERNAL_ASSESSMENT_MODE]
+    if not session or session.course_type != 'theory':
+        return allowed[0]
+
+    stored_raw = (getattr(session, 'external_assessment_mode', None) or '').strip().lower()
+    is_external = bool(getattr(session, 'is_external_course', False))
+
+    if is_external:
+        mode = _normalize_external_assessment_mode(stored_raw)
+    elif not allow_internal_assessment_total_modes():
+        mode = _category_default_assessment_mode(session)
+    elif (session.category or '').lower() == 'pg' and stored_raw in ('', DEFAULT_EXTERNAL_ASSESSMENT_MODE):
+        # Internal PG rows historically defaulted to best_three in the unused column.
+        mode = 'best_three_40'
+    else:
+        mode = _normalize_external_assessment_mode(stored_raw)
+
+    if mode not in allowed:
+        fallback = _category_default_assessment_mode(session)
+        mode = fallback if fallback in allowed else allowed[0]
+    return mode
+
+
+def _persist_assessment_mode(session, ui_mode):
+    mode = _normalize_external_assessment_mode(ui_mode)
+    allowed = available_assessment_total_modes()
+    if mode not in allowed:
+        mode = _effective_assessment_mode(session)
+    if (
+        not getattr(session, 'is_external_course', False)
+        and (session.category or '').lower() == 'pg'
+        and mode == 'best_three'
+    ):
+        session.external_assessment_mode = INTERNAL_PG_BEST_THREE_STORAGE
+    else:
+        session.external_assessment_mode = mode
+    return mode
+
+
 def _external_assessment_mark_max(mode, assess_idx=None):
+    cfg = assessment_cfg()
     if _normalize_external_assessment_mode(mode) == 'part_a_b_15':
-        return 15
-    return 10
+        return cfg['part_a_b_each']
+    return cfg['slot_max']
 
 
 def _external_assessment_column_header(assess_idx, mode):
@@ -574,15 +667,15 @@ def _external_assessment_column_header(assess_idx, mode):
 
 
 def _parse_external_assessment_value(raw_value, session):
-    """Parse and clamp assessment input for external theory sessions."""
+    """Parse and clamp assessment input for theory sessions."""
     if raw_value in (None, ''):
         return None
     try:
         value = float(raw_value)
     except (TypeError, ValueError):
         return None
-    if _is_external_theory_session(session):
-        mark_max = _external_assessment_mark_max(getattr(session, 'external_assessment_mode', None))
+    if session and session.course_type == 'theory':
+        mark_max = _external_assessment_mark_max(_effective_assessment_mode(session))
         if value < 0:
             return None
         if value > mark_max:
@@ -593,7 +686,8 @@ def _parse_external_assessment_value(raw_value, session):
 def _compute_external_assessment_total(combined, mode=None):
     """Compute display/persisted totals for external course assessment modes."""
     mode = _normalize_external_assessment_mode(mode)
-    column_label = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode, EXTERNAL_ASSESSMENT_COLUMN_LABELS['best_three'])
+    labels = _assessment_column_labels()
+    column_label = labels.get(mode, labels['best_three'])
     empty = {
         'display_total': None,
         'assessment_total': None,
@@ -623,11 +717,11 @@ def _compute_external_assessment_total(combined, mode=None):
         return empty
 
     valid_marks.sort(reverse=True)
-    best = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
+    best = take_best_marks(valid_marks)
     best_sum = sum(best)
 
     if mode == 'best_three_40':
-        total_40 = _round_half_up_int((best_sum / 30) * 40)
+        total_40 = _round_half_up_int(scale_pg_total(best_sum))
         return {
             'display_total': total_40,
             'assessment_total': None,
@@ -663,8 +757,8 @@ def _is_external_theory_session(session):
 
 
 def _get_external_assessment_display_total(session, student_id, combined_values, combined_best3=None, combined_pg_total=None):
-    """Resolved display total for external theory exports (PDF/Excel/combined report)."""
-    mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+    """Resolved display total for mode-based theory exports (PDF/Excel/combined report)."""
+    mode = _effective_assessment_mode(session)
     combined = combined_values.get(student_id, {})
     display_total = _compute_external_assessment_total(combined, mode)['display_total']
     if display_total is None:
@@ -679,14 +773,14 @@ def _get_external_assessment_display_total(session, student_id, combined_values,
 
 def _combined_pdf_assessment_header(session):
     """Assessment column header for combined attendance + assessment PDF."""
-    if _is_external_theory_session(session):
-        mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+    if session.course_type == 'theory':
+        mode = _effective_assessment_mode(session)
         if mode == 'best_three_40':
-            return 'Continuous Assessment (40)'
-        return 'Continuous Assessment (30)'
+            return f'Continuous Assessment ({assessment_cfg()["pg_out_of"]})'
+        return f'Continuous Assessment ({assessment_cfg()["ug_out_of"]})'
     if session.course_type == 'theory' and session.category == 'pg':
-        return 'Continuous Assessment (40)'
-    return 'Continuous Assessment (30)'
+        return f'Continuous Assessment ({assessment_cfg()["pg_out_of"]})'
+    return f'Continuous Assessment ({assessment_cfg()["ug_out_of"]})'
 
 
 def _combined_pdf_title(session):
@@ -1056,7 +1150,7 @@ def _ensure_current_teacher():
         candidate = f"{base[:10-len(suffix)]}{suffix}"
         counter += 1
 
-    teacher = Teacher(name=current_user.full_name, short_name=candidate)
+    teacher = Teacher(name=current_user.full_name, short_name=candidate, institute=current_tenant().institute_label)
     db.session.add(teacher)
     db.session.commit()
     return teacher
@@ -1219,8 +1313,8 @@ def _recalculate_assessment_totals(session):
         return
 
     _, student_map = _gather_split_student_map(session)
-    if _is_external_theory_session(session):
-        mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+    if session.course_type == 'theory':
+        mode = _effective_assessment_mode(session)
         for entries in student_map.values():
             combined = _combined_dict_from_entries(entries)
             result = _compute_external_assessment_total(combined, mode)
@@ -1248,11 +1342,10 @@ def _recalculate_assessment_totals(session):
 
         if session.category == 'pg':
             if marks:
-                best = marks[:3] if len(marks) >= 3 else marks
+                best = take_best_marks(marks)
                 avg = sum(best) / len(best)
-                # Convert best 3 sum to 40 marks scale: always use 30 as max (sum / 30) * 40
                 best_sum = sum(best)
-                total_40 = int(round((best_sum / 30) * 40))  # Round for PG courses
+                total_40 = int(round(scale_pg_total(best_sum)))
                 avg_value = round(avg, 2)
             else:
                 avg_value = None
@@ -1263,7 +1356,7 @@ def _recalculate_assessment_totals(session):
                 entry.assessment_total = None
         else:
             if marks:
-                best = marks[:3] if len(marks) >= 3 else marks
+                best = take_best_marks(marks)
                 total = _maybe_round_assessment_total(session, sum(best))
             else:
                 total = None
@@ -1345,8 +1438,8 @@ def _build_combined_assessment_values(session):
         
         value_map[student_id] = combined
 
-        if _is_external_theory_session(session):
-            mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+        if session.course_type == 'theory':
+            mode = _effective_assessment_mode(session)
             result = _compute_external_assessment_total(combined, mode)
             display_total = result['display_total']
             if mode != 'best_three_40':
@@ -1364,18 +1457,18 @@ def _build_combined_assessment_values(session):
         
         if session.category == 'pg':
             if valid_marks:
-                best = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
+                best = take_best_marks(valid_marks)
                 avg = sum(best) / len(best)
                 pg_avg_map[student_id] = round(avg, 2)
                 best_sum = sum(best)
-                pg_total_map[student_id] = int(round((best_sum / 30) * 40))  # Round for PG courses
+                pg_total_map[student_id] = int(round(scale_pg_total(best_sum)))
             else:
                 pg_avg_map[student_id] = None
                 pg_total_map[student_id] = None
         else:
             # UG: Best 3 total (optionally rounded via session toggle)
             if valid_marks:
-                best = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
+                best = take_best_marks(valid_marks)
                 ug_best3[student_id] = _maybe_round_assessment_total(session, sum(best))
             else:
                 ug_best3[student_id] = None
@@ -1629,7 +1722,13 @@ def _build_attendance_summary(session, include_archived=False):
     related_sessions = _resolve_attendance_related_sessions(session, include_archived=include_archived)
     session_ids = [s.id for s in related_sessions if s]
     if not session_ids:
-        return {'total_classes': 0, 'per_student': {}, 'per_session_totals': defaultdict(int), 'related_sessions': related_sessions}
+        return {
+            'total_classes': 0,
+            'per_student': {},
+            'per_session_totals': defaultdict(int),
+            'per_student_per_session': {},
+            'related_sessions': related_sessions,
+        }
 
     attendance_records = ClassAttendance.query.filter(
         ClassAttendance.session_id.in_(session_ids)
@@ -1639,6 +1738,7 @@ def _build_attendance_summary(session, include_archived=False):
     student_lookup = {stu.id: stu for stu in students}
 
     per_student_counts = defaultdict(lambda: {'present': 0, 'skip': 0})
+    per_student_session_counts = defaultdict(lambda: defaultdict(lambda: {'present': 0, 'skip': 0}))
     per_session_date_counts = defaultdict(lambda: defaultdict(int))
     per_student_date_slot_seen = defaultdict(set)
     per_student_date_fallback_counts = defaultdict(int)
@@ -1664,8 +1764,10 @@ def _build_attendance_summary(session, include_archived=False):
         record_status = _attendance_status_from_record(record)
         if record_status == ClassAttendance.STATUS_PRESENT:
             per_student_counts[student.student_id]['present'] += 1
+            per_student_session_counts[student.student_id][record.session_id]['present'] += 1
         elif record_status == ClassAttendance.STATUS_SKIP:
             per_student_counts[student.student_id]['skip'] += 1
+            per_student_session_counts[student.student_id][record.session_id]['skip'] += 1
         per_student_counts[student.student_id]['records'] = per_student_counts[student.student_id].get('records', 0) + 1
 
     per_session_totals = defaultdict(int)
@@ -1714,7 +1816,47 @@ def _build_attendance_summary(session, include_archived=False):
         'total_classes': total_classes,
         'per_student': per_student_result,
         'per_session_totals': per_session_totals,
+        'per_student_per_session': {
+            public_id: {session_id: dict(counts) for session_id, counts in sessions.items()}
+            for public_id, sessions in per_student_session_counts.items()
+        },
         'related_sessions': related_sessions
+    }
+
+
+def _split_attendance_part_breakdown(attendance_summary, student_id):
+    """Part A / Part B class and present totals for one student on a split course."""
+    related_sessions = attendance_summary.get('related_sessions') or []
+    per_session_totals = attendance_summary.get('per_session_totals') or {}
+    per_student_session = (attendance_summary.get('per_student_per_session') or {}).get(student_id) or {}
+
+    part_a_classes = 0
+    part_b_classes = 0
+    part_a_present = 0
+    part_b_present = 0
+    has_split_part = False
+
+    for related in related_sessions:
+        if not related or related.course_scope not in SPLIT_PARTS:
+            continue
+        has_split_part = True
+        classes = per_session_totals.get(related.id, 0) or 0
+        present = (per_student_session.get(related.id) or {}).get('present', 0) or 0
+        if related.course_scope == SCOPE_PART_A:
+            part_a_classes += classes
+            part_a_present += present
+        elif related.course_scope == SCOPE_PART_B:
+            part_b_classes += classes
+            part_b_present += present
+
+    if not has_split_part:
+        return None
+
+    return {
+        'part_a_classes': part_a_classes,
+        'part_b_classes': part_b_classes,
+        'part_a_present': part_a_present,
+        'part_b_present': part_b_present,
     }
 
 
@@ -6336,7 +6478,7 @@ def archive():
     # Get or create teacher for current user
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if not teacher:
-        teacher = Teacher(name=current_user.full_name)
+        teacher = Teacher(name=current_user.full_name, institute=current_tenant().institute_label)
         db.session.add(teacher)
         db.session.commit()
     
@@ -6803,35 +6945,14 @@ def download_pdf_report(session_id):
                 # For theory courses, use combined assessment
                 assessment_marks_display = 0
                 if session.course_type == 'theory':
-                    if _is_external_theory_session(session):
-                        display_total, _ = _get_external_assessment_display_total(
-                            session,
-                            student.student_id,
-                            combined_values,
-                            combined_best3=combined_best3,
-                            combined_pg_total=combined_pg_total,
-                        )
-                        assessment_marks_display = display_total if display_total is not None else 0
-                    elif session.category == 'pg':
-                        combined = combined_values.get(student.student_id, {})
-                        valid_marks = [v for v in combined.values() if v is not None]
-                        valid_marks.sort(reverse=True)
-                        if valid_marks:
-                            best_three = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
-                            scaled_pg_mark = (sum(best_three) / 30) * 40
-                            # PG combined PDF requires integer rounding with .5 always rounding up.
-                            assessment_marks_display = int(
-                                Decimal(str(scaled_pg_mark)).quantize(
-                                    Decimal('1'),
-                                    rounding=ROUND_HALF_UP
-                                )
-                            )
-                        else:
-                            assessment_marks_display = 0
-                    else:
-                        # UG: combined_best3 already respects the round-total toggle
-                        ug_total = combined_best3.get(student.student_id) or 0
-                        assessment_marks_display = ug_total if ug_total else 0
+                    display_total, _ = _get_external_assessment_display_total(
+                        session,
+                        student.student_id,
+                        combined_values,
+                        combined_best3=combined_best3,
+                        combined_pg_total=combined_pg_total,
+                    )
+                    assessment_marks_display = display_total if display_total is not None else 0
 
                 student_data_for_pdf.append({
                     'id': student.student_id,
@@ -6841,11 +6962,12 @@ def download_pdf_report(session_id):
 
         # --- Table Creation ---
         if session.course_type == 'sessional':
+            sess = result_split('sessional')
             table_data = [[
                 'ID',
-                'Attendance (10)',
-                'Sessional Report (60)',
-                'Sessional Viva (30)',
+                f'Attendance ({sess["attendance"]})',
+                f'Sessional Report ({sess["report"]})',
+                f'Sessional Viva ({sess["viva"]})',
                 'Total Marks (100)',
             ]]
             for s_data in student_data_for_pdf:
@@ -6865,7 +6987,7 @@ def download_pdf_report(session_id):
             # For theory courses: single assessment column
             assessment_header_text = _combined_pdf_assessment_header(session)
             
-            table_data = [['ID', 'Attendance (10)', assessment_header_text]]
+            table_data = [['ID', f'Attendance ({result_split("theory_ug")["attendance"]})', assessment_header_text]]
             for s_data in student_data_for_pdf:
                 table_data.append([s_data['id'], s_data['attendance'], s_data['assessment']])
             table = Table(table_data, colWidths=[2*inch, 2*inch, 2.5*inch], repeatRows=0)
@@ -6889,10 +7011,10 @@ def download_pdf_report(session_id):
             width, height = doc_obj.pagesize
             if include_header:
                 canvas_obj.setFont('Helvetica-Bold', 18)
-                canvas_obj.drawCentredString(width / 2.0, height - 1.0 * inch, "Khulna University")
+                canvas_obj.drawCentredString(width / 2.0, height - 1.0 * inch, current_tenant().university_name)
 
                 canvas_obj.setFont('Helvetica', 12)
-                canvas_obj.drawCentredString(width / 2.0, height - 1.35 * inch, "Law Discipline")
+                canvas_obj.drawCentredString(width / 2.0, height - 1.35 * inch, current_tenant().name)
                 canvas_obj.drawCentredString(width / 2.0, height - 1.60 * inch, _combined_pdf_title(session))
 
                 canvas_obj.setFont('Helvetica-Bold', 10)
@@ -7573,10 +7695,7 @@ def assessment(session_id):
                                     setattr(student, f'assessment{i}', None)
                                 else:
                                     value = request.form.get(f'assessment{i}_{student.id}')
-                                    if _is_external_theory_session(session):
-                                        setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
-                                    else:
-                                        setattr(student, f'assessment{i}', float(value) if value else None)
+                                    setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
                         
                         # Save absent status
                         student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -7635,15 +7754,15 @@ def assessment(session_id):
         combined_assessment_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session)
         combined_sessional_values, combined_sessional_absent = _build_combined_sessional_values(session)
 
-        external_assessment_mode = DEFAULT_EXTERNAL_ASSESSMENT_MODE
-        external_total_column_label = EXTERNAL_ASSESSMENT_COLUMN_LABELS[DEFAULT_EXTERNAL_ASSESSMENT_MODE]
+        labels = _assessment_column_labels()
+        external_assessment_mode = _effective_assessment_mode(session) if session.course_type == 'theory' else DEFAULT_EXTERNAL_ASSESSMENT_MODE
+        external_total_column_label = labels.get(
+            external_assessment_mode,
+            labels[DEFAULT_EXTERNAL_ASSESSMENT_MODE],
+        )
         combined_external_total = {}
-        if _is_external_theory_session(session):
-            external_assessment_mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
-            external_total_column_label = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(
-                external_assessment_mode,
-                EXTERNAL_ASSESSMENT_COLUMN_LABELS[DEFAULT_EXTERNAL_ASSESSMENT_MODE],
-            )
+        uses_assessment_mode_picker = _session_uses_assessment_mode_picker(session)
+        if session.course_type == 'theory':
             for student in students:
                 combined_vals = combined_assessment_values.get(student.student_id, {})
                 result = _compute_external_assessment_total(combined_vals, external_assessment_mode)
@@ -7727,8 +7846,9 @@ def assessment(session_id):
             combined_pg_avg=combined_pg_avg,
             combined_pg_total=combined_pg_total,
             combined_external_total=combined_external_total,
+            uses_assessment_mode_picker=uses_assessment_mode_picker,
             external_assessment_mode=external_assessment_mode,
-            external_assessment_modes=EXTERNAL_ASSESSMENT_MODES,
+            external_assessment_modes=_external_assessment_modes(),
             external_total_column_label=external_total_column_label,
             sessional_display_map=sessional_display_map,
             absent_status_map=absent_status_map,
@@ -7841,8 +7961,8 @@ def toggle_round_assessment_total(session_id):
                 report = student.sessional_report or 0
                 viva = student.sessional_viva or 0
                 totals[str(student.id)] = _maybe_round_assessment_total(session, report + viva)
-            elif _is_external_theory_session(session):
-                mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
+            elif _session_uses_assessment_mode_picker(session) or session.course_type == 'theory':
+                mode = _effective_assessment_mode(session)
                 if mode == 'best_three_40':
                     totals[str(student.id)] = combined_pg_total.get(student.student_id)
                 else:
@@ -7866,32 +7986,34 @@ def toggle_round_assessment_total(session_id):
 @class_management_bp.route('/assessment/<int:session_id>/set-external-mode', methods=['POST'])
 @login_required
 def set_external_assessment_mode(session_id):
-    """Save external course assessment total calculation mode."""
+    """Save assessment total calculation mode for this course."""
     try:
         session = get_or_404_for_window(Session, session_id)
-        if not _is_external_theory_session(session):
-            return jsonify({'success': False, 'message': 'This option is only available for external theory courses.'}), 400
+        if not _session_uses_assessment_mode_picker(session):
+            return jsonify({'success': False, 'message': 'This option is not enabled for this course.'}), 400
 
         data = request.get_json(silent=True) or {}
-        mode = _normalize_external_assessment_mode(data.get('mode'))
-        session.external_assessment_mode = mode
+        mode = _persist_assessment_mode(session, data.get('mode'))
         _recalculate_assessment_totals(session)
         db.session.commit()
 
         students = _class_students_for_session(session_id)
-        _, combined_best3, _, combined_pg_total = _build_combined_assessment_values(session)
+        combined_values, combined_best3, _, combined_pg_total = _build_combined_assessment_values(session)
         totals = {}
         for student in students:
-            if mode == 'best_three_40':
-                display = combined_pg_total.get(student.student_id)
-            else:
-                display = combined_best3.get(student.student_id)
+            display, _ = _get_external_assessment_display_total(
+                session,
+                student.student_id,
+                combined_values,
+                combined_best3=combined_best3,
+                combined_pg_total=combined_pg_total,
+            )
             totals[str(student.id)] = display
 
         return jsonify({
             'success': True,
             'mode': mode,
-            'column_label': EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode),
+            'column_label': _assessment_column_labels().get(mode),
             'totals': totals,
         })
     except Exception as e:
@@ -7943,10 +8065,7 @@ def auto_save_assessment(session_id):
                                 setattr(student, f'assessment{i}', None)
                             else:
                                 value = data.get(key, '')
-                                if _is_external_theory_session(session):
-                                    setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
-                                else:
-                                    setattr(student, f'assessment{i}', float(value) if value else None)
+                                setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
                     
                     # Save absent status
                     student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -8207,7 +8326,7 @@ def student_view_scores():
             best3_total = None
             pg_total = None
             
-            if _is_external_theory_session(session_obj):
+            if _session_uses_assessment_mode_picker(session_obj) or session_obj.course_type == 'theory':
                 combined_values, combined_best3, combined_pg_avg, combined_pg_total = _build_combined_assessment_values(session_obj)
                 student_combined_values = combined_values.get(student_id, {})
                 for i in range(1, 5):
@@ -8225,7 +8344,7 @@ def student_view_scores():
                         assessment_scores[assessment_key] = value
 
                 revealed_combined = {i: assessment_scores.get(f'assessment{i}') for i in range(1, 5)}
-                mode = _normalize_external_assessment_mode(getattr(session_obj, 'external_assessment_mode', None))
+                mode = _effective_assessment_mode(session_obj)
                 result = _compute_external_assessment_total(revealed_combined, mode)
                 if mode == 'best_three_40':
                     pg_total = result['display_total']
@@ -8303,7 +8422,11 @@ def student_view_scores():
                         'present_count': student_stats.get('present', 0),
                         'total_classes': attendance_summary.get('total_classes', 0),
                         'percentage': student_stats.get('percentage', 0),
-                        'marks': student_stats.get('marks', 0)
+                        'marks': student_stats.get('marks', 0),
+                        'part_breakdown': (
+                            _split_attendance_part_breakdown(attendance_summary, student_id)
+                            if is_split_course else None
+                        ),
                     }
             
             # Build teacher options (split courses may have multiple teachers)
@@ -8370,6 +8493,8 @@ def student_view_scores():
                 'highest_assessment_scores': highest_assessment_scores,
                 'best3_total': best3_total,
                 'pg_total': pg_total,
+                'uses_assessment_mode_picker': _session_uses_assessment_mode_picker(session_obj),
+                'assessment_total_label': _assessment_column_labels().get(_effective_assessment_mode(session_obj), 'Total') if session_obj.course_type == 'theory' else None,
                 'attendance_data': attendance_data,
                 'reveal_status': reveal_status,
                 'reveal_callsigns': reveal_callsigns,
@@ -8820,9 +8945,9 @@ def download_assessment_excel(session_id):
         
         # Build data for DataFrame
         data = []
-        if _is_external_theory_session(session):
-            mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
-            total_column = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode, 'Total')
+        if session.course_type == 'theory' and _session_uses_assessment_mode_picker(session):
+            mode = _effective_assessment_mode(session)
+            total_column = _assessment_column_labels().get(mode, 'Total')
             columns = [
                 'Student ID', 'Name',
                 _external_assessment_column_header(1, mode),
@@ -8862,7 +8987,7 @@ def download_assessment_excel(session_id):
                     best3_total
                 ])
         elif session.course_type == 'theory' and session.category == 'pg':
-            columns = ['Student ID', 'Name', 'Assessment 1', 'Assessment 2', 'Assessment 3', 'Assessment 4', 'Total (40)']
+            columns = ['Student ID', 'Name', 'Assessment 1', 'Assessment 2', 'Assessment 3', 'Assessment 4', f'Total ({assessment_cfg()["pg_out_of"]})']
             for s in students:
                 data.append([
                     s.student_id,
@@ -9041,10 +9166,10 @@ def download_assessment_pdf(session_id):
         elements.append(Spacer(1, 0.2*inch))
         
         # Table data
-        if _is_external_theory_session(session):
-            mode = _normalize_external_assessment_mode(getattr(session, 'external_assessment_mode', None))
-            total_header = EXTERNAL_ASSESSMENT_COLUMN_LABELS.get(mode, 'Total')
-            calc_label = EXTERNAL_ASSESSMENT_MODES.get(mode, mode)
+        if session.course_type == 'theory' and _session_uses_assessment_mode_picker(session):
+            mode = _effective_assessment_mode(session)
+            total_header = _assessment_column_labels().get(mode, 'Total')
+            calc_label = _external_assessment_modes().get(mode, mode)
             elements.append(Paragraph(f"<b>Calculation:</b> {calc_label}", info_style))
             elements.append(Spacer(1, 0.1*inch))
             table_data = [[
@@ -9073,9 +9198,11 @@ def download_assessment_pdf(session_id):
                     format_mark_for_pdf(total_value),
                 ]
                 table_data.append(row)
-        elif session.course_type == 'theory' and session.category == 'ug' and not _is_external_theory_session(session):
+        elif session.course_type == 'theory' and session.category == 'ug' and not _session_uses_assessment_mode_picker(session):
             # UG Theory: Assessment 1-4 and Total of Best 3
-            table_data = [['SI', 'Student ID', 'Assessment 1 (10)', 'Assessment 2 (10)', 'Assessment 3 (10)', 'Assessment 4 (10)', 'Total of Best 3 (30)']]
+            cfg = assessment_cfg()
+            slot = cfg['slot_max']
+            table_data = [['SI', 'Student ID', f'Assessment 1 ({slot})', f'Assessment 2 ({slot})', f'Assessment 3 ({slot})', f'Assessment 4 ({slot})', f'Total of Best {cfg["take_best"]} ({cfg["ug_out_of"]})']]
             
             for idx, student in enumerate(students, start=1):
                 best3_total = combined_best3.get(student.student_id) if combined_best3 else '-'
@@ -9091,17 +9218,19 @@ def download_assessment_pdf(session_id):
                 ]
                 table_data.append(row)
         
-        elif session.course_type == 'theory' and session.category == 'pg' and not _is_external_theory_session(session):
+        elif session.course_type == 'theory' and session.category == 'pg' and not _session_uses_assessment_mode_picker(session):
             # PG Theory: Assessment 1-4 and Total (40)
-            table_data = [['SI', 'Student ID', 'Assessment 1 (10)', 'Assessment 2 (10)', 'Assessment 3 (10)', 'Assessment 4 (10)', 'Total (40)']]
+            cfg = assessment_cfg()
+            slot = cfg['slot_max']
+            table_data = [['SI', 'Student ID', f'Assessment 1 ({slot})', f'Assessment 2 ({slot})', f'Assessment 3 ({slot})', f'Assessment 4 ({slot})', f'Total ({cfg["pg_out_of"]})']]
             
             for idx, student in enumerate(students, start=1):
                 combined = combined_values.get(student.student_id, {})
                 valid_marks = [v for v in combined.values() if v is not None]
                 valid_marks.sort(reverse=True)
                 if valid_marks:
-                    best_three = valid_marks[:3] if len(valid_marks) >= 3 else valid_marks
-                    pg_total_unrounded = (sum(best_three) / 30) * 40
+                    best_three = take_best_marks(valid_marks)
+                    pg_total_unrounded = scale_pg_total(sum(best_three))
                     # PG Theory: total on 40 scale is always a whole-number display (half-up).
                     rounded_total = _round_half_up_int(pg_total_unrounded)
                     formatted_total = str(rounded_total) if rounded_total is not None else '-'
@@ -9962,6 +10091,12 @@ def course_review_pdf(session_id):
     def get_value(key):
         return escape(str(stored_data.get(key, '') or ''))
 
+    def get_multiline_value(key):
+        text = get_value(key)
+        if not text:
+            return '&nbsp;'
+        return text.replace('\n', '<br/>')
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -10010,11 +10145,11 @@ def course_review_pdf(session_id):
 
     table_width = doc.width
 
-    other_paragraph = Paragraph(get_value('other_instruction') or '&nbsp;', comment_style)
-    assessment_paragraph = Paragraph(get_value('assessment_methods') or '&nbsp;', comment_style)
-
+    other_paragraph = Paragraph(get_multiline_value('other_instruction'), comment_style)
+    assessment_paragraph = Paragraph(get_multiline_value('assessment_methods'), comment_style)
+    enrollment_count_text = get_value('enrollment_count') or '&nbsp;'
     enrollment_paragraph = Paragraph(
-        f'Number of Enrolled Students: {get_value("enrollment_count") or "&nbsp;"}',
+        f'<b>Number of Enrolled Students:</b> {enrollment_count_text}',
         label_style
     )
 
@@ -10026,20 +10161,18 @@ def course_review_pdf(session_id):
         [Paragraph('Term', label_style), Paragraph(get_value('course_term'), comment_style), Paragraph('Credit Value', label_style), Paragraph(get_value('credit_value'), comment_style)],
         [Paragraph('Name of Course Instructor', label_style), Paragraph(get_value('instructor_name'), comment_style), Paragraph('No. of Students Contact Hour', label_style), Paragraph(get_value('contact_hours'), comment_style)],
         [Paragraph('Lectures', label_style), Paragraph(get_value('lecture_hours'), comment_style), Paragraph('Seminar', label_style), Paragraph(get_value('seminar_hours'), comment_style)],
-        [Paragraph('Number of Enrolled Students', label_style), Paragraph(get_value('enrollment_count'), comment_style), '', ''],
         [Paragraph('Other (Please State)', label_style), other_paragraph, '', ''],
-        [Paragraph('Assessment Methods: give precise details (no & length of assignments, exams, weightings etc)', label_style), assessment_paragraph, '', '']
+        [Paragraph('Assessment Methods: give precise details (no &amp; length of assignments, exams, weightings etc)', label_style), assessment_paragraph, '', '']
     ]
 
-    info_table = Table(info_data, colWidths=info_col_widths, hAlign='CENTER', repeatRows=1)
+    info_table = Table(info_data, colWidths=info_col_widths, hAlign='CENTER')
     info_table.setStyle(TableStyle([
         ('INNERGRID', (0, 0), (-1, -1), 0.8, colors.black),
         ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
         ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('SPAN', (0, 6), (1, 6)),
-        ('SPAN', (0, 7), (1, 7)),
-        ('SPAN', (0, 8), (1, 8)),
+        ('SPAN', (1, 6), (3, 6)),
+        ('SPAN', (1, 7), (3, 7)),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('LEFTPADDING', (0, 0), (-1, -1), 10),
@@ -10050,6 +10183,9 @@ def course_review_pdf(session_id):
     ]))
     elements.append(info_table)
     elements.append(Spacer(1, 16))
+    elements.append(Paragraph('Distribution of Grade/Marks and Other Outcomes', label_style))
+    elements.append(enrollment_paragraph)
+    elements.append(Spacer(1, 8))
 
     grade_table_data = [['Scale', 'Letter Grade', 'Number of Students', '%']]
     for row in COURSE_REVIEW_GRADE_ROWS:

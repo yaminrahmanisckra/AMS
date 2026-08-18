@@ -165,7 +165,7 @@
         <div class="row mb-3">
             <div class="col-md-3">
                 <label class="form-label">Program</label>
-                <input type="text" class="form-control" id="program" name="program" value="{{ saved_data.program if saved_data else 'LL.B. (Hons.)' }}">
+                <input type="text" class="form-control" id="program" name="program" value="{{ saved_data.program if saved_data else tenant.default_program }}">
             </div>
             <div class="col-md-3">
                 <label class="form-label">Academic Session</label>
@@ -306,7 +306,7 @@
                                 <option value="Lecturer" {% if item.designation and 'Lecturer' in item.designation %}selected{% endif %}>Lecturer</option>
                                 <option value="__CUSTOM__">Custom...</option>
                             </select>
-                            <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU">
+                            <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}">
                         </td>
                         <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="{{ item.questions or '1' }}" min="1" onchange="updateTableCounts()" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -340,7 +340,7 @@
                                 <option value="Lecturer">Lecturer</option>
                                 <option value="__CUSTOM__">Custom...</option>
                             </select>
-                            <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                            <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                         </td>
                         <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="" min="1" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -394,7 +394,7 @@
                                 <option value="Lecturer" {% if item.designation and 'Lecturer' in item.designation %}selected{% endif %}>Lecturer</option>
                                 <option value="__CUSTOM__">Custom...</option>
                             </select>
-                            <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU">
+                            <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}">
                         </td>
                         <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="{{ item.scripts or '0' }}" min="0" onchange="updateTableCounts()" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -427,7 +427,7 @@
                                 <option value="Lecturer">Lecturer</option>
                                 <option value="__CUSTOM__">Custom...</option>
                             </select>
-                            <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                            <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                         </td>
                         <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="" min="0" onchange="updateTableCounts()" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -473,7 +473,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 class-test-custom-name" name="class_test_teacher[]" value="{% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}{{ item.teacher }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="{{ item.class_test or '0' }}" min="0" onfocus="this.select();"></td>
                         <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="{{ item.students or '' }}" min="0" onfocus="this.select();" data-class-test-students="1"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -497,7 +497,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 class-test-custom-name" name="class_test_teacher[]" placeholder="Enter custom name" style="display: none;">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="" min="0" onfocus="this.select();"></td>
                         <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -535,7 +535,7 @@
                             <input type="text" class="form-control form-control-sm mt-1 moderation-custom-name" name="moderation_committee_name[]" value="{% if member.name and member.name not in teachers|map(attribute='name')|list %}{{ member.name }}{% endif %}" placeholder="Enter custom name" style="display: {% if member.name and member.name not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
                         <td>
-                            <input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" value="{{ member.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU">
+                            <input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" value="{{ member.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}">
                         </td>
                         <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]" value="{{ member.position or '' }}"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -553,7 +553,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 moderation-custom-name" name="moderation_committee_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -711,7 +711,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 script-scrutiny-custom-name" name="script_scrutiny_name[]" value="{% if item.name and item.name not in teachers|map(attribute='name')|list %}{{ item.name }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.name and item.name not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="number" class="form-control form-control-sm" name="script_scrutiny_scripts[]" value="{{ item.scripts or '0' }}" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -728,7 +728,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 script-scrutiny-custom-name" name="script_scrutiny_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="number" class="form-control form-control-sm" name="script_scrutiny_scripts[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -765,7 +765,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" value="{% if item.name and item.name not in teachers|map(attribute='name')|list %}{{ item.name }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.name and item.name not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="{{ item.course_wise or '0' }}" min="0" onfocus="this.select();"></td>
                         <td><input type="number" class="form-control form-control-sm" name="tabulation_student_wise[]" value="{{ item.student_wise or '0' }}" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -783,7 +783,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="" min="0" onfocus="this.select();"></td>
                         <td><input type="number" class="form-control form-control-sm" name="tabulation_student_wise[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -818,7 +818,7 @@
                                 {% endfor %}
                             </select>
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="coding_decoding_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="coding_decoding_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="number" class="form-control form-control-sm" name="coding_decoding_scripts[]" value="{{ item.scripts or '0' }}" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -833,7 +833,7 @@
                                 {% endfor %}
                             </select>
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="coding_decoding_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="coding_decoding_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="number" class="form-control form-control-sm" name="coding_decoding_scripts[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -870,7 +870,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 invigilation-custom-name" name="invigilation_name[]" value="{% if item.name and item.name not in teachers|map(attribute='name')|list %}{{ item.name }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.name and item.name not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="text" class="form-control form-control-sm" name="invigilation_chief[]" value="{{ item.chief or '-' }}"></td>
                         <td><input type="text" class="form-control form-control-sm" name="invigilation_invigilation[]" value="{{ item.invigilation or '-' }}"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -888,7 +888,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 invigilation-custom-name" name="invigilation_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="text" class="form-control form-control-sm" name="invigilation_chief[]" value=""></td>
                         <td><input type="text" class="form-control form-control-sm" name="invigilation_invigilation[]" value=""></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -928,7 +928,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 thesis-supervision-custom-name" name="thesis_supervision_name[]" value="{% if item.name and item.name not in teachers|map(attribute='name')|list %}{{ item.name }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.name and item.name not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_examine[]" value="{{ item.examine or '-' }}"></td>
                         <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_supervision[]" value="{{ item.supervision or '-' }}"></td>
                         <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_co_supervision[]" value="{{ item.co_supervision or '-' }}"></td>
@@ -948,7 +948,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 thesis-supervision-custom-name" name="thesis_supervision_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_examine[]" value=""></td>
                         <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_supervision[]" value=""></td>
                         <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_co_supervision[]" value=""></td>
@@ -989,7 +989,7 @@
                             <input type="text" class="form-control form-control-sm mt-1 viva-custom-name" name="viva_teacher[]" value="{% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}{{ item.teacher }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.teacher and item.teacher not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
                         <td><input type="text" class="form-control form-control-sm" name="viva_designation[]" value="{{ item.designation or '' }}"></td>
-                        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]" value="{{ item.institution or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]" value="{{ item.institution or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="number" class="form-control form-control-sm" name="viva_students[]" value="{{ item.students or '0' }}" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -1007,7 +1007,7 @@
                             <input type="text" class="form-control form-control-sm mt-1 viva-custom-name" name="viva_teacher[]" placeholder="Enter custom name" style="display: none;">
                         </td>
                         <td><input type="text" class="form-control form-control-sm" name="viva_designation[]"></td>
-                        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="number" class="form-control form-control-sm" name="viva_students[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -1043,7 +1043,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 question-typing-custom-name" name="question_typing_name[]" value="{% if item.name and item.name not in teachers|map(attribute='name')|list %}{{ item.name }}{% endif %}" placeholder="Enter custom name" style="display: {% if item.name and item.name not in teachers|map(attribute='name')|list %}block{% else %}none{% endif %};">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="number" class="form-control form-control-sm" name="question_typing_questions[]" value="{{ item.questions or '0' }}" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -1060,7 +1060,7 @@
                             </select>
                             <input type="text" class="form-control form-control-sm mt-1 question-typing-custom-name" name="question_typing_name[]" placeholder="Enter custom name" style="display: none;">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="number" class="form-control form-control-sm" name="question_typing_questions[]" value="" min="0" onfocus="this.select();"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -1089,7 +1089,7 @@
                         <td>
                             <input type="text" class="form-control form-control-sm" name="official_support_name[]" value="{{ item.name or '' }}" placeholder="Enter name">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]" value="{{ item.designation or 'Law Discipline, KU' }}" placeholder="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]" value="{{ item.designation or tenant.institute_label }}" placeholder="{{ tenant.institute_label }}"></td>
                         <td><input type="text" class="form-control form-control-sm" name="official_support_details[]" value="{{ item.details or '' }}"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -1099,7 +1099,7 @@
                         <td>
                             <input type="text" class="form-control form-control-sm" name="official_support_name[]" placeholder="Enter name">
                         </td>
-                        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                         <td><input type="text" class="form-control form-control-sm" name="official_support_details[]"></td>
                         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
                     </tr>
@@ -1453,7 +1453,7 @@ function restoreDesignationsFromTeachers() {
         if (!teacher || !teacher.designation) return;
 
         const rank = teacher.designation;
-        const institute = teacher.institute || 'Law Discipline, KU';
+        const institute = teacher.institute || {{ tenant.institute_label|tojson }};
         const desigInput = row.querySelector('input[class*="custom-designation"]');
 
         desigSelect.value = knownRanks.includes(rank) ? rank : '__CUSTOM__';
@@ -1826,7 +1826,7 @@ async function loadModerationCommittee(session, year, term) {
                     </select>
                     <input type="text" class="form-control form-control-sm mt-1 moderation-custom-name" name="moderation_committee_name[]" placeholder="Enter custom name" value="${isKnown ? '' : (member.name || '')}" style="display: ${isKnown ? 'none' : 'block'};">
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" value="${member.designation || 'Law Discipline, KU'}" placeholder="Law Discipline, KU"></td>
+                <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" value="${member.designation || {{ tenant.institute_label|tojson }}}" placeholder="{{ tenant.institute_label }}"></td>
                 <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]" value="${member.position || ''}"></td>
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
             `;
@@ -2164,7 +2164,7 @@ async function autoLoadTheoryCoursesForTables(theoryCourses, skipCascade) {
                             <option value="Lecturer">Lecturer</option>
                             <option value="__CUSTOM__">Custom...</option>
                         </select>
-                        <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                        <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                     </td>
                     <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="1" min="1" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -2199,7 +2199,7 @@ async function autoLoadTheoryCoursesForTables(theoryCourses, skipCascade) {
                             <option value="Lecturer">Lecturer</option>
                             <option value="__CUSTOM__">Custom...</option>
                         </select>
-                        <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                        <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                     </td>
                     <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="1" min="1" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -2267,7 +2267,7 @@ async function autoLoadTheoryCoursesForTables(theoryCourses, skipCascade) {
                             <option value="Lecturer">Lecturer</option>
                             <option value="__CUSTOM__">Custom...</option>
                         </select>
-                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                     </td>
                     <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="" min="0" onchange="updateTableCounts()" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -2302,7 +2302,7 @@ async function autoLoadTheoryCoursesForTables(theoryCourses, skipCascade) {
                             <option value="Lecturer">Lecturer</option>
                             <option value="__CUSTOM__">Custom...</option>
                         </select>
-                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                     </td>
                     <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="" min="0" onchange="updateTableCounts()" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -2425,7 +2425,7 @@ async function autoLoadClassTestTableWithAssignments(forceReload = false) {
                     </select>
                     <input type="text" class="form-control form-control-sm mt-1 class-test-custom-name" name="class_test_teacher[]" placeholder="Enter custom name" value="${teacherInputValue}" style="display: ${teacherInputDisplay};">
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="Law Discipline, KU" value="${assignment.teacher_designation || 'Law Discipline, KU'}"></td>
+                <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="{{ tenant.institute_label }}" value="${assignment.teacher_designation || {{ tenant.institute_label|tojson }}}"></td>
                 <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="" min="0" onfocus="this.select();"></td>
                 <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="" min="0" onfocus="this.select();"></td>
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -2671,7 +2671,7 @@ async function autoLoadScrutinizers() {
                     </select>
                     <input type="text" class="form-control form-control-sm mt-1 script-scrutiny-custom-name" name="script_scrutiny_name[]" placeholder="Enter custom name" style="display: none;">
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" value="${designationText}" placeholder="Law Discipline, KU"></td>
+                <td><input type="text" class="form-control form-control-sm" name="script_scrutiny_designation[]" value="${designationText}" placeholder="{{ tenant.institute_label }}"></td>
                 <td><input type="number" class="form-control form-control-sm" name="script_scrutiny_scripts[]" value="${scrutinizer.script_count || 0}" min="0" onfocus="this.select();"></td>
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
             `;
@@ -2803,7 +2803,7 @@ async function autoLoadTabulators() {
                     </select>
                     <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" placeholder="Enter custom name" style="display: none;">
                 </td>
-                <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" value="${designationValue}" placeholder="Law Discipline, KU"></td>
+                <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" value="${designationValue}" placeholder="{{ tenant.institute_label }}"></td>
                 <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="" min="0" onfocus="this.select();"></td>
                 <td><input type="number" class="form-control form-control-sm" name="tabulation_student_wise[]" value="" min="0" onfocus="this.select();"></td>
                 <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -2843,8 +2843,8 @@ function autoLoadAllTeachersForTables() {
             teachersData.forEach(teacher => {
                 const row = document.createElement('tr');
                 const designationValue = teacher.designation 
-                    ? `${teacher.designation}, ${teacher.institute || 'Law Discipline, KU'}` 
-                    : (teacher.institute || 'Law Discipline, KU');
+                    ? `${teacher.designation}, ${teacher.institute || {{ tenant.institute_label|tojson }}}` 
+                    : (teacher.institute || {{ tenant.institute_label|tojson }});
                 
                 row.innerHTML = `
                     <td>
@@ -2855,7 +2855,7 @@ function autoLoadAllTeachersForTables() {
                         </select>
                         <input type="text" class="form-control form-control-sm mt-1 invigilation-custom-name" name="invigilation_name[]" placeholder="Enter custom name" style="display: none;">
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]" value="${designationValue}" placeholder="Law Discipline, KU"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="invigilation_designation[]" value="${designationValue}" placeholder="{{ tenant.institute_label }}"></td>
                     <td><input type="text" class="form-control form-control-sm" name="invigilation_chief[]" value=""></td>
                     <td><input type="text" class="form-control form-control-sm" name="invigilation_invigilation[]" value=""></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -2884,8 +2884,8 @@ function autoLoadAllTeachersForTables() {
             teachersData.forEach(teacher => {
                 const row = document.createElement('tr');
                 const designationValue = teacher.designation 
-                    ? `${teacher.designation}, ${teacher.institute || 'Law Discipline, KU'}` 
-                    : (teacher.institute || 'Law Discipline, KU');
+                    ? `${teacher.designation}, ${teacher.institute || {{ tenant.institute_label|tojson }}}` 
+                    : (teacher.institute || {{ tenant.institute_label|tojson }});
                 
                 row.innerHTML = `
                     <td>
@@ -2896,7 +2896,7 @@ function autoLoadAllTeachersForTables() {
                         </select>
                         <input type="text" class="form-control form-control-sm mt-1 thesis-supervision-custom-name" name="thesis_supervision_name[]" placeholder="Enter custom name" style="display: none;">
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" value="${designationValue}" placeholder="Law Discipline, KU"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_designation[]" value="${designationValue}" placeholder="{{ tenant.institute_label }}"></td>
                     <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_examine[]" value=""></td>
                     <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_supervision[]" value=""></td>
                     <td><input type="text" class="form-control form-control-sm" name="thesis_supervision_co_supervision[]" value=""></td>
@@ -2959,7 +2959,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
     let teacherInputValue = '';
     let teacherInputDisplay = 'none';
     let designationSelectValue = '';
-    let designationInputValue = 'Law Discipline, KU';
+    let designationInputValue = {{ tenant.institute_label|tojson }};
     let questionsValue = '1';
     let scriptsValue = '0';
     let noValue = '0';
@@ -3030,7 +3030,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                     <option value="Lecturer" ${designationSelectValue === 'Lecturer' ? 'selected' : ''}>Lecturer</option>
                     <option value="__CUSTOM__" ${designationSelectValue === '__CUSTOM__' ? 'selected' : ''}>Custom...</option>
                 </select>
-                <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="${tablePrefix}_designation[]" placeholder="Law Discipline, KU" value="${designationInputValue}">
+                <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="${tablePrefix}_designation[]" placeholder="{{ tenant.institute_label }}" value="${designationInputValue}">
             </td>
             <td><input type="number" class="form-control form-control-sm" name="${tablePrefix}_questions[]" value="${questionsValue}" min="1" onfocus="this.select();"></td>
             <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -3060,7 +3060,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                     <option value="Lecturer" ${designationSelectValue === 'Lecturer' ? 'selected' : ''}>Lecturer</option>
                     <option value="__CUSTOM__" ${designationSelectValue === '__CUSTOM__' ? 'selected' : ''}>Custom...</option>
                 </select>
-                <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="${tablePrefix}_designation[]" placeholder="Law Discipline, KU" value="${designationInputValue}">
+                <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="${tablePrefix}_designation[]" placeholder="{{ tenant.institute_label }}" value="${designationInputValue}">
             </td>
             <td><input type="number" class="form-control form-control-sm" name="${tablePrefix}_scripts[]" value="${scriptsValue}" min="0" onfocus="this.select();"></td>
             <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -3081,7 +3081,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                 </select>
                 <input type="text" class="form-control form-control-sm mt-1 class-test-custom-name" name="${tablePrefix}_teacher[]" placeholder="Enter custom name" value="${teacherInputValue}" style="display: ${teacherInputDisplay};">
             </td>
-            <td><input type="text" class="form-control form-control-sm" name="${tablePrefix}_designation[]" placeholder="Law Discipline, KU" value="${designationInputValue}"></td>
+            <td><input type="text" class="form-control form-control-sm" name="${tablePrefix}_designation[]" placeholder="{{ tenant.institute_label }}" value="${designationInputValue}"></td>
             <td><input type="number" class="form-control form-control-sm" name="${tablePrefix}_no[]" value="${noValue}" min="0" onfocus="this.select();"></td>
             <td><input type="number" class="form-control form-control-sm" name="${tablePrefix}_students[]" value="${studentsValue}" min="0" onfocus="this.select();"></td>
             <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -3141,7 +3141,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="Lecturer">Lecturer</option>
                             <option value="__CUSTOM__">Custom...</option>
                         </select>
-                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                     </td>
                     <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="" min="0" onchange="updateTableCounts()" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -3176,7 +3176,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             <option value="Lecturer">Lecturer</option>
                             <option value="__CUSTOM__">Custom...</option>
                         </select>
-                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+                        <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
                     </td>
                     <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="" min="0" onchange="updateTableCounts()" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -3240,7 +3240,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             ${teachersData.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                     <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="0" min="0" onfocus="this.select();"></td>
                     <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="0" min="0" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -3263,7 +3263,7 @@ function createTableRow(tablePrefix, courseText, section, existingData) {
                             ${teachersData.map(t => `<option value="${t.name}">${t.name}</option>`).join('')}
                         </select>
                     </td>
-                    <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+                    <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
                     <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="0" min="0" onfocus="this.select();"></td>
                     <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="0" min="0" onfocus="this.select();"></td>
                     <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -3932,7 +3932,7 @@ function onModerationNameChange(selectElement) {
     
     const teacher = teachersData.find(t => t.name === teacherName);
     if (teacher) {
-        designationInput.value = `${teacher.designation || ''}, ${teacher.institute || 'Law Discipline, KU'}`.replace(/^,\s*|,\s*$/g, '');
+        designationInput.value = `${teacher.designation || ''}, ${teacher.institute || {{ tenant.institute_label|tojson }}}`.replace(/^,\s*|,\s*$/g, '');
     }
 }
 
@@ -3964,10 +3964,10 @@ function onNameChange(selectElement, tableType) {
     const teacher = teachersData.find(t => t.name === teacherName);
     if (teacher) {
         const designation = teacher.designation || '';
-        const institute = teacher.institute || 'Law Discipline, KU';
+        const institute = teacher.institute || {{ tenant.institute_label|tojson }};
         designationInput.value = designation ? `${designation}, ${institute}` : institute;
     } else if (!teacherName) {
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     }
     
 }
@@ -4029,7 +4029,7 @@ function onTeacherNameChange(selectElement, tableType) {
         designationInput = row.querySelector('input[name="viva_designation[]"]');
         const institutionInput = row.querySelector('input[name="viva_institution[]"]');
         if (teacher && institutionInput) {
-            institutionInput.value = teacher.institute || 'Law Discipline, KU';
+            institutionInput.value = teacher.institute || {{ tenant.institute_label|tojson }};
         }
     } else if (tableType === 'question_typing') {
         designationInput = row.querySelector('input[name="question_typing_designation[]"]');
@@ -4039,10 +4039,10 @@ function onTeacherNameChange(selectElement, tableType) {
     
     if (designationInput && teacher) {
         const designation = teacher.designation || '';
-        const institute = teacher.institute || 'Law Discipline, KU';
+        const institute = teacher.institute || {{ tenant.institute_label|tojson }};
         designationInput.value = designation ? `${designation}, ${institute}` : institute;
     } else if (designationInput && !teacherName) {
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     }
 }
 
@@ -4061,7 +4061,7 @@ function onQuestionPreparationTeacherChange(selectElement) {
         customNameInput.required = true;
         // Clear designation select and allow custom
         designationSelect.value = '';
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     } else if (selectedValue) {
         // Hide custom name input
         customNameInput.style.display = 'none';
@@ -4072,7 +4072,7 @@ function onQuestionPreparationTeacherChange(selectElement) {
         const teacher = teachersData.find(t => t.name === selectedValue);
         if (teacher) {
             const designation = teacher.designation || '';
-            const institute = teacher.institute || 'Law Discipline, KU';
+            const institute = teacher.institute || {{ tenant.institute_label|tojson }};
             designationInput.value = designation ? `${designation}, ${institute}` : institute;
             
             // Set designation dropdown if matches
@@ -4097,7 +4097,7 @@ function onQuestionPreparationTeacherChange(selectElement) {
         customNameInput.style.display = 'none';
         customNameInput.value = '';
         designationSelect.value = '';
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     }
 }
 
@@ -4109,12 +4109,12 @@ function onQuestionPreparationDesignationChange(selectElement) {
     
     if (selectedValue === '__CUSTOM__') {
         // Allow custom designation
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     } else if (selectedValue) {
         // Set designation with default institute
-        designationInput.value = `${selectedValue}, Law Discipline, KU`;
+        designationInput.value = `${selectedValue}, ${ {{ tenant.institute_label|tojson }} }`;
     } else {
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     }
 }
 
@@ -4133,7 +4133,7 @@ function onScriptExaminationTeacherChange(selectElement) {
         customNameInput.required = true;
         // Clear designation select and allow custom
         designationSelect.value = '';
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     } else if (selectedValue) {
         // Hide custom name input
         customNameInput.style.display = 'none';
@@ -4144,7 +4144,7 @@ function onScriptExaminationTeacherChange(selectElement) {
         const teacher = teachersData.find(t => t.name === selectedValue);
         if (teacher) {
             const designation = teacher.designation || '';
-            const institute = teacher.institute || 'Law Discipline, KU';
+            const institute = teacher.institute || {{ tenant.institute_label|tojson }};
             designationInput.value = designation ? `${designation}, ${institute}` : institute;
             
             // Set designation dropdown if matches
@@ -4169,7 +4169,7 @@ function onScriptExaminationTeacherChange(selectElement) {
         customNameInput.style.display = 'none';
         customNameInput.value = '';
         designationSelect.value = '';
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     }
 }
 
@@ -4181,12 +4181,12 @@ function onScriptExaminationDesignationChange(selectElement) {
     
     if (selectedValue === '__CUSTOM__') {
         // Allow custom designation
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     } else if (selectedValue) {
         // Set designation with default institute
-        designationInput.value = `${selectedValue}, Law Discipline, KU`;
+        designationInput.value = `${selectedValue}, ${ {{ tenant.institute_label|tojson }} }`;
     } else {
-        designationInput.value = 'Law Discipline, KU';
+        designationInput.value = {{ tenant.institute_label|tojson }};
     }
 }
 
@@ -4218,7 +4218,7 @@ function addQuestionPreparationRow() {
                 <option value="Lecturer">Lecturer</option>
                 <option value="__CUSTOM__">Custom...</option>
             </select>
-            <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+            <input type="text" class="form-control form-control-sm mt-1 question-preparation-custom-designation" name="question_preparation_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
         </td>
         <td><input type="number" class="form-control form-control-sm" name="question_preparation_questions[]" value="1" min="1" onfocus="this.select();"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -4263,7 +4263,7 @@ function addScriptExaminationRow() {
                 <option value="Lecturer">Lecturer</option>
                 <option value="__CUSTOM__">Custom...</option>
             </select>
-            <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">
+            <input type="text" class="form-control form-control-sm mt-1 script-examination-custom-designation" name="script_examination_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>
         </td>
         <td><input type="number" class="form-control form-control-sm" name="script_examination_scripts[]" value="" min="0" onchange="updateTableCounts()" onfocus="this.select();"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -4300,7 +4300,7 @@ function addClassTestRow() {
             </select>
             <input type="text" class="form-control form-control-sm mt-1 class-test-custom-name" name="class_test_teacher[]" placeholder="Enter custom name" style="display: none;">
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+        <td><input type="text" class="form-control form-control-sm" name="class_test_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
         <td><input type="number" class="form-control form-control-sm" name="class_test_no[]" value="" min="0" onfocus="this.select();"></td>
         <td><input type="number" class="form-control form-control-sm" name="class_test_students[]" value="" min="0" onfocus="this.select();"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -4322,7 +4322,7 @@ function addModerationCommitteeRow() {
             </select>
             <input type="text" class="form-control form-control-sm mt-1 moderation-custom-name" name="moderation_committee_name[]" placeholder="Enter custom name" style="display: none;">
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+        <td><input type="text" class="form-control form-control-sm" name="moderation_committee_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
         <td><input type="text" class="form-control form-control-sm" name="moderation_committee_position[]"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
@@ -4411,7 +4411,7 @@ function addRowWithNameDesignation(tableId, columnTypes, prefix) {
                 <input type="text" class="form-control form-control-sm mt-1 ${customInputClass}" name="${prefix}_name[]" placeholder="Enter custom name" style="display: none;">
             `;
         } else if (type === 'designation') {
-            td.innerHTML = `<input type="text" class="form-control form-control-sm" name="${prefix}_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU">`;
+            td.innerHTML = `<input type="text" class="form-control form-control-sm" name="${prefix}_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}>`;
         } else if (type === 'number') {
             td.innerHTML = `<input type="number" class="form-control form-control-sm" name="${prefix}_${index === 2 ? 'scripts' : 'value'}[]" value="" min="0" onfocus="this.select();">`;
         } else if (type === 'text') {
@@ -4444,7 +4444,7 @@ function addTabulationRow() {
             </select>
             <input type="text" class="form-control form-control-sm mt-1 tabulation-custom-name" name="tabulation_name[]" placeholder="Enter custom name" style="display: none;">
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+        <td><input type="text" class="form-control form-control-sm" name="tabulation_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
         <td><input type="number" class="form-control form-control-sm" name="tabulation_course_wise[]" value="" min="0" onfocus="this.select();"></td>
         <td><input type="number" class="form-control form-control-sm" name="tabulation_student_wise[]" value="" min="0" onfocus="this.select();"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
@@ -4465,7 +4465,7 @@ function addVivaRow() {
             <input type="text" class="form-control form-control-sm mt-1 viva-custom-name" name="viva_teacher[]" placeholder="Enter custom name" style="display: none;">
         </td>
         <td><input type="text" class="form-control form-control-sm" name="viva_designation[]"></td>
-        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+        <td><input type="text" class="form-control form-control-sm" name="viva_institution[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
         <td><input type="number" class="form-control form-control-sm" name="viva_students[]" value="" min="0" onfocus="this.select();"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
@@ -4484,7 +4484,7 @@ function addQuestionTypingRow() {
             </select>
             <input type="text" class="form-control form-control-sm mt-1 question-typing-custom-name" name="question_typing_name[]" placeholder="Enter custom name" style="display: none;">
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+        <td><input type="text" class="form-control form-control-sm" name="question_typing_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
         <td><input type="number" class="form-control form-control-sm" name="question_typing_questions[]" value="" min="0" onfocus="this.select();"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
@@ -4498,7 +4498,7 @@ function addOfficialSupportRow() {
         <td>
             <input type="text" class="form-control form-control-sm" name="official_support_name[]" placeholder="Enter name">
         </td>
-        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]" placeholder="Law Discipline, KU" value="Law Discipline, KU"></td>
+        <td><input type="text" class="form-control form-control-sm" name="official_support_designation[]" placeholder="{{ tenant.institute_label }}" value={{ tenant.institute_label|tojson }}></td>
         <td><input type="text" class="form-control form-control-sm" name="official_support_details[]"></td>
         <td><button type="button" class="btn btn-remove-row" onclick="removeRow(this)"><i class="fas fa-times"></i></button></td>
     `;
@@ -4759,7 +4759,7 @@ function composeDesignation(rank, text) {
         if (text && text.toLowerCase().startsWith(rank.toLowerCase())) {
             return text;
         }
-        const institute = text || 'Law Discipline, KU';
+        const institute = text || {{ tenant.institute_label|tojson }};
         return `${rank}, ${institute}`;
     }
     return text;

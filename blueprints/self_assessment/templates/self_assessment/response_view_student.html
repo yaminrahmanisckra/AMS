@@ -100,7 +100,7 @@
     <div class="card-header bg-light border-bottom border-primary" style="border-left: 4px solid #1e40af;"><h5 class="mb-0">Part F: Qualitative (Open-Ended)</h5></div>
     <div class="card-body p-0">
         <table class="table table-bordered table-sm mb-0">
-            <tr><td class="bg-light fw-bold" style="width: 35%;">27. What are the three biggest strengths of this Law program?</td><td>{{ payload.get('q27') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold" style="width: 35%;">27. What are the three biggest strengths of this {{ tenant.short_name }} program?</td><td>{{ payload.get('q27') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">28. What are the major weaknesses or areas for improvement?</td><td>{{ payload.get('q28') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">29. Do you feel the program is adequately preparing you for the legal profession? Why or why not?</td><td>{{ payload.get('q29') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">30. Any specific suggestions regarding the Moot Court or practical training sessions?</td><td>{{ payload.get('q30') or '–' }}</td></tr>
@@ -129,7 +129,7 @@
     <div class="card-body">
         <p class="small text-muted mb-3">5 = Strongly Agree &nbsp;|&nbsp; 4 = Agree &nbsp;|&nbsp; 3 = Neutral / Undecided &nbsp;|&nbsp; 2 = Disagree &nbsp;|&nbsp; 1 = Strongly Disagree</p>
         {% set student_labels = [
-            '1. I am aware of the Vision and Mission of the Law Discipline and the University.',
+            '1. I am aware of the Vision and Mission of the ' ~ tenant.name ~ ' and the University.',
             '2. The Academic Calendar is strictly followed (classes start on time; exams are held as scheduled).',
             '3. The Student Handbook (containing curriculum, rules, and code of conduct) is available to me.',
             '4. The Discipline/University Website is informative, up-to-date, and easy to access.',
@@ -189,7 +189,7 @@
     </div>
     <div class="card-body p-0">
         <table class="table table-bordered table-sm mb-0">
-            <tr><td class="bg-light fw-bold" style="width: 35%;">27. What are the strongest aspects of the Law Discipline at Khulna University?</td><td>{{ payload.get('strongest_aspects') or '–' }}</td></tr>
+            <tr><td class="bg-light fw-bold" style="width: 35%;">27. What are the strongest aspects of the {{ tenant.name }} at {{ tenant.university_name }}?</td><td>{{ payload.get('strongest_aspects') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">28. What specific areas (facilities, teaching, or administration) need immediate improvement?</td><td>{{ payload.get('areas_improvement') or '–' }}</td></tr>
             <tr><td class="bg-light fw-bold">29. Do you feel safe and supported on campus? If no, please explain.</td><td>{{ payload.get('safe_supported') or '–' }}</td></tr>
         </table>

@@ -13,7 +13,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
 # Activate virtual environment
-activate_this = '/home/gronthon/virtualenv/kulawams.xyz/3.12/bin/activate_this.py'
+activate_this = os.environ.get(
+    'VIRTUALENV_ACTIVATE',
+    '/home/gronthon/virtualenv/kulawams.xyz/3.12/bin/activate_this.py',
+)
 if os.path.exists(activate_this):
     with open(activate_this) as file_:
         exec(file_.read(), dict(__file__=activate_this))

@@ -74,7 +74,7 @@
                                 <span class="sv-section-icon sv-icon-assess"><i class="fas fa-clipboard-check"></i></span>
                                 <div>
                                     <h6>Assessment Scores</h6>
-                                    <p>Best 3 of 4 assessments count toward your total.</p>
+                                    <p>{% if course.assessment_total_label %}{{ course.assessment_total_label }}.{% else %}Best {{ academic_rules.assessment.take_best }} of {{ academic_rules.assessment.slots }} assessments count toward your total.{% endif %}</p>
                                 </div>
                             </div>
                             <div class="sv-tile-grid">
@@ -83,10 +83,11 @@
                                 {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course) }}
                                 {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course) }}
                                 <div class="sv-tile sv-tile-highlight sv-tile-wide">
-                                    <div class="sv-tile-label">Best 3 Total</div>
+                                    <div class="sv-tile-label">{{ course.assessment_total_label or ('Best ' ~ academic_rules.assessment.take_best ~ ' Total') }}</div>
                                     <div class="sv-tile-value">
-                                        {% if course.best3_total is not none %}
-                                            <span class="sv-score-num">{{ course.best3_total }}</span>
+                                        {% set shown_total = course.pg_total if course.pg_total is not none else course.best3_total %}
+                                        {% if shown_total is not none %}
+                                            <span class="sv-score-num">{{ shown_total }}</span>
                                         {% else %}
                                             <span class="sv-score-pending">—</span>
                                         {% endif %}
@@ -101,7 +102,7 @@
                                 <span class="sv-section-icon sv-icon-assess"><i class="fas fa-clipboard-check"></i></span>
                                 <div>
                                     <h6>Assessment Scores</h6>
-                                    <p>Continuous assessment marks out of 40.</p>
+                                    <p>{% if course.assessment_total_label %}{{ course.assessment_total_label }}.{% else %}Continuous assessment marks out of {{ academic_rules.assessment.pg_out_of }}.{% endif %}</p>
                                 </div>
                             </div>
                             <div class="sv-tile-grid">
@@ -110,10 +111,11 @@
                                 {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course) }}
                                 {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course) }}
                                 <div class="sv-tile sv-tile-highlight sv-tile-wide">
-                                    <div class="sv-tile-label">Total (out of 40)</div>
+                                    <div class="sv-tile-label">{{ course.assessment_total_label or ('Total (out of ' ~ academic_rules.assessment.pg_out_of ~ ')') }}</div>
                                     <div class="sv-tile-value">
-                                        {% if course.pg_total is not none %}
-                                            <span class="sv-score-num">{{ course.pg_total }}</span>
+                                        {% set shown_pg_total = course.pg_total if course.pg_total is not none else course.best3_total %}
+                                        {% if shown_pg_total is not none %}
+                                            <span class="sv-score-num">{{ shown_pg_total }}</span>
                                         {% else %}
                                             <span class="sv-score-pending">—</span>
                                         {% endif %}
@@ -158,7 +160,7 @@
                                 <span class="sv-section-icon sv-icon-att"><i class="fas fa-calendar-check"></i></span>
                                 <div>
                                     <h6>Attendance</h6>
-                                    <p>Class presence and attendance marks for this course.</p>
+                                    <p>{% if course.attendance_data.part_breakdown %}Class presence from Part A and Part B, with combined attendance marks.{% else %}Class presence and attendance marks for this course.{% endif %}</p>
                                 </div>
                             </div>
                             <div class="sv-attendance">
@@ -169,13 +171,33 @@
                                     </div>
                                 </div>
                                 <div class="sv-att-stats">
-                                    <div class="sv-att-stat">
+                                    <div class="sv-att-stat{% if course.attendance_data.part_breakdown %} sv-att-stat-wide{% endif %}">
                                         <span class="sv-att-stat-label"><i class="fas fa-chalkboard-teacher"></i> Total Classes</span>
+                                        {% if course.attendance_data.part_breakdown %}
+                                        <span class="sv-att-stat-value sv-att-formula">
+                                            <span class="sv-att-formula-part">Part A <strong>{{ course.attendance_data.part_breakdown.part_a_classes }}</strong></span>
+                                            <span class="sv-att-op">+</span>
+                                            <span class="sv-att-formula-part">Part B <strong>{{ course.attendance_data.part_breakdown.part_b_classes }}</strong></span>
+                                            <span class="sv-att-op">=</span>
+                                            <strong class="sv-att-formula-total">{{ course.attendance_data.total_classes }}</strong>
+                                        </span>
+                                        {% else %}
                                         <span class="sv-att-stat-value">{{ course.attendance_data.total_classes }}</span>
+                                        {% endif %}
                                     </div>
-                                    <div class="sv-att-stat">
+                                    <div class="sv-att-stat{% if course.attendance_data.part_breakdown %} sv-att-stat-wide{% endif %}">
                                         <span class="sv-att-stat-label"><i class="fas fa-user-check"></i> Present</span>
+                                        {% if course.attendance_data.part_breakdown %}
+                                        <span class="sv-att-stat-value sv-att-formula sv-att-present">
+                                            <span class="sv-att-formula-part">Part A <strong>{{ course.attendance_data.part_breakdown.part_a_present }}</strong></span>
+                                            <span class="sv-att-op">+</span>
+                                            <span class="sv-att-formula-part">Part B <strong>{{ course.attendance_data.part_breakdown.part_b_present }}</strong></span>
+                                            <span class="sv-att-op">=</span>
+                                            <strong class="sv-att-formula-total">{{ course.attendance_data.present_count }}</strong>
+                                        </span>
+                                        {% else %}
                                         <span class="sv-att-stat-value sv-att-present">{{ course.attendance_data.present_count }}</span>
+                                        {% endif %}
                                     </div>
                                     <div class="sv-att-stat">
                                         <span class="sv-att-stat-label"><i class="fas fa-percentage"></i> Percentage</span>
@@ -632,6 +654,53 @@
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
+}
+
+.sv-att-stat-wide {
+    grid-column: 1 / -1;
+}
+
+.sv-att-formula {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.4rem;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--sv-text);
+}
+
+.sv-att-formula-part {
+    white-space: nowrap;
+    color: var(--sv-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.sv-att-formula-part strong {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--sv-text);
+    margin-left: 0.2rem;
+}
+
+.sv-att-op {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #9ca3af;
+}
+
+.sv-att-formula-total {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--sv-text);
+}
+
+.sv-att-present .sv-att-formula-part strong,
+.sv-att-present .sv-att-formula-total {
+    color: var(--sv-att);
 }
 
 .sv-att-stat-marks {

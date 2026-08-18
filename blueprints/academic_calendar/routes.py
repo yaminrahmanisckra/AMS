@@ -217,8 +217,11 @@ def _merge_upcoming_semester_events(upcoming_events):
 @login_required
 def index():
     """Display academic calendar with events and holidays"""
-    from utils.dashboard_settings import require_student_dashboard_card
+    from utils.dashboard_settings import require_student_dashboard_card, require_officer_dashboard_card
     blocked = require_student_dashboard_card('academic_calendar')
+    if blocked:
+        return blocked
+    blocked = require_officer_dashboard_card('academic_calendar')
     if blocked:
         return blocked
     try:

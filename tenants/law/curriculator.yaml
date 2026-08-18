@@ -1,0 +1,50 @@
+parts:
+  - key: A
+    title: Part A
+  - key: B
+    title: Part B
+  - key: C
+    title: Part C
+  - key: D
+    title: Part D
+
+year_term_grid:
+  - [First, First]
+  - [First, Second]
+  - [Second, First]
+  - [Second, Second]
+  - [Third, First]
+  - [Fourth, First]
+  - [Fourth, Second]
+  - [LLM, First]
+  - [LLM, Second]
+
+mapping_course_plo_year_term:
+  "1_1": [First, First]
+  "1_2": [First, Second]
+  "2_1": [Second, First]
+  "2_2": [Second, Second]
+  "3_1": [Third, First]
+  "4_1": [Fourth, First]
+  "4_2": [Fourth, Second]
+
+part_a_sections:
+  - {key: overview, label: Program Overview, type: key_value}
+  - {key: vision_university, label: Vision of the University, type: text}
+  - {key: vision_discipline, label: Vision of the Discipline, type: text}
+  - {key: mission_university, label: Mission of the University, type: serial_description}
+  - {key: mission_discipline, label: Mission of the Discipline, type: serial_description}
+  - {key: objectives, label: Objectives of the Discipline, type: serial_description}
+  - {key: description, label: Description of the Program, type: text}
+  - {key: graduate_attributes, label: Graduate Attributes, type: graduate_attributes}
+  - {key: peos, label: Program Educational Objectives (PEOs), type: peos}
+  - {key: plos, label: Program Learning Outcomes (PLOs), type: plos}
+  - {key: mapping_mission_peo, label: Mapping Mission ↔ PEO, type: mapping}
+  - {key: mapping_plo_peo, label: Mapping PLO ↔ PEO, type: mapping}
+  - {key: mapping_course_plo_1_1, label: Mapping Course ↔ PLO (First Year First Term), type: mapping_course_plo}
+  - {key: mapping_course_plo_1_2, label: Mapping Course ↔ PLO (First Year Second Term), type: mapping_course_plo}
+  - {key: mapping_course_plo_2_1, label: Mapping Course ↔ PLO (Second Year First Term), type: mapping_course_plo}
+  - {key: mapping_course_plo_2_2, label: Mapping Course ↔ PLO (Second Year Second Term), type: mapping_course_plo}
+  - {key: mapping_course_plo_3_1, label: Mapping Course ↔ PLO (Third Year First Term), type: mapping_course_plo}
+  - {key: mapping_course_plo_4_1, label: Mapping Course ↔ PLO (Fourth Year First Term), type: mapping_course_plo}
+  - {key: mapping_course_plo_4_2, label: Mapping Course ↔ PLO (Fourth Year Second Term), type: mapping_course_plo}

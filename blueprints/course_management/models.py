@@ -237,29 +237,20 @@ class Course(db.Model):
     @property
     def derived_year(self):
         """Infer the academic year from the course code when year is not stored."""
+        from utils.tenant import current_tenant
         digits = self._extract_year_term_digits()
         if len(digits) < 4:
             return ''
-        mapping = {
-            '1': 'First',
-            '2': 'Second',
-            '3': 'Third',
-            '4': 'Fourth',
-            '5': 'LLM'
-        }
-        return mapping.get(digits[0], '')
+        return current_tenant().year_digit_map.get(digits[0], '')
     
     @property
     def derived_term(self):
         """Infer the term/semester from the course code when term is not stored."""
+        from utils.tenant import current_tenant
         digits = self._extract_year_term_digits()
         if len(digits) < 4:
             return ''
-        mapping = {
-            '1': 'First',
-            '2': 'Second'
-        }
-        return mapping.get(digits[1], '')
+        return current_tenant().term_digit_map.get(digits[1], '')
     
     @property
     def display_year(self):

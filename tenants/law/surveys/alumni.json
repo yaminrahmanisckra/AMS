@@ -1,0 +1,160 @@
+{
+  "title": "Alumni Survey Questionnaire",
+  "form_version": "law_accreditation",
+  "purpose": "This survey aims to assess the work environment, management efficiency, and resource adequacy within the Law Discipline. Your feedback is essential for the Self-Assessment Report (SAR) required for BAC Accreditation.",
+  "confidentiality": "This survey is strictly anonymous. Data will be aggregated for quality assurance purposes only. No individual will be identified in the reporting.",
+  "scale": "1 = Strongly Disagree / Very Poor | 2 = Disagree / Poor | 3 = Neutral / Average | 4 = Agree / Good | 5 = Strongly Agree / Excellent",
+  "identification_fields": [
+    {
+      "key": "name",
+      "label": "Name (Optional)",
+      "type": "text"
+    },
+    {
+      "key": "batch",
+      "label": "Batch (Optional)",
+      "type": "text"
+    },
+    {
+      "key": "graduation_year",
+      "label": "Year of Graduation (Optional)",
+      "type": "text"
+    }
+  ],
+  "sections": [
+    {
+      "title": "Part A: Employment & Career Relevance (Standard 4)",
+      "focus": "Employability and curriculum relevance.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q1",
+          "text": "The academic program prepared me well for my current profession (e.g., Advocate, Judge, Corporate Officer)."
+        },
+        {
+          "key": "q2",
+          "text": "The legal knowledge (substantive and procedural law) I gained is relevant to my daily work."
+        },
+        {
+          "key": "q3",
+          "text": "The curriculum balanced theoretical knowledge with practical skills (drafting, pleading, opinions)."
+        },
+        {
+          "key": "q4",
+          "text": "The General Education courses (e.g., English, ICT, History, Economics) helped broaden my professional skills."
+        },
+        {
+          "key": "q5",
+          "text": "The program enhanced my ability to adapt to changes in the legal landscape (e.g., new laws, technology)."
+        }
+      ]
+    },
+    {
+      "title": "Part B: Attainment of Graduate Attributes",
+      "focus": "Assessing Law Graduate Attributes.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q6",
+          "text": "Legal Research Skills: Ability to find and analyze case law/statutes."
+        },
+        {
+          "key": "q7",
+          "text": "Communication Skills: Oral advocacy and professional writing."
+        },
+        {
+          "key": "q8",
+          "text": "Problem Solving: Ability to apply law to complex factual scenarios."
+        },
+        {
+          "key": "q9",
+          "text": "Ethical Development: Understanding professional ethics and moral responsibility."
+        },
+        {
+          "key": "q10",
+          "text": "ICT Skills: Proficiency in using technology for legal work."
+        },
+        {
+          "key": "q11",
+          "text": "Leadership & Team Spirit: Ability to work in teams and lead initiatives."
+        },
+        {
+          "key": "q12",
+          "text": "Creativity & Innovation: Ability to think outside the box in legal arguments."
+        }
+      ]
+    },
+    {
+      "title": "Part C: Teaching, Assessment & Environment",
+      "focus": "Quality of instruction and facilities.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q13",
+          "text": "The faculty members were qualified and effective in their teaching methods."
+        },
+        {
+          "key": "q14",
+          "text": "The assessment methods (exams/assignments) were fair and challenged my critical thinking."
+        },
+        {
+          "key": "q15",
+          "text": "Moot Court: The mooting and mock trial exercises were sufficient and useful for my career."
+        },
+        {
+          "key": "q16",
+          "text": "Library/IT: The learning resources (books, journals, computer labs) were adequate during my study."
+        },
+        {
+          "key": "q17",
+          "text": "Co-Curriculars: Participation in debating, clubs, or negotiation role-plays helped mold my personality."
+        }
+      ]
+    },
+    {
+      "title": "Part D: Institutional Engagement",
+      "focus": "Alumni relations and feedback loops.",
+      "type": "rating",
+      "questions": [
+        {
+          "key": "q18",
+          "text": "The university's Career Placement Cell provided useful guidance for my job search/internship."
+        },
+        {
+          "key": "q19",
+          "text": "I feel a strong sense of connection/belonging to the university."
+        },
+        {
+          "key": "q20",
+          "text": "The Alumni Association is active and provides networking opportunities."
+        },
+        {
+          "key": "q21",
+          "text": "The department seeks feedback from alumni regarding curriculum review and development."
+        }
+      ]
+    },
+    {
+      "title": "Part E: Qualitative Questions (Open-Ended)",
+      "type": "text",
+      "questions": [
+        {
+          "key": "q22",
+          "text": "22. What specific skills or knowledge areas were missing from the curriculum that you found necessary in your professional life?"
+        },
+        {
+          "key": "q23",
+          "text": "23. How would you evaluate the effectiveness of the Moot Court/Practical training during your time?"
+        },
+        {
+          "key": "q24",
+          "text": "24. What are the major strengths of the Department of Law that we should maintain?"
+        },
+        {
+          "key": "q25",
+          "text": "25. Would you recommend this program to a prospective law student? Why or why not?"
+        }
+      ]
+    }
+  ]
+}

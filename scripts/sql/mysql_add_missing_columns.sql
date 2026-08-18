@@ -313,6 +313,29 @@ INSERT IGNORE INTO student_dashboard_card (card_key, label, description, is_enab
 ('course_registration', 'Course Registration', 'Select session, year, term and download your registration form.', 1, 6, UTC_TIMESTAMP());
 
 -- ============================================
+-- OFFICER DASHBOARD CARD SETTINGS
+-- ============================================
+CREATE TABLE IF NOT EXISTS officer_dashboard_card (
+    id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    card_key VARCHAR(50) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    description VARCHAR(255) NULL,
+    is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+    sort_order INT NOT NULL DEFAULT 0,
+    updated_at DATETIME NULL,
+    UNIQUE KEY uq_officer_dashboard_card_key (card_key),
+    KEY idx_officer_dashboard_card_key (card_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO officer_dashboard_card (card_key, label, description, is_enabled, sort_order, updated_at) VALUES
+('exam_info', 'Exam Info', 'View examination information and schedules.', 1, 1, UTC_TIMESTAMP()),
+('class_routine', 'Class Routine', 'View published class schedules (view only).', 1, 2, UTC_TIMESTAMP()),
+('academic_calendar', 'Academic Calendar', 'View holidays, events, and important academic dates.', 1, 3, UTC_TIMESTAMP()),
+('leave_application', 'Leave Application', 'Fill out leave applications and download official PDFs.', 1, 4, UTC_TIMESTAMP()),
+('remuneration', 'Remuneration', 'Manage remuneration and payment information.', 1, 5, UTC_TIMESTAMP()),
+('admission_exam', 'Admission Exam', 'Masters admission cycles, applications, and admit cards.', 1, 6, UTC_TIMESTAMP());
+
+-- ============================================
 -- SUCCESS MESSAGE
 -- ============================================
 SELECT 'Migration completed successfully! All missing columns have been added without affecting existing data.' AS Status;

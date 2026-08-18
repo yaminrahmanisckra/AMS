@@ -5,7 +5,7 @@
 {% block content %}
 <div class="container my-4 my-md-5 student-dash-page">
     <div class="sd-hero text-center mb-4 mb-md-5">
-        <p class="sd-eyebrow mb-1">Academic Management System</p>
+        <p class="sd-eyebrow mb-1">{{ tenant.name }}</p>
         <h1 class="sd-hello mb-2">Hi {{ current_user.full_name or 'Student' }}</h1>
         <p class="sd-sub text-muted mb-0">Your courses, scores, files, and schedules in one place.</p>
     </div>

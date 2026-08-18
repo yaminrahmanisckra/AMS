@@ -351,6 +351,7 @@ html {
 <div class="dashboard-wrapper">
     <div class="container">
         <div class="dashboard-header">
+            <p class="text-uppercase mb-2" style="letter-spacing: 0.08em; font-size: 0.8rem; font-weight: 600; color: #667eea;">{{ tenant.name }}</p>
             <h1>Main Dashboard</h1>
             <p>Welcome, {{ current_user.full_name }}! 👋 Select a module to get started.</p>
         </div>
@@ -359,6 +360,7 @@ html {
     {% set is_teaching_assistant = 'teaching_assistant' in parse_roles(current_user.role) %}
     {% set is_teacher = 'teacher' in parse_roles(current_user.role) and not is_teaching_assistant and not is_officer %}
     {% set is_head = 'head' in parse_roles(current_user.role) or 'dean' in parse_roles(current_user.role) %}
+    {% set oc = officer_cards if officer_cards is defined else {} %}
     
     {% set cards = [
         {
@@ -415,7 +417,7 @@ html {
             'icon': 'fas fa-money-bill-wave',
             'color_class': 'card-green',
             'url': url_for('remuneration_portal'),
-            'show': not is_teaching_assistant
+            'show': (not is_teaching_assistant and not is_officer) or (is_officer and oc.get('remuneration', true))
         },
         {
             'title': 'Academic Calendar',
@@ -423,7 +425,7 @@ html {
             'icon': 'fas fa-calendar',
             'color_class': 'card-indigo',
             'url': url_for('academic_calendar.index'),
-            'show': is_teaching_assistant or True
+            'show': (not is_officer) or oc.get('academic_calendar', true)
         },
         {
             'title': 'Exam Info',
@@ -431,7 +433,15 @@ html {
             'icon': 'fas fa-clipboard-list',
             'color_class': 'card-orange',
             'url': url_for('officer_exam_info'),
-            'show': is_officer and not is_teaching_assistant
+            'show': is_officer and not is_teaching_assistant and oc.get('exam_info', true)
+        },
+        {
+            'title': 'Class Routine',
+            'desc': 'View published class schedules (view only).',
+            'icon': 'fas fa-calendar-check',
+            'color_class': 'card-cyan',
+            'url': url_for('routine_management.public_routines'),
+            'show': is_officer and not is_teaching_assistant and oc.get('class_routine', true)
         }
     ] %}
     {% if show_course_registration_review %}
@@ -458,6 +468,7 @@ html {
             }
         ] %}
     {% endif %}
+    {% if tenant.features.get('curriculator', true) %}
     {% set cards = cards + [
         {
             'title': 'Curriculator',
@@ -468,6 +479,7 @@ html {
             'show': is_teaching_assistant or not is_officer
         }
     ] %}
+    {% endif %}
     {% if show_leave_application|default(false) %}
     {% set _ = cards.append({
         'title': 'Leave Application',
