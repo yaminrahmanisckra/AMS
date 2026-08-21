@@ -3,21 +3,36 @@ import json
 
 from extensions import db
 from utils.ai.models import AIOutlineGenerationJob, AIOutlineGenerationLog
-from utils.ai.outline_prompts import OUTLINE_PART_FIELDS
 
 
 DEFAULT_PARTS = ['A', 'B', 'C', 'D']
+_PART_DISPLAY = {'CD': 'C+D'}
 
 
 def normalize_parts(parts):
     if not parts:
-        return list(DEFAULT_PARTS)
+        parts = list(DEFAULT_PARTS)
     normalized = []
     for part in parts:
         key = str(part).upper().strip()
-        if key in OUTLINE_PART_FIELDS and key not in normalized:
+        if key == 'CD':
+            if 'CD' not in normalized:
+                normalized.append('CD')
+            continue
+        if key in ('A', 'B', 'C', 'D') and key not in normalized:
             normalized.append(key)
-    return normalized or list(DEFAULT_PARTS)
+    if 'C' in normalized and 'D' in normalized:
+        compacted = []
+        inserted = False
+        for item in normalized:
+            if item in ('C', 'D'):
+                if not inserted:
+                    compacted.append('CD')
+                    inserted = True
+            else:
+                compacted.append(item)
+        normalized = compacted
+    return normalized or ['A', 'B', 'CD']
 
 
 def create_outline_job(session_id, user_id, teacher_id=None, parts=None, context_summary=None):
@@ -41,10 +56,11 @@ def job_progress(job):
     total = len(parts)
     done = min(job.part_index, total)
     current = parts[job.part_index] if job.part_index < total else None
+    current_label = _PART_DISPLAY.get(current, current)
     return {
         'total': total,
         'done': done,
-        'current_part': current,
+        'current_part': current_label,
         'label': f'{done}/{total}',
     }
 

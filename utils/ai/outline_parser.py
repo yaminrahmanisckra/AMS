@@ -36,11 +36,8 @@ def _ensure_dict(value, default=None):
     return default
 
 
-def extract_json_from_response(text):
-    """Parse JSON from model output, stripping markdown fences if present."""
-    if not text:
-        raise ValueError('Empty AI response')
-    cleaned = text.strip()
+def _strip_json_fences(text):
+    cleaned = (text or '').strip()
     if cleaned.startswith('```'):
         lines = cleaned.splitlines()
         if lines and lines[0].startswith('```'):
@@ -48,7 +45,119 @@ def extract_json_from_response(text):
         if lines and lines[-1].strip() == '```':
             lines = lines[:-1]
         cleaned = '\n'.join(lines).strip()
-    return json.loads(cleaned)
+    return cleaned
+
+
+def _close_truncated_json(chunk):
+    """Close an unterminated string and any open { / [ so truncated model output can parse."""
+    in_str = False
+    escape = False
+    stack = []
+    for ch in chunk:
+        if in_str:
+            if escape:
+                escape = False
+                continue
+            if ch == '\\':
+                escape = True
+                continue
+            if ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            continue
+        if ch == '{':
+            stack.append('}')
+        elif ch == '[':
+            stack.append(']')
+        elif ch in ('}', ']') and stack and stack[-1] == ch:
+            stack.pop()
+    if in_str:
+        if escape:
+            chunk += ' '
+        chunk += '"'
+    chunk = chunk.rstrip()
+    if chunk.endswith(','):
+        chunk = chunk[:-1]
+    while stack:
+        chunk += stack.pop()
+    return chunk
+
+
+def _repair_truncated_json(text):
+    start_obj = text.find('{')
+    start_arr = text.find('[')
+    starts = [i for i in (start_obj, start_arr) if i >= 0]
+    if not starts:
+        return None
+    chunk = text[min(starts):]
+    decoder = json.JSONDecoder()
+    try:
+        obj, _end = decoder.raw_decode(chunk)
+        return obj
+    except json.JSONDecodeError:
+        pass
+    repaired = _close_truncated_json(chunk)
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        try:
+            obj, _end = decoder.raw_decode(repaired)
+            return obj
+        except json.JSONDecodeError:
+            return None
+
+
+def _escape_control_chars_in_strings(chunk):
+    """JSON forbids raw newlines inside strings; models often emit them."""
+    out = []
+    in_str = False
+    escape = False
+    for ch in chunk:
+        if in_str:
+            if escape:
+                out.append(ch)
+                escape = False
+                continue
+            if ch == '\\':
+                out.append(ch)
+                escape = True
+                continue
+            if ch == '"':
+                in_str = False
+                out.append(ch)
+                continue
+            if ch == '\n':
+                out.append('\\n')
+                continue
+            if ch == '\r':
+                continue
+            if ch == '\t':
+                out.append('\\t')
+                continue
+            if ord(ch) < 32:
+                continue
+            out.append(ch)
+            continue
+        if ch == '"':
+            in_str = True
+        out.append(ch)
+    return ''.join(out)
+
+
+def extract_json_from_response(text):
+    """Parse JSON from model output, stripping fences and repairing truncated strings."""
+    if not text:
+        raise ValueError('Empty AI response')
+    cleaned = _escape_control_chars_in_strings(_strip_json_fences(text))
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        repaired = _repair_truncated_json(cleaned)
+        if repaired is not None:
+            return repaired
+        raise
 
 
 def normalize_assessment_strategy(strategy):

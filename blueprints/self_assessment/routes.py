@@ -7,10 +7,14 @@ from flask_login import login_required, current_user
 from extensions import csrf
 from role_utils import parse_roles, get_teachers_excluding_head
 from utils.tenant import current_tenant, load_survey_pack
+from utils.window_utils import get_for_window, get_or_404_for_window, query_for_window, stamp_window_id
 
 from . import self_assessment_bp
 from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse
 from blueprints.class_management.models import Teacher
+
+SURVEY_TYPES = ('alumni', 'employer', 'faculty', 'non_academic', 'student')
+
 
 def _survey_form_template(survey_type):
     pack = load_survey_pack(survey_type)

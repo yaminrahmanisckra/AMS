@@ -8,22 +8,18 @@ migrate = Migrate()
 mail = Mail()
 csrf = CSRFProtect()
 
-# Add connection health check to prevent "MySQL server has gone away" errors
+# Recreate dead pooled connections instead of using them (MySQL "server has gone away").
 try:
     from sqlalchemy import event
+    from sqlalchemy.exc import DisconnectionError
     from sqlalchemy.pool import Pool
-    
+
     @event.listens_for(Pool, "checkout")
     def receive_checkout(dbapi_conn, connection_record, connection_proxy):
-        """Check connection health before using - helps prevent stale connection errors"""
         try:
-            # Try to ping the connection to check if it's alive
-            # If ping fails, connection will be recreated automatically
             if hasattr(dbapi_conn, 'ping'):
                 dbapi_conn.ping(reconnect=True)
-        except Exception:
-            # If ping fails, let SQLAlchemy handle reconnection
-            pass
+        except Exception as exc:
+            raise DisconnectionError() from exc
 except ImportError:
-    # SQLAlchemy event system not available, skip
     pass 

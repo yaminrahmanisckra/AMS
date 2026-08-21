@@ -585,6 +585,19 @@
         border-radius: var(--m-card-radius) !important;
     }
 
+    body.m-shell .cm-credit-load {
+        margin-top: 0.55rem;
+        padding: 0.3rem 0.75rem;
+    }
+
+    body.m-shell .cm-credit-load-label {
+        font-size: 0.75rem;
+    }
+
+    body.m-shell .cm-credit-load-value {
+        font-size: 0.95rem;
+    }
+
     body.m-shell .module-header h4 {
         font-size: 1.05rem !important;
     }

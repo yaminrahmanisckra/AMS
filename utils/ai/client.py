@@ -9,10 +9,17 @@ from flask import current_app
 
 from utils.ai.encryption import decrypt_api_key
 from utils.ai.models import AIProviderSetting
+from utils.ai.session_utils import reset_db_session
+
+_RETRY_DELAYS = (2, 6, 14)
+_OVERLOADED_MESSAGE = 'AI সার্ভার এই মুহূর্তে ব্যস্ত। কিছুক্ষণ পর আবার চেষ্টা করুন।'
 
 
 class AIClientError(Exception):
-    pass
+    def __init__(self, message, retryable=False, status_code=None):
+        super().__init__(message)
+        self.retryable = bool(retryable)
+        self.status_code = status_code
 
 
 def _ssl_context():
@@ -46,7 +53,15 @@ def _friendly_api_error(status_code, detail, provider=None):
         message = (detail or '').strip()[:300]
 
     lowered = message.lower()
+    detail_lower = (detail or '').lower()
     provider = (provider or '').strip().lower()
+
+    if (
+        status_code == 529
+        or 'overloaded' in lowered
+        or 'overloaded_error' in detail_lower
+    ):
+        return _OVERLOADED_MESSAGE
 
     if status_code == 429 or 'resource_exhausted' in lowered:
         if provider == 'gemini' and ('prepayment' in lowered or 'aistudio' in lowered):
@@ -86,6 +101,15 @@ def _friendly_api_error(status_code, detail, provider=None):
     return f'AI API ত্রুটি (HTTP {status_code})।'
 
 
+def _is_retryable_http(status_code, detail):
+    lowered = (detail or '').lower()
+    if any(token in lowered for token in ('quota', 'billing', 'prepayment', 'insufficient_quota', 'api key')):
+        return False
+    if status_code in (429, 500, 502, 503, 529):
+        return True
+    return 'overloaded' in lowered or 'temporarily unavailable' in lowered
+
+
 def _http_post_json(url, headers, body, timeout=120, provider=None):
     data = json.dumps(body).encode('utf-8')
     req = urllib.request.Request(url, data=data, headers=headers, method='POST')
@@ -95,7 +119,11 @@ def _http_post_json(url, headers, body, timeout=120, provider=None):
             return json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode('utf-8', errors='replace')
-        raise AIClientError(_friendly_api_error(exc.code, detail, provider=provider)) from exc
+        raise AIClientError(
+            _friendly_api_error(exc.code, detail, provider=provider),
+            retryable=_is_retryable_http(exc.code, detail),
+            status_code=exc.code,
+        ) from exc
     except urllib.error.URLError as exc:
         reason = str(exc.reason) if exc.reason else str(exc)
         if 'CERTIFICATE_VERIFY_FAILED' in reason:
@@ -103,7 +131,11 @@ def _http_post_json(url, headers, body, timeout=120, provider=None):
                 'SSL সার্টিফিকেট যাচাই ব্যর্থ। macOS-এ Python Certificates ইনস্টল করুন, '
                 'অথবা pip install certifi চালিয়ে অ্যাপ রিস্টার্ট করুন।'
             ) from exc
-        raise AIClientError(f'AI API connection error: {exc}') from exc
+        if 'timed out' in reason.lower() or isinstance(exc.reason, TimeoutError):
+            raise AIClientError('AI API সময় শেষ হয়েছে। আবার চেষ্টা করুন।') from exc
+        raise AIClientError(f'AI API connection error: {exc}', retryable=True) from exc
+    except TimeoutError as exc:
+        raise AIClientError('AI API সময় শেষ হয়েছে। আবার চেষ্টা করুন।') from exc
 
 
 def get_active_provider_setting():
@@ -257,64 +289,101 @@ def _call_anthropic(cfg, system_prompt, user_prompt, timeout=120):
     return text, usage
 
 
-def generate_outline_json_with_meta(system_prompt, user_prompt):
-    """Call AI and return text plus provider/model/token usage."""
-    cfg = get_active_provider_setting()
+def _call_configured_provider(cfg, system_prompt, user_prompt, json_mode=True):
     provider = cfg['provider']
-    started = time.monotonic()
-
     if provider in (AIProviderSetting.PROVIDER_OPENAI, AIProviderSetting.PROVIDER_DEEPSEEK):
         if provider == AIProviderSetting.PROVIDER_DEEPSEEK and not cfg.get('api_base_url'):
             cfg = dict(cfg)
             cfg['api_base_url'] = 'https://api.deepseek.com/v1'
-        text, usage = _call_openai(cfg, system_prompt, user_prompt, json_mode=True)
-    elif provider == AIProviderSetting.PROVIDER_GEMINI:
-        text, usage = _call_gemini(cfg, system_prompt, user_prompt, json_mode=True)
-    elif provider == AIProviderSetting.PROVIDER_ANTHROPIC:
-        text, usage = _call_anthropic(cfg, system_prompt, user_prompt)
-    else:
-        raise AIClientError(f'Unsupported AI provider: {provider}')
+        return _call_openai(cfg, system_prompt, user_prompt, json_mode=json_mode)
+    if provider == AIProviderSetting.PROVIDER_GEMINI:
+        return _call_gemini(cfg, system_prompt, user_prompt, json_mode=json_mode)
+    if provider == AIProviderSetting.PROVIDER_ANTHROPIC:
+        return _call_anthropic(cfg, system_prompt, user_prompt)
+    raise AIClientError(f'Unsupported AI provider: {provider}')
 
-    duration_ms = int((time.monotonic() - started) * 1000)
-    return {
-        'text': text,
-        'provider': provider,
-        'model_name': cfg['model_name'],
-        'usage': usage,
-        'duration_ms': duration_ms,
-    }
+
+def _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_tokens=None):
+    """Load provider from DB, drop the MySQL connection, then call the AI API."""
+    reset_db_session()
+    cfg = get_active_provider_setting()
+    if max_tokens:
+        cfg = dict(cfg)
+        cfg['max_tokens'] = max(256, int(max_tokens))
+    reset_db_session()
+    started = time.monotonic()
+    last_exc = None
+    attempts = 1 + len(_RETRY_DELAYS)
+
+    for attempt in range(attempts):
+        try:
+            text, usage = _call_configured_provider(
+                cfg, system_prompt, user_prompt, json_mode=json_mode,
+            )
+            return {
+                'text': text,
+                'provider': cfg['provider'],
+                'model_name': cfg['model_name'],
+                'usage': usage,
+                'duration_ms': int((time.monotonic() - started) * 1000),
+            }
+        except AIClientError as exc:
+            last_exc = exc
+            if not getattr(exc, 'retryable', False) or attempt >= attempts - 1:
+                raise
+            delay = _RETRY_DELAYS[attempt]
+            try:
+                current_app.logger.warning(
+                    'AI %s retry %s/%s in %ss: %s',
+                    cfg.get('provider'), attempt + 1, attempts - 1, delay, exc,
+                )
+            except Exception:
+                pass
+            time.sleep(delay)
+            reset_db_session()
+
+    raise last_exc
+
+
+def generate_outline_json_with_meta(system_prompt, user_prompt, max_tokens=None):
+    """Call AI and return text plus provider/model/token usage."""
+    return _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_tokens=max_tokens)
 
 
 def generate_outline_json(system_prompt, user_prompt):
     return generate_outline_json_with_meta(system_prompt, user_prompt)['text']
 
 
-def generate_text_with_meta(system_prompt, user_prompt):
+def generate_text_with_meta(system_prompt, user_prompt, max_tokens=None):
     """Call AI for free-form text/HTML (no JSON response_format)."""
-    cfg = get_active_provider_setting()
-    provider = cfg['provider']
-    started = time.monotonic()
+    return _generate_with_retries(system_prompt, user_prompt, json_mode=False, max_tokens=max_tokens)
 
-    if provider in (AIProviderSetting.PROVIDER_OPENAI, AIProviderSetting.PROVIDER_DEEPSEEK):
-        if provider == AIProviderSetting.PROVIDER_DEEPSEEK and not cfg.get('api_base_url'):
-            cfg = dict(cfg)
-            cfg['api_base_url'] = 'https://api.deepseek.com/v1'
-        text, usage = _call_openai(cfg, system_prompt, user_prompt, json_mode=False)
-    elif provider == AIProviderSetting.PROVIDER_GEMINI:
-        text, usage = _call_gemini(cfg, system_prompt, user_prompt, json_mode=False)
-    elif provider == AIProviderSetting.PROVIDER_ANTHROPIC:
-        text, usage = _call_anthropic(cfg, system_prompt, user_prompt)
-    else:
-        raise AIClientError(f'Unsupported AI provider: {provider}')
 
-    duration_ms = int((time.monotonic() - started) * 1000)
-    return {
-        'text': text,
-        'provider': provider,
-        'model_name': cfg['model_name'],
-        'usage': usage,
-        'duration_ms': duration_ms,
-    }
+def user_facing_generation_error(exc):
+    """Short message for the UI; never dump SQLAlchemy/MySQL internals."""
+    text = str(exc or '')
+    lowered = text.lower()
+    if isinstance(exc, AIClientError):
+        return text
+    if 'overloaded' in lowered:
+        return _OVERLOADED_MESSAGE
+    if (
+        'unterminated string' in lowered
+        or 'jsondecodeerror' in lowered
+        or 'expecting value' in lowered
+        or 'invalid control character' in lowered
+    ):
+        return 'AI-এর উত্তর অসম্পূর্ণ JSON ছিল। আবার Generate চাপুন।'
+    if (
+        'transaction has been rolled back' in lowered
+        or 'mysql server has gone away' in lowered
+        or 'connection reset' in lowered
+        or 'pendingrollback' in lowered
+        or '[sql:' in lowered
+        or 'sqlalchemy' in lowered
+    ):
+        return 'ডাটাবেস সংযোগ বিচ্ছিন্ন হয়েছে। আবার Generate চাপুন।'
+    return (text[:400] if text else 'Generation failed.')
 
 
 def test_provider_connection(provider, api_key, model_name=None, api_base_url=None):

@@ -4670,8 +4670,6 @@ def create_app():
              'icon': 'fas fa-book-open', 'color': '#0d6efd', 'bg': 'rgba(13,110,253,0.15)', 'url': url_for('curriculator.index')},
             {'title': 'Course Registration', 'desc': 'Review and finalize student course registrations',
              'icon': 'fas fa-clipboard-check', 'color': '#0dcaf0', 'bg': 'rgba(13,202,240,0.15)', 'url': url_for('course_management.coordinator_registrations')},
-            {'title': 'Exam Committee Archive', 'desc': 'View archived examination committees and their members',
-             'icon': 'fas fa-archive', 'color': '#fd7e14', 'bg': 'rgba(253,126,20,0.15)', 'url': url_for('head_exam_committee_archive')},
             {'title': 'Academic Calendar', 'desc': 'View academic calendar with holidays, events, and important dates',
              'icon': 'fas fa-calendar', 'color': '#6366f1', 'bg': 'rgba(99,102,241,0.15)', 'url': url_for('academic_calendar.index')},
         ]

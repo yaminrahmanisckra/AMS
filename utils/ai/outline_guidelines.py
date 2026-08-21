@@ -56,6 +56,57 @@ DEFAULT_ASSESSMENT_PLAN = {
     ],
 }
 
+INTENT_CHIP_OPTIONS = {
+    'class_test': {'label': 'Class Test', 'kind': 'assessment', 'type': 'class_test'},
+    'quiz': {'label': 'Quiz', 'kind': 'assessment', 'type': 'quiz'},
+    'assignment': {'label': 'Assignment', 'kind': 'assessment', 'type': 'assignment'},
+    'presentation': {'label': 'Presentation', 'kind': 'assessment', 'type': 'presentation'},
+    'viva': {'label': 'Viva', 'kind': 'assessment', 'type': 'viva'},
+    'weekly_discussion': {'label': 'প্রতি সপ্তাহে discussion', 'kind': 'style'},
+    'bangladesh_context': {'label': 'Bangladesh context', 'kind': 'style'},
+    'landmark_cases': {'label': 'Landmark cases', 'kind': 'expand'},
+    'practical_clinic': {'label': 'Practical / clinic', 'kind': 'style'},
+    'spread_assessments': {'label': 'মূল্যায়ন ছড়িয়ে দাও', 'kind': 'style'},
+}
+
+INTENT_CHIP_RULES = {
+    'weekly_discussion': 'Include a class discussion activity each week.',
+    'bangladesh_context': 'Use Bangladesh legal or academic context in examples.',
+    'landmark_cases_locked': 'Mention landmark cases only as examples of existing syllabus topics; do not add new topics.',
+    'landmark_cases': 'You may add landmark case names as elaborations of syllabus topics.',
+    'practical_clinic': 'Include practical, clinic, or field activities.',
+    'spread_assessments': 'Spread assessments across the semester; do not cluster them in the last weeks.',
+}
+
+
+def _as_bool(value, default=True):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in ('0', 'false', 'off', 'no'):
+        return False
+    if text in ('1', 'true', 'on', 'yes'):
+        return True
+    return default
+
+
+def normalize_intent_chips(raw_chips):
+    allowed = set(INTENT_CHIP_OPTIONS)
+    out = []
+    seen = set()
+    for item in raw_chips or []:
+        key = str(item or '').strip().lower()
+        if key in allowed and key not in seen:
+            out.append(key)
+            seen.add(key)
+        if len(out) >= 20:
+            break
+    return out
+
 
 def normalize_assessment_plan(raw_plan=None, delivery=DELIVERY_THEORY):
     """Parse teacher assessment plan: type, display name, count per type."""
@@ -138,21 +189,12 @@ def builtin_delivery_guidelines(delivery_type):
     """Built-in rules that differ between Theory and Sessional courses."""
     if delivery_type == DELIVERY_SESSIONAL:
         return [
-            'এটি **Sessional (ব্যবহারিক/ক্লিনিক্যাল)** কোর্স — Theory কোর্সের মতো লিখবেন না।',
-            'মূল ফোকাস: হাতে-কলমে কাজ, মূল্যায়ন রিপোর্ট, ভাইভা, ফিল্ড/ল্যাব/ক্লিনিক অভিজ্ঞতা।',
-            'Part C: Marks Distribution 10+60+30 — Class Participation/Attendance 10, Assessment (CA components) 60, Viva voce 30; strategy_points ও make_up_procedures পূরণ করুন।',
-            'lesson_plan-এ প্রতি সপ্তাহে practical exercise, demonstration, field visit, বা clinic activity উল্লেখ করুন।',
-            'লেকচার-ভিত্তিক দীর্ঘ theory chapter তালিকা এড়িয়ে কাজ-ভিত্তিক সেশন পরিকল্পনা দিন।',
-            'textbooks-এ practical manual, guideline, বা hands-on resource যোগ করুন।',
+            'Sessional course: practical/clinic/field work, reports, viva — not lecture-heavy theory.',
+            'Marks: Attendance 10, CA 60, Viva 30.',
         ]
     return [
-        'এটি **Theory** কোর্স — ক্লাসরুম লেকচার, আলোচনা, ও লিখিত পরীক্ষা-কেন্দ্রিক আউটলাইন।',
-        'Part A: contact hours লেকচার + discussion হিসাবে লিখুন; CIE ৪০ / SMEE ৬০ (বা কারিকুলাম অনুযায়ী)।',
-        'Part B: সপ্তাহভিত্তিক lesson_plan-এ topic, reading, teaching method, formative assessment থাকবে।',
-        'Part B: প্রতিটি ক্লাস সেশন = lesson_plan-এ এক সারি; সপ্তাহে classes_per_week পর্যন্ত সারি একই week নম্বরে।',
-        'Part B: quiz, class test, assignment, presentation বিভিন্ন সপ্তাহে teaching_assessment-এ ছড়িয়ে দিন — শেষ সপ্তাহে সব নয়।',
-        'Part C: class test, assignment, attendance, final written exam — CLO-এর সাথে ম্যাপ করুন।',
-        'Sessional report/viva শুধু Sessional কোর্সে প্রযোজ্য; Theory-তে ব্যবহার করবেন না।',
+        'Theory course: lecture, discussion, written exam.',
+        'CIE 40 / SMEE 60 unless the curriculum says otherwise.',
     ]
 
 
@@ -189,6 +231,8 @@ def normalize_generation_options(raw=None, session=None, course_data=None):
         admin_block = '\n'.join(p for p in parts if p).strip()
 
     merged_custom = '\n\n'.join(p for p in (admin_block, custom) if p).strip()
+    syllabus_lock = _as_bool(raw.get('syllabus_lock', True), default=True)
+    intent_chips = normalize_intent_chips(raw.get('intent_chips'))
 
     def _pos_int(key):
         try:
@@ -201,6 +245,14 @@ def normalize_generation_options(raw=None, session=None, course_data=None):
     raw_plan = raw.get('assessment_plan')
     if not raw_plan and raw.get('assessment_types'):
         raw_plan = [{'type': t, 'count': 1} for t in raw.get('assessment_types') or [] if str(t).strip() in allowed_types]
+    if not raw_plan:
+        chip_plan = []
+        for chip in intent_chips:
+            meta = INTENT_CHIP_OPTIONS.get(chip) or {}
+            if meta.get('kind') == 'assessment' and meta.get('type') in allowed_types:
+                chip_plan.append({'type': meta['type'], 'count': 1})
+        if chip_plan:
+            raw_plan = chip_plan
     assessment_plan = normalize_assessment_plan(raw_plan, delivery=delivery)
     assessment_count, assessment_types = assessment_plan_summary(assessment_plan)
 
@@ -212,6 +264,8 @@ def normalize_generation_options(raw=None, session=None, course_data=None):
         'custom_instructions': merged_custom,
         'teacher_custom_only': custom,
         'use_admin_defaults': bool(use_admin_defaults),
+        'syllabus_lock': syllabus_lock,
+        'intent_chips': intent_chips,
         'total_classes': _pos_int('total_classes'),
         'classes_per_week': _pos_int('classes_per_week'),
         'assessment_plan': assessment_plan,
@@ -220,84 +274,79 @@ def normalize_generation_options(raw=None, session=None, course_data=None):
     }
 
 
-def build_guidelines_block(options):
-    """Text block injected into AI prompts."""
+def build_guidelines_block(options, part=None):
+    """Text block injected into AI prompts. Keep short; part-specific."""
     if not options:
         return ''
 
+    part = (part or '').upper()
     delivery = options.get('delivery_type', DELIVERY_THEORY)
+    locked = _as_bool(options.get('syllabus_lock', True), default=True)
     lines = [
-        '=== GENERATION GUIDELINES (follow strictly) ===',
-        f'Course delivery mode: {delivery.upper()}',
-        'Language: English only (all outline text, headings, lesson plan, and assessment descriptions).',
-        f'Detail level: {_detail_option_label(options.get("detail_level"))}',
+        f'Mode: {delivery.upper()}. Language: English. Detail: {options.get("detail_level") or "standard"}.',
+        'Syllabus lock: ON — use curriculum topics only.' if locked else
+        'Syllabus lock: OFF — you may elaborate syllabus topics with sub-topics or cases; do not add unrelated subjects.',
     ]
-    if options.get('delivery_type_detected') and options['delivery_type_detected'] != delivery:
-        lines.append(
-            f'Note: session default is {options["delivery_type_detected"]}; teacher overrode to {delivery}.'
-        )
+    if part in ('', 'FULL', 'B', 'C', 'CD'):
+        for rule in builtin_delivery_guidelines(delivery):
+            lines.append(f'- {rule}')
 
-    lines.append('')
-    lines.append('Delivery-specific rules:')
-    lines.extend(f'- {rule}' for rule in builtin_delivery_guidelines(delivery))
+    chips = options.get('intent_chips') or []
+    chip_lines = []
+    for chip in chips:
+        if chip == 'landmark_cases':
+            chip_lines.append(INTENT_CHIP_RULES['landmark_cases_locked' if locked else 'landmark_cases'])
+        elif chip in INTENT_CHIP_RULES:
+            chip_lines.append(INTENT_CHIP_RULES[chip])
+    if chip_lines:
+        lines.append('Teacher intent:')
+        for rule in chip_lines:
+            lines.append(f'- {rule}')
 
-    assessment_count = options.get('assessment_count')
-    assessment_plan = options.get('assessment_plan') or []
-    if assessment_count or assessment_plan:
-        lines.append('')
-        lines.append('Teacher-specified assessments (MANDATORY for Part C and lesson_plan):')
+    if part in ('', 'FULL', 'C', 'CD'):
+        assessment_count = options.get('assessment_count')
+        assessment_plan = options.get('assessment_plan') or []
         if assessment_plan:
-            for item in assessment_plan:
-                lines.append(f'- {item["name"]} × {item["count"]}')
+            lines.append('Assessments: ' + ', '.join(f'{item["name"]}×{item["count"]}' for item in assessment_plan))
         if assessment_count:
-            lines.append(f'- Total formative/CIE assessments: {assessment_count}')
-        lines.append(
-            f'- assessment_techniques must list exactly {assessment_count} items matching the breakdown above.'
-        )
-        lines.append('- Schedule each assessment instance in lesson_plan teaching_assessment on different weeks.')
-        lines.append('- Use the exact assessment names from the teacher plan (including custom types).')
+            lines.append(f'assessment_techniques must have exactly {assessment_count} items.')
 
-    total_classes = options.get('total_classes')
-    classes_per_week = options.get('classes_per_week')
-    if total_classes or classes_per_week:
-        lines.append('')
-        lines.append('Teacher-provided class schedule (MANDATORY for lesson_plan):')
-        if total_classes:
-            lines.append(f'- Total classes in semester: {total_classes}')
-        if classes_per_week:
-            lines.append(f'- Classes per week: {classes_per_week}')
-        lines.append('- lesson_plan MUST use exactly these numbers; distribute curriculum topics across weeks accordingly.')
-        lines.append('- One lesson_plan row = one class session; same week number for up to classes_per_week rows.')
-        lines.append('- Spread quiz/class test/assignment/presentation across different weeks in teaching_assessment (not all in final week).')
-        if assessment_plan:
-            type_labels = [f'{item["name"]}×{item["count"]}' for item in assessment_plan]
-            lines.append(f'- Assessment breakdown for lesson_plan: {", ".join(type_labels)}.')
-        lines.append('- Do not exceed total_classes; fit all topic classes + assessments within this limit.')
+    if part in ('', 'FULL', 'B'):
+        total_classes = options.get('total_classes')
+        classes_per_week = options.get('classes_per_week')
+        if total_classes or classes_per_week:
+            bits = []
+            if total_classes:
+                bits.append(f'{total_classes} classes')
+            if classes_per_week:
+                bits.append(f'{classes_per_week}/week')
+            lines.append(
+                'Schedule: ' + ', '.join(bits)
+                + '. Date field is the week range (e.g. 20-24 July 2025), not a single day. '
+                'Each week has classes_per_week rows sharing that range.'
+            )
 
     custom = (options.get('custom_instructions') or '').strip()
     if custom:
-        lines.append('')
-        lines.append('Additional instructions from teacher/admin:')
-        lines.append(custom)
+        lines.append('Extra instructions:')
+        lines.append(custom[:1200])
 
-    lines.append('=== END GUIDELINES ===')
     return '\n'.join(lines)
 
 
 def preset_instructions(delivery_type):
-    """Quick-fill templates for the generation modal."""
+    """Quick-fill templates for the generation modal (no extra-content injection)."""
     if delivery_type == DELIVERY_SESSIONAL:
         return (
             'প্রতি সপ্তাহে অন্তত একটি hands-on কার্যক্রম লিখুন।\n'
             'মূল্যায়ন: Sessional Report ৬০, Sessional Viva ৩০, Attendance ১০।\n'
-            'রুব্রিক্স practical skill ও presentation-এর উপর ভিত্তি করে হবে।\n'
-            'বাংলা আইনি প্রসঙ্গে উদাহরণ দিন যেখানে প্রাসঙ্গিক।'
+            'রুব্রিক্স practical skill ও presentation-এর উপর ভিত্তি করে হবে।'
         )
     return (
         'সপ্তাহভিত্তিক lesson plan ক্যালেন্ডারের working days মেনে চলবে।\n'
-        'প্রতি ক্লাস সেশন = lesson plan-এ এক সারি; সপ্তাহে classes_per_week পর্যন্ত একই week।\n'
+        'Date ফিল্ডে সপ্তাহের রেঞ্জ থাকবে (যেমন 20-24 July 2025), নির্দিষ্ট এক দিন নয়।\n'
+        'প্রতি ক্লাস সেশন = lesson plan-এ এক সারি; সপ্তাহে classes_per_week পর্যন্ত একই date range।\n'
         'quiz, class test, assignment বিভিন্ন সপ্তাহে teaching_assessment-এ ছড়িয়ে দিন — শেষ সপ্তাহে সব নয়।\n'
         'CIE ৪০ + SMEE ৬০; assessment_techniques প্রতিটি CLO-র সাথে লিংক করুন।\n'
-        'কোর্স কন্টেন্ট কারিকুলামের topic তালিকা অনুসরণ করবে।\n'
-        'ল্যান্ডমার্ক case ও Bangladesh context যোগ করুন।'
+        'কোর্স কন্টেন্ট কারিকুলামের topic তালিকা অনুসরণ করবে।'
     )

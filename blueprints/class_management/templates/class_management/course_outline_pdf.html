@@ -256,11 +256,33 @@
             font-size: 11pt;
         }
         
-        .not-specified {
-            font-style: italic;
-            color: #6c757d;
-            font-size: 10.5pt;
+        /* Part D rich text */
+        .rich-block {
+            margin: 0 0 0.12in 0;
         }
+        .rich-block p {
+            margin: 0 0 0.08in 0;
+            font-size: 11pt;
+            line-height: 1.35;
+        }
+        .rich-block ul, .rich-block ol {
+            margin: 0 0 0.1in 0.28in;
+            padding: 0;
+        }
+        .rich-block li {
+            margin-bottom: 0.04in;
+        }
+        .rich-block a {
+            color: #1a237e;
+            text-decoration: underline;
+        }
+        .rich-block h2, .rich-block h3, .rich-block h4 {
+            font-size: 11.5pt;
+            margin: 0.08in 0 0.06in 0;
+        }
+        .rich-block strong, .rich-block b { font-weight: bold; }
+        .rich-block em, .rich-block i { font-style: italic; }
+        .rich-block u { text-decoration: underline; }
         
         .page-break {
             page-break-before: always;
@@ -1064,7 +1086,9 @@
     
     <div class="subsection-title">{{ sec.n }}. Textbooks</div>
     {% set sec.n = sec.n + 1 %}
-    {% if textbooks and textbooks|length > 0 %}
+    {% if textbooks_html %}
+    <div class="rich-block">{{ textbooks_html }}</div>
+    {% elif textbooks is iterable and textbooks is not string and textbooks|length > 0 %}
         {% for book in textbooks %}
         <p>{{ loop.index }}. {% if book is string %}{{ book }}{% else %}{{ book.get('title', '') if book.get('title') else book }}{% endif %}</p>
         {% endfor %}
@@ -1074,7 +1098,9 @@
     
     <div class="subsection-title">{{ sec.n }}. Reference Books</div>
     {% set sec.n = sec.n + 1 %}
-    {% if reference_books and reference_books|length > 0 %}
+    {% if reference_books_html %}
+    <div class="rich-block">{{ reference_books_html }}</div>
+    {% elif reference_books is iterable and reference_books is not string and reference_books|length > 0 %}
         {% for book in reference_books %}
         <p>{{ loop.index }}. {% if book is string %}{{ book }}{% else %}{{ book.get('title', '') if book.get('title') else book }}{% endif %}</p>
         {% endfor %}
@@ -1084,7 +1110,9 @@
     
     <div class="subsection-title">{{ sec.n }}. Other Resources (Online Resources or others)</div>
     {% set sec.n = sec.n + 1 %}
-    {% if other_resources and other_resources|length > 0 %}
+    {% if other_resources_html %}
+    <div class="rich-block">{{ other_resources_html }}</div>
+    {% elif other_resources is iterable and other_resources is not string and other_resources|length > 0 %}
         {% for resource in other_resources %}
         <p>{{ loop.index }}. {% if resource is string %}{{ resource }}{% else %}{{ resource.get('title', '') if resource.get('title') else resource }}{% endif %}</p>
         {% endfor %}
@@ -1093,7 +1121,9 @@
     {% endif %}
     
     <div class="subsection-title">{{ sec.n }}. Course File</div>
-    {% if course_file_components and course_file_components|length > 0 %}
+    {% if course_file_components_html %}
+    <div class="rich-block">{{ course_file_components_html }}</div>
+    {% elif course_file_components is iterable and course_file_components is not string and course_file_components|length > 0 %}
         {% for component in course_file_components %}
         <p>{% if component is string %}{{ component }}{% else %}{{ component.get('title', '') if component.get('title') else component }}{% endif %}</p>
         {% endfor %}

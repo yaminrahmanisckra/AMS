@@ -3,7 +3,7 @@ from datetime import date
 
 from extensions import db
 from utils.ai.calendar_utils import resolve_semester_dates
-from utils.ai.client import AIClientError, generate_outline_json_with_meta
+from utils.ai.client import AIClientError, generate_outline_json_with_meta, user_facing_generation_error
 from utils.ai.context_builder import build_outline_context, find_best_course_for_session
 from utils.ai.job_service import (
     create_outline_job,
@@ -14,7 +14,16 @@ from utils.ai.job_service import (
 from utils.ai.models import AIOutlineGenerationJob
 from utils.ai.curriculum_anchor import anchor_payload_to_curriculum, validate_curriculum_ready
 from utils.ai.outline_parser import extract_json_from_response, merge_outline_payloads, normalize_outline_payload, finalize_outline_payload_for_save
-from utils.ai.outline_prompts import OUTLINE_PART_FIELDS, build_outline_prompt
+from utils.ai.local_fill import (
+    fill_part_a_from_context,
+    fill_part_b_locally,
+    fill_part_c_locally,
+    fill_part_cd_locally,
+    fill_part_d_locally,
+    merge_weekly_notes_into_skeleton,
+)
+from utils.ai.outline_prompts import OUTLINE_PART_FIELDS, PART_MAX_TOKENS, build_outline_prompt
+from utils.ai.session_utils import reset_db_session
 
 
 def _prepare_generation_context(session, teacher_name='', course_data=None, curriculum=None,
@@ -101,6 +110,47 @@ def _context_summary(context, generation_options=None):
     return summary
 
 
+def _log_generation_safely(session_id, user_id, part, meta, job_id=None, error=None):
+    """Write the generation log without masking the original AI error."""
+    if not session_id or not user_id:
+        return
+    try:
+        reset_db_session()
+        log_meta = meta
+        if error and not log_meta:
+            try:
+                from utils.ai.client import get_active_provider_setting
+                cfg = get_active_provider_setting()
+                log_meta = {'provider': cfg.get('provider'), 'model_name': cfg.get('model_name')}
+            except Exception:
+                log_meta = None
+        log_generation_call(
+            session_id, user_id, part, log_meta, job_id=job_id,
+            error=user_facing_generation_error(error) if error else None,
+        )
+        db.session.commit()
+    except Exception as log_exc:
+        try:
+            from flask import current_app
+            current_app.logger.warning('AI generation log failed: %s', log_exc)
+        except Exception:
+            pass
+        reset_db_session()
+
+
+def _detail_level(generation_options):
+    return ((generation_options or {}).get('detail_level') or 'standard').strip().lower()
+
+
+def part_needs_ai(part, generation_options=None):
+    part = str(part or '').upper()
+    if part == 'A':
+        return False
+    if part == 'B' and _detail_level(generation_options) == 'concise':
+        return False
+    return True
+
+
 def generate_outline_part(context, part, prior_parts=None, session_id=None, user_id=None, job_id=None,
                           generation_options=None):
     """Generate a single outline part and return normalized payload + meta."""
@@ -108,25 +158,113 @@ def generate_outline_part(context, part, prior_parts=None, session_id=None, user
     if part not in OUTLINE_PART_FIELDS:
         raise ValueError(f'Invalid outline part: {part}')
 
+    if part == 'A':
+        payload = fill_part_a_from_context(context, generation_options)
+        payload = anchor_payload_to_curriculum(payload, context, generation_options)
+        payload = finalize_outline_payload_for_save(payload)
+        payload = _apply_curriculator_hints(payload, context)
+        meta = {
+            'text': '',
+            'provider': 'local',
+            'model_name': 'curriculum',
+            'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+            'duration_ms': 0,
+        }
+        _log_generation_safely(session_id, user_id, part, meta, job_id=job_id)
+        return payload, meta
+
+    if part == 'B':
+        local_b = fill_part_b_locally(context, generation_options)
+        if not part_needs_ai(part, generation_options):
+            payload = anchor_payload_to_curriculum(local_b, context, generation_options)
+            payload = finalize_outline_payload_for_save(payload)
+            meta = {
+                'text': '',
+                'provider': 'local',
+                'model_name': 'calendar',
+                'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+                'duration_ms': 0,
+            }
+            _log_generation_safely(session_id, user_id, part, meta, job_id=job_id)
+            return payload, meta
+
+        system_prompt, user_prompt = build_outline_prompt(
+            context, part=part, prior_parts=prior_parts, generation_options=generation_options,
+        )
+        meta = None
+        try:
+            meta = generate_outline_json_with_meta(
+                system_prompt, user_prompt, max_tokens=PART_MAX_TOKENS.get(part),
+            )
+            raw_json = extract_json_from_response(meta['text'])
+            weeks = []
+            if isinstance(raw_json, dict):
+                weeks = raw_json.get('weeks') or raw_json.get('lesson_plan') or []
+            payload = dict(local_b)
+            payload['lesson_plan'] = merge_weekly_notes_into_skeleton(
+                local_b['lesson_plan'], weeks, generation_options=generation_options,
+            )
+            if isinstance(raw_json, dict):
+                if raw_json.get('cie_breakdown'):
+                    payload['cie_breakdown'] = raw_json['cie_breakdown']
+                if raw_json.get('smee_breakdown'):
+                    payload['smee_breakdown'] = raw_json['smee_breakdown']
+            payload = normalize_outline_payload(payload)
+            payload = anchor_payload_to_curriculum(payload, context, generation_options)
+            payload = finalize_outline_payload_for_save(payload)
+            _log_generation_safely(session_id, user_id, part, meta, job_id=job_id)
+            return payload, meta
+        except Exception as exc:
+            _log_generation_safely(session_id, user_id, part, meta, job_id=job_id, error=exc)
+            payload = anchor_payload_to_curriculum(local_b, context, generation_options)
+            payload = finalize_outline_payload_for_save(payload)
+            fallback_meta = meta or {
+                'text': '',
+                'provider': 'local',
+                'model_name': 'calendar-fallback',
+                'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+                'duration_ms': 0,
+            }
+            return payload, fallback_meta
+
+    local_cd = None
+    if part == 'CD':
+        local_cd = fill_part_cd_locally(context, generation_options)
+    elif part == 'C':
+        local_cd = fill_part_c_locally(context, generation_options)
+    elif part == 'D':
+        local_cd = fill_part_d_locally(context, generation_options)
+
     system_prompt, user_prompt = build_outline_prompt(
         context, part=part, prior_parts=prior_parts, generation_options=generation_options,
     )
     meta = None
     try:
-        meta = generate_outline_json_with_meta(system_prompt, user_prompt)
+        meta = generate_outline_json_with_meta(
+            system_prompt, user_prompt, max_tokens=PART_MAX_TOKENS.get(part),
+        )
         raw_json = extract_json_from_response(meta['text'])
         payload = normalize_outline_payload(raw_json)
-        payload = anchor_payload_to_curriculum(payload, context)
+        if local_cd:
+            payload = {**local_cd, **{k: v for k, v in payload.items() if v not in (None, '', [], {})}}
+        payload = anchor_payload_to_curriculum(payload, context, generation_options)
         payload = finalize_outline_payload_for_save(payload)
         payload = _apply_curriculator_hints(payload, context)
-        if session_id and user_id:
-            log_generation_call(session_id, user_id, part, meta, job_id=job_id)
-            db.session.commit()
+        _log_generation_safely(session_id, user_id, part, meta, job_id=job_id)
         return payload, meta
     except Exception as exc:
-        if session_id and user_id:
-            log_generation_call(session_id, user_id, part, meta, job_id=job_id, error=exc)
-            db.session.commit()
+        _log_generation_safely(session_id, user_id, part, meta, job_id=job_id, error=exc)
+        if local_cd:
+            payload = anchor_payload_to_curriculum(local_cd, context, generation_options)
+            payload = finalize_outline_payload_for_save(payload)
+            payload = _apply_curriculator_hints(payload, context)
+            return payload, meta or {
+                'text': '',
+                'provider': 'local',
+                'model_name': 'template-fallback',
+                'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0},
+                'duration_ms': 0,
+            }
         raise
 
 
@@ -167,19 +305,17 @@ def generate_full_outline_for_session(session, teacher_name='', course_data=None
         system_prompt, user_prompt = build_outline_prompt(
             context, part='full', generation_options=generation_options,
         )
-        meta = generate_outline_json_with_meta(system_prompt, user_prompt)
+        meta = generate_outline_json_with_meta(
+            system_prompt, user_prompt, max_tokens=PART_MAX_TOKENS.get('full'),
+        )
         try:
             raw_json = extract_json_from_response(meta['text'])
             payload = normalize_outline_payload(raw_json)
-            payload = anchor_payload_to_curriculum(payload, context)
+            payload = anchor_payload_to_curriculum(payload, context, generation_options)
             payload = _apply_curriculator_hints(payload, context)
-            if session_id and user_id:
-                log_generation_call(session_id, user_id, 'full', meta)
-                db.session.commit()
+            _log_generation_safely(session_id, user_id, 'full', meta)
         except Exception as exc:
-            if session_id and user_id:
-                log_generation_call(session_id, user_id, 'full', meta, error=exc)
-                db.session.commit()
+            _log_generation_safely(session_id, user_id, 'full', meta, error=exc)
             raise
 
     payload = _apply_session_defaults(payload, context)
@@ -256,8 +392,10 @@ def tick_async_outline_job(job, session, teacher_name='', course_data=None, curr
 
     job.status = AIOutlineGenerationJob.STATUS_RUNNING
     db.session.commit()
+    job_id = job.id
+    session_id = job.session_id
+    user_id = job.user_id
 
-    part = parts[job.part_index]
     try:
         context, course_data, curriculum = _prepare_generation_context(
             session, teacher_name=teacher_name, course_data=course_data, curriculum=curriculum,
@@ -267,41 +405,67 @@ def tick_async_outline_job(job, session, teacher_name='', course_data=None, curr
             CourseFileUpload=CourseFileUpload,
             generation_options=generation_options,
         )
-        prior_parts = {}
-        flat = job.partial_payload()
-        for prev_part in parts[:job.part_index]:
-            prior_parts[prev_part] = {
-                key: flat[key] for key in OUTLINE_PART_FIELDS.get(prev_part, []) if key in flat
-            }
+        last_part = parts[job.part_index]
+        while job.part_index < len(parts):
+            part = parts[job.part_index]
+            last_part = part
+            prior_parts = {}
+            flat = job.partial_payload()
+            for prev_part in parts[:job.part_index]:
+                prior_parts[prev_part] = {
+                    key: flat[key] for key in OUTLINE_PART_FIELDS.get(prev_part, []) if key in flat
+                }
 
-        payload, _meta = generate_outline_part(
-            context, part, prior_parts=prior_parts,
-            session_id=job.session_id, user_id=job.user_id, job_id=job.id,
-            generation_options=generation_options,
-        )
-        merged = merge_outline_payloads(job.partial_payload(), payload)
-        job.set_partial_payload(merged)
-        job.part_index += 1
-
-        if job.part_index >= len(parts):
-            job.status = AIOutlineGenerationJob.STATUS_COMPLETED
-            final_payload = _apply_curriculator_hints(_apply_session_defaults(merged, context), context)
-            job.set_partial_payload(final_payload)
-            db.session.commit()
-            return job_to_response(
-                job, payload=final_payload,
-                message='Course outline generated successfully. Review and save.',
+            payload, _meta = generate_outline_part(
+                context, part, prior_parts=prior_parts,
+                session_id=session_id, user_id=user_id, job_id=job_id,
+                generation_options=generation_options,
             )
+            job = AIOutlineGenerationJob.query.get(job_id)
+            if not job:
+                raise AIClientError('Generation job was lost. Please try again.')
+            merged = merge_outline_payloads(job.partial_payload(), payload)
+            job.set_partial_payload(merged)
+            job.part_index += 1
+            db.session.commit()
+            used_ai = part_needs_ai(part, generation_options)
+
+            if job.part_index >= len(parts):
+                job.status = AIOutlineGenerationJob.STATUS_COMPLETED
+                final_payload = _apply_curriculator_hints(_apply_session_defaults(merged, context), context)
+                job.set_partial_payload(final_payload)
+                db.session.commit()
+                return job_to_response(
+                    job, payload=final_payload,
+                    message='Course outline generated successfully. Review and save.',
+                )
+
+            if used_ai:
+                break
 
         job.status = AIOutlineGenerationJob.STATUS_PENDING
         db.session.commit()
         progress = job.parts_list()
+        shown = {'CD': 'C+D'}.get(last_part, last_part)
         return job_to_response(
             job,
-            message=f'Part {part} complete ({job.part_index}/{len(progress)}). Generating next part...',
+            message=f'Part {shown} complete ({job.part_index}/{len(progress)}). Generating next part...',
         )
     except Exception as exc:
-        job.status = AIOutlineGenerationJob.STATUS_FAILED
-        job.error_message = str(exc)
-        db.session.commit()
-        return job_to_response(job)
+        reset_db_session()
+        message = user_facing_generation_error(exc)
+        try:
+            job = AIOutlineGenerationJob.query.get(job_id)
+            if job:
+                job.status = AIOutlineGenerationJob.STATUS_FAILED
+                job.error_message = message
+                db.session.commit()
+                return job_to_response(job)
+        except Exception:
+            reset_db_session()
+        return {
+            'success': False,
+            'job_id': job_id,
+            'status': AIOutlineGenerationJob.STATUS_FAILED,
+            'message': message,
+        }

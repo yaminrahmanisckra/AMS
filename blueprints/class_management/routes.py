@@ -438,6 +438,92 @@ COURSE_SCOPE_LABELS = {
 }
 
 
+def _parse_credit_hours(value):
+    """Parse a credit value from curriculum/outline/form input."""
+    if value is None or value == '':
+        return None
+    try:
+        credit = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if credit < 0:
+        return None
+    return credit
+
+
+def _format_credit_hours(value):
+    """Display 4.0 as 4 and keep fractional credits like 3.5."""
+    credit = _parse_credit_hours(value)
+    if credit is None:
+        return '0'
+    if credit == int(credit):
+        return str(int(credit))
+    return f'{credit:g}'
+
+
+def _resolve_session_credit(session, outline=None):
+    """
+    Credit hours for one active offering.
+    Internal: curriculum Course.credit, then course-outline fallback.
+    External: teacher-entered outline credit, then curriculum match if the code exists.
+    Part A/B still count the full subject credit (one row per teacher offering).
+    """
+    if not session:
+        return 0.0
+    is_external = bool(getattr(session, 'is_external_course', False))
+    if not is_external:
+        course = find_course_from_curriculum(
+            session.course_code, session.course_name, session=session
+        )
+        credit = _parse_credit_hours(getattr(course, 'credit', None) if course else None)
+        if credit is not None:
+            return credit
+    if outline is None and getattr(session, 'id', None):
+        outline = CourseOutline.query.filter_by(session_id=session.id).first()
+    if outline:
+        credit = _parse_credit_hours(outline.credit_value)
+        if credit is not None:
+            return credit
+    if is_external:
+        course = find_course_from_curriculum(
+            session.course_code, session.course_name, session=None
+        )
+        credit = _parse_credit_hours(getattr(course, 'credit', None) if course else None)
+        if credit is not None:
+            return credit
+    return 0.0
+
+
+def _compute_credit_load(sessions):
+    """Sum credits of active internal + external sessions for Credit Load."""
+    session_list = [s for s in (sessions or []) if s]
+    session_ids = [s.id for s in session_list if getattr(s, 'id', None)]
+    outlines = {}
+    if session_ids:
+        for outline in CourseOutline.query.filter(CourseOutline.session_id.in_(session_ids)).all():
+            outlines[outline.session_id] = outline
+    total = 0.0
+    for session in session_list:
+        total += _resolve_session_credit(session, outlines.get(session.id))
+    return total
+
+
+def _set_session_outline_credit(session, credit_value, teacher_id=None):
+    """Store credit on the session's course outline (used for external courses)."""
+    parsed = _parse_credit_hours(credit_value)
+    outline = CourseOutline.query.filter_by(session_id=session.id).first()
+    if outline is None:
+        if parsed is None:
+            return None
+        outline = CourseOutline(
+            session_id=session.id,
+            teacher_id=teacher_id or session.teacher_id,
+        )
+        db.session.add(outline)
+    outline.credit_value = _format_credit_hours(parsed) if parsed is not None else None
+    return parsed
+
+
 def _normalize_offering_text(value):
     return (value or '').strip().lower()
 
@@ -1166,6 +1252,39 @@ def _get_related_sessions(session, include_archived=False):
         query = query.filter_by(archived=False)
     related = query.order_by(Session.id.asc()).all()
     return related or [session]
+
+
+def _current_course_instructors(session):
+    """Teachers currently assigned to this offering (exclude replaced/archived sessions)."""
+    if not session:
+        return []
+    if session.split_group_id:
+        peers = _get_related_sessions(session, include_archived=False)
+    else:
+        peers = [session]
+
+    by_scope = {}
+    for sess in peers:
+        if not sess or getattr(sess, 'archived', False) or not getattr(sess, 'teacher', None):
+            continue
+        scope = getattr(sess, 'course_scope', None) or SCOPE_FULL
+        existing = by_scope.get(scope)
+        if existing is None or (sess.id or 0) >= (existing.id or 0):
+            by_scope[scope] = sess
+
+    own_scope = getattr(session, 'course_scope', None) or SCOPE_FULL
+    if session.teacher:
+        by_scope[own_scope] = session
+
+    teachers = []
+    seen = set()
+    for scope in (SCOPE_PART_A, SCOPE_PART_B, SCOPE_FULL):
+        sess = by_scope.get(scope)
+        if not sess or not sess.teacher or sess.teacher.id in seen:
+            continue
+        seen.add(sess.teacher.id)
+        teachers.append(sess.teacher)
+    return teachers
 
 
 def _resolve_attendance_related_sessions(session, include_archived=False):
@@ -2444,11 +2563,19 @@ def index():
     except Exception:
         pass
 
+    try:
+        credit_load = _compute_credit_load(list(sessions) + list(external_sessions))
+    except Exception as credit_error:
+        current_app.logger.warning(f'Could not compute credit load: {credit_error}')
+        credit_load = 0
+
     return render_template(
         'class_management/index.html',
         sessions=sessions,
         external_sessions=external_sessions,
         external_archived_sessions=external_archived_sessions,
+        credit_load=credit_load,
+        credit_load_display=_format_credit_hours(credit_load),
         active_semester_json=active_semester_json,
         active_semesters_json=active_semesters_json,
         teacher=teacher,
@@ -2796,6 +2923,7 @@ def create_external_session():
         term = (request.form.get('term') or '').strip()
         course_type = (request.form.get('course_type') or 'theory').strip().lower()
         category = (request.form.get('category') or 'ug').strip().lower()
+        credit_hours = _parse_credit_hours(request.form.get('credit'))
 
         if not course_name or not course_code:
             flash('Course name and course code are required!', 'error')
@@ -2807,6 +2935,9 @@ def create_external_session():
             course_type = 'theory'
         if category not in {'ug', 'pg'}:
             category = 'ug'
+        if credit_hours is None:
+            flash('Credit is required for an external course.', 'error')
+            return redirect(url_for('class_management.index'))
 
         conflict_message = _external_course_conflict(course_code, teacher.id)
         if conflict_message:
@@ -2827,6 +2958,8 @@ def create_external_session():
         )
         stamp_window_id(session_obj)
         db.session.add(session_obj)
+        db.session.flush()
+        _set_session_outline_credit(session_obj, credit_hours, teacher_id=teacher.id)
         db.session.commit()
 
         students_file = request.files.get('students_file')
@@ -4293,14 +4426,42 @@ def save_course_outline(session_id):
         if 'grading_policy' in data:
             course_outline.grading_policy = json.dumps(data.get('grading_policy', [])) if isinstance(data.get('grading_policy'), list) else data.get('grading_policy')
         if 'textbooks' in data:
-            course_outline.textbooks = json.dumps(data.get('textbooks', [])) if isinstance(data.get('textbooks'), list) else data.get('textbooks')
+            try:
+                from utils.outline_richtext import dump_rich_field
+            except Exception:
+                def dump_rich_field(value):
+                    if isinstance(value, list):
+                        return json.dumps(value)
+                    return json.dumps(value or '')
+            course_outline.textbooks = dump_rich_field(data.get('textbooks'))
         if 'reference_books' in data:
-            course_outline.reference_books = json.dumps(data.get('reference_books', [])) if isinstance(data.get('reference_books'), list) else data.get('reference_books')
+            try:
+                from utils.outline_richtext import dump_rich_field
+            except Exception:
+                def dump_rich_field(value):
+                    if isinstance(value, list):
+                        return json.dumps(value)
+                    return json.dumps(value or '')
+            course_outline.reference_books = dump_rich_field(data.get('reference_books'))
         if 'other_resources' in data:
-            course_outline.other_resources = json.dumps(data.get('other_resources', [])) if isinstance(data.get('other_resources'), list) else data.get('other_resources')
+            try:
+                from utils.outline_richtext import dump_rich_field
+            except Exception:
+                def dump_rich_field(value):
+                    if isinstance(value, list):
+                        return json.dumps(value)
+                    return json.dumps(value or '')
+            course_outline.other_resources = dump_rich_field(data.get('other_resources'))
         try:
             if 'course_file_components' in data:
-                course_outline.course_file_components = json.dumps(data.get('course_file_components', [])) if isinstance(data.get('course_file_components'), list) else data.get('course_file_components')
+                try:
+                    from utils.outline_richtext import dump_rich_field
+                except Exception:
+                    def dump_rich_field(value):
+                        if isinstance(value, list):
+                            return json.dumps(value)
+                        return json.dumps(value or '')
+                course_outline.course_file_components = dump_rich_field(data.get('course_file_components'))
         except AttributeError:
             current_app.logger.warning("course_file_components column doesn't exist yet.")
         
@@ -4540,11 +4701,10 @@ def _is_course_outline_authorized(session, teacher):
 
 
 def _ai_outline_calendar_and_course(session):
-    from datetime import date as date_cls
     from blueprints.academic_calendar.models import AcademicCalendarEvent
+    from utils.ai.calendar_utils import calendar_query_range
 
-    year_start = date_cls(date_cls.today().year, 1, 1)
-    year_end = date_cls(date_cls.today().year + 1, 12, 31)
+    year_start, year_end = calendar_query_range(getattr(session, 'academic_session', None))
     calendar_events = query_for_window(AcademicCalendarEvent).filter(
         AcademicCalendarEvent.event_date >= year_start,
         AcademicCalendarEvent.event_date <= year_end,
@@ -4630,9 +4790,62 @@ def generate_full_outline_ai(session_id):
         return jsonify({'success': False, 'message': str(exc)}), 400
     except Exception as exc:
         current_app.logger.error(f'AI full outline generation failed for session {session_id}: {exc}', exc_info=True)
-        message = str(exc)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        message = user_facing_generation_error(exc)
         status = 400 if 'AI' in message or 'Curriculum' in message or 'Semester' in message else 500
         return jsonify({'success': False, 'message': message}), status
+
+
+@class_management_bp.route('/course_file/<int:session_id>/outline/patch-ai', methods=['POST'])
+@login_required
+def patch_outline_section_ai(session_id):
+    """Patch one outline section from a one-line teacher instruction."""
+    session = get_or_404_for_window(Session, session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not _is_course_outline_authorized(session, teacher):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+
+    try:
+        from utils.ai.client import AIClientError, get_active_provider_setting
+        from utils.ai.section_patch import patch_outline_section
+        from utils.ai.session_utils import reset_db_session
+
+        get_active_provider_setting()
+        data = request.get_json(silent=True) or {}
+        payload, _meta, info = patch_outline_section(
+            section=data.get('section'),
+            instruction=data.get('instruction'),
+            current_outline=data.get('current') or {},
+            allow_topic_change=bool(data.get('allow_topic_change')),
+        )
+        reset_db_session()
+        return jsonify({
+            'success': True,
+            'payload': payload,
+            'section': (info.get('section') or data.get('section') or '').strip().lower(),
+            'summary': info.get('summary') or 'এই অংশ হালনাগাদ হয়েছে।',
+            'changed': info.get('changed') or 0,
+        })
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except json.JSONDecodeError:
+        return jsonify({
+            'success': False,
+            'message': 'এআই-এর উত্তর অসম্পূর্ণ ছিল। নির্দেশনা আরও ছোট করে আবার প্রয়োগ চাপুন।',
+        }), 400
+    except AIClientError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        current_app.logger.error(f'AI outline patch failed for session {session_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        message = user_facing_generation_error(exc)
+        if 'Generate চাপুন' in message:
+            message = message.replace('Generate চাপুন', 'প্রয়োগ চাপুন')
+        return jsonify({'success': False, 'message': message}), 500
 
 
 @class_management_bp.route('/course_file/<int:session_id>/outline/generate-ai-job/<int:job_id>/tick', methods=['POST'])
@@ -4671,7 +4884,14 @@ def tick_outline_ai_job(session_id, job_id):
         return jsonify(response), status
     except Exception as exc:
         current_app.logger.error(f'AI job tick failed for session {session_id} job {job_id}: {exc}', exc_info=True)
-        return jsonify({'success': False, 'message': str(exc)}), 500
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({
+            'success': False,
+            'status': 'failed',
+            'message': user_facing_generation_error(exc),
+        }), 500
 
 
 def _can_batch_generate_ai_outline():
@@ -4829,7 +5049,10 @@ def generate_weekly_plan_ai(session_id):
     data = request.get_json()
     course_content_summary = data.get('course_content_summary', '')  # JSON string from section 14
     credit_value = data.get('credit_value', '')  # Credit value from form
-    part = data.get('part', None)  # 'A' or 'B' for split courses, None for full courses
+    part = (data.get('part') or '').strip().upper() or None  # 'A', 'B', 'AB', or None
+    if part in ('A+B', 'BOTH', 'ALL'):
+        part = 'AB'
+    combined_parts = part == 'AB'
     
     try:
         # Import Academic Calendar model
@@ -4947,178 +5170,32 @@ def generate_weekly_plan_ai(session_id):
         if course_data:
             clos = course_data.get_clos_list()
             
-        # Normalize session year and term for matching
-        session_year = str(session.year).strip().lower() if session.year else ''
-        session_term = str(session.term).strip().lower() if session.term else ''
-        
-        # Map year/term to common formats for matching
-        year_mapping = {
-            '1': 'first', 'first': 'first', '1st': 'first',
-            '2': 'second', 'second': 'second', '2nd': 'second',
-            '3': 'third', 'third': 'third', '3rd': 'third',
-            '4': 'fourth', 'fourth': 'fourth', '4th': 'fourth'
-        }
-        term_mapping = {
-            '1': 'first', 'first': 'first', '1st': 'first',
-            '2': 'second', 'second': 'second', '2nd': 'second'
-        }
-        
-        normalized_year = year_mapping.get(session_year, session_year)
-        normalized_term = term_mapping.get(session_term, session_term)
-        
-        # Get Academic Calendar events
-        holidays = set()
-        semester_start_date = None
-        semester_end_date = None
-        
-        # Get current year and next year for broader search
-        current_year = datetime.now().year
-        year_start = date(current_year, 1, 1)
-        year_end = date(current_year + 1, 12, 31)
-        
+        from utils.ai.calendar_utils import (
+            calendar_query_range,
+            collect_holidays,
+            format_week_date_range,
+            group_working_dates_into_weeks,
+            resolve_semester_dates,
+        )
+
+        year_start, year_end = calendar_query_range(session.academic_session)
         calendar_events = query_for_window(AcademicCalendarEvent).filter(
             AcademicCalendarEvent.event_date >= year_start,
-            AcademicCalendarEvent.event_date <= year_end
+            AcademicCalendarEvent.event_date <= year_end,
         ).order_by(AcademicCalendarEvent.event_date.asc()).all()
-        
-        # Collect all holidays
-        for event in calendar_events:
-            if event.event_type == 'holiday':
-                # Add all dates in the range if end_date exists
-                if event.end_date and event.end_date > event.event_date:
-                    current_date = event.event_date
-                    while current_date <= event.end_date:
-                        holidays.add(current_date)
-                        current_date += timedelta(days=1)
-        else:
-                    holidays.add(event.event_date)
-        
-        # Add recurring Friday and Saturday holidays
-        current_date = year_start
-        while current_date <= year_end:
-            if current_date.weekday() == 4:  # Friday
-                holidays.add(current_date)
-            elif current_date.weekday() == 5:  # Saturday
-                holidays.add(current_date)
-            current_date += timedelta(days=1)
-        
-        # Find semester start and end dates
-        # First, check which session, year, and term this subject belongs to
-        session_academic_session = session.academic_session or ''
-        session_year = normalized_year
-        session_term = normalized_term
-        
-        current_app.logger.info(f"Looking for semester dates for Session: {session_academic_session}, Year: {session_year}, Term: {session_term}")
-        
-        semester_start_events = []
-        semester_end_events = []
-        
-        for event in calendar_events:
-            if event.event_type == 'semester_start':
-                semester_start_events.append(event)
-            elif event.event_type == 'semester_end':
-                semester_end_events.append(event)
-        
-        # Try to find matching semester based on session, year, term, and academic_session
-        # Priority: 1. Match by academic_session + year + term in title/description
-        #           2. Match by year + term in title/description
-        #           3. Use most appropriate date based on session academic_session or current date
-        if semester_start_events:
-            matched_start = None
-            
-            # Priority 1: Match by academic_session + year + term
-            if session_academic_session:
-                for event in semester_start_events:
-                    title_lower = (event.title or '').lower()
-                    description_lower = (event.description or '').lower()
-                    event_text = title_lower + ' ' + description_lower
-                    
-                    # Check if academic_session, year, and term all appear in the event
-                    if (session_academic_session.lower() in event_text and 
-                        normalized_year in event_text and 
-                        normalized_term in event_text):
-                        matched_start = event
-                        current_app.logger.info(f"Matched semester start by academic_session+year+term: {event.title} on {event.event_date}")
-                        break
-            
-            # Priority 2: Match by year + term in title/description
-            if not matched_start:
-                for event in semester_start_events:
-                    title_lower = (event.title or '').lower()
-                    description_lower = (event.description or '').lower()
-                    event_text = title_lower + ' ' + description_lower
-                    
-                    if normalized_year in event_text and normalized_term in event_text:
-                        matched_start = event
-                        current_app.logger.info(f"Matched semester start by year+term: {event.title} on {event.event_date}")
-                        break
-            
-            # Priority 3: Use the most recent past or upcoming start date
-            if not matched_start:
-                today = date.today()
-                upcoming_starts = [e for e in semester_start_events if e.event_date >= today]
-                if upcoming_starts:
-                    matched_start = min(upcoming_starts, key=lambda x: x.event_date)
-                    current_app.logger.info(f"Using upcoming semester start: {matched_start.title} on {matched_start.event_date}")
-                else:
-                    # Use most recent past
-                    matched_start = max(semester_start_events, key=lambda x: x.event_date)
-                    current_app.logger.info(f"Using most recent semester start: {matched_start.title} on {matched_start.event_date}")
-            
-            if matched_start:
-                semester_start_date = matched_start.event_date
-        
-        if semester_end_events:
-            matched_end = None
-            
-            # Priority 1: Match by academic_session + year + term
-            if session_academic_session:
-                for event in semester_end_events:
-                    title_lower = (event.title or '').lower()
-                    description_lower = (event.description or '').lower()
-                    event_text = title_lower + ' ' + description_lower
-                    
-                    # Check if academic_session, year, and term all appear in the event
-                    if (session_academic_session.lower() in event_text and 
-                        normalized_year in event_text and 
-                        normalized_term in event_text):
-                        matched_end = event
-                        current_app.logger.info(f"Matched semester end by academic_session+year+term: {event.title} on {event.event_date}")
-                        break
-            
-            # Priority 2: Match by year + term in title/description
-            if not matched_end:
-                for event in semester_end_events:
-                    title_lower = (event.title or '').lower()
-                    description_lower = (event.description or '').lower()
-                    event_text = title_lower + ' ' + description_lower
-                    
-                    if normalized_year in event_text and normalized_term in event_text:
-                        matched_end = event
-                        current_app.logger.info(f"Matched semester end by year+term: {event.title} on {event.event_date}")
-                        break
-            
-            # Priority 3: Use the end date that comes after the start date
-            if not matched_end:
-                if semester_start_date:
-                    future_ends = [e for e in semester_end_events if e.event_date > semester_start_date]
-                    if future_ends:
-                        matched_end = min(future_ends, key=lambda x: x.event_date)
-                        current_app.logger.info(f"Using future semester end after start: {matched_end.title} on {matched_end.event_date}")
-                else:
-                    # Use most recent past or upcoming
-                    today = date.today()
-                    upcoming_ends = [e for e in semester_end_events if e.event_date >= today]
-                    if upcoming_ends:
-                        matched_end = min(upcoming_ends, key=lambda x: x.event_date)
-                        current_app.logger.info(f"Using upcoming semester end: {matched_end.title} on {matched_end.event_date}")
-                    else:
-                        matched_end = max(semester_end_events, key=lambda x: x.event_date)
-                        current_app.logger.info(f"Using most recent semester end: {matched_end.title} on {matched_end.event_date}")
-            
-            if matched_end:
-                semester_end_date = matched_end.event_date
-        
+
+        semester_start_date, semester_end_date = resolve_semester_dates(
+            calendar_events,
+            academic_session=session.academic_session or '',
+            year=session.year or '',
+            term=session.term or '',
+        )
+        holidays = collect_holidays(calendar_events, semester_start_date or year_start, semester_end_date or year_end)
+        current_app.logger.info(
+            f'Calendar match for {session.academic_session}/{session.year}/{session.term}: '
+            f'start={semester_start_date} end={semester_end_date} events={len(calendar_events)}'
+        )
+ 
         # Validate dates
         if not semester_start_date:
             return jsonify({
@@ -5239,43 +5316,15 @@ def generate_weekly_plan_ai(session_id):
                 working_days.append(check_date)
             check_date += timedelta(days=1)
         
-        # Step 5: Group working days into weeks with date ranges
-        # Bangladesh: Week starts on Sunday (weekday 6), ends on Thursday (weekday 3)
-        # Friday (4) and Saturday (5) are holidays
+        # Step 5: Group working days into Bangladesh weeks (Sunday–Thursday)
         weeks = []
-        current_week_days = []
-        current_week_start = None
-        
-        for day in working_days:
-            if not current_week_days:
-                # First working day
-                current_week_start = day
-                current_week_days.append(day)
-            elif day.weekday() == 6:
-                # Sunday = new week starts in Bangladesh
-                # Save current week first
-                weeks.append({
-                    'week_num': len(weeks) + 1,
-                    'start_date': current_week_start,
-                    'end_date': current_week_days[-1],
-                    'working_days': current_week_days.copy(),
-                    'date_range': f"{current_week_start.strftime('%d %b %Y')} to {current_week_days[-1].strftime('%d %b %Y')}"
-                })
-                # Start new week
-                current_week_start = day
-                current_week_days = [day]
-            else:
-                # Same week - add to current week
-                current_week_days.append(day)
-        
-        # Add last week
-        if current_week_days:
+        for days in group_working_dates_into_weeks(working_days):
             weeks.append({
                 'week_num': len(weeks) + 1,
-                'start_date': current_week_start,
-                'end_date': current_week_days[-1],
-                'working_days': current_week_days.copy(),
-                'date_range': f"{current_week_start.strftime('%d %b %Y')} to {current_week_days[-1].strftime('%d %b %Y')}"
+                'start_date': days[0],
+                'end_date': days[-1],
+                'working_days': days,
+                'date_range': format_week_date_range(days),
             })
         
         total_weeks = len(weeks)
@@ -5311,86 +5360,54 @@ def generate_weekly_plan_ai(session_id):
         
         current_app.logger.info(f"Assessment positions (weeks): {assessment_positions}")
         
-        # Step 7: Generate lesson plan with topics distributed by week
+        # Step 7: One row per class; Date is the week's range (not a single day)
         lesson_plan = []
         topic_index = 0
         classes_used_for_current_topic = 0
         assessment_labels = ['Assessment 1', 'Assessment 2', 'Assessment 3', 'Assessment 4']
         assessment_idx = 0
-        
+
+        def next_topic_row():
+            nonlocal topic_index, classes_used_for_current_topic
+            if topic_index >= len(topic_slots):
+                return {'topic': 'Revision / Buffer', 'clo': '1'}
+            current_topic = topic_slots[topic_index]
+            row = {
+                'topic': current_topic['topic'],
+                'clo': current_topic['clo'] or '1',
+            }
+            classes_used_for_current_topic += 1
+            if classes_used_for_current_topic >= current_topic['classes']:
+                topic_index += 1
+                classes_used_for_current_topic = 0
+            return row
+
         for week in weeks:
             week_num = week['week_num']
             date_range = week['date_range']
-            available_classes = min(classes_per_week, len(week['working_days']))
-            
-            # Check if this week has an assessment
+            rows_this_week = min(classes_per_week, len(week['working_days']))
             is_assessment_week = week_num in assessment_positions and assessment_idx < len(assessment_labels)
-            
-            if is_assessment_week:
-                # Add assessment entry
+
+            for class_i in range(rows_this_week):
+                if class_i == 0 and is_assessment_week:
+                    topic = assessment_labels[assessment_idx]
+                    clo = ''
+                    is_assessment = True
+                    assessment_idx += 1
+                else:
+                    nxt = next_topic_row()
+                    topic = nxt['topic']
+                    clo = nxt['clo']
+                    is_assessment = False
                 lesson_plan.append({
                     'week': f"Week {week_num}",
                     'date': date_range,
-                    'topic': assessment_labels[assessment_idx],
+                    'topic': topic,
                     'outcome': '',
+                    'activities': '',
                     'teaching_assessment': '',
-                    'clo_alignment': '',
-                    'is_assessment': True
-                })
-                assessment_idx += 1
-                available_classes -= 1  # Assessment takes 1 class slot
-            
-            # Fill remaining classes with topics
-            if available_classes > 0 and topic_index < len(topic_slots):
-                classes_filled = 0
-                topics_this_week = []
-                
-                while classes_filled < available_classes and topic_index < len(topic_slots):
-                    current_topic = topic_slots[topic_index]
-                    remaining_for_topic = current_topic['classes'] - classes_used_for_current_topic
-                    classes_to_use = min(remaining_for_topic, available_classes - classes_filled)
-                    
-                    topics_this_week.append({
-                        'topic': current_topic['topic'],
-                        'clo': current_topic['clo'],
-                        'classes': classes_to_use
-                    })
-                    
-                    classes_filled += classes_to_use
-                    classes_used_for_current_topic += classes_to_use
-                    
-                    if classes_used_for_current_topic >= current_topic['classes']:
-                        topic_index += 1
-                        classes_used_for_current_topic = 0
-                
-                # Combine topics for this week into single entry
-                if topics_this_week:
-                    # Format: "Topic A (2 classes), Topic B (1 class)"
-                    combined_topic = ', '.join([
-                        f"{t['topic']} ({t['classes']} class{'es' if t['classes'] > 1 else ''})" 
-                        for t in topics_this_week
-                    ])
-                    combined_clo = ', '.join(sorted(set(t['clo'] for t in topics_this_week if t['clo'])))
-                    
-                    lesson_plan.append({
-                        'week': f"Week {week_num}",
-                        'date': date_range,
-                        'topic': combined_topic,
-                        'outcome': '',
-                        'teaching_assessment': '',
-                        'clo_alignment': combined_clo or '1',
-                        'is_assessment': False
-                    })
-            elif available_classes > 0 and topic_index >= len(topic_slots):
-                # No more topics - add buffer/revision
-                lesson_plan.append({
-                    'week': f"Week {week_num}",
-                    'date': date_range,
-                    'topic': 'Revision / Buffer',
-                    'outcome': '',
-                    'teaching_assessment': '',
-                    'clo_alignment': '1',
-                    'is_assessment': False
+                    'clo_alignment': clo,
+                    'is_assessment': is_assessment,
                 })
         
         # Ensure remaining assessments are added if not all were placed
@@ -5400,24 +5417,51 @@ def generate_weekly_plan_ai(session_id):
                 'date': weeks[-1]['date_range'] if weeks else '',
                 'topic': assessment_labels[assessment_idx],
                 'outcome': '',
+                'activities': '',
                 'teaching_assessment': '',
                 'clo_alignment': '',
                 'is_assessment': True
             })
             assessment_idx += 1
         
-        part_text = f" (Part {part})" if part else ""
+        part_text = ' (Part A+B)' if combined_parts else (f' (Part {part})' if part else '')
         topics_scheduled = topic_index
         topics_remaining = len(topic_slots) - topic_index
         
-        msg = f'Generated plan{part_text}: {total_topic_classes} topic classes + {TOTAL_ASSESSMENTS} assessments distributed across {total_weeks} weeks ({classes_per_week} classes/week based on {int(credit)} credit). Semester: {semester_start_date.strftime("%d %b %Y")} to {semester_end_date.strftime("%d %b %Y")}'
+        msg = (
+            f'Generated plan{part_text}: {len(lesson_plan)} class rows across {total_weeks} weeks '
+            f'({classes_per_week} classes/week; date field is each week\'s range). '
+            f'Semester: {semester_start_date.strftime("%d %b %Y")} to {semester_end_date.strftime("%d %b %Y")}'
+        )
         
         if topics_remaining > 0:
             msg += f'. Warning: {topics_remaining} topics could not be scheduled within the semester.'
+
+        saved_to_peer = False
+        peer_scope = None
+        if part in ('A', 'B') and session.split_group_id:
+            wanted_scope = SCOPE_PART_A if part == 'A' else SCOPE_PART_B
+            if (session.course_scope or '') != wanted_scope:
+                peer = next(
+                    (s for s in _get_related_sessions(session) if (s.course_scope or '') == wanted_scope),
+                    None,
+                )
+                if peer:
+                    peer_outline = CourseOutline.query.filter_by(session_id=peer.id).first()
+                    if not peer_outline:
+                        peer_outline = CourseOutline(session_id=peer.id, teacher_id=peer.teacher_id)
+                        db.session.add(peer_outline)
+                    peer_outline.lesson_plan = json.dumps(lesson_plan)
+                    db.session.commit()
+                    saved_to_peer = True
+                    peer_scope = part
+                    msg += f' Saved to Part {part} outline.'
         
         return jsonify({
             'success': True,
             'lesson_plan': lesson_plan,
+            'saved_to_peer': saved_to_peer,
+            'peer_part': peer_scope,
             'message': msg
         })
     except Exception as e:
@@ -5655,13 +5699,8 @@ def edit_course_outline(session_id):
         flash('You are not authorized to edit this course outline.', 'danger')
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
-    # Get all teachers for this course (if split group exists)
-    course_teachers = [session.teacher]
-    if session.split_group_id:
-        related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
-        for related_session in related_sessions:
-            if related_session.teacher and related_session.teacher not in course_teachers:
-                course_teachers.append(related_session.teacher)
+    # Current instructors only (replaced/archived teachers are omitted)
+    course_teachers = _current_course_instructors(session)
     
     course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
     if not course_outline:
@@ -6000,13 +6039,49 @@ def edit_course_outline(session_id):
         'grading_policy': json.loads(course_outline.grading_policy) if course_outline.grading_policy else [],
         'cie_breakdown': json.loads(course_outline.cie_breakdown) if hasattr(course_outline, 'cie_breakdown') and course_outline.cie_breakdown else [],
         'smee_breakdown': json.loads(course_outline.smee_breakdown) if hasattr(course_outline, 'smee_breakdown') and course_outline.smee_breakdown else [],
-        'textbooks': json.loads(course_outline.textbooks) if course_outline.textbooks else [],
-        'reference_books': json.loads(course_outline.reference_books) if course_outline.reference_books else [],
-        'other_resources': json.loads(course_outline.other_resources) if course_outline.other_resources else [],
-        'course_file_components': json.loads(course_outline.course_file_components) if course_outline.course_file_components else [],
+        'textbooks': [],
+        'reference_books': [],
+        'other_resources': [],
+        'course_file_components': [],
         'other_issues': json.loads(course_outline.other_issues) if course_outline.other_issues else {},
         'make_up_procedures': course_outline.make_up_procedures or '',
     }
+    def _safe_json_field(raw, default):
+        if not raw:
+            return default
+        try:
+            return json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return default
+    outline_data['textbooks'] = _safe_json_field(course_outline.textbooks, [])
+    outline_data['reference_books'] = _safe_json_field(course_outline.reference_books, [])
+    outline_data['other_resources'] = _safe_json_field(course_outline.other_resources, [])
+    try:
+        outline_data['course_file_components'] = _safe_json_field(
+            getattr(course_outline, 'course_file_components', None), []
+        )
+    except Exception:
+        outline_data['course_file_components'] = []
+    try:
+        from utils.outline_richtext import editor_html as _editor_html
+    except Exception:
+        def _editor_html(stored):
+            parsed = _safe_json_field(stored, stored or '')
+            if isinstance(parsed, list):
+                return '\n'.join(str(x) for x in parsed if str(x).strip())
+            return str(parsed or '')
+    try:
+        outline_data['textbooks_html'] = _editor_html(course_outline.textbooks)
+        outline_data['reference_books_html'] = _editor_html(course_outline.reference_books)
+        outline_data['other_resources_html'] = _editor_html(course_outline.other_resources)
+        outline_data['course_file_components_html'] = _editor_html(
+            getattr(course_outline, 'course_file_components', None)
+        )
+    except Exception:
+        outline_data.setdefault('textbooks_html', '')
+        outline_data.setdefault('reference_books_html', '')
+        outline_data.setdefault('other_resources_html', '')
+        outline_data.setdefault('course_file_components_html', '')
     from utils.ai.outline_parser import normalize_assessment_strategy
     outline_data['assessment_strategy'] = normalize_assessment_strategy(outline_data.get('assessment_strategy'))
 
@@ -6173,18 +6248,33 @@ def _generate_course_outline_docx(session_id):
         
         if textbooks:
             doc.add_heading('Textbooks', level=2)
-            for book in textbooks:
-                doc.add_paragraph(book, style='List Bullet')
+            try:
+                from utils.outline_richtext import plain_items
+                items = plain_items(textbooks) or textbooks
+            except Exception:
+                items = textbooks if isinstance(textbooks, list) else [textbooks]
+            for book in items:
+                doc.add_paragraph(str(book), style='List Bullet')
         
         if reference_books:
             doc.add_heading('Reference Books', level=2)
-            for book in reference_books:
-                doc.add_paragraph(book, style='List Bullet')
+            try:
+                from utils.outline_richtext import plain_items
+                items = plain_items(reference_books) or reference_books
+            except Exception:
+                items = reference_books if isinstance(reference_books, list) else [reference_books]
+            for book in items:
+                doc.add_paragraph(str(book), style='List Bullet')
         
         if other_resources:
             doc.add_heading('Other Resources', level=2)
-            for resource in other_resources:
-                doc.add_paragraph(resource, style='List Bullet')
+            try:
+                from utils.outline_richtext import plain_items
+                items = plain_items(other_resources) or other_resources
+            except Exception:
+                items = other_resources if isinstance(other_resources, list) else [other_resources]
+            for resource in items:
+                doc.add_paragraph(str(resource), style='List Bullet')
     
     # Save to buffer
     buffer = io.BytesIO()
@@ -6305,6 +6395,17 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
     reference_books = safe_json_parse(course_outline.reference_books, [])
     other_resources = safe_json_parse(course_outline.other_resources, [])
     course_file_components = safe_json_parse(course_outline.course_file_components, [])
+    try:
+        from utils.outline_richtext import pdf_markup
+        textbooks_html = pdf_markup(course_outline.textbooks)
+        reference_books_html = pdf_markup(course_outline.reference_books)
+        other_resources_html = pdf_markup(course_outline.other_resources)
+        course_file_components_html = pdf_markup(getattr(course_outline, 'course_file_components', None))
+    except Exception:
+        textbooks_html = None
+        reference_books_html = None
+        other_resources_html = None
+        course_file_components_html = None
     other_issues = safe_json_parse(course_outline.other_issues, {})
     make_up_raw = getattr(course_outline, 'make_up_procedures', None) or ''
     make_up_procedures_list = []
@@ -6322,15 +6423,8 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         else:
             make_up_procedures_list = [ln.strip() for ln in make_up_raw.splitlines() if ln.strip()]
     session_delivery_type = (session.course_type or 'theory')
-    course_teachers = [session.teacher]
-    course_teachers_pdf = [session.teacher]
-    if session.split_group_id:
-        related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
-        for related_session in related_sessions:
-            if related_session.teacher and related_session.teacher not in course_teachers:
-                course_teachers.append(related_session.teacher)
-            if related_session.teacher and related_session.teacher not in course_teachers_pdf:
-                course_teachers_pdf.append(related_session.teacher)
+    course_teachers = _current_course_instructors(session)
+    course_teachers_pdf = list(course_teachers)
     
     formal_fonts = _resolve_formal_pdf_fonts()
     if not formal_fonts:
@@ -6362,6 +6456,10 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
         reference_books=reference_books,
         other_resources=other_resources,
         course_file_components=course_file_components,
+        textbooks_html=textbooks_html,
+        reference_books_html=reference_books_html,
+        other_resources_html=other_resources_html,
+        course_file_components_html=course_file_components_html,
         other_issues=other_issues,
         make_up_procedures=make_up_raw if isinstance(make_up_raw, str) else '',
         make_up_procedures_list=make_up_procedures_list,
@@ -6436,6 +6534,11 @@ def edit_session(session_id):
                 session.academic_session = academic_session or session.academic_session
                 session.year = year or session.year
                 session.term = term or session.term
+                credit_hours = _parse_credit_hours(request.form.get('credit'))
+                if credit_hours is None:
+                    flash('Credit is required for an external course.', 'error')
+                    return redirect(url_for('class_management.edit_session', session_id=session_id))
+                _set_session_outline_credit(session, credit_hours, teacher_id=session.teacher_id)
             else:
                 session.year = request.form.get('year')
                 session.term = request.form.get('term')
@@ -6469,7 +6572,12 @@ def edit_session(session_id):
             flash(f'Error updating session: {str(e)}', 'error')
             return redirect(url_for('class_management.edit_session', session_id=session_id))
     
-    return render_template('class_management/edit_session.html', session=session)
+    session_credit = _resolve_session_credit(session)
+    return render_template(
+        'class_management/edit_session.html',
+        session=session,
+        session_credit=_format_credit_hours(session_credit) if session_credit else '',
+    )
 
 @class_management_bp.route('/archive')
 @login_required

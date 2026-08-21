@@ -42,7 +42,7 @@ def ensure_upload_extracted(upload, refresh=False):
     return text or ''
 
 
-def build_rag_context(session, course_data=None, uploads=None, max_snippets=5, max_chars=6000):
+def build_rag_context(session, course_data=None, uploads=None, max_snippets=3, max_chars=2400):
     """
     Rank uploaded file chunks by overlap with course topics and return top snippets.
   uploads: iterable of CourseFileUpload rows.

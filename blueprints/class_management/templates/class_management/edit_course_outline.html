@@ -132,6 +132,172 @@
         }
     }
     
+    #aiCopilotBar {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 16px;
+        z-index: 1040;
+        width: calc(100% - 24px);
+        max-width: 760px;
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+        color: #e2e8f0;
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        box-shadow: 0 18px 50px rgba(15, 23, 42, 0.38);
+        padding: 12px 14px 10px;
+    }
+    #aiCopilotBar.is-min {
+        width: auto;
+        padding: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+    }
+    #aiCopilotBar.is-min .ai-copilot-body { display: none; }
+    #aiCopilotBar.is-min .ai-copilot-fab { display: inline-flex; }
+    .ai-copilot-fab {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        border-radius: 999px;
+        padding: 10px 16px;
+        background: #f59e0b;
+        color: #111827;
+        font-weight: 700;
+        box-shadow: 0 10px 28px rgba(245, 158, 11, 0.35);
+    }
+    .ai-copilot-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+    .ai-copilot-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 0.92rem;
+        color: #fff;
+    }
+    .ai-copilot-title span.dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #34d399;
+        box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.18);
+    }
+    .ai-copilot-min {
+        border: 0;
+        background: transparent;
+        color: #94a3b8;
+        padding: 4px 8px;
+    }
+    .ai-copilot-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+    .ai-copilot-chip {
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.06);
+        color: #e2e8f0;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.78rem;
+    }
+    .ai-copilot-chip:hover { background: rgba(245, 158, 11, 0.18); border-color: #f59e0b; color: #fff; }
+    .ai-copilot-row {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+    }
+    #aiCopilotSection {
+        max-width: 160px;
+        flex: 0 0 auto;
+        background: #0b1220;
+        color: #e2e8f0;
+        border-color: rgba(255,255,255,0.12);
+    }
+    #aiCopilotInstruction {
+        flex: 1 1 auto;
+        min-width: 0;
+        background: #0b1220;
+        color: #f8fafc;
+        border-color: rgba(255,255,255,0.12);
+    }
+    #aiCopilotInstruction::placeholder { color: #64748b; }
+    .ai-copilot-topic {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: #cbd5e1;
+        font-size: 0.78rem;
+        padding: 0 2px;
+    }
+    .ai-copilot-topic .form-check-input {
+        margin-left: 0;
+        cursor: pointer;
+    }
+    .ai-copilot-topic .form-check-label {
+        cursor: pointer;
+        white-space: nowrap;
+        color: #cbd5e1;
+    }
+    #aiCopilotBar #aiCopilotApplyBtn {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-width: 6.75rem;
+        height: auto;
+        padding: 0.4rem 0.95rem;
+        font-size: 0.86rem;
+        font-weight: 700;
+        line-height: 1.2;
+        white-space: nowrap;
+        overflow: hidden;
+        border: 0;
+        border-radius: 8px;
+        box-shadow: 0 6px 16px rgba(245, 158, 11, 0.28);
+    }
+    #aiCopilotBar #aiCopilotApplyBtn i {
+        margin: 0;
+        font-size: 0.82rem;
+    }
+    #aiCopilotStatus { color: #94a3b8; }
+    #aiCopilotStatus.is-ok { color: #6ee7b7; }
+    #aiCopilotStatus.is-error { color: #fca5a5; }
+    .tox-tinymce { border-radius: 6px !important; }
+    .part-d-editor { min-height: 160px; }
+    .lesson-plan-row.ai-just-changed,
+    .border.ai-just-changed {
+        outline: 2px solid #f59e0b;
+        background: #fffbeb;
+        transition: background 1.2s ease;
+    }
+    body.has-ai-copilot { padding-bottom: 8.5rem; }
+    @media (max-width: 768px) {
+        #aiCopilotBar { bottom: 10px; width: calc(100% - 16px); }
+        .ai-copilot-row { flex-wrap: wrap; }
+        #aiCopilotSection { max-width: none; width: 100%; }
+        #aiCopilotInstruction { width: 100%; flex: 1 1 100%; }
+        .ai-copilot-topic { order: 3; }
+        #aiCopilotBar #aiCopilotApplyBtn {
+            width: auto;
+            min-width: 7rem;
+            margin-left: auto;
+            padding: 0.45rem 1.1rem;
+        }
+        body.has-ai-copilot { padding-bottom: 11rem; }
+    }
+
     /* Scalable container */
     @media (min-width: 1400px) {
         .container {
@@ -194,8 +360,11 @@
                     <i class="fas fa-file-pdf me-1"></i><span class="d-none d-sm-inline">Download PDF</span>
             </a>
                 {% if ai_outline_enabled %}
-                <button type="button" class="btn btn-warning text-dark" id="generateFullOutlineAiBtn" title="Generate Parts A–D using AI">
-                    <i class="fas fa-robot me-1"></i><span class="d-none d-sm-inline">Generate with AI</span>
+                <button type="button" class="btn btn-warning text-dark" id="draftOutlineAiBtn" title="কারিকুলাম ও ক্যালেন্ডার থেকে খসড়া">
+                    <i class="fas fa-magic me-1"></i><span class="d-none d-sm-inline">খসড়া তৈরি</span>
+                </button>
+                <button type="button" class="btn btn-outline-warning" id="generateFullOutlineAiBtn" title="পুরো আউটলাইন বিল্ডার (অপশনসহ)">
+                    <i class="fas fa-sliders-h me-1"></i><span class="d-none d-sm-inline">Builder</span>
                 </button>
                 {% endif %}
         </div>
@@ -443,9 +612,6 @@
                     <div class="mb-4">
                         <label class="form-label fw-bold mb-2">
                             <i class="fas fa-list me-1"></i>Section A
-                            {% if session.split_group_id and session.course_scope == 'part_b' %}
-                                <span class="badge bg-warning text-dark ms-2">Read-only (Part B Teacher)</span>
-                            {% endif %}
                         </label>
                         <div class="table-responsive">
                             <table class="table table-bordered table-sm table-hover" id="courseContentTableA">
@@ -474,9 +640,6 @@
                     <div class="mb-0">
                         <label class="form-label fw-bold mb-2">
                             <i class="fas fa-list me-1"></i>Section B
-                            {% if session.split_group_id and session.course_scope == 'part_a' %}
-                                <span class="badge bg-warning text-dark ms-2">Read-only (Part A Teacher)</span>
-                            {% endif %}
                         </label>
                         <div class="table-responsive">
                             <table class="table table-bordered table-sm table-hover" id="courseContentTableB">
@@ -506,32 +669,32 @@
 
                 <!-- 14. Class Schedule / Lesson Plan / Weekly Plan -->
         <div class="card shadow mb-3">
-            <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <div class="card-header bg-success text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
                         <h5 class="mb-0">14. Class Schedule / Lesson Plan / Weekly Plan</h5>
-                        <div>
-                    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
-                        <!-- Split Course: Show both buttons, but disable the one for the other part -->
-                        {% if session.course_scope == 'part_a' %}
-                            <button type="button" class="btn btn-light btn-sm me-2" onclick="generateWeeklyPlanWithAI('A')" title="Generate weekly plan for Part A">
-                                <i class="fas fa-magic me-1"></i>Generate Plan (Part A)
-                </button>
-                            <button type="button" class="btn btn-light btn-sm disabled" disabled title="Part B - Not available for your part">
-                                <i class="fas fa-magic me-1"></i>Generate Plan (Part B)
-                            </button>
-                        {% elif session.course_scope == 'part_b' %}
-                            <button type="button" class="btn btn-light btn-sm me-2 disabled" disabled title="Part A - Not available for your part">
-                                <i class="fas fa-magic me-1"></i>Generate Plan (Part A)
-                            </button>
-                            <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI('B')" title="Generate weekly plan for Part B">
-                                <i class="fas fa-magic me-1"></i>Generate Plan (Part B)
-                            </button>
-                        {% endif %}
-                    {% else %}
-                        <!-- Full Course: Single button -->
-                        <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI()" title="Generate weekly plan automatically">
-                            <i class="fas fa-magic me-1"></i>Generate Plan
+                        <div class="d-flex flex-wrap justify-content-end gap-1">
+                    {% if ai_outline_enabled %}
+                        <button type="button" class="btn btn-warning btn-sm text-dark ai-section-fix-btn" data-ai-section="lesson_plan" title="এআই দিয়ে এই অংশ ঠিক করুন">
+                            <i class="fas fa-robot me-1"></i>এআই
                         </button>
                     {% endif %}
+                    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
+                        <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI('A')" title="Generate weekly plan for Part A">
+                            <i class="fas fa-calendar-alt me-1"></i>Generate Plan (Part A)
+                        </button>
+                        <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI('B')" title="Generate weekly plan for Part B">
+                            <i class="fas fa-calendar-alt me-1"></i>Generate Plan (Part B)
+                        </button>
+                        <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI('AB')" title="Generate weekly plan from Part A and Part B together">
+                            <i class="fas fa-calendar-alt me-1"></i>Generate Plan (Part A+B)
+                        </button>
+                    {% else %}
+                        <button type="button" class="btn btn-light btn-sm" onclick="generateWeeklyPlanWithAI()" title="Generate weekly plan automatically">
+                            <i class="fas fa-calendar-alt me-1"></i>Generate Plan
+                        </button>
+                    {% endif %}
+                        <button type="button" class="btn btn-outline-light btn-sm" onclick="clearLessonPlan()" title="Clear all weekly plan rows">
+                            <i class="fas fa-eraser me-1"></i>Clear
+                        </button>
                         </div>
             </div>
             <div class="card-body">
@@ -581,12 +744,19 @@
         <div class="card shadow mb-3" id="assessmentTechniquesCard" {% if session_delivery_type == 'sessional' and not part_b_ns.techniques %}data-section-disabled="1"{% endif %}>
                     <div class="card-header bg-secondary text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
                         <h5 class="mb-0"><span class="part-b-sec-num" data-sec="techniques">15</span>. Assessment Techniques of each topic of the course:</h5>
+                        <div class="d-flex align-items-center gap-2">
+                        {% if ai_outline_enabled %}
+                        <button type="button" class="btn btn-sm btn-warning text-dark ai-section-fix-btn" data-ai-section="assessment_techniques" title="এআই দিয়ে এই অংশ ঠিক করুন">
+                            <i class="fas fa-magic me-1"></i>এআই
+                        </button>
+                        {% endif %}
                         {% if session_delivery_type == 'sessional' %}
                         <div class="form-check form-switch mb-0" onclick="event.stopPropagation();">
                             <input class="form-check-input" type="checkbox" role="switch" id="assessmentTechniquesEnabledToggle" {% if part_b_ns.techniques %}checked{% endif %} onchange="togglePartBSection('techniques', this.checked)">
                             <label class="form-check-label text-white" for="assessmentTechniquesEnabledToggle">Include</label>
                         </div>
                         {% endif %}
+                        </div>
                     </div>
                     <div class="card-body" id="assessmentTechniquesSectionBody" {% if session_delivery_type == 'sessional' and not part_b_ns.techniques %}style="display: none;"{% endif %}>
                         <div id="assessmentTechniquesContainer">
@@ -602,12 +772,19 @@
                 <div class="card shadow mb-3" id="cieCard" {% if session_delivery_type == 'sessional' and not part_b_ns.cie %}data-section-disabled="1"{% endif %}>
                     <div class="card-header bg-secondary text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
                         <h5 class="mb-0"><span class="part-b-sec-num" data-sec="cie">16</span>. CIE- Continuous Internal Evaluation (Mark):</h5>
+                        <div class="d-flex align-items-center gap-2">
+                        {% if ai_outline_enabled %}
+                        <button type="button" class="btn btn-sm btn-warning text-dark ai-section-fix-btn" data-ai-section="cie" title="এআই দিয়ে এই অংশ ঠিক করুন">
+                            <i class="fas fa-magic me-1"></i>এআই
+                        </button>
+                        {% endif %}
                         {% if session_delivery_type == 'sessional' %}
                         <div class="form-check form-switch mb-0" onclick="event.stopPropagation();">
                             <input class="form-check-input" type="checkbox" role="switch" id="cieEnabledToggle" {% if part_b_ns.cie %}checked{% endif %} onchange="togglePartBSection('cie', this.checked)">
                             <label class="form-check-label text-white" for="cieEnabledToggle">Include</label>
                         </div>
                         {% endif %}
+                        </div>
                     </div>
                     <div class="card-body" id="cieSectionBody" {% if session_delivery_type == 'sessional' and not part_b_ns.cie %}style="display: none;"{% endif %}>
                         <div class="mb-3">
@@ -639,12 +816,19 @@
                 <div class="card shadow mb-3" id="smeeCard" {% if session_delivery_type == 'sessional' and not part_b_ns.smee %}data-section-disabled="1"{% endif %}>
                     <div class="card-header bg-secondary text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
                         <h5 class="mb-0"><span class="part-b-sec-num" data-sec="smee">17</span>. SMEE- Semester End Examination (Marks):</h5>
+                        <div class="d-flex align-items-center gap-2">
+                        {% if ai_outline_enabled %}
+                        <button type="button" class="btn btn-sm btn-warning text-dark ai-section-fix-btn" data-ai-section="smee" title="এআই দিয়ে এই অংশ ঠিক করুন">
+                            <i class="fas fa-magic me-1"></i>এআই
+                        </button>
+                        {% endif %}
                         {% if session_delivery_type == 'sessional' %}
                         <div class="form-check form-switch mb-0" onclick="event.stopPropagation();">
                             <input class="form-check-input" type="checkbox" role="switch" id="smeeEnabledToggle" {% if part_b_ns.smee %}checked{% endif %} onchange="togglePartBSection('smee', this.checked)">
                             <label class="form-check-label text-white" for="smeeEnabledToggle">Include</label>
                         </div>
                         {% endif %}
+                        </div>
                     </div>
                     <div class="card-body" id="smeeSectionBody" {% if session_delivery_type == 'sessional' and not part_b_ns.smee %}style="display: none;"{% endif %}>
                         <div class="table-responsive">
@@ -673,7 +857,14 @@
         <div class="card shadow mb-3">
             <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#partC" aria-expanded="false" aria-controls="partC">
                 <h5 class="mb-0">PART C: ASSESSMENT AND EVALUATION</h5>
-                <i class="fas fa-chevron-up"></i>
+                <div class="d-flex align-items-center gap-2">
+                    {% if ai_outline_enabled %}
+                    <button type="button" class="btn btn-sm btn-light ai-section-fix-btn" data-ai-section="assessment" onclick="event.stopPropagation();" title="এআই দিয়ে এই অংশ ঠিক করুন">
+                        <i class="fas fa-magic me-1"></i>এআই
+                    </button>
+                    {% endif %}
+                    <i class="fas fa-chevron-up"></i>
+                </div>
             </div>
             <div class="collapse" id="partC">
             <div class="card-body">
@@ -1015,25 +1206,32 @@
         <div class="card shadow mb-3">
             <div class="card-header bg-info text-white d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#partD" aria-expanded="false" aria-controls="partD">
                 <h5 class="mb-0">PART D: LEARNING RESOURCES</h5>
-                <i class="fas fa-chevron-up"></i>
+                <div class="d-flex align-items-center gap-2">
+                    {% if ai_outline_enabled %}
+                    <button type="button" class="btn btn-sm btn-light ai-section-fix-btn" data-ai-section="resources" onclick="event.stopPropagation();" title="এআই দিয়ে এই অংশ ঠিক করুন">
+                        <i class="fas fa-magic me-1"></i>এআই
+                    </button>
+                    {% endif %}
+                    <i class="fas fa-chevron-up"></i>
+                </div>
             </div>
             <div class="collapse" id="partD">
             <div class="card-body">
                 <div class="mb-3">
-                    <label class="form-label"><strong>23. Textbooks</strong> (one per line: Author, Title, Publisher, Year)</label>
-                    <textarea class="form-control" name="textbooks" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.textbooks|join('&#10;') if outline_data.textbooks else '' }}</textarea>
+                    <label class="form-label"><strong>23. Textbooks</strong></label>
+                    <textarea class="form-control part-d-editor" id="textbooksEditor" name="textbooks" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.textbooks_html|safe }}</textarea>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label"><strong>24. Reference Books</strong> (one per line)</label>
-                    <textarea class="form-control" name="reference_books" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.reference_books|join('&#10;') if outline_data.reference_books else '' }}</textarea>
+                    <label class="form-label"><strong>24. Reference Books</strong></label>
+                    <textarea class="form-control part-d-editor" id="referenceBooksEditor" name="reference_books" rows="5" placeholder="Author, Title, Publisher, Year">{{ outline_data.reference_books_html|safe }}</textarea>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label"><strong>25. Other Resources</strong> (Online Resources or others - one per line)</label>
-                    <textarea class="form-control" name="other_resources" rows="3" placeholder="Articles, online resources, etc.">{{ outline_data.other_resources|join('&#10;') if outline_data.other_resources else '' }}</textarea>
+                    <label class="form-label"><strong>25. Other Resources</strong> (Online resources or others)</label>
+                    <textarea class="form-control part-d-editor" id="otherResourcesEditor" name="other_resources" rows="4" placeholder="Articles, online resources, etc.">{{ outline_data.other_resources_html|safe }}</textarea>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label"><strong>26. Course File</strong> (one per line)</label>
-                    <textarea class="form-control" name="course_file_components" rows="5" placeholder="Course Outline/Course Plan&#10;Lesson Plan&#10;Question Papers&#10;Answer Script (Best, Average, Poor)&#10;Rubrics&#10;Attendance&#10;Course evaluation by course teacher&#10;Student course evaluation form&#10;Peer review: Classroom Teaching Observation Report&#10;Evaluation of attainment of CLOs&#10;Improvement plan for better attainment of CLOs">{{ outline_data.course_file_components|join('&#10;') if outline_data.course_file_components else '' }}</textarea>
+                    <label class="form-label"><strong>26. Course File</strong></label>
+                    <textarea class="form-control part-d-editor" id="courseFileEditor" name="course_file_components" rows="5" placeholder="Course Outline, Lesson Plan, Question Papers…">{{ outline_data.course_file_components_html|safe }}</textarea>
                 </div>
                 </div>
             </div>
@@ -1055,6 +1253,46 @@
             </div>
         </div>
     </form>
+    {% if ai_outline_enabled %}
+    <div id="aiCopilotBar">
+        <button type="button" class="ai-copilot-fab" id="aiCopilotOpenBtn">
+            <i class="fas fa-robot"></i> এআই সহকারী
+        </button>
+        <div class="ai-copilot-body">
+            <div class="ai-copilot-head">
+                <div class="ai-copilot-title"><span class="dot"></span><i class="fas fa-robot"></i> এআই সহকারী</div>
+                <button type="button" class="ai-copilot-min" id="aiCopilotMinBtn" title="ছোট করুন"><i class="fas fa-minus"></i></button>
+            </div>
+            <div class="ai-copilot-chips" id="aiCopilotChips">
+                <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="সপ্তাহ ৫-এ কুইজ দাও">সপ্তাহ ৫-এ কুইজ</button>
+                <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="প্রতি সপ্তাহে discussion রাখো">প্রতি সপ্তাহে discussion</button>
+                <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="সপ্তাহ ৪ ও ৮-এ Class Test দাও">দুইটি Class Test</button>
+                <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="খালি আউটকামগুলো সংক্ষেপে লিখে দাও">আউটকাম লিখো</button>
+            </div>
+            <div class="ai-copilot-row">
+                <select id="aiCopilotSection" class="form-select form-select-sm">
+                    <option value="lesson_plan">Lesson Plan</option>
+                    <option value="assessment_techniques">Techniques</option>
+                    <option value="cie">CIE</option>
+                    <option value="smee">SMEE</option>
+                    <option value="assessment">Part C</option>
+                    <option value="resources">Part D</option>
+                </select>
+                <input type="text" id="aiCopilotInstruction" class="form-control form-control-sm" maxlength="500"
+                       placeholder="বাংলা বা ইংরেজিতে যা খুশি লিখুন">
+                <div class="form-check form-switch mb-0 ai-copilot-topic" id="aiCopilotLockWrap"
+                     title="বন্ধ = সিলেবাসের টপিক অক্ষত থাকবে। চালু = এআই টপিকও বদলাতে পারবে।">
+                    <input class="form-check-input" type="checkbox" id="aiCopilotAllowTopics">
+                    <label class="form-check-label" for="aiCopilotAllowTopics">টপিক বদলান</label>
+                </div>
+                <button type="button" class="btn btn-warning text-dark" id="aiCopilotApplyBtn">
+                    <i class="fas fa-magic"></i><span>প্রয়োগ</span>
+                </button>
+            </div>
+            <div id="aiCopilotStatus" class="small mt-2 mb-0">যেমন: «সপ্তাহ ৫-এ কুইজ», «মাঝামাঝি অ্যাসাইনমেন্ট», «আউটকামগুলো সংক্ষেপে লিখো»। সহকারী অর্থ বুঝে ফর্মে লাগাবে।</div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 {% if ai_outline_enabled %}
@@ -1062,100 +1300,122 @@
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="aiOutlineModalLabel"><i class="fas fa-robot me-2"></i>AI Course Outline Preview</h5>
+                <h5 class="modal-title" id="aiOutlineModalLabel"><i class="fas fa-sliders-h me-2"></i>পুরো আউটলাইন বিল্ডার</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <style>
+                    #aiOutlineModal .ai-intent-chip.active { background-color: #0d6efd; color: #fff; border-color: #0d6efd; }
+                </style>
                 <div id="aiOutlineStatus" class="alert alert-info mb-3">
-                    নিচে কোর্স টাইপ ও নির্দেশনা সেট করুন, তারপর <strong>জেনারেট শুরু করুন</strong> চাপুন।
+                    চাহিদা বেছে নিন, তারপর <strong>জেনারেট শুরু করুন</strong> চাপুন।
                 </div>
 
-                <div class="card border-0 bg-light mb-3">
-                    <div class="card-body py-3">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label small fw-semibold mb-1">কোর্স ধরন</label>
-                                <select id="aiDeliveryType" class="form-select">
-                                    <option value="theory" {% if session_delivery_type == 'theory' %}selected{% endif %}>Theory (তাত্ত্বিক)</option>
-                                    <option value="sessional" {% if session_delivery_type == 'sessional' %}selected{% endif %}>Sessional (ব্যবহারিক)</option>
-                                </select>
-                                <div class="form-text">সেশনে সেট করা: <strong>{{ session_delivery_type|title }}</strong> — প্রয়োজনে বদলান।</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-semibold mb-1">বিস্তারিত স্তর</label>
-                                <select id="aiDetailLevel" class="form-select">
-                                    <option value="standard" selected>স্ট্যান্ডার্ড</option>
-                                    <option value="concise">সংক্ষিপ্ত</option>
-                                    <option value="detailed">বিস্তারিত</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-semibold mb-1">মোট ক্লাসের সংখ্যা</label>
-                                <input type="number" id="aiTotalClasses" class="form-control" min="1" step="1"
-                                       value="{{ ai_default_total_classes }}" placeholder="যেমন: 56">
-                                <div class="form-text">সেমিস্টারে মোট কত ক্লাস হবে (contact hours)।</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-semibold mb-1">প্রতি সপ্তাহে ক্লাসের সংখ্যা</label>
-                                <input type="number" id="aiClassesPerWeek" class="form-control" min="1" step="1"
-                                       value="{{ ai_default_classes_per_week }}" placeholder="যেমন: 4">
-                                <div class="form-text">ক্রেডিট অনুযায়ী ডিফল্ট দেওয়া আছে — প্রয়োজনে বদলান।</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-semibold mb-1">দ্রুত প্রিসেট</label>
-                                <div class="d-flex flex-wrap gap-2">
-                                    <button type="button" class="btn btn-sm btn-outline-primary ai-preset-btn" data-preset="theory">Theory টেমপ্লেট</button>
-                                    <button type="button" class="btn btn-sm btn-outline-success ai-preset-btn" data-preset="sessional">Sessional টেমপ্লেট</button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="aiClearInstructionsBtn">মুছুন</button>
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                            <div class="fw-semibold" id="aiSyllabusLockLabel">শুধু সিলেবাস</div>
+                            <div class="small text-muted mb-0" id="aiSyllabusLockHint">টপিক কারিকুলাম থেকেই যাবে। এআই নতুন বিষয় বানাবে না।</div>
+                        </div>
+                        <div class="form-check form-switch m-0">
+                            <input class="form-check-input" type="checkbox" role="switch" id="aiSyllabusLock" checked style="width: 2.6rem; height: 1.35rem;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold mb-2">চাহিদা (ট্যাপ করে বেছে নিন)</label>
+                    <div id="aiIntentChipWrap" class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary ai-intent-chip" data-chip="class_test" data-kind="assessment" data-type="class_test">Class Test</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary ai-intent-chip" data-chip="quiz" data-kind="assessment" data-type="quiz">Quiz</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary ai-intent-chip" data-chip="assignment" data-kind="assessment" data-type="assignment">Assignment</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary ai-intent-chip" data-chip="presentation" data-kind="assessment" data-type="presentation">Presentation</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary ai-intent-chip" data-chip="viva" data-kind="assessment" data-type="viva">Viva</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ai-intent-chip" data-chip="weekly_discussion" data-kind="style">প্রতি সপ্তাহে discussion</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ai-intent-chip" data-chip="bangladesh_context" data-kind="style">Bangladesh context</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ai-intent-chip" data-chip="landmark_cases" data-kind="expand">Landmark cases</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ai-intent-chip" data-chip="practical_clinic" data-kind="style">Practical / clinic</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ai-intent-chip" data-chip="spread_assessments" data-kind="style">মূল্যায়ন ছড়িয়ে দাও</button>
+                    </div>
+                    <div class="form-text" id="aiLandmarkChipHint">লক অন থাকলে Landmark cases শুধু উদাহরণ হিসেবে যাবে, নতুন টপিক হবে না।</div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold" for="aiCustomInstructions">আর কিছু থাকলে এক বাক্যে লিখুন</label>
+                    <input type="text" id="aiCustomInstructions" class="form-control" maxlength="240"
+                           placeholder="যেমন: কুইজ সপ্তাহ ৫ ও ১০-এ রাখুন">
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label small fw-semibold mb-1">কোর্স ধরন</label>
+                        <select id="aiDeliveryType" class="form-select form-select-sm">
+                            <option value="theory" {% if session_delivery_type == 'theory' %}selected{% endif %}>Theory</option>
+                            <option value="sessional" {% if session_delivery_type == 'sessional' %}selected{% endif %}>Sessional</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-semibold mb-1">মোট ক্লাস</label>
+                        <input type="number" id="aiTotalClasses" class="form-control form-control-sm" min="1" step="1"
+                               value="{{ ai_default_total_classes }}" placeholder="56">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small fw-semibold mb-1">ক্লাস / সপ্তাহ</label>
+                        <input type="number" id="aiClassesPerWeek" class="form-control form-control-sm" min="1" step="1"
+                               value="{{ ai_default_classes_per_week }}" placeholder="4">
+                    </div>
+                </div>
+
+                <div id="aiRecipeSummary" class="small border rounded px-3 py-2 mb-3 bg-white text-muted">শুধু সিলেবাস</div>
+
+                <details class="mb-3">
+                    <summary class="small fw-semibold" style="cursor: pointer;">অ্যাডভান্সড</summary>
+                    <div class="pt-3">
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold mb-1">বিস্তারিত স্তর</label>
+                            <select id="aiDetailLevel" class="form-select form-select-sm">
+                                <option value="standard" selected>স্ট্যান্ডার্ড</option>
+                                <option value="concise">সংক্ষিপ্ত</option>
+                                <option value="detailed">বিস্তারিত</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold mb-1">মূল্যায়নের ধরন ও সংখ্যা</label>
+                            <div id="aiAssessmentPlanContainer" class="d-flex flex-column gap-2 mb-2"></div>
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="aiAddAssessmentRowBtn">
+                                <i class="fas fa-plus me-1"></i>আরও যোগ করুন
+                            </button>
+                            <div class="small text-muted mt-1">মোট মূল্যায়ন: <strong id="aiAssessmentTotal">0</strong></div>
+                        </div>
+                        <div>
+                            <label class="form-label small fw-semibold">কোন অংশ জেনারেট করবেন</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input ai-part-check" type="checkbox" value="A" id="aiPartA" checked>
+                                    <label class="form-check-label" for="aiPartA">Part A</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-part-check" type="checkbox" value="B" id="aiPartB" checked>
+                                    <label class="form-check-label" for="aiPartB">Part B</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-part-check" type="checkbox" value="C" id="aiPartC" checked>
+                                    <label class="form-check-label" for="aiPartC">Part C</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input ai-part-check" type="checkbox" value="D" id="aiPartD" checked>
+                                    <label class="form-check-label" for="aiPartD">Part D</label>
                                 </div>
                             </div>
-                            <div class="col-12">
-                                <label class="form-label small fw-semibold mb-1">মূল্যায়নের ধরন ও সংখ্যা</label>
-                                <div id="aiAssessmentPlanContainer" class="d-flex flex-column gap-2 mb-2"></div>
-                                <button type="button" class="btn btn-sm btn-outline-primary" id="aiAddAssessmentRowBtn">
-                                    <i class="fas fa-plus me-1"></i>আরও যোগ করুন
-                                </button>
-                                <div class="form-text mt-2">প্রতিটি ধরনের জন্য কয়টি হবে তা লিখুন। «কাস্টম» বেছে নিজের ধরনের নাম দিতে পারবেন।</div>
-                                <div class="small text-muted mt-1">মোট মূল্যায়ন: <strong id="aiAssessmentTotal">0</strong></div>
-                            </div>
                         </div>
                     </div>
-                </div>
+                </details>
 
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold" for="aiCustomInstructions">আপনার বিশেষ নির্দেশনা (ঐচ্ছিক)</label>
-                    <textarea id="aiCustomInstructions" class="form-control" rows="5"
-                              placeholder="উদাহরণ:&#10;- প্রতি সপ্তাহে case study অন্তর্ভুক্ত করুন&#10;- CIE ৩৫ / SMEE ৬৫ করুন&#10;- বাংলাদেশের আদালতের সিদ্ধান্ত বেশি দিন&#10;- Sessional হলে প্রতি সপ্তাহে practical exercise লিখুন"></textarea>
-                            <div class="form-text">এখানে যা লিখবেন, AI সেটাই মেনে আউটলাইন তৈরি করবে। <strong>Rationale, CLO ও Content</strong> সবসময় কারিকুলাম থেকেই নেবে — নিজে বানাবে না।</div>
-                </div>
-
-                <div class="mb-3">
-                    <label class="form-label small fw-semibold">কোন অংশ জেনারেট করবেন</label>
-                    <div class="d-flex flex-wrap gap-3">
-                        <div class="form-check">
-                            <input class="form-check-input ai-part-check" type="checkbox" value="A" id="aiPartA" checked>
-                            <label class="form-check-label" for="aiPartA">Part A — Introduction</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input ai-part-check" type="checkbox" value="B" id="aiPartB" checked>
-                            <label class="form-check-label" for="aiPartB">Part B — Content</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input ai-part-check" type="checkbox" value="C" id="aiPartC" checked>
-                            <label class="form-check-label" for="aiPartC">Part C — Assessment</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input ai-part-check" type="checkbox" value="D" id="aiPartD" checked>
-                            <label class="form-check-label" for="aiPartD">Part D — Resources</label>
-                        </div>
-                    </div>
-                    <div class="form-text">Parts are generated one at a time to avoid timeouts on shared hosting.</div>
-                </div>
                 <div class="progress mb-3 d-none" id="aiOutlineProgressWrap">
                     <div class="progress-bar progress-bar-striped progress-bar-animated" id="aiOutlineProgressBar" role="progressbar" style="width: 0%">0%</div>
                 </div>
                 <div id="aiOutlineSummary" class="small text-muted"></div>
-                <p class="mb-0 mt-3"><strong>Note:</strong> Applying will save generated content to this outline. Please review all sections before publishing to students.</p>
+                <p class="mb-0 mt-2 small text-muted">প্রয়োগ করলে এই আউটলাইনে সেভ হবে। স্টুডেন্টদের দেখানোর আগে রিভিউ করুন।</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">বাতিল</button>
@@ -1171,6 +1431,7 @@
 </div>
 {% endif %}
 
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
 <script>
 // Global — used by saveCourseOutline (outside DOMContentLoaded)
 var sessionDeliveryType = {{ session_delivery_type | tojson }};
@@ -1574,28 +1835,58 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+function fillLessonPlanRow(row, data) {
+    if (!row || !data) return;
+    const setVal = function(name, val) {
+        const el = row.querySelector('[name="' + name + '"]');
+        if (el && val != null) el.value = String(val);
+    };
+    setVal('lesson_week[]', data.week || '');
+    setVal('lesson_date[]', data.date || '');
+    setVal('lesson_topic[]', data.topic || '');
+    setVal('lesson_clo[]', data.clo_alignment || '');
+    setVal('lesson_outcome[]', data.outcome || '');
+    setVal('lesson_activities[]', data.activities || '');
+    setVal('lesson_teaching[]', data.teaching_assessment || '');
+}
+
+function renderLessonPlanRows(rows) {
+    const container = document.getElementById('lessonPlanContainer');
+    if (!container) return;
+    const list = Array.isArray(rows) ? rows : [];
+    container.innerHTML = '';
+    if (!list.length) {
+        addLessonPlanRow();
+        return;
+    }
+    list.forEach(function(lesson) {
+        addLessonPlanRow(lesson || {});
+    });
+}
+
 function addLessonPlanRow(data = {}) {
     const container = document.getElementById('lessonPlanContainer');
-    
+    if (!container) return;
+
     const row = document.createElement('div');
     row.className = 'border rounded p-3 mb-3 lesson-plan-row';
     row.innerHTML = `
         <div class="row g-2">
             <div class="col-md-2">
                 <label class="form-label small">Week</label>
-                <input type="text" class="form-control form-control-sm" name="lesson_week[]" value="${data.week || ''}" placeholder="Week 1">
+                <input type="text" class="form-control form-control-sm" name="lesson_week[]" value="" placeholder="Week 1">
             </div>
             <div class="col-md-2">
                 <label class="form-label small">Date</label>
-                <input type="text" class="form-control form-control-sm" name="lesson_date[]" value="${data.date || ''}" placeholder="20-24 July 2025">
+                <input type="text" class="form-control form-control-sm" name="lesson_date[]" value="" placeholder="20-24 July 2025">
             </div>
             <div class="col-md-3">
                 <label class="form-label small">Topic</label>
-                <input type="text" class="form-control form-control-sm" name="lesson_topic[]" value="${data.topic || ''}" placeholder="Topic name">
+                <input type="text" class="form-control form-control-sm" name="lesson_topic[]" value="" placeholder="Topic name">
             </div>
             <div class="col-md-2">
                 <label class="form-label small">CLO Alignment</label>
-                <input type="text" class="form-control form-control-sm" name="lesson_clo[]" value="${data.clo_alignment || ''}" placeholder="1, 2">
+                <input type="text" class="form-control form-control-sm" name="lesson_clo[]" value="" placeholder="1, 2">
             </div>
             <div class="col-md-3">
                 <label class="form-label small">Actions</label>
@@ -1618,18 +1909,19 @@ function addLessonPlanRow(data = {}) {
         <div class="row g-2 mt-2">
             <div class="col-md-4">
                 <label class="form-label small">Specific Outcome</label>
-                <textarea class="form-control form-control-sm" name="lesson_outcome[]" rows="2" placeholder="Students will be able to...">${data.outcome || ''}</textarea>
+                <textarea class="form-control form-control-sm" name="lesson_outcome[]" rows="2" placeholder="Students will be able to..."></textarea>
             </div>
             <div class="col-md-4">
                 <label class="form-label small">Suggested Activities</label>
-                <textarea class="form-control form-control-sm" name="lesson_activities[]" rows="2" placeholder="Reading, group discussion, case analysis…">${data.activities || ''}</textarea>
+                <textarea class="form-control form-control-sm" name="lesson_activities[]" rows="2" placeholder="Reading, group discussion, case analysis…"></textarea>
             </div>
             <div class="col-md-4">
                 <label class="form-label small">Teaching & Assessment</label>
-                <textarea class="form-control form-control-sm" name="lesson_teaching[]" rows="2" placeholder="Lecture, Question answer">${data.teaching_assessment || ''}</textarea>
+                <textarea class="form-control form-control-sm" name="lesson_teaching[]" rows="2" placeholder="Lecture, Question answer"></textarea>
             </div>
         </div>
     `;
+    fillLessonPlanRow(row, data);
     container.appendChild(row);
     updateAddWeekButton();
 }
@@ -1800,8 +2092,21 @@ function updateAddWeekButton() {
     // No limit on weeks - button always enabled
 }
 
+function clearLessonPlan() {
+    const container = document.getElementById('lessonPlanContainer');
+    if (!container) return;
+    const hasRows = container.querySelectorAll('.lesson-plan-row').length > 0;
+    if (hasRows && !confirm('Clear all weekly plan rows? You can generate the plan again afterwards.')) {
+        return;
+    }
+    container.innerHTML = '';
+    addLessonPlanRow();
+}
+
 function generateWeeklyPlanWithAI(part = null) {
-    // Get Course Content (section 14) data
+    if (typeof updateCourseContentSummary === 'function') {
+        updateCourseContentSummary();
+    }
     const courseContentSummary = document.getElementById('course_content_summary_json')?.value || '';
     
     // Get Credit Value
@@ -1822,15 +2127,25 @@ function generateWeeklyPlanWithAI(part = null) {
         alert('Please enter a valid credit value (e.g., 4.0).');
         return;
     }
+
+    const currentScope = '{{ session.course_scope or "full" }}';
+    const isCombined = part === 'AB' || part === 'A+B';
+    const isOtherPart = !isCombined && ((part === 'A' && currentScope === 'part_b') || (part === 'B' && currentScope === 'part_a'));
     
-    const partText = part ? ` for Part ${part}` : '';
-    if (!confirm(`This will generate a weekly plan${partText} based on:\n- Credit Value: ${credit} (${credit} classes per week)\n- Course Content (section 13${part ? ` - Section ${part}` : ''})\n- Academic Calendar (Semester Start/End dates and holidays)\n\nExisting plan entries will be cleared. Continue?`)) {
+    const partText = isCombined ? ' for Part A+B' : (part ? ` for Part ${part}` : '');
+    const contentHint = isCombined ? ' - Section A and B' : (part ? ` - Section ${part}` : '');
+    const otherHint = isOtherPart
+        ? `\n\nThis will save the plan on the Part ${part} outline (the other teacher's session), not this page.`
+        : (isCombined ? '\n\nBoth Part A and Part B topics will be placed on this page\'s weekly plan.' : '');
+    if (!confirm(`This will generate a weekly plan${partText} based on:\n- Credit Value: ${credit} (${credit} classes per week)\n- Course Content (section 13${contentHint})\n- Academic Calendar (Semester Start/End dates and holidays)\n\nExisting plan entries will be cleared. Continue?${otherHint}`)) {
         return;
     }
     
-    // Show loading
     const container = document.getElementById('lessonPlanContainer');
-    container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Generating weekly plan based on Credit Value, Course Content, and Academic Calendar...</p></div>';
+    const previousHtml = container.innerHTML;
+    if (!isOtherPart) {
+        container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin fa-2x"></i><p class="mt-2">Generating weekly plan based on Credit Value, Course Content, and Academic Calendar...</p></div>';
+    }
     
     fetch('{{ url_for("class_management.generate_weekly_plan_ai", session_id=session.id) }}', {
         method: 'POST',
@@ -1841,37 +2156,58 @@ function generateWeeklyPlanWithAI(part = null) {
             part: part  // 'A' or 'B' for split courses, null for full courses
         })
     })
-    .then(response => response.json())
+    .then(function(response) {
+        return response.text().then(function(text) {
+            let data = {};
+            try {
+                data = text ? JSON.parse(text) : {};
+            } catch (e) {
+                throw new Error('Server error (' + response.status + '). Please try again after restart.');
+            }
+            data._httpStatus = response.status;
+            return data;
+        });
+    })
     .then(data => {
-        if (data.success && data.lesson_plan) {
-            container.innerHTML = '';
-            // Add all entries
-            data.lesson_plan.forEach(lesson => addLessonPlanRow(lesson));
-            
-            // Count unique weeks
+        const plan = Array.isArray(data.lesson_plan) ? data.lesson_plan : [];
+        if (data.success && data.saved_to_peer && isOtherPart) {
+            container.innerHTML = previousHtml;
+            alert((data.message || 'Class plan saved for the other part.') + '\n\nThis page\'s plan was left unchanged.');
+            return;
+        }
+        if (data.success && plan.length) {
+            renderLessonPlanRows(plan);
+            try {
+                const partB = document.getElementById('partB');
+                if (partB && window.bootstrap && bootstrap.Collapse) {
+                    bootstrap.Collapse.getOrCreateInstance(partB, { toggle: false }).show();
+                }
+            } catch (e) {}
+
             const uniqueWeeks = new Set();
-            data.lesson_plan.forEach(lesson => {
-                const weekMatch = lesson.week?.match(/\d+/);
+            plan.forEach(lesson => {
+                const week = lesson && lesson.week != null ? String(lesson.week) : '';
+                const weekMatch = week.match(/\d+/);
                 if (weekMatch) {
-                    uniqueWeeks.add(parseInt(weekMatch[0]));
+                    uniqueWeeks.add(parseInt(weekMatch[0], 10));
                 }
             });
             
             let message = 'Weekly plan generated successfully!\n\n' + (data.message || '');
-            message += `\n\nGenerated ${data.lesson_plan.length} class entries across ${uniqueWeeks.size} weeks.`;
+            message += `\n\nGenerated ${plan.length} class entries across ${uniqueWeeks.size} weeks.`;
             message += '\n\nPlease review and adjust as needed.';
             alert(message);
         } else {
-            container.innerHTML = '';
-            addLessonPlanRow();
-            alert('Plan generation failed: ' + (data.message || 'Unknown error') + '\n\nPlease ensure:\n1. Semester Start Date is set in Academic Calendar\n2. Semester End Date is set in Academic Calendar\n3. Course Content (section 14) is filled\n4. Credit Value is filled');
+            container.innerHTML = previousHtml || '';
+            if (!container.querySelector('.lesson-plan-row')) addLessonPlanRow();
+            alert('Plan generation failed: ' + (data.message || 'Unknown error') + '\n\nPlease ensure:\n1. Semester Start Date is set in Academic Calendar\n2. Semester End Date is set in Academic Calendar\n3. Course Content (section 13) is filled\n4. Credit Value is filled');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        container.innerHTML = '';
-        addLessonPlanRow();
-        alert('Error generating plan. Please create it manually.');
+        container.innerHTML = previousHtml || '';
+        if (!container.querySelector('.lesson-plan-row')) addLessonPlanRow();
+        alert('Error generating plan: ' + (error && error.message ? error.message : 'Please create it manually.'));
     });
 }
 
@@ -2630,35 +2966,6 @@ function initializeCourseContentsSummary() {
     }
     
     updateCourseContentSummary();
-    
-    // Disable checkboxes for split courses on existing rows
-    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
-        {% if session.course_scope == 'part_a' %}
-            // Part A teacher: disable all Section B checkboxes
-            const tbodyB = document.getElementById('courseContentTableBodyB');
-            if (tbodyB) {
-                Array.from(tbodyB.children).forEach(row => {
-                    const checkbox = row.querySelector('.topic-select-checkbox');
-                    if (checkbox) {
-                        checkbox.disabled = true;
-                        checkbox.title = 'Not available for Part A teacher';
-                    }
-                });
-            }
-        {% elif session.course_scope == 'part_b' %}
-            // Part B teacher: disable all Section A checkboxes
-            const tbodyA = document.getElementById('courseContentTableBodyA');
-            if (tbodyA) {
-                Array.from(tbodyA.children).forEach(row => {
-                    const checkbox = row.querySelector('.topic-select-checkbox');
-                    if (checkbox) {
-                        checkbox.disabled = true;
-                        checkbox.title = 'Not available for Part B teacher';
-                    }
-                });
-            }
-        {% endif %}
-    {% endif %}
 }
 
 // Course Contents Management Functions
@@ -2699,35 +3006,16 @@ function addCourseContentRow(section, content = '', hrs = '', clo = '', index = 
     const tbody = document.getElementById(`courseContentTableBody${section}`);
     if (!tbody) return;
     
-    // Check if checkbox should be disabled for split courses
-    // Part A teacher cannot check Section B, Part B teacher cannot check Section A
-    let checkboxDisabled = false;
-    let checkboxTitle = 'Select this topic to include in course';
-    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
-        {% if session.course_scope == 'part_a' %}
-            // Part A teacher: disable Section B checkboxes
-            if (section === 'B') {
-                checkboxDisabled = true;
-                checkboxTitle = 'Not available for Part A teacher';
-            }
-        {% elif session.course_scope == 'part_b' %}
-            // Part B teacher: disable Section A checkboxes
-            if (section === 'A') {
-                checkboxDisabled = true;
-                checkboxTitle = 'Not available for Part B teacher';
-            }
-        {% endif %}
-    {% endif %}
+    const checkboxTitle = 'Select this topic to include in course';
     
     const rowIndex = index !== null ? index : tbody.children.length;
     const row = document.createElement('tr');
     const escapedContent = (content || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     const checked = selected ? 'checked' : '';
-    const disabled = checkboxDisabled ? 'disabled' : '';
     row.innerHTML = `
         <td>${rowIndex + 1}</td>
         <td class="text-center">
-            <input type="checkbox" class="form-check-input topic-select-checkbox" ${checked} ${disabled} onchange="updateCourseContentSummary()" title="${checkboxTitle}">
+            <input type="checkbox" class="form-check-input topic-select-checkbox" ${checked} onchange="updateCourseContentSummary()" title="${checkboxTitle}">
         </td>
         <td>
             <input type="text" class="form-control form-control-sm" name="course_content_${section.toLowerCase()}_content[]" value="${escapedContent}" placeholder="Enter content/topic description" onchange="updateCourseContentSummary()">
@@ -2748,29 +3036,6 @@ function addCourseContentRow(section, content = '', hrs = '', clo = '', index = 
         </td>
     `;
     tbody.appendChild(row);
-    
-    // Disable checkboxes for split courses
-    {% if session.split_group_id and session.course_scope in ['part_a', 'part_b'] %}
-        {% if session.course_scope == 'part_a' %}
-            // Part A teacher: disable Section B checkboxes
-            if (section === 'B') {
-                const checkbox = row.querySelector('.topic-select-checkbox');
-                if (checkbox) {
-                    checkbox.disabled = true;
-                    checkbox.title = 'Not available for Part A teacher';
-                }
-            }
-        {% elif session.course_scope == 'part_b' %}
-            // Part B teacher: disable Section A checkboxes
-            if (section === 'A') {
-                const checkbox = row.querySelector('.topic-select-checkbox');
-                if (checkbox) {
-                    checkbox.disabled = true;
-                    checkbox.title = 'Not available for Part B teacher';
-                }
-            }
-        {% endif %}
-    {% endif %}
     
     updateCourseContentSummary();
 }
@@ -2929,6 +3194,71 @@ function autoSave() {
     }, 2000);
 }
 
+function getPartDHtml(name) {
+    if (window.tinymce) {
+        try { tinymce.triggerSave(); } catch (e) {}
+        const el = document.querySelector('#courseOutlineForm [name="' + name + '"]');
+        if (el && el.id && tinymce.get(el.id)) {
+            return tinymce.get(el.id).getContent() || '';
+        }
+    }
+    const el = document.querySelector('#courseOutlineForm [name="' + name + '"]');
+    return el ? (el.value || '') : '';
+}
+
+function htmlFromResourceValue(value) {
+    if (value == null) return '';
+    if (Array.isArray(value)) {
+        return value.map(function(item) {
+            const s = (typeof item === 'string') ? item : ((item && (item.title || item.content)) || '');
+            if (!s) return '';
+            if (s.indexOf('<') >= 0) return s;
+            return '<p>' + String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</p>';
+        }).join('');
+    }
+    return String(value);
+}
+
+function setRichField(name, value) {
+    const html = htmlFromResourceValue(value);
+    const el = document.querySelector('#courseOutlineForm [name="' + name + '"]');
+    if (el && window.tinymce && el.id && tinymce.get(el.id)) {
+        tinymce.get(el.id).setContent(html);
+        return;
+    }
+    if (el) el.value = html;
+}
+
+function initPartDEditors() {
+    if (!window.tinymce) return;
+    const ids = ['textbooksEditor', 'referenceBooksEditor', 'otherResourcesEditor', 'courseFileEditor'];
+    ids.forEach(function(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (tinymce.get(id)) return;
+        tinymce.init({
+            selector: '#' + id,
+            height: 220,
+            menubar: false,
+            branding: false,
+            promotion: false,
+            plugins: 'lists link autolink',
+            toolbar: 'undo redo | bold italic underline | blocks fontsize | bullist numlist | link | removeformat',
+            block_formats: 'Paragraph=p; Heading 2=h2; Heading 3=h3; Heading 4=h4',
+            font_size_formats: '12px 14px 16px 18px 20px 24px',
+            convert_urls: false,
+            link_default_target: '_blank',
+            link_assume_external_targets: true,
+            content_style: 'body { font-family: "Times New Roman", Times, serif; font-size: 14px; }',
+            setup: function(editor) {
+                editor.on('change keyup', function() {
+                    if (typeof autoSave === 'function') autoSave();
+                });
+            }
+        });
+    });
+}
+
 function saveCourseOutline(isAutoSave = false) {
     console.log('saveCourseOutline called, isAutoSave=', isAutoSave);
     // Only skip when auto-save runs while a save is already in progress; manual Save always runs
@@ -2940,6 +3270,9 @@ function saveCourseOutline(isAutoSave = false) {
     if (saveBtnEl && !isAutoSave) {
         saveBtnEl.disabled = true;
         saveBtnEl.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Saving...';
+    }
+    if (window.tinymce) {
+        try { tinymce.triggerSave(); } catch (e) {}
     }
     
     // Ensure Section 13 (course content + Classes) is up to date in hidden field before save
@@ -3078,10 +3411,10 @@ function saveCourseOutline(isAutoSave = false) {
         grading_policy: [],
         cie_breakdown: [],
         smee_breakdown: [],
-        textbooks: formData.getAll('textbooks')[0]?.split('\n').filter(l => l.trim()) || [],
-        reference_books: formData.getAll('reference_books')[0]?.split('\n').filter(l => l.trim()) || [],
-        other_resources: formData.getAll('other_resources')[0]?.split('\n').filter(l => l.trim()) || [],
-        course_file_components: formData.getAll('course_file_components')[0]?.split('\n').filter(l => l.trim()) || [],
+        textbooks: getPartDHtml('textbooks'),
+        reference_books: getPartDHtml('reference_books'),
+        other_resources: getPartDHtml('other_resources'),
+        course_file_components: getPartDHtml('course_file_components'),
         make_up_procedures: (typeof sessionDeliveryType !== 'undefined' && sessionDeliveryType === 'sessional')
             ? (formData.getAll('make_up_procedure[]') || []).map(s => (s || '').trim()).filter(Boolean).join('\n')
             : (formData.get('make_up_procedures') || ''),
@@ -3273,6 +3606,15 @@ function saveCourseOutline(isAutoSave = false) {
 
 // Handle collapse/expand for Part sections and set up auto-save
 document.addEventListener('DOMContentLoaded', function() {
+    function bootPartDEditors() {
+        if (!window.tinymce) {
+            setTimeout(bootPartDEditors, 60);
+            return;
+        }
+        initPartDEditors();
+    }
+    bootPartDEditors();
+
     // Add event listeners to all collapse elements
     const collapseElements = ['partA', 'partB', 'partC', 'partD'];
     
@@ -3286,6 +3628,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     icon.classList.remove('fa-chevron-up');
                     icon.classList.add('fa-chevron-down');
                 }
+            });
+            collapseElement.addEventListener('shown.bs.collapse', function() {
+                if (partId === 'partD') initPartDEditors();
             });
             
             collapseElement.addEventListener('hide.bs.collapse', function() {
@@ -3368,6 +3713,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const assessmentPlanContainer = document.getElementById('aiAssessmentPlanContainer');
         const assessmentTotalEl = document.getElementById('aiAssessmentTotal');
         const addAssessmentRowBtn = document.getElementById('aiAddAssessmentRowBtn');
+        const syllabusLockEl = document.getElementById('aiSyllabusLock');
+        const syllabusLockLabel = document.getElementById('aiSyllabusLockLabel');
+        const syllabusLockHint = document.getElementById('aiSyllabusLockHint');
+        const recipeSummaryEl = document.getElementById('aiRecipeSummary');
         const ASSESSMENT_TYPE_LABELS = {
             class_test: 'Class Test',
             quiz: 'Quiz',
@@ -3398,26 +3747,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (deliveryTypeEl && !deliveryTypeEl.value) {
             deliveryTypeEl.value = aiSessionDeliveryType;
         }
-        const AI_PRESETS = {
-            theory: {{ (
-                'সপ্তাহভিত্তিক lesson plan ক্যালেন্ডারের working days মেনে চলবে।\n'
-                'প্রতি ক্লাস সেশন = lesson plan-এ এক সারি; সপ্তাহে classes_per_week পর্যন্ত একই week নম্বর।\n'
-                'quiz, class test, assignment, presentation বিভিন্ন সপ্তাহে teaching_assessment-এ ছড়িয়ে দিন — শেষ সপ্তাহে সব নয়।\n'
-                'CIE ৪০ + SMEE ৬০; assessment_techniques প্রতিটি CLO-র সাথে লিংক করুন।\n'
-                'কোর্স কন্টেন্ট কারিকুলামের topic তালিকা অনুসরণ করবে।\n'
-                'ল্যান্ডমার্ক case ও Bangladesh context যোগ করুন।'
-            ) | tojson }},
-            sessional: {{ (
-                'প্রতি সপ্তাহে অন্তত একটি hands-on কার্যক্রম লিখুন।\n'
-                'মূল্যায়ন (Part C): Attendance/Class Participation ১০, Assessment components ৬০, Viva voce ৩০।\n'
-                'strategy_points ও make_up_procedures (Personal contact, Online classes, Special assignments, Group discussion) পূরণ করুন।\n'
-                'রুব্রিক্স practical skill ও presentation-এর উপর ভিত্তি করে হবে।\n'
-                'বাংলা আইনি প্রসঙ্গে উদাহরণ দিন যেখানে প্রাসঙ্গিক।'
-            ) | tojson }}
-        };
         const LS_KEY = 'aiOutlineInstructions_{{ session.id }}';
         const LS_SCHEDULE_KEY = 'aiOutlineSchedule_{{ session.id }}';
         const LS_ASSESSMENT_KEY = 'aiOutlineAssessment_{{ session.id }}';
+        const LS_BUILDER_KEY = 'aiOutlineBuilder_{{ session.id }}';
+        let syncingChips = false;
 
         function parsePositiveInt(el) {
             if (!el || el.value === '') return null;
@@ -3494,11 +3828,11 @@ document.addEventListener('DOMContentLoaded', function() {
             updateAssessmentTotal();
         }
 
-        function setAssessmentPlan(items) {
+        function setAssessmentPlan(items, allowEmpty) {
             if (!assessmentPlanContainer) return;
             assessmentPlanContainer.innerHTML = '';
             (items || []).forEach(function(item) { addAssessmentRow(item); });
-            if (!assessmentPlanContainer.children.length) addAssessmentRow();
+            if (!assessmentPlanContainer.children.length && !allowEmpty) addAssessmentRow();
             updateAssessmentTotal();
         }
 
@@ -3529,6 +3863,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const plan = collectAssessmentPlan();
             const total = plan.reduce(function(sum, item) { return sum + item.count; }, 0);
             if (assessmentTotalEl) assessmentTotalEl.textContent = String(total);
+            syncAssessmentChipsFromPlan();
+            updateRecipeSummary();
         }
 
         function applyAssessmentPreset(delivery) {
@@ -3540,8 +3876,74 @@ document.addEventListener('DOMContentLoaded', function() {
             addAssessmentRowBtn.addEventListener('click', function() { addAssessmentRow(); });
         }
 
-        function selectedParts() {
-            return Array.from(document.querySelectorAll('.ai-part-check:checked')).map(el => el.value);
+        function selectedIntentChips() {
+            return Array.from(document.querySelectorAll('.ai-intent-chip.active')).map(function(btn) {
+                return btn.getAttribute('data-chip');
+            }).filter(Boolean);
+        }
+
+        function isSyllabusLocked() {
+            return !syllabusLockEl || syllabusLockEl.checked;
+        }
+
+        function updateLockCopy() {
+            const locked = isSyllabusLocked();
+            if (syllabusLockLabel) syllabusLockLabel.textContent = locked ? 'শুধু সিলেবাস' : 'অতিরিক্ত কন্টেন্ট';
+            if (syllabusLockHint) {
+                syllabusLockHint.textContent = locked
+                    ? 'টপিক কারিকুলাম থেকেই যাবে। এআই নতুন বিষয় বানাবে না।'
+                    : 'এআই সিলেবাস টপিকের সাথে কেস/সাবটপিক যোগ করতে পারে। সেকশন ১৩ টেবিল বদলাবে না।';
+            }
+            updateRecipeSummary();
+        }
+
+        function updateRecipeSummary() {
+            if (!recipeSummaryEl) return;
+            const bits = [];
+            bits.push(isSyllabusLocked() ? 'শুধু সিলেবাস' : 'অতিরিক্ত কন্টেন্ট');
+            bits.push((deliveryTypeEl && deliveryTypeEl.value === 'sessional') ? 'Sessional' : 'Theory');
+            const cpw = classesPerWeekEl && classesPerWeekEl.value ? classesPerWeekEl.value : '';
+            if (cpw) bits.push(cpw + ' ক্লাস/সপ্তাহ');
+            const plan = collectAssessmentPlan();
+            if (plan.length) {
+                bits.push(plan.map(function(item) { return item.name + '×' + item.count; }).join(', '));
+            }
+            selectedIntentChips().forEach(function(id) {
+                const btn = document.querySelector('.ai-intent-chip[data-chip="' + id + '"]');
+                if (btn && btn.getAttribute('data-kind') !== 'assessment') {
+                    bits.push(btn.textContent.trim());
+                }
+            });
+            const extra = customInstructionsEl ? customInstructionsEl.value.trim() : '';
+            if (extra) bits.push(extra);
+            recipeSummaryEl.textContent = bits.join(' · ');
+        }
+
+        function syncAssessmentChipsFromPlan() {
+            if (syncingChips) return;
+            const types = {};
+            collectAssessmentPlan().forEach(function(item) { types[item.type] = true; });
+            document.querySelectorAll('.ai-intent-chip[data-kind="assessment"]').forEach(function(btn) {
+                const type = btn.getAttribute('data-type');
+                btn.classList.toggle('active', !!types[type]);
+            });
+        }
+
+        function applyAssessmentChip(type, on) {
+            if (!type) return;
+            syncingChips = true;
+            const plan = collectAssessmentPlan();
+            if (on) {
+                if (!plan.some(function(item) { return item.type === type; })) {
+                    addAssessmentRow({ type: type, count: 1 });
+                }
+            } else {
+                const kept = plan.filter(function(item) { return item.type !== type; });
+                setAssessmentPlan(kept, true);
+            }
+            syncingChips = false;
+            syncAssessmentChipsFromPlan();
+            updateRecipeSummary();
         }
 
         function buildGenerationOptions() {
@@ -3553,6 +3955,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 detail_level: detailLevelEl ? detailLevelEl.value : 'standard',
                 custom_instructions: customInstructionsEl ? customInstructionsEl.value.trim() : '',
                 use_admin_defaults: true,
+                syllabus_lock: isSyllabusLocked(),
+                intent_chips: selectedIntentChips(),
                 total_classes: parsePositiveInt(totalClassesEl),
                 classes_per_week: parsePositiveInt(classesPerWeekEl),
                 assessment_plan: assessmentPlan,
@@ -3617,35 +4021,77 @@ document.addEventListener('DOMContentLoaded', function() {
             } catch (e) { /* ignore */ }
         }
 
-        document.querySelectorAll('.ai-preset-btn').forEach(function(btn) {
+        function loadSavedBuilder() {
+            try {
+                const raw = localStorage.getItem(LS_BUILDER_KEY);
+                if (!raw) return;
+                const data = JSON.parse(raw);
+                if (syllabusLockEl && typeof data.syllabus_lock === 'boolean') {
+                    syllabusLockEl.checked = data.syllabus_lock;
+                }
+                if (Array.isArray(data.intent_chips)) {
+                    document.querySelectorAll('.ai-intent-chip').forEach(function(btn) {
+                        const on = data.intent_chips.indexOf(btn.getAttribute('data-chip')) !== -1;
+                        btn.classList.toggle('active', on);
+                    });
+                }
+            } catch (e) { /* ignore */ }
+        }
+
+        function saveBuilderLocal() {
+            try {
+                localStorage.setItem(LS_BUILDER_KEY, JSON.stringify({
+                    syllabus_lock: isSyllabusLocked(),
+                    intent_chips: selectedIntentChips(),
+                }));
+            } catch (e) { /* ignore */ }
+        }
+
+        document.querySelectorAll('.ai-intent-chip').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                const key = btn.getAttribute('data-preset');
-                if (deliveryTypeEl && (key === 'theory' || key === 'sessional')) {
-                    deliveryTypeEl.value = key;
-                    applyAssessmentPreset(key);
+                const on = !btn.classList.contains('active');
+                btn.classList.toggle('active', on);
+                if (btn.getAttribute('data-kind') === 'assessment') {
+                    applyAssessmentChip(btn.getAttribute('data-type'), on);
+                } else {
+                    updateRecipeSummary();
                 }
-                if (customInstructionsEl && AI_PRESETS[key]) {
-                    customInstructionsEl.value = AI_PRESETS[key];
-                }
+                saveBuilderLocal();
             });
         });
 
-        const clearBtn = document.getElementById('aiClearInstructionsBtn');
-        if (clearBtn) {
-            clearBtn.addEventListener('click', function() {
-                if (customInstructionsEl) customInstructionsEl.value = '';
+        if (syllabusLockEl) {
+            syllabusLockEl.addEventListener('change', function() {
+                updateLockCopy();
+                saveBuilderLocal();
             });
         }
+        if (deliveryTypeEl) {
+            deliveryTypeEl.addEventListener('change', function() {
+                applyAssessmentPreset(deliveryTypeEl.value || sessionDeliveryType);
+                updateRecipeSummary();
+            });
+        }
+        if (totalClassesEl) totalClassesEl.addEventListener('input', updateRecipeSummary);
+        if (classesPerWeekEl) classesPerWeekEl.addEventListener('input', updateRecipeSummary);
+        if (customInstructionsEl) customInstructionsEl.addEventListener('input', updateRecipeSummary);
 
         loadSavedInstructions();
         loadSavedSchedule();
         loadSavedAssessment();
+        loadSavedBuilder();
         try {
             if (!localStorage.getItem(LS_ASSESSMENT_KEY) && deliveryTypeEl) {
                 applyAssessmentPreset(deliveryTypeEl.value || sessionDeliveryType);
             }
         } catch (e) {
             if (deliveryTypeEl) applyAssessmentPreset(deliveryTypeEl.value || sessionDeliveryType);
+        }
+        syncAssessmentChipsFromPlan();
+        updateLockCopy();
+
+        function selectedParts() {
+            return Array.from(document.querySelectorAll('.ai-part-check:checked')).map(el => el.value);
         }
 
         function resetApplyButton() {
@@ -3702,9 +4148,12 @@ document.addEventListener('DOMContentLoaded', function() {
         function showAiError(message) {
             if (progressWrap) progressWrap.classList.add('d-none');
             if (statusEl) {
+                const safe = String(message || 'Generation failed.')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
                 statusEl.className = 'alert alert-danger';
-                statusEl.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>' +
-                    (message || 'Generation failed.');
+                statusEl.innerHTML = '<i class="fas fa-exclamation-triangle me-2"></i>' + safe;
             }
         }
 
@@ -3734,7 +4183,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 result = await tickJob(jobId);
                 if (result.status === 'completed' || result.status === 'failed') break;
-                await new Promise(resolve => setTimeout(resolve, 400));
+                await new Promise(resolve => setTimeout(resolve, 150));
             }
 
             if (result.status !== 'completed' && result.status !== 'failed') {
@@ -3789,7 +4238,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (progressWrap) progressWrap.classList.add('d-none');
             if (statusEl) {
                 statusEl.className = 'alert alert-info';
-                statusEl.innerHTML = 'নিচে কোর্স টাইপ ও নির্দেশনা সেট করুন, তারপর <strong>জেনারেট শুরু করুন</strong> চাপুন।';
+                statusEl.innerHTML = 'চাহিদা বেছে নিন, তারপর <strong>জেনারেট শুরু করুন</strong> চাপুন।';
             }
             if (summaryEl) summaryEl.textContent = '';
             aiModal.show();
@@ -3807,6 +4256,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 saveInstructionsLocal();
                 saveScheduleLocal();
                 saveAssessmentLocal();
+                saveBuilderLocal();
 
                 if (!generationOptions.total_classes || !generationOptions.classes_per_week) {
                     alert('মোট ক্লাসের সংখ্যা এবং প্রতি সপ্তাহে ক্লাসের সংখ্যা দিন।');
@@ -3877,6 +4327,501 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     }
+
+    (function initAiOutlineCopilot() {
+        const bar = document.getElementById('aiCopilotBar');
+        if (!bar) return;
+        document.body.classList.add('has-ai-copilot');
+
+        const sectionSel = document.getElementById('aiCopilotSection');
+        const instructionEl = document.getElementById('aiCopilotInstruction');
+        const applyBtn = document.getElementById('aiCopilotApplyBtn');
+        const statusEl = document.getElementById('aiCopilotStatus');
+        const allowTopicsEl = document.getElementById('aiCopilotAllowTopics');
+        const lockWrap = document.getElementById('aiCopilotLockWrap');
+        const draftBtn = document.getElementById('draftOutlineAiBtn');
+        const patchUrl = '{{ url_for("class_management.patch_outline_section_ai", session_id=session.id) }}';
+        const generateUrl = '{{ url_for("class_management.generate_full_outline_ai", session_id=session.id) }}';
+        const tickUrlTemplate = '{{ url_for("class_management.tick_outline_ai_job", session_id=session.id, job_id=0) }}';
+        const saveUrl = '{{ url_for("class_management.save_course_outline", session_id=session.id) }}';
+        const defaultTotal = {{ ai_default_total_classes|tojson }};
+        const defaultCpw = {{ ai_default_classes_per_week|tojson }};
+        const deliveryType = {{ session_delivery_type|tojson }};
+        let copilotBusy = false;
+
+        function setCopilotStatus(message, kind) {
+            if (!statusEl) return;
+            statusEl.textContent = message || '';
+            statusEl.className = 'small mt-2 mb-0' + (kind === 'error' ? ' is-error' : (kind === 'ok' ? ' is-ok' : ''));
+        }
+
+        function inferSection(instruction, selected) {
+            const text = (instruction || '').toLowerCase();
+            if (/textbook|reference book|বই|resource/.test(text)) return 'resources';
+            if (/rubric|রুব্রিক|grading/.test(text)) return 'assessment';
+            if (/\bcie\b/.test(text)) return 'cie';
+            if (/\bsmee\b/.test(text)) return 'smee';
+            if (/week|সপ্তাহ|quiz|কুইজ|lesson|আউটকাম|discussion|ডিসকাশন|টপিক|class test/.test(text)) {
+                return 'lesson_plan';
+            }
+            return selected || 'lesson_plan';
+        }
+
+        function expandPart(partId) {
+            const el = document.getElementById(partId);
+            if (!el || !window.bootstrap || !bootstrap.Collapse) return;
+            bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).show();
+        }
+
+        function focusSection(section) {
+            if (sectionSel) sectionSel.value = section;
+            if (section === 'resources') expandPart('partD');
+            else if (section === 'assessment') expandPart('partC');
+            else expandPart('partB');
+            if (lockWrap) lockWrap.classList.toggle('d-none', section !== 'lesson_plan');
+        }
+
+        function writeLessonPlanRow(rowEl, data) {
+            if (!rowEl || !data) return false;
+            const map = {
+                'lesson_week[]': data.week,
+                'lesson_date[]': data.date,
+                'lesson_topic[]': data.topic,
+                'lesson_clo[]': data.clo_alignment,
+                'lesson_outcome[]': data.outcome,
+                'lesson_activities[]': data.activities,
+                'lesson_teaching[]': data.teaching_assessment
+            };
+            let changed = false;
+            Object.keys(map).forEach(function(name) {
+                const el = rowEl.querySelector('[name="' + name + '"]');
+                if (!el || map[name] == null) return;
+                const next = String(map[name]);
+                if (el.value !== next) {
+                    el.value = next;
+                    changed = true;
+                }
+            });
+            rowEl.classList.toggle('ai-just-changed', changed);
+            return changed;
+        }
+
+        function applyLessonPlan(rows) {
+            const container = document.getElementById('lessonPlanContainer');
+            if (!container || !Array.isArray(rows)) return 0;
+            let existing = container.querySelectorAll('.lesson-plan-row');
+            if (existing.length !== rows.length) {
+                container.innerHTML = '';
+                rows.forEach(function() { addLessonPlanRow(); });
+                existing = container.querySelectorAll('.lesson-plan-row');
+            }
+            let changed = 0;
+            rows.forEach(function(row, idx) {
+                if (existing[idx] && writeLessonPlanRow(existing[idx], row || {})) changed += 1;
+            });
+            const first = container.querySelector('.lesson-plan-row.ai-just-changed');
+            if (first) {
+                try { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+            }
+            return changed;
+        }
+
+        function collectList(formData, names, builder) {
+            const first = formData.getAll(names[0]);
+            const extras = names.slice(1).map(function(n) { return formData.getAll(n); });
+            const out = [];
+            for (let i = 0; i < first.length; i++) {
+                const row = builder(first[i], extras, i);
+                if (row) out.push(row);
+            }
+            return out;
+        }
+
+        function collectAiPatchSnapshot(section) {
+            const form = document.getElementById('courseOutlineForm');
+            if (!form) return {};
+            const fd = new FormData(form);
+            const snap = {};
+            if (section === 'lesson_plan') {
+                const weeks = fd.getAll('lesson_week[]');
+                const dates = fd.getAll('lesson_date[]');
+                const topics = fd.getAll('lesson_topic[]');
+                const outcomes = fd.getAll('lesson_outcome[]');
+                const activities = fd.getAll('lesson_activities[]');
+                const teachings = fd.getAll('lesson_teaching[]');
+                const clos = fd.getAll('lesson_clo[]');
+                snap.lesson_plan = [];
+                for (let i = 0; i < weeks.length; i++) {
+                    if (weeks[i] || topics[i]) {
+                        snap.lesson_plan.push({
+                            week: weeks[i] || '',
+                            date: dates[i] || '',
+                            topic: topics[i] || '',
+                            outcome: outcomes[i] || '',
+                            activities: activities[i] || '',
+                            teaching_assessment: teachings[i] || '',
+                            clo_alignment: clos[i] || ''
+                        });
+                    }
+                }
+            } else if (section === 'assessment_techniques') {
+                const strategies = fd.getAll('assessment_strategy[]');
+                const totals = fd.getAll('total_marks[]');
+                const clos = (typeof cloData !== 'undefined' && Array.isArray(cloData)) ? cloData : [];
+                snap.assessment_techniques = [];
+                for (let i = 0; i < strategies.length; i++) {
+                    if (!strategies[i]) continue;
+                    const row = { strategy: strategies[i], total_marks: totals[i] || '' };
+                    clos.forEach(function(clo, idx) {
+                        const num = clo.number || (idx + 1);
+                        const marks = fd.getAll('clo' + num + '[]');
+                        row['clo' + num] = marks[i] || '';
+                    });
+                    snap.assessment_techniques.push(row);
+                }
+            } else if (section === 'cie') {
+                snap.cie_breakdown = (typeof getCIEData === 'function') ? getCIEData() : {};
+            } else if (section === 'smee') {
+                snap.smee_breakdown = collectList(fd, ['smee_category[]', 'smee_test_marks[]'], function(cat, extras, i) {
+                    if (!cat && !(extras[0][i] || '')) return null;
+                    return { category: cat || '', test_marks: extras[0][i] || '' };
+                });
+            } else if (section === 'assessment') {
+                snap.assessment_strategy = {
+                    attendance_percent: fd.get('attendance_percent') || '',
+                    attendance_comment: fd.get('attendance_comment') || '',
+                    ca_percent: fd.get('ca_percent') || '',
+                    ca_comment: fd.get('ca_comment') || '',
+                    final_exam_percent: fd.get('final_exam_percent') || '',
+                    final_exam_comment: fd.get('final_exam_comment') || '',
+                    ca_section_a_total: fd.get('ca_section_a_total') || '',
+                    ca_section_b_total: fd.get('ca_section_b_total') || '',
+                    ca_considered: fd.get('ca_considered') || '',
+                    viva_percent: fd.get('viva_percent') || '',
+                    viva_comment: fd.get('viva_comment') || '',
+                    ca_assessment_percent: fd.get('ca_assessment_percent') || '',
+                    ca_assessment_comment: fd.get('ca_assessment_comment') || '',
+                    strategy_points: (fd.getAll('strategy_point[]') || []).map(function(s) { return (s || '').trim(); }).filter(Boolean),
+                    ca_components: (fd.getAll('ca_component[]') || []).map(function(s) { return (s || '').trim(); }).filter(Boolean)
+                };
+                const ranges = fd.getAll('attendance_range[]');
+                const marks = fd.getAll('attendance_marks[]');
+                snap.assessment_strategy.attendance_marks = [];
+                for (let i = 0; i < ranges.length; i++) {
+                    if (ranges[i] || marks[i]) snap.assessment_strategy.attendance_marks.push({ range: ranges[i] || '', marks: marks[i] || '' });
+                }
+                snap.make_up_procedures = (typeof sessionDeliveryType !== 'undefined' && sessionDeliveryType === 'sessional')
+                    ? (fd.getAll('make_up_procedure[]') || []).map(function(s) { return (s || '').trim(); }).filter(Boolean).join('\n')
+                    : (fd.get('make_up_procedures') || '');
+                snap.rubrics = [];
+                const rubricsContainer = document.getElementById('rubricsContainer');
+                if (rubricsContainer) {
+                    rubricsContainer.querySelectorAll('.border.rounded').forEach(function(sectionEl) {
+                        const typeInput = sectionEl.querySelector('input[name="rubric_type[]"]');
+                        const type = typeInput ? typeInput.value : '';
+                        const tbody = sectionEl.querySelector('tbody');
+                        if (!tbody) return;
+                        tbody.querySelectorAll('tr').forEach(function(row) {
+                            const criteria = (row.querySelector('input[name="rubric_criteria[]"]') || {}).value || '';
+                            const excellent = (row.querySelector('textarea[name="rubric_excellent[]"]') || {}).value || '';
+                            const good = (row.querySelector('textarea[name="rubric_good[]"]') || {}).value || '';
+                            const satisfactory = (row.querySelector('textarea[name="rubric_satisfactory[]"]') || {}).value || '';
+                            const poor = (row.querySelector('textarea[name="rubric_poor[]"]') || {}).value || '';
+                            if (criteria || excellent || good || satisfactory || poor) {
+                                snap.rubrics.push({ type: type, criteria: criteria, excellent: excellent, good: good, satisfactory: satisfactory, poor: poor });
+                            }
+                        });
+                    });
+                }
+                snap.grading_policy = [];
+                const gradeRanges = fd.getAll('grade_range[]');
+                const grades = fd.getAll('grade[]');
+                for (let i = 0; i < gradeRanges.length; i++) {
+                    if (gradeRanges[i] || grades[i]) snap.grading_policy.push({ range: gradeRanges[i] || '', grade: grades[i] || '' });
+                }
+            } else if (section === 'resources') {
+                snap.textbooks = getPartDHtml('textbooks');
+                snap.reference_books = getPartDHtml('reference_books');
+                snap.other_resources = getPartDHtml('other_resources');
+                snap.course_file_components = getPartDHtml('course_file_components');
+                snap.other_issues = {
+                    class_discussion: fd.get('class_discussion') || '',
+                    general_expectations: fd.get('general_expectations') || '',
+                    communication: fd.get('communication') || '',
+                    academic_honesty: fd.get('academic_honesty') || ''
+                };
+            }
+            return snap;
+        }
+
+        function setField(name, value) {
+            const el = document.querySelector('#courseOutlineForm [name="' + name + '"]');
+            if (!el || value == null) return;
+            el.value = Array.isArray(value) ? value.join('\n') : String(value);
+        }
+
+        function applyOutlinePatch(payload) {
+            if (!payload || typeof payload !== 'object') return 0;
+            let changed = 0;
+            if (Array.isArray(payload.lesson_plan)) {
+                changed += applyLessonPlan(payload.lesson_plan);
+            }
+            if (Array.isArray(payload.assessment_techniques)) {
+                const container = document.getElementById('assessmentTechniquesContainer');
+                if (container) {
+                    container.innerHTML = '';
+                    payload.assessment_techniques.forEach(function(row) { addAssessmentTechnique(row || {}); });
+                }
+            }
+            if (payload.cie_breakdown && typeof loadCIEData === 'function') {
+                loadCIEData(payload.cie_breakdown);
+            }
+            if (Array.isArray(payload.smee_breakdown)) {
+                const tbody = document.getElementById('smeeTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    payload.smee_breakdown.forEach(function(row) { addSMEERow(row || {}); });
+                }
+            }
+            if (payload.assessment_strategy && typeof payload.assessment_strategy === 'object') {
+                const as = payload.assessment_strategy;
+                ['attendance_percent', 'attendance_comment', 'ca_percent', 'ca_comment',
+                 'final_exam_percent', 'final_exam_comment', 'ca_section_a_total', 'ca_section_b_total',
+                 'ca_considered', 'viva_percent', 'viva_comment', 'ca_assessment_percent',
+                 'ca_assessment_comment'].forEach(function(key) {
+                    if (as[key] != null) setField(key, as[key]);
+                });
+                if (Array.isArray(as.strategy_points)) {
+                    const box = document.getElementById('sessionalStrategyPointsContainer');
+                    if (box) {
+                        box.innerHTML = '';
+                        as.strategy_points.forEach(function(v) { addSessionalStrategyPoint(v); });
+                    }
+                }
+                if (Array.isArray(as.ca_components)) {
+                    const box = document.getElementById('sessionalCaComponentsContainer');
+                    if (box) {
+                        box.innerHTML = '';
+                        as.ca_components.forEach(function(v) { addSessionalCaComponent(typeof v === 'string' ? v : (v && v.name) || ''); });
+                    }
+                }
+                if (Array.isArray(as.attendance_marks)) {
+                    const tbody = document.getElementById('attendanceMarksTableBody');
+                    if (tbody) {
+                        tbody.innerHTML = '';
+                        as.attendance_marks.forEach(function(row) { addAttendanceMarksRow(row || {}); });
+                    }
+                }
+            }
+            if (Array.isArray(payload.rubrics)) {
+                const box = document.getElementById('rubricsContainer');
+                if (box) {
+                    box.innerHTML = '';
+                    const groups = {};
+                    payload.rubrics.forEach(function(item) {
+                        const type = (item && item.type) || 'Rubric';
+                        (groups[type] = groups[type] || []).push(item);
+                    });
+                    Object.keys(groups).forEach(function(type) {
+                        const rows = groups[type];
+                        const first = Object.assign({ type: type }, rows[0] || {});
+                        const rubricId = addRubric(first);
+                        rows.slice(1).forEach(function(row) { addRubricRow(rubricId, row); });
+                    });
+                }
+            }
+            if (Array.isArray(payload.grading_policy)) {
+                const tbody = document.getElementById('gradingPolicyTableBody');
+                if (tbody) {
+                    tbody.innerHTML = '';
+                    for (let i = 0; i < payload.grading_policy.length; i += 2) {
+                        const a = payload.grading_policy[i] || {};
+                        const b = payload.grading_policy[i + 1] || {};
+                        addGradingPolicyRow({
+                            range: a.range || '',
+                            grade: a.grade || '',
+                            range2: b.range || '',
+                            grade2: b.grade || ''
+                        });
+                    }
+                }
+            }
+            if (payload.make_up_procedures != null) setField('make_up_procedures', payload.make_up_procedures);
+            if (payload.textbooks != null) setRichField('textbooks', payload.textbooks);
+            if (payload.reference_books != null) setRichField('reference_books', payload.reference_books);
+            if (payload.other_resources != null) setRichField('other_resources', payload.other_resources);
+            if (payload.course_file_components != null) setRichField('course_file_components', payload.course_file_components);
+            if (payload.other_issues && typeof payload.other_issues === 'object') {
+                setField('class_discussion', payload.other_issues.class_discussion);
+                setField('general_expectations', payload.other_issues.general_expectations);
+                setField('communication', payload.other_issues.communication);
+                setField('academic_honesty', payload.other_issues.academic_honesty);
+            }
+        }
+
+        async function runPatch(presetInstruction) {
+            if (copilotBusy) return;
+            if (presetInstruction && instructionEl) instructionEl.value = presetInstruction;
+            let instruction = (instructionEl && instructionEl.value || '').trim();
+            if (!instruction) {
+                setCopilotStatus('কী বদলাতে চান এক বাক্যে লিখুন, অথবা উপরের চিপ চাপুন।', 'error');
+                if (instructionEl) instructionEl.focus();
+                return;
+            }
+            let section = inferSection(instruction, (sectionSel && sectionSel.value) || 'lesson_plan');
+            if (sectionSel) sectionSel.value = section;
+            focusSection(section);
+            const current = collectAiPatchSnapshot(section);
+            if (section !== 'lesson_plan') {
+                current.lesson_plan = (collectAiPatchSnapshot('lesson_plan').lesson_plan || []);
+            }
+            if (section === 'lesson_plan' && !(current.lesson_plan && current.lesson_plan.length)) {
+                setCopilotStatus('আগে ১৪ নম্বরে Generate Plan চাপুন, তারপর এআই দিয়ে সাজান।', 'error');
+                return;
+            }
+            copilotBusy = true;
+            applyBtn.disabled = true;
+            applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>কাজ হচ্ছে</span>';
+            setCopilotStatus('এই অংশ হালনাগাদ করা হচ্ছে...', '');
+            try {
+                const resp = await fetch(patchUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        section: section,
+                        instruction: instruction,
+                        current: current,
+                        allow_topic_change: !!(allowTopicsEl && allowTopicsEl.checked)
+                    })
+                });
+                const data = await resp.json().catch(function() { return {}; });
+                if (!data.success) throw new Error(data.message || 'Patch failed');
+                const usedSection = data.section || section;
+                if (usedSection !== section) {
+                    section = usedSection;
+                    if (sectionSel) sectionSel.value = section;
+                    focusSection(section);
+                }
+                applyOutlinePatch(data.payload || {});
+                if (typeof autoSaveTimeout !== 'undefined' && autoSaveTimeout) clearTimeout(autoSaveTimeout);
+                await new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
+                if (typeof saveCourseOutline === 'function') saveCourseOutline(true);
+                setCopilotStatus(data.summary || 'এই অংশ হালনাগাদ হয়েছে।', 'ok');
+            } catch (err) {
+                setCopilotStatus(err.message || 'এআই প্রয়োগ ব্যর্থ।', 'error');
+            } finally {
+                copilotBusy = false;
+                applyBtn.disabled = false;
+                applyBtn.innerHTML = '<i class="fas fa-magic"></i><span>প্রয়োগ</span>';
+            }
+        }
+
+        async function runDraftGeneration() {
+            if (copilotBusy) return;
+            if (!confirm('কারিকুলাম ও ক্যালেন্ডার থেকে খসড়া তৈরি হবে। সিলেবাসের টপিক বদলাবে না। চালিয়ে যাবেন?')) return;
+            copilotBusy = true;
+            if (draftBtn) {
+                draftBtn.disabled = true;
+                draftBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>খসড়া...';
+            }
+            setCopilotStatus('খসড়া তৈরি হচ্ছে (সিলেবাস + ক্যালেন্ডার)...', '');
+            const parts = ['A', 'B', 'C', 'D'];
+            const generationOptions = {
+                syllabus_lock: true,
+                detail_level: 'concise',
+                delivery_type: deliveryType || 'theory',
+                total_classes: parseInt(defaultTotal, 10) || 56,
+                classes_per_week: parseInt(defaultCpw, 10) || 4,
+                custom_instructions: 'Fill from curriculum and academic calendar. Do not invent topics.',
+                assessment_plan: (deliveryType === 'sessional')
+                    ? [{ type: 'sessional_report', count: 1 }, { type: 'viva', count: 1 }, { type: 'presentation', count: 1 }]
+                    : [{ type: 'class_test', count: 2 }, { type: 'quiz', count: 1 }, { type: 'assignment', count: 1 }]
+            };
+            try {
+                const startResp = await fetch(generateUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ async: true, parts: parts, generation_options: generationOptions })
+                }).then(function(r) { return r.json(); });
+                if (!startResp.success) throw new Error(startResp.message || 'খসড়া শুরু করা যায়নি');
+                const jobId = startResp.job_id;
+                if (!jobId) throw new Error('Missing job id');
+                let result = startResp;
+                const maxTicks = 20;
+                let ticks = 0;
+                while (result.status !== 'completed' && result.status !== 'failed' && ticks < maxTicks) {
+                    ticks += 1;
+                    const tickUrl = tickUrlTemplate.replace('/0/tick', '/' + jobId + '/tick');
+                    result = await fetch(tickUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: JSON.stringify({})
+                    }).then(function(r) { return r.json(); });
+                    const prog = result.progress || {};
+                    setCopilotStatus(result.message || ('খসড়া: ' + (prog.label || prog.current_part || '...')), '');
+                    if (result.status === 'completed' || result.status === 'failed') break;
+                    await new Promise(function(resolve) { setTimeout(resolve, 200); });
+                }
+                if (result.status !== 'completed') throw new Error(result.message || 'খসড়া তৈরি ব্যর্থ');
+                if (!result.payload) throw new Error('খসড়ায় কোনো ডেটা আসেনি');
+                const saveResp = await fetch(saveUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify(result.payload)
+                }).then(function(r) { return r.json(); });
+                if (!saveResp.success) throw new Error(saveResp.message || 'খসড়া সংরক্ষণ ব্যর্থ');
+                window.location.reload();
+            } catch (err) {
+                setCopilotStatus(err.message || 'খসড়া তৈরি ব্যর্থ।', 'error');
+                copilotBusy = false;
+                if (draftBtn) {
+                    draftBtn.disabled = false;
+                    draftBtn.innerHTML = '<i class="fas fa-magic me-1"></i><span class="d-none d-sm-inline">খসড়া তৈরি</span>';
+                }
+            }
+        }
+
+        document.querySelectorAll('.ai-section-fix-btn').forEach(function(btn) {
+            btn.addEventListener('click', function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                bar.classList.remove('is-min');
+                focusSection(btn.getAttribute('data-ai-section') || 'lesson_plan');
+                if (instructionEl) instructionEl.focus();
+                setCopilotStatus('এই অংশের জন্য এক বাক্যে কী বদলাবেন লিখুন, তারপর প্রয়োগ চাপুন।', '');
+            });
+        });
+        document.querySelectorAll('#aiCopilotChips .ai-copilot-chip').forEach(function(chip) {
+            chip.addEventListener('click', function() {
+                const fill = chip.getAttribute('data-fill') || '';
+                const section = chip.getAttribute('data-section') || 'lesson_plan';
+                if (sectionSel) sectionSel.value = section;
+                focusSection(section);
+                runPatch(fill);
+            });
+        });
+        const minBtn = document.getElementById('aiCopilotMinBtn');
+        const openBtn = document.getElementById('aiCopilotOpenBtn');
+        if (minBtn) minBtn.addEventListener('click', function() { bar.classList.add('is-min'); });
+        if (openBtn) openBtn.addEventListener('click', function() {
+            bar.classList.remove('is-min');
+            if (instructionEl) instructionEl.focus();
+        });
+        if (sectionSel) {
+            sectionSel.addEventListener('change', function() { focusSection(sectionSel.value); });
+            if (lockWrap) lockWrap.classList.toggle('d-none', sectionSel.value !== 'lesson_plan');
+        }
+        if (applyBtn) applyBtn.addEventListener('click', function() { runPatch(); });
+        if (instructionEl) {
+            instructionEl.addEventListener('keydown', function(ev) {
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    runPatch();
+                }
+            });
+        }
+        if (draftBtn) draftBtn.addEventListener('click', runDraftGeneration);
+    })();
 });
 </script>
 {% endblock %}

@@ -103,31 +103,74 @@ def build_curriculum_anchor(context):
     }
 
 
-def curriculum_grounding_rules(anchor):
+def flatten_curriculum_topic_slots(context):
+    """One slot per class hour from curriculum Section A/B."""
+    summary = build_curriculum_anchor(context).get('course_content_summary') or {}
+    slots = []
+    for section in ('sectionA', 'sectionB'):
+        for item in summary.get(section) or []:
+            if not isinstance(item, dict):
+                continue
+            topic = (item.get('topic') or item.get('content') or '').strip()
+            if not topic:
+                continue
+            try:
+                n = max(1, int(item.get('num_classes') or item.get('hrs') or 1))
+            except (TypeError, ValueError):
+                n = 1
+            clo = str(item.get('clo') or '').strip()
+            for _ in range(n):
+                slots.append({'topic': topic, 'clo_alignment': clo})
+    return slots
+
+
+def _syllabus_locked(generation_options):
+    if not isinstance(generation_options, dict):
+        return True
+    value = generation_options.get('syllabus_lock', True)
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ('0', 'false', 'off', 'no'):
+        return False
+    if text in ('1', 'true', 'on', 'yes', ''):
+        return True
+    return True
+
+
+def curriculum_grounding_rules(anchor, part=None, generation_options=None):
     """Prompt rules: curriculum is source of truth."""
+    part = (part or '').upper()
+    locked = _syllabus_locked(generation_options)
     rules = [
-        '=== CURRICULUM SOURCE OF TRUTH (MANDATORY) ===',
-        'Do NOT invent course rationale, CLOs, or topic lists.',
-        'Use ONLY context.course.rationale, context.course.clos, context.course.content_section_a/b.',
-        'course_summary MUST be the curriculum rationale (light copy-edit only; same meaning).',
-        'clo_data MUST use exact CLO descriptions from curriculum; do not add/remove/reword CLOs.',
-        'course_content_summary sectionA/sectionB topics MUST match curriculum content topics exactly (field topic = curriculum content text).',
-        'lesson_plan topics MUST come from those curriculum topics only — schedule them across weeks; do not add new subjects.',
-        'lesson_plan: one row per class session; up to classes_per_week rows share the same week number.',
-        'Spread formative assessments (quiz, class test, assignment briefing/submission, presentation) across different weeks in teaching_assessment — mix with lecture/discussion; never put all assessments only in the final week.',
-        'course_objectives may be bullet summaries of the CLO descriptions, not new objectives.',
-        'You may generate: lesson_plan timing, assessment tables, rubrics, textbooks, policies — but NOT substitute curriculum content.',
-        'If curriculator PLO mapping exists, use it for plo_mapping only.',
-        '=== END CURRICULUM RULES ===',
+        'CURRICULUM IS SOURCE OF TRUTH: do not invent rationale, CLOs, or topics.',
+        'SYLLABUS LOCK: ON.' if locked else 'SYLLABUS LOCK: OFF (elaboration allowed; no new unrelated subjects).',
     ]
-    if anchor.get('has_rationale'):
-        rules.insert(2, f'Curriculum rationale provided ({len(anchor["rationale"])} chars) — use as course_summary.')
+    if part in ('', 'FULL', 'A'):
+        rules.extend([
+            'course_summary = curriculum rationale (light copy-edit only).',
+            'clo_data = exact curriculum CLO text.',
+        ])
+    if part in ('', 'FULL', 'B'):
+        if locked:
+            rules.append(
+                'Teaching notes must use week_slots.topics verbatim; '
+                'do not invent, rename, or replace topics.'
+            )
+        else:
+            rules.append(
+                'week_slots.topics are the syllabus. You may elaborate with sub-topics or case names; '
+                'do not add unrelated subjects. Do not change course_content_summary.'
+            )
+    if part in ('', 'FULL', 'C', 'CD'):
+        rules.append('Map assessments to curriculum CLO numbers only.')
+    if part in ('', 'FULL', 'D', 'CD'):
+        if locked:
+            rules.append('Prefer uploaded_materials and curriculum titles; do not invent textbooks.')
+        else:
+            rules.append('You may recommend extra references tied to syllabus themes.')
     if anchor.get('has_clos'):
-        rules.insert(3, f'Curriculum CLO count: {len(anchor["clo_data"])} — output exactly this many CLOs.')
-    if anchor.get('has_content'):
-        a_count = len(anchor['course_content_summary'].get('sectionA') or [])
-        b_count = len(anchor['course_content_summary'].get('sectionB') or [])
-        rules.insert(4, f'Curriculum topics: sectionA={a_count}, sectionB={b_count} — copy all.')
+        rules.append(f'CLO count: {len(anchor["clo_data"])}.')
     return rules
 
 
@@ -228,7 +271,28 @@ def _normalize_content_summary_field(value):
     return {}
 
 
-def anchor_payload_to_curriculum(payload, context):
+def _restore_lesson_plan_topics(payload, context):
+    """Keep lesson-plan topic text on the curriculum sequence when syllabus is locked."""
+    plan = payload.get('lesson_plan')
+    if not isinstance(plan, list):
+        return
+    slots = flatten_curriculum_topic_slots(context)
+    if not slots:
+        return
+    last = slots[-1]
+    last_name = (last.get('topic') or '').strip()
+    for idx, row in enumerate(plan):
+        if not isinstance(row, dict):
+            continue
+        if idx < len(slots) and slots[idx].get('topic'):
+            row['topic'] = slots[idx]['topic']
+            if slots[idx].get('clo_alignment') and not row.get('clo_alignment'):
+                row['clo_alignment'] = slots[idx]['clo_alignment']
+        elif last_name:
+            row['topic'] = f'Review of {last_name}'
+
+
+def anchor_payload_to_curriculum(payload, context, generation_options=None):
     """Overwrite AI-invented rationale/CLO/content with curriculum data."""
     anchor = build_curriculum_anchor(context)
     out = dict(payload or {})
@@ -251,6 +315,9 @@ def anchor_payload_to_curriculum(payload, context):
         out['course_content_summary'] = summary
         from utils.ai.outline_parser import _serialize_course_content_summary
         _serialize_course_content_summary(out)
+
+    if _syllabus_locked(generation_options):
+        _restore_lesson_plan_topics(out, context)
 
     return out
 

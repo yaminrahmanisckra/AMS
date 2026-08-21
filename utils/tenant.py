@@ -68,7 +68,7 @@ class Tenant:
 
     @property
     def footer_credit(self) -> str:
-        return f'Academic Management System (AMS), {self.name}, {self.university_name}'
+        return 'Academic Management System (AMS), Law Discipline, Khulna University'
 
     def feature_enabled(self, name: str, default: bool = True) -> bool:
         if name not in self.features:
