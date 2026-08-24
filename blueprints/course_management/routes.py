@@ -83,6 +83,22 @@ def _window_rows_filter(model, window_id=None):
         )
     return model.window_id == window_id
 
+
+def _class_sessions_for_offering(course_code, academic_session, year, term, window_id=None, extra_filters=None):
+    """Class sessions for one offering in one operational window only."""
+    window_id = _active_window_id() if window_id is None else window_id
+    query = Session.query.filter_by(
+        course_code=course_code,
+        academic_session=academic_session,
+        year=year,
+        term=term,
+    )
+    if extra_filters:
+        query = query.filter_by(**extra_filters)
+    if hasattr(Session, 'window_id'):
+        query = query.filter(_window_rows_filter(Session, window_id))
+    return query.all()
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -337,19 +353,16 @@ def _resolve_class_target_context(registration_like, fallback_course_code, fallb
     }
 
 
-def _remove_students_from_class_sessions(course_code, academic_session, year, term, student_ids):
-    """Remove students from class management sessions when registration is deleted"""
+def _remove_students_from_class_sessions(course_code, academic_session, year, term, student_ids, window_id=None):
+    """Remove students from class sessions in the active window only."""
     if not Session or not ClassStudent or not Student:
         return
     
     try:
-        # Find all sessions for this course, session, year, and term
-        sessions = Session.query.filter_by(
-            course_code=course_code,
-            academic_session=academic_session,
-            year=year,
-            term=term
-        ).all()
+        window_id = _active_window_id() if window_id is None else window_id
+        sessions = _class_sessions_for_offering(
+            course_code, academic_session, year, term, window_id=window_id
+        )
         
         if not sessions:
             current_app.logger.info(f'No sessions found for course {course_code}, session {academic_session}, year {year}, term {term}')
@@ -381,18 +394,21 @@ def _remove_students_from_class_sessions(course_code, academic_session, year, te
                 db.session.delete(class_student)
                 removed_count += 1
                 
-                # Also remove from peer sessions for split courses
+                # Also remove from peer sessions for split courses (same window only)
                 try:
                     from blueprints.class_management.routes import _replicate_student_to_peers
                     # Find peer sessions
                     if hasattr(session, 'split_group_id') and session.split_group_id:
-                        peer_sessions = Session.query.filter_by(
+                        peer_query = Session.query.filter_by(
                             split_group_id=session.split_group_id,
                             course_code=course_code,
                             academic_session=academic_session,
                             year=year,
                             term=term
-                        ).filter(Session.id != session.id).all()
+                        ).filter(Session.id != session.id)
+                        if hasattr(Session, 'window_id'):
+                            peer_query = peer_query.filter(_window_rows_filter(Session, window_id))
+                        peer_sessions = peer_query.all()
                         
                         for peer_session in peer_sessions:
                             peer_class_student = ClassStudent.query.filter_by(
@@ -415,13 +431,14 @@ def _remove_students_from_class_sessions(course_code, academic_session, year, te
         raise
 
 
-def _add_students_to_class_sessions(course_code, academic_session, year, term, students_data):
-    """Add students to class management sessions based on course registration"""
+def _add_students_to_class_sessions(course_code, academic_session, year, term, students_data, window_id=None):
+    """Add students to class sessions in the active window only."""
     if not Session or not ClassStudent or not Student:
         return
     
     try:
         added_to_sessions = 0
+        window_id = _active_window_id() if window_id is None else window_id
 
         sessions_cache = {}
 
@@ -449,14 +466,15 @@ def _add_students_to_class_sessions(course_code, academic_session, year, term, s
                 )
                 continue
 
-            target_key = (target_course_code, target_session, target_year, target_term)
+            target_key = (target_course_code, target_session, target_year, target_term, window_id)
             if target_key not in sessions_cache:
-                sessions_cache[target_key] = Session.query.filter_by(
-                    course_code=target_course_code,
-                    academic_session=target_session,
-                    year=target_year,
-                    term=target_term
-                ).all()
+                sessions_cache[target_key] = _class_sessions_for_offering(
+                    target_course_code,
+                    target_session,
+                    target_year,
+                    target_term,
+                    window_id=window_id,
+                )
             sessions = sessions_cache[target_key]
 
             if not sessions:
@@ -489,14 +507,17 @@ def _add_students_to_class_sessions(course_code, academic_session, year, term, s
                         else:
                             scope_value = 'full'
 
-                        existing_session = Session.query.filter_by(
+                        existing_query = Session.query.filter_by(
                             teacher_id=assignment.teacher_id,
                             course_code=target_course_code,
                             academic_session=target_session,
                             year=target_year,
                             term=target_term,
                             course_scope=scope_value
-                        ).first()
+                        )
+                        if hasattr(Session, 'window_id'):
+                            existing_query = existing_query.filter(_window_rows_filter(Session, window_id))
+                        existing_session = existing_query.first()
                         if existing_session:
                             created_sessions.append(existing_session)
                             continue
@@ -512,6 +533,10 @@ def _add_students_to_class_sessions(course_code, academic_session, year, term, s
                             category=(assignment.course.category if assignment.course and assignment.course.category else 'ug'),
                             course_scope=scope_value
                         )
+                        if stamp_window_id:
+                            stamp_window_id(session_obj, window_id)
+                        elif hasattr(session_obj, 'window_id'):
+                            session_obj.window_id = window_id
                         db.session.add(session_obj)
                         db.session.flush()
                         created_sessions.append(session_obj)
@@ -1955,7 +1980,8 @@ def save_course_registration():
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
+            window_id=reg_window_id
         ).all()
         existing_carry_on = {reg.course_code: getattr(reg, 'carry_on', False) for reg in existing_regs}
         existing_use_relevant_for_committee = {
@@ -1975,7 +2001,8 @@ def save_course_registration():
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
+            window_id=reg_window_id
         ).all()
         
         # Track finalized registrations so class entries can be removed from their actual target context.
@@ -1986,7 +2013,8 @@ def save_course_registration():
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
+            window_id=reg_window_id
         ).delete()
         
         # Remove students from Class Management for deleted finalized registrations
@@ -2004,7 +2032,8 @@ def save_course_registration():
                     class_target['academic_session'],
                     class_target['year'],
                     class_target['term'],
-                    [student_record.id]
+                    [student_record.id],
+                    window_id=reg_window_id
                 )
             except Exception as remove_error:
                 current_app.logger.error(f'Error removing students from Class Management: {remove_error}', exc_info=True)
@@ -2080,6 +2109,7 @@ def save_course_registration():
                     academic_session=session_name,
                     year=year,
                     term=term,
+                    window_id=reg_window_id,
                     students_data=[{
                         'student_id': student_record.id,
                         'carry_on': course.get('carry_on', False),

@@ -21,10 +21,45 @@ def _parse_hours(item, default=1):
         return default
 
 
+def parse_curriculum_content_rows(raw):
+    """Accept JSON list, JSON string, dict wrapper, or newline-separated text."""
+    if raw is None or raw == '':
+        return []
+    if isinstance(raw, list):
+        rows = []
+        for item in raw:
+            if isinstance(item, dict):
+                rows.append(item)
+            elif str(item or '').strip():
+                rows.append({'content': str(item).strip()})
+        return rows
+    if isinstance(raw, dict):
+        nested = (
+            raw.get('sectionA') or raw.get('section_a')
+            or raw.get('items') or raw.get('content')
+        )
+        if isinstance(nested, (list, str)):
+            return parse_curriculum_content_rows(nested)
+        if _topic_text(raw):
+            return [raw]
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        if text[:1] in '[{':
+            try:
+                return parse_curriculum_content_rows(json.loads(text))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+        return [{'content': ln.strip()} for ln in text.splitlines() if ln.strip()]
+    return []
+
+
 def curriculum_content_to_outline_section(items):
     """Map curriculum content rows → outline sectionA/B items."""
     result = []
-    for item in items or []:
+    for item in parse_curriculum_content_rows(items):
         topic = _topic_text(item)
         if not topic:
             continue
@@ -227,34 +262,56 @@ def normalize_content_summary(summary):
     return {'sectionA': section_a, 'sectionB': section_b}
 
 
-def resolve_course_content_summary(stored_summary, course_data=None, classes_data=None):
-    """Use saved summary or fall back to curriculum; merge class counts for PDF/UI."""
-    summary = normalize_content_summary(_normalize_content_summary_field(stored_summary))
-    section_a = summary.get('sectionA') or []
-    section_b = summary.get('sectionB') or []
+def _merge_curriculum_section(canonical, stored):
+    """Curriculum topic text/hrs/CLO win; keep teacher selected flags and class counts."""
+    if not canonical:
+        return [dict(item) for item in (stored or []) if isinstance(item, dict)]
+    stored = [item for item in (stored or []) if isinstance(item, dict)]
+    by_topic = {}
+    for item in stored:
+        key = _topic_text(item).lower()
+        if key and key not in by_topic:
+            by_topic[key] = item
+    merged = []
+    for idx, canon in enumerate(canonical):
+        item = dict(canon)
+        old = by_topic.get(_topic_text(canon).lower())
+        if old:
+            if old.get('selected') is False:
+                item['selected'] = False
+            item['num_classes'] = _parse_hours(old, default=item.get('num_classes', 1))
+        elif idx < len(stored):
+            item['num_classes'] = _parse_hours(stored[idx], default=item.get('num_classes', 1))
+        merged.append(item)
+    return merged
 
-    if not section_a and course_data and getattr(course_data, 'content_section_a', None):
-        try:
-            raw = course_data.content_section_a
-            raw = json.loads(raw) if isinstance(raw, str) else raw
-            section_a = curriculum_content_to_outline_section(raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            pass
-    if not section_b and course_data and getattr(course_data, 'content_section_b', None):
-        try:
-            raw = course_data.content_section_b
-            raw = json.loads(raw) if isinstance(raw, str) else raw
-            section_b = curriculum_content_to_outline_section(raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            pass
+
+def resolve_course_content_summary(stored_summary, course_data=None, classes_data=None):
+    """Prefer live curriculum topics; keep saved class counts/selection for PDF/UI."""
+    summary = normalize_content_summary(_normalize_content_summary_field(stored_summary))
+    stored_a = summary.get('sectionA') or []
+    stored_b = summary.get('sectionB') or []
+
+    curr_a = []
+    curr_b = []
+    if course_data is not None:
+        curr_a = curriculum_content_to_outline_section(getattr(course_data, 'content_section_a', None))
+        curr_b = curriculum_content_to_outline_section(getattr(course_data, 'content_section_b', None))
+
+    section_a = _merge_curriculum_section(curr_a, stored_a) if curr_a else stored_a
+    section_b = _merge_curriculum_section(curr_b, stored_b) if curr_b else stored_b
 
     classes_data = classes_data if isinstance(classes_data, dict) else {}
     for idx, item in enumerate(section_a):
         if isinstance(item, dict) and idx < len(classes_data.get('section_a', [])):
-            item['num_classes'] = classes_data['section_a'][idx]
+            raw_cls = classes_data['section_a'][idx]
+            if raw_cls not in (None, ''):
+                item['num_classes'] = raw_cls
     for idx, item in enumerate(section_b):
         if isinstance(item, dict) and idx < len(classes_data.get('section_b', [])):
-            item['num_classes'] = classes_data['section_b'][idx]
+            raw_cls = classes_data['section_b'][idx]
+            if raw_cls not in (None, ''):
+                item['num_classes'] = raw_cls
 
     return {'sectionA': section_a, 'sectionB': section_b}
 

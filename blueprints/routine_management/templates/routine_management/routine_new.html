@@ -1078,6 +1078,52 @@ body.fullscreen-active .routine-table {
     to { transform: translateY(0); opacity: 1; }
 }
 
+/* Auto-fill modal */
+#auto-fill-modal .modal { max-width: 720px; }
+.autofill-scope { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
+.autofill-scope label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
+.autofill-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.autofill-list { max-height: 280px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+.autofill-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 90px;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+.autofill-row:last-child { border-bottom: none; }
+.autofill-row .meta { font-size: 11px; color: var(--text-muted); }
+.autofill-row input[type="number"] {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+}
+.autofill-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; font-size: 13px; }
+.autofill-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.autofill-chip {
+    border: 1px solid var(--border);
+    background: #f8fafc;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.autofill-chip.active { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+.autofill-prompt {
+    width: 100%;
+    min-height: 72px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    resize: vertical;
+}
+.autofill-hint { font-size: 11px; color: var(--text-muted); margin: 4px 0 0; }
+
 /* Form Elements */
 .form-group {
     margin-bottom: 20px;
@@ -1303,6 +1349,7 @@ body.fullscreen-active .routine-table {
             {% if can_edit %}
             <div class="r-progress" id="progress-indicator" style="display: none;"><span id="progress-text">0%</span><div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width: 0%"></div></div></div>
             <button type="button" class="r-btn r-btn-pri" id="btn-save"><i class="fas fa-save"></i> Save</button>
+            <button type="button" class="r-btn" id="btn-auto-fill" title="Conflict-free auto place"><i class="fas fa-magic"></i> অটো-সাজাও</button>
             <button type="button" class="r-btn" id="btn-time-slots" title="Time Slots"><i class="fas fa-clock"></i></button>
             <button type="button" class="r-btn" id="btn-custom-entry" title="Add Entry"><i class="fas fa-plus"></i></button>
             {% endif %}
@@ -1511,6 +1558,58 @@ body.fullscreen-active .routine-table {
     </div>
 </div>
 
+<!-- Auto-fill customization modal -->
+<div class="modal-overlay" id="auto-fill-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title">অটো-সাজাও</div>
+            <button type="button" class="modal-close" id="auto-fill-modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px;">
+                কোন সেমিস্টারের কোন সাবজেক্ট কতবার বসবে, সেটা বেছে নিন। বিশেষ চাহিদা থাকলে নিচে লিখুন।
+            </p>
+            <div class="autofill-scope">
+                <div>
+                    <label for="auto-fill-semester">Year · Term (Active Semester)</label>
+                    <select id="auto-fill-semester" class="form-control"></select>
+                </div>
+            </div>
+            <div class="autofill-toolbar">
+                <button type="button" class="modal-btn" id="auto-fill-select-all">সব নির্বাচন</button>
+                <button type="button" class="modal-btn" id="auto-fill-select-none">কোনোটি নয়</button>
+                <button type="button" class="modal-btn" id="auto-fill-select-remaining">যেগুলো বাকি</button>
+            </div>
+            <div class="autofill-list" id="auto-fill-course-list">
+                <div class="course-filter-empty">সেমিস্টার বেছে নিন…</div>
+            </div>
+            <div class="autofill-options">
+                <label><input type="checkbox" id="auto-fill-keep-existing" checked> আগের প্লেসমেন্ট রাখো</label>
+                <label><input type="checkbox" id="auto-fill-clear-selected"> নির্বাচিত সাবজেক্টগুলো গ্রিড থেকে সরিয়ে নতুন করে সাজাও</label>
+            </div>
+            <div>
+                <label for="auto-fill-prompt" style="font-size: 12px; font-weight: 600; color: var(--text-muted);">বিশেষ চাহিদা / প্রম্পট</label>
+                <div class="autofill-chips" id="auto-fill-chips">
+                    <button type="button" class="autofill-chip" data-pref="morning">শুধু সকালে</button>
+                    <button type="button" class="autofill-chip" data-pref="afternoon">শুধু বিকালে</button>
+                    <button type="button" class="autofill-chip" data-pref="avoid-sunday">রবিবার বাদ</button>
+                    <button type="button" class="autofill-chip" data-pref="mw">শুধু সোম–বুধ</button>
+                    <button type="button" class="autofill-chip" data-pref="same-room">একই রুম</button>
+                    <button type="button" class="autofill-chip" data-pref="no-consecutive">পরপর স্লট নয়</button>
+                </div>
+                <textarea id="auto-fill-prompt" class="autofill-prompt" placeholder="যেমন: শুধু সকালে বসাও; রবিবারে দিও না; একই রুমে রাখো; Law 3201 দুইবার…"></textarea>
+                <p class="autofill-hint">চিপ বেছে নিন বা নিজে লিখুন — দিন, সকাল/বিকাল, একই রুম ইত্যাদি বুঝে সাজাবে।</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="modal-btn" id="auto-fill-modal-cancel">Cancel</button>
+            <button type="button" class="modal-btn modal-btn-primary" id="auto-fill-modal-run">
+                <i class="fas fa-magic"></i> সাজাও
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Custom Entry Modal -->
 <div class="modal-overlay" id="custom-entry-modal">
     <div class="modal">
@@ -1617,7 +1716,16 @@ const RoutineManager = {
         courseFilterCodes: null,   // Set of selected course codes (view-only); null = no filter / all
         courseFilterDraft: null,   // Set while modal is open
         courseFilterYear: '',
-        courseFilterTerm: ''
+        courseFilterTerm: '',
+        loadedCourses: [],
+        autoFillCourses: [],
+        autoFillPrefs: {
+            time_of_day: null,
+            prefer_days: [],
+            avoid_days: [],
+            same_room: false,
+            avoid_consecutive: false
+        }
     },
 
     // High-contrast categorical palette — hues spaced so no two look alike
@@ -1931,6 +2039,13 @@ const RoutineManager = {
             routineTitle: document.getElementById('routine-title'),
             effectiveDate: document.getElementById('effective-date'),
             btnSave: document.getElementById('btn-save'),
+            btnAutoFill: document.getElementById('btn-auto-fill'),
+            autoFillModal: document.getElementById('auto-fill-modal'),
+            autoFillSemester: document.getElementById('auto-fill-semester'),
+            autoFillCourseList: document.getElementById('auto-fill-course-list'),
+            autoFillPrompt: document.getElementById('auto-fill-prompt'),
+            autoFillKeepExisting: document.getElementById('auto-fill-keep-existing'),
+            autoFillClearSelected: document.getElementById('auto-fill-clear-selected'),
             btnPdf: document.getElementById('btn-pdf'),
             btnTimeSlots: document.getElementById('btn-time-slots'),
             btnCustomEntry: document.getElementById('btn-custom-entry'),
@@ -1982,6 +2097,10 @@ const RoutineManager = {
         if (this.elements.btnSave) {
             this.elements.btnSave.addEventListener('click', () => this.saveRoutine());
         }
+        if (this.elements.btnAutoFill) {
+            this.elements.btnAutoFill.addEventListener('click', () => this.openAutoFillModal());
+        }
+        this.bindAutoFillModal();
         if (this.elements.btnPdf) {
             // Remove any existing onclick to avoid conflicts
             this.elements.btnPdf.onclick = null;
@@ -2556,6 +2675,7 @@ const RoutineManager = {
 
     // Display courses
     displayCourses: function(courses) {
+        this.state.loadedCourses = Array.isArray(courses) ? courses.slice() : [];
         if (!this.elements.coursesList) return;
         if (!courses || courses.length === 0) {
             this.elements.coursesList.innerHTML = '<div class="course-list-empty"><span class="course-list-empty-msg">No courses for this semester.</span></div>';
@@ -4025,7 +4145,399 @@ const RoutineManager = {
         return false;
     },
     
-    // Save routine
+    bindAutoFillModal: function() {
+        const modal = this.elements.autoFillModal;
+        if (!modal) return;
+        const close = () => this.closeAutoFillModal();
+        const closeBtn = document.getElementById('auto-fill-modal-close');
+        const cancelBtn = document.getElementById('auto-fill-modal-cancel');
+        const runBtn = document.getElementById('auto-fill-modal-run');
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        if (cancelBtn) cancelBtn.addEventListener('click', close);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) close();
+        });
+        if (this.elements.autoFillSemester) {
+            this.elements.autoFillSemester.addEventListener('change', () => {
+                this.loadAutoFillCourses(this.elements.autoFillSemester.value);
+            });
+        }
+        const selectAll = document.getElementById('auto-fill-select-all');
+        const selectNone = document.getElementById('auto-fill-select-none');
+        const selectRem = document.getElementById('auto-fill-select-remaining');
+        if (selectAll) selectAll.addEventListener('click', () => this._autoFillSetChecks('all'));
+        if (selectNone) selectNone.addEventListener('click', () => this._autoFillSetChecks('none'));
+        if (selectRem) selectRem.addEventListener('click', () => this._autoFillSetChecks('remaining'));
+        document.querySelectorAll('#auto-fill-chips .autofill-chip').forEach(chip => {
+            chip.addEventListener('click', () => this._autoFillToggleChip(chip));
+        });
+        if (runBtn) runBtn.addEventListener('click', () => this.runAutoFillFromModal());
+    },
+
+    openAutoFillModal: function() {
+        if (!this.config.canEdit) {
+            alert('You do not have permission to edit');
+            return;
+        }
+        const modal = this.elements.autoFillModal;
+        const select = this.elements.autoFillSemester;
+        if (!modal || !select) {
+            alert('অটো-সাজাও মডাল লোড হয়নি। পেজ রিফ্রেশ করুন।');
+            return;
+        }
+        this.state.autoFillPrefs = {
+            time_of_day: null,
+            prefer_days: [],
+            avoid_days: [],
+            same_room: false,
+            avoid_consecutive: false
+        };
+        document.querySelectorAll('#auto-fill-chips .autofill-chip').forEach(c => c.classList.remove('active'));
+        if (this.elements.autoFillPrompt) this.elements.autoFillPrompt.value = '';
+        if (this.elements.autoFillKeepExisting) this.elements.autoFillKeepExisting.checked = true;
+        if (this.elements.autoFillClearSelected) this.elements.autoFillClearSelected.checked = false;
+
+        select.innerHTML = '<option value="">-- সেমিস্টার বেছে নিন --</option>';
+        (this.state.semesterContexts || []).forEach(ctx => {
+            const opt = document.createElement('option');
+            opt.value = String(ctx.id);
+            opt.textContent = ctx.label || [ctx.year, ctx.term, ctx.academic_session].filter(Boolean).join(' · ');
+            select.appendChild(opt);
+        });
+        if (!(this.state.semesterContexts || []).length && this.elements.batchSelect) {
+            Array.from(this.elements.batchSelect.options || []).forEach(o => {
+                if (!o.value) return;
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.textContent;
+                select.appendChild(opt);
+            });
+        }
+        const current = this.elements.batchSelect ? this.elements.batchSelect.value : '';
+        if (current) {
+            select.value = current;
+            this.loadAutoFillCourses(current);
+        } else if (select.options.length > 1) {
+            select.selectedIndex = 1;
+            this.loadAutoFillCourses(select.value);
+        } else {
+            this.elements.autoFillCourseList.innerHTML = '<div class="course-filter-empty">কোনো সক্রিয় সেমিস্টার নেই।</div>';
+        }
+        modal.classList.add('active');
+    },
+
+    closeAutoFillModal: function() {
+        if (this.elements.autoFillModal) {
+            this.elements.autoFillModal.classList.remove('active');
+        }
+    },
+
+    _autoFillSetChecks: function(mode) {
+        const list = this.elements.autoFillCourseList;
+        if (!list) return;
+        list.querySelectorAll('.autofill-row').forEach(row => {
+            const cb = row.querySelector('.af-check');
+            if (!cb) return;
+            if (mode === 'all') cb.checked = true;
+            else if (mode === 'none') cb.checked = false;
+            else if (mode === 'remaining') {
+                const rem = parseInt(row.dataset.remaining || '0', 10) || 0;
+                cb.checked = rem > 0;
+            }
+        });
+    },
+
+    _autoFillToggleChip: function(chip) {
+        const pref = chip.dataset.pref;
+        const active = chip.classList.toggle('active');
+        const p = this.state.autoFillPrefs;
+        if (pref === 'morning') {
+            p.time_of_day = active ? 'morning' : null;
+            if (active) {
+                document.querySelectorAll('#auto-fill-chips [data-pref="afternoon"]').forEach(c => c.classList.remove('active'));
+            }
+        } else if (pref === 'afternoon') {
+            p.time_of_day = active ? 'afternoon' : null;
+            if (active) {
+                document.querySelectorAll('#auto-fill-chips [data-pref="morning"]').forEach(c => c.classList.remove('active'));
+            }
+        } else if (pref === 'avoid-sunday') {
+            p.avoid_days = active
+                ? Array.from(new Set([...(p.avoid_days || []), 'Sunday']))
+                : (p.avoid_days || []).filter(d => d !== 'Sunday');
+        } else if (pref === 'mw') {
+            p.prefer_days = active ? ['Monday', 'Wednesday'] : [];
+        } else if (pref === 'same-room') {
+            p.same_room = active;
+        } else if (pref === 'no-consecutive') {
+            p.avoid_consecutive = active;
+        }
+        if (!document.querySelector('#auto-fill-chips [data-pref="morning"].active') &&
+            !document.querySelector('#auto-fill-chips [data-pref="afternoon"].active') &&
+            (pref === 'morning' || pref === 'afternoon')) {
+            p.time_of_day = null;
+        }
+    },
+
+    loadAutoFillCourses: function(semesterId) {
+        const list = this.elements.autoFillCourseList;
+        if (!list) return;
+        if (!semesterId) {
+            list.innerHTML = '<div class="course-filter-empty">সেমিস্টার বেছে নিন…</div>';
+            this.state.autoFillCourses = [];
+            return;
+        }
+        list.innerHTML = '<div class="course-filter-empty">লোড হচ্ছে…</div>';
+
+        const context = this._selectedSemesterContext(semesterId);
+        const batchKey = (context && context.batch) ? context.batch : String(semesterId);
+        const base = (this.config.apiBase || '').replace(/\/$/, '') || '/routine-management';
+        const params = new URLSearchParams();
+        if (context && context.id && String(context.id) === String(semesterId)) {
+            params.set('semester_id', String(semesterId));
+        }
+        if (context && context.batch) params.set('batch', context.batch);
+        else params.set('batch', String(semesterId));
+
+        const sidebarSame = this.elements.batchSelect && String(this.elements.batchSelect.value) === String(semesterId);
+        if (sidebarSame && Array.isArray(this.state.loadedCourses) && this.state.loadedCourses.length) {
+            this.renderAutoFillCourseList(this.state.loadedCourses);
+            return;
+        }
+
+        fetch(base + '/api/courses/batch-wise?' + params.toString(), { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(data => {
+                let courses = [];
+                if (data && data.success && Array.isArray(data.courses)) courses = data.courses;
+                else if (data && data.success && data.courses_by_batch) {
+                    courses = data.courses_by_batch[batchKey]
+                        || data.courses_by_batch[String(semesterId)]
+                        || Object.values(data.courses_by_batch)[0]
+                        || [];
+                }
+                this.renderAutoFillCourseList(Array.isArray(courses) ? courses : []);
+            })
+            .catch(() => {
+                list.innerHTML = '<div class="course-filter-empty">কোর্স লোড করা যায়নি।</div>';
+                this.state.autoFillCourses = [];
+            });
+    },
+
+    renderAutoFillCourseList: function(courses) {
+        const list = this.elements.autoFillCourseList;
+        if (!list) return;
+        this.state.autoFillCourses = Array.isArray(courses) ? courses.slice() : [];
+        if (!this.state.autoFillCourses.length) {
+            list.innerHTML = '<div class="course-filter-empty">এই সেমিস্টারে কোনো কোর্স নেই।</div>';
+            return;
+        }
+        list.innerHTML = '';
+        this.state.autoFillCourses.forEach((course, idx) => {
+            const code = (course.course_code || '').trim();
+            if (!code) return;
+            const courseId = String(course.assigned_id || course.id || ('temp_' + code + '_' + (course.batch || ''))).trim();
+            const total = parseInt(course.classes_per_week || 0, 10) || 0;
+            const placed = this.getPlacedCountForCard({
+                dataset: {
+                    courseId: courseId,
+                    courseCode: code,
+                    year: String(course.year || '').trim(),
+                    term: String(course.term || '').trim(),
+                    batch: course.batch || '',
+                    part: course.part || 'Full',
+                    compositeKey: this.getPlacementKey(course)
+                }
+            }) || 0;
+            const remaining = Math.max(0, total - placed);
+            let teacherShort = '';
+            let teacherId = '';
+            if (course.teachers && course.teachers.length) {
+                teacherShort = course.teachers.map(t => t.short_name || '').filter(Boolean).join('/');
+                teacherId = course.teachers[0].id || '';
+            } else if (course.teacher_id) {
+                teacherId = course.teacher_id;
+            }
+            const row = document.createElement('div');
+            row.className = 'autofill-row';
+            row.dataset.index = String(idx);
+            row.dataset.remaining = String(remaining);
+            row.dataset.courseId = courseId;
+            const partLabel = (course.part && course.part !== 'Full') ? (' (' + this._escapeHtml(course.part) + ')') : '';
+            row.innerHTML =
+                '<input type="checkbox" class="af-check"' + (remaining > 0 ? ' checked' : '') + '>' +
+                '<div>' +
+                '<div><strong>' + this._escapeHtml(code) + '</strong>' + partLabel + '</div>' +
+                '<div class="meta">' + this._escapeHtml(course.course_name || '') +
+                ' · ' + this._escapeHtml(teacherShort || 'N/A') +
+                ' · ' + remaining + '/' + total + ' left</div>' +
+                '</div>' +
+                '<input type="number" class="af-freq" min="0" max="14" value="' +
+                (remaining > 0 ? remaining : total) +
+                '" title="সপ্তাহে কত ক্লাস">';
+            row._coursePayload = {
+                assigned_id: courseId,
+                course_code: code,
+                course_name: course.course_name || '',
+                teacher_id: teacherId || '',
+                teacher_short_name: teacherShort || '',
+                year: String(course.year || '').trim(),
+                term: String(course.term || '').trim(),
+                batch: course.batch || '',
+                part: course.part || 'Full',
+                color_code: course.color_code || this.getBatchColor(course.batch, course.year, course.term) || '',
+                is_shared_slot: !!course.is_shared_slot
+            };
+            list.appendChild(row);
+        });
+    },
+
+    _escapeHtml: function(text) {
+        return String(text || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
+    runAutoFillFromModal: function() {
+        const list = this.elements.autoFillCourseList;
+        if (!list) return;
+        const courses = [];
+        list.querySelectorAll('.autofill-row').forEach(row => {
+            const cb = row.querySelector('.af-check');
+            if (!cb || !cb.checked) return;
+            const freq = parseInt((row.querySelector('.af-freq') || {}).value || '0', 10) || 0;
+            if (freq <= 0) return;
+            const base = row._coursePayload;
+            if (!base) return;
+            courses.push(Object.assign({}, base, { classes_per_week: freq }));
+        });
+        if (!courses.length) {
+            alert('কমপক্ষে একটি সাবজেক্ট বেছে নিন এবং কতবার বসবে সেটা দিন।');
+            return;
+        }
+        const prefs = Object.assign({}, this.state.autoFillPrefs || {});
+        const prompt = (this.elements.autoFillPrompt && this.elements.autoFillPrompt.value) || '';
+        const keepExisting = !!(this.elements.autoFillKeepExisting && this.elements.autoFillKeepExisting.checked);
+        const clearSelected = !!(this.elements.autoFillClearSelected && this.elements.autoFillClearSelected.checked);
+        this.closeAutoFillModal();
+        this.autoFillRoutine({
+            courses: courses,
+            preferences: prefs,
+            prompt: prompt,
+            keep_existing: keepExisting,
+            clear_selected: clearSelected
+        });
+    },
+
+    autoFillRoutine: function(options) {
+        if (!this.config.canEdit) {
+            alert('You do not have permission to edit');
+            return;
+        }
+        options = options || {};
+        let courses = options.courses;
+        if (!courses) {
+            this.openAutoFillModal();
+            return;
+        }
+        if (!courses.length) {
+            alert('অটো-সাজানোর জন্য অন্তত একটি সাবজেক্ট বেছে নিন।');
+            return;
+        }
+        const rooms = [];
+        const seenRooms = new Set();
+        document.querySelectorAll('#routine-tbody tr[data-room]').forEach(row => {
+            const id = parseInt(row.dataset.room, 10);
+            if (!id || seenRooms.has(id)) return;
+            seenRooms.add(id);
+            const label = (row.querySelector('.room-col') || {}).textContent || '';
+            rooms.push({ id: id, room_number: String(label).trim() });
+        });
+        const existing = [];
+        this.elements.slotCells = document.querySelectorAll('.slot-cell');
+        this.elements.slotCells.forEach(cell => {
+            if (cell.classList.contains('lunch-cell')) return;
+            const key = this.getSlotKey(cell);
+            const item = this.state.routine[key];
+            if (!item || (!item.courseCode && !item.isCustom)) return;
+            existing.push({
+                day: cell.dataset.day,
+                slot: cell.dataset.slot,
+                room_id: parseInt(cell.dataset.room, 10),
+                course_code: item.courseCode || '',
+                teacher_short_name: item.teacherShort || '',
+                part: item.part || 'Full',
+                assigned_id: item.courseId || '',
+                teacher_id: item.teacherId || '',
+                year: item.year || '',
+                term: item.term || '',
+                batch: item.batch || '',
+                color_code: item.colorCode || '',
+                is_custom: item.isCustom || false,
+                custom_course_name: item.isCustom ? (item.courseCode || '') : ''
+            });
+        });
+        const btn = this.elements.btnAutoFill;
+        const original = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        }
+        fetch('/routine-management/api/routine/auto-fill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                days: this.config.days,
+                time_slots: this.getCurrentTimeSlots ? this.getCurrentTimeSlots() : this.config.timeSlots,
+                rooms: rooms,
+                courses: courses,
+                existing: existing,
+                keep_existing: options.keep_existing !== false,
+                clear_selected: !!options.clear_selected,
+                preferences: options.preferences || {},
+                prompt: options.prompt || ''
+            })
+        }).then(r => r.json()).then(data => {
+            if (!data.success) {
+                alert(data.message || 'Auto-fill failed');
+                return;
+            }
+            const next = {};
+            (data.routine || []).forEach(entry => {
+                const key = entry.day + '|' + entry.slot + '|' + entry.room_id;
+                next[key] = {
+                    courseCode: entry.course_code || '',
+                    teacherShort: entry.teacher_short_name || '',
+                    teacherId: entry.teacher_id || '',
+                    part: entry.part || 'Full',
+                    courseId: entry.assigned_id || '',
+                    year: entry.year || '',
+                    term: entry.term || '',
+                    batch: entry.batch || '',
+                    colorCode: entry.color_code || '',
+                    isCustom: !!entry.is_custom
+                };
+            });
+            this.state.routine = next;
+            this.rebuildPlacedCourses();
+            this.updateRoutineDisplay();
+            this.updateCourseCards();
+            this.updateProgress();
+            this.checkConflicts();
+            this.state.hasUnsavedChanges = true;
+            const leftover = (data.explanations || []).join('\n');
+            if (leftover) alert('কিছু কোর্স বসানো যায়নি:\n' + leftover);
+            else alert('কনফ্লিক্টহীন খসড়া তৈরি হয়েছে। Save চাপুন।');
+        }).catch(() => alert('Auto-fill failed.')).finally(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        });
+    },
+
     saveRoutine: function() {
         if (!this.config.canEdit) {
             alert('You do not have permission to save');

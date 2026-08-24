@@ -44,6 +44,15 @@
             font-style: italic;
         }
         {% endif %}
+
+        {% if pdf_font_dejavu_regular %}
+        @font-face {
+            font-family: 'DejaVu Sans';
+            src: url('{{ pdf_font_dejavu_regular }}');
+            font-weight: normal;
+            font-style: normal;
+        }
+        {% endif %}
         
         * {
             margin: 0;
@@ -230,9 +239,31 @@
             font-weight: bold;
             font-size: 8pt;
         }
+
+        .tick-mark {
+            display: inline-block;
+            vertical-align: middle;
+            font-family: 'DejaVu Sans', 'PDFSerif', sans-serif;
+            font-size: 11pt;
+            font-weight: bold;
+            line-height: 1;
+            color: #000;
+        }
+
+        .likert-table .tick-cell {
+            text-align: center;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
+    {% macro feedback_tick() -%}
+    <span class="tick-mark" aria-hidden="true">&#10003;</span>
+    {%- endmacro %}
+    {% macro likert_tick(section_values, key, option) -%}
+    {% set selected = (section_values.get(key) or '')|string|trim|lower %}
+    {% if selected and selected == option|trim|lower %}{{ feedback_tick() }}{% endif %}
+    {%- endmacro %}
     {% for feedback in feedback_data %}
         {% if loop.index > 1 %}
         <div class="page-break"></div>
@@ -276,7 +307,7 @@
                 <tr>
                     <td>{{ question }}</td>
                     {% for option in likert_options %}
-                    <td>{% if feedback.section_a.get(key) and feedback.section_a.get(key).lower() == option.lower() %}✓{% endif %}</td>
+                    <td class="tick-cell">{{ likert_tick(feedback.section_a, key, option) }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
@@ -298,7 +329,7 @@
                 <tr>
                     <td>{{ question }}</td>
                     {% for option in likert_options %}
-                    <td>{% if feedback.section_b.get(key) and feedback.section_b.get(key).lower() == option.lower() %}✓{% endif %}</td>
+                    <td class="tick-cell">{{ likert_tick(feedback.section_b, key, option) }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
@@ -311,7 +342,7 @@
         <div class="checklist">
             {% for method in feedback_method_options %}
             <div class="checklist-item">
-                {% if method in teaching_methods %}✓ {% endif %}{{ method }}
+                {% if method in teaching_methods %}{{ feedback_tick() }} {% endif %}{{ method }}
             </div>
             {% endfor %}
         </div>
@@ -331,7 +362,7 @@
                 <tr>
                     <td>{{ question }}</td>
                     {% for option in likert_options %}
-                    <td>{% if feedback.section_b.get(key) and feedback.section_b.get(key).lower() == option.lower() %}✓{% endif %}</td>
+                    <td class="tick-cell">{{ likert_tick(feedback.section_b, key, option) }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
@@ -356,7 +387,7 @@
         <div class="checklist">
             {% for effort in feedback_effort_options %}
             <div class="checklist-item">
-                {% if effort in effort_focus %}✓ {% endif %}{{ effort }}
+                {% if effort in effort_focus %}{{ feedback_tick() }} {% endif %}{{ effort }}
             </div>
             {% endfor %}
         </div>

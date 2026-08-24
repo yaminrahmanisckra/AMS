@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Model answers – {{ qb_file.title }}{% endblock %}
+{% block extra_css %}
+<style>
+    .qb-guide-banner { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px; padding: 10px 14px; }
+    .qb-answer-card { border-bottom: 1px solid #e5e7eb; padding-bottom: 1.1rem; margin-bottom: 1.1rem; }
+    .qb-md h1, .qb-md h2, .qb-md h3, .qb-md h4, .qb-md h5 { font-size: 1.08rem; font-weight: 700; margin: 0.9rem 0 0.35rem; }
+    .qb-md p { margin-bottom: 0.55rem; }
+    .qb-md ul, .qb-md ol { padding-left: 1.3rem; margin-bottom: 0.7rem; }
+    .qb-md blockquote { border-left: 3px solid #6366f1; background: #f8fafc; padding: 8px 12px; margin: 0.6rem 0; }
+    .qb-md-table th, .qb-md-table td { border: 1px solid #cbd5e1; padding: 6px 8px; vertical-align: top; }
+    .qb-md-table th { background: #f1f5f9; }
+    .qb-figure { border: 1px dashed #94a3b8; background: #f8fafc; border-radius: 8px; padding: 8px 12px; margin: 0.6rem 0; }
+    @media print {
+        .no-print { display: none !important; }
+        .qb-answer-card { break-inside: avoid; }
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Model answers</h4>
+        <button type="button" class="btn btn-sm btn-outline-secondary no-print" onclick="window.print()">Print</button>
+    </div>
+    <p class="text-muted">{{ qb_file.title }} · {{ qb_file.question_year }}{% if qb_file.course_code %} · {{ qb_file.course_code }}{% endif %}</p>
+    <p class="small text-muted no-print">Teachers only. Not shown to students.</p>
+    {% if display.get('guideline_title') %}
+    <div class="qb-guide-banner mb-4">
+        <div class="small text-muted mb-1">উত্তর যে Answer Guideline অনুসরণ করে লেখা হয়েছে</div>
+        <strong>{{ display.get('guideline_title') }}</strong>
+    </div>
+    {% endif %}
+    {% for item in display.get('items', []) %}
+    <div class="qb-answer-card">
+        <h5>{% if item.get('number') %}{{ item.get('number') }} — {% endif %}{{ item.get('question') or loop.index }}</h5>
+        {% if item.get('followed_model') %}
+        <p class="small mb-2"><span class="badge text-bg-primary">গাইডলাইন মডেল</span> {{ item.get('followed_model') }}</p>
+        {% endif %}
+        <div class="qb-md">{{ item.get('model_answer_html')|safe }}</div>
+        {% if item.get('marking_points') %}
+        <p class="small fw-semibold mb-1 mt-2">Marking points</p>
+        <ul>
+            {% for p in item.get('marking_points') %}
+            <li>{{ p }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% if item.get('citations') %}
+        <p class="small fw-semibold mb-1">Citations</p>
+        <ul>
+            {% for p in item.get('citations') %}
+            <li>{{ p }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+    {% else %}
+    <p>No answers stored.</p>
+    {% endfor %}
+    {% if display.get('warnings') %}
+    <div class="alert alert-warning">
+        {% for w in display.get('warnings') %}<div>{{ w }}</div>{% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

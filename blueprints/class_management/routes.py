@@ -75,18 +75,32 @@ from reportlab.pdfbase.ttfonts import TTFont
 # from docx.oxml import OxmlElement
 # from docx.enum.text import WD_ALIGN_PARAGRAPH
 from uuid import uuid4
-from role_utils import has_teacher_privileges, is_admin, parse_roles
+from role_utils import has_teacher_privileges, is_admin, parse_roles, is_head
 from utils.ownership import user_owns_class_session
 try:
     from utils.semester_utils import filter_by_active_semester
 except ImportError:
     filter_by_active_semester = None
 try:
-    from utils.window_utils import filter_by_active_window, get_effective_window_id, query_for_window, get_for_window, get_or_404_for_window, filter_offered_courses, stamp_window_id
+    from utils.window_utils import (
+        filter_by_active_window,
+        filter_by_window_sessions,
+        get_effective_window_id,
+        get_session_window_id,
+        query_for_window,
+        get_for_window,
+        get_or_404_for_window,
+        filter_offered_courses,
+        stamp_window_id,
+    )
 except ImportError:
     filter_by_active_window = None
+    filter_by_window_sessions = None
     get_effective_window_id = None
+    get_session_window_id = None
     query_for_window = None
+    get_for_window = None
+    get_or_404_for_window = None
     filter_offered_courses = None
     stamp_window_id = None
 
@@ -119,9 +133,40 @@ def _class_students_for_sessions(session_ids, order=True):
     return q.all()
 
 
+def _window_id_for_session(session_id):
+    """Operational window of a class session, else the user's current window."""
+    if session_id:
+        session_obj = Session.query.get(session_id)
+        if session_obj and getattr(session_obj, 'window_id', None) is not None:
+            return session_obj.window_id
+    if get_effective_window_id:
+        return get_effective_window_id()
+    return None
+
+
+def _stamp_notification_window(notification, window_id=None, session_id=None):
+    if window_id is None:
+        window_id = _window_id_for_session(session_id)
+    if stamp_window_id:
+        stamp_window_id(notification, window_id)
+    elif window_id is not None:
+        notification.window_id = window_id
+    return notification
+
+
+def _student_notifications_query(user_id):
+    """Student notifications visible in the currently selected operational window only."""
+    q = StudentNotification.query.filter_by(user_id=user_id)
+    window_id = get_effective_window_id() if get_effective_window_id else None
+    if window_id is None:
+        return q
+    return q.filter(StudentNotification.window_id == window_id)
+
+
 def _notify_students_in_session(session_id, notif_type, title, link_url):
     """Create a StudentNotification for each student in the given session (by student_id -> User.username)."""
     try:
+        window_id = _window_id_for_session(session_id)
         class_students = _class_students_for_session(session_id, order=False)
         seen_user_ids = set()
         for cs in class_students:
@@ -129,6 +174,7 @@ def _notify_students_in_session(session_id, notif_type, title, link_url):
             if user and user.id not in seen_user_ids:
                 seen_user_ids.add(user.id)
                 n = StudentNotification(user_id=user.id, type=notif_type, title=title, link_url=link_url)
+                _stamp_notification_window(n, window_id=window_id)
                 db.session.add(n)
         db.session.commit()
     except Exception as e:
@@ -136,12 +182,13 @@ def _notify_students_in_session(session_id, notif_type, title, link_url):
         db.session.rollback()
 
 
-def _notify_student_by_username(student_id_username, notif_type, title, link_url):
+def _notify_student_by_username(student_id_username, notif_type, title, link_url, session_id=None, window_id=None):
     """Create a single StudentNotification for the user with username=student_id_username."""
     try:
         user = User.query.filter_by(username=student_id_username).first()
         if user:
             n = StudentNotification(user_id=user.id, type=notif_type, title=title, link_url=link_url)
+            _stamp_notification_window(n, window_id=window_id, session_id=session_id)
             db.session.add(n)
             db.session.commit()
     except Exception as e:
@@ -532,12 +579,11 @@ def _session_offering_key(session):
     """
     Identity key for one teacher offering on Active Courses.
     Part A/B stay distinct via course_scope.
-    window_id / academic_session are intentionally omitted: reassignment often
-    creates a second row with a newer window or filled session string that still
-    represents the same offering in the current dashboard list.
+    window_id is included so Window 1 and Window 2 offerings are never merged.
     """
     return (
         session.teacher_id,
+        getattr(session, 'window_id', None),
         _normalize_offering_text(session.course_code),
         _normalize_offering_text(session.year),
         _normalize_offering_text(session.term),
@@ -2324,12 +2370,15 @@ def index():
             current_app.logger.error(f'[DEBUG] Error applying active semester filter: {filter_error}', exc_info=True)
             # Don't fail the request, but log the error
 
-    if filter_by_active_window and not is_admin(current_user):
-        try:
-            query = filter_by_active_window(query, Session, admin_override=False)
-            current_app.logger.info(f'[DEBUG] Applied active window filtering for teacher {teacher.id}')
-        except Exception as window_filter_error:
-            current_app.logger.error(f'[DEBUG] Error applying active window filter: {window_filter_error}', exc_info=True)
+    if filter_by_active_window:
+        selected_window = get_session_window_id() if get_session_window_id else None
+        # Honor the W1/W2 selector even for admin so windows are not mixed.
+        if selected_window is not None or not is_admin(current_user):
+            try:
+                query = filter_by_active_window(query, Session, admin_override=False)
+                current_app.logger.info(f'[DEBUG] Applied active window filtering for teacher {teacher.id}')
+            except Exception as window_filter_error:
+                current_app.logger.error(f'[DEBUG] Error applying active window filter: {window_filter_error}', exc_info=True)
     
     sessions = query.order_by(Session.created_at.desc()).all()
     sessions = _dedupe_active_sessions(sessions)
@@ -2344,7 +2393,12 @@ def index():
     # Get teachers excluding Head of the Discipline
     from role_utils import get_teachers_excluding_head
     teachers = get_teachers_excluding_head()
-    pending_split_invites = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').order_by(ClassSplitInvite.created_at.desc()).all()
+    pending_split_invites = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').order_by(ClassSplitInvite.created_at.desc())
+    if filter_by_window_sessions:
+        pending_split_invites = filter_by_window_sessions(
+            pending_split_invites, ClassSplitInvite.inviter_session_id, admin_override=False
+        )
+    pending_split_invites = pending_split_invites.all()
     
     # Get all batches from Students Management for the dropdown
     batches = []
@@ -4232,33 +4286,28 @@ def delete_session(session_id):
 def course_file(session_id):
     """Course file management page"""
     session = get_or_404_for_window(Session, session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     
-    # Get or create course outline
+    # Get shared course outline (split Part A/B partners share one outline)
     course_outline = None
     try:
-        course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
-        if not course_outline:
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-            if teacher:
-                # Ensure all columns exist before creating
-                try:
-                    db.create_all()
-                except Exception as e:
-                    current_app.logger.warning(f"Could not create all tables/columns: {e}")
-                
-                course_outline = CourseOutline(session_id=session_id, teacher_id=teacher.id)
-                db.session.add(course_outline)
-                db.session.commit()
+        if not _is_course_outline_authorized(session, teacher):
+            flash('You are not authorized to view this course file.', 'danger')
+            return redirect(url_for('class_management.index'))
+        course_outline = _resolve_course_outline(session, teacher=teacher, create=False)
+        if not course_outline and teacher:
+            try:
+                db.create_all()
+            except Exception as e:
+                current_app.logger.warning(f"Could not create all tables/columns: {e}")
+            course_outline = _resolve_course_outline(session, teacher=teacher, create=True)
+            db.session.commit()
     except Exception as e:
-        # If table doesn't exist, create it
-        current_app.logger.warning(f"CourseOutline table might not exist: {e}")
+        current_app.logger.warning(f"CourseOutline lookup failed: {e}")
         try:
             db.create_all()
-            # Try again after creating tables
-            teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-            if teacher:
-                course_outline = CourseOutline(session_id=session_id, teacher_id=teacher.id)
-                db.session.add(course_outline)
+            if teacher and _is_course_outline_authorized(session, teacher):
+                course_outline = _resolve_course_outline(session, teacher=teacher, create=True)
                 db.session.commit()
         except Exception as e2:
             current_app.logger.error(f"Error creating CourseOutline: {e2}")
@@ -4274,6 +4323,8 @@ def course_file(session_id):
     return render_template('class_management/course_file.html', 
                          session=session, 
                          course_outline=course_outline,
+                         outline_has_content=_outline_has_content(course_outline),
+                         is_split_shared_outline=_is_split_course_outline_session(session),
                          course_data=course_data,
                          uploaded_files=uploaded_files)
 
@@ -4291,10 +4342,7 @@ def save_course_outline(session_id):
             flash('You are not authorized to edit this course outline.', 'danger')
             return redirect(url_for('class_management.course_file', session_id=session_id))
         
-        course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
-        if not course_outline:
-            course_outline = CourseOutline(session_id=session_id, teacher_id=teacher.id)
-            db.session.add(course_outline)
+        course_outline = _outline_record_for_save(session, teacher)
         
         # Ensure all columns exist (for database migrations)
         try:
@@ -4489,6 +4537,8 @@ def save_course_outline(session_id):
         
         try:
             db.session.commit()
+            _sync_split_course_outline(course_outline, session)
+            db.session.commit()
             current_app.logger.info(f"Course outline saved successfully for session {session_id}")
         except Exception as e:
             db.session.rollback()
@@ -4527,7 +4577,7 @@ def upload_course_file(session_id):
             return redirect(url_for('class_management.course_file', session_id=session_id))
         
         # Check authorization
-        if teacher.id != session.teacher_id:
+        if not _is_course_outline_authorized(session, teacher):
             flash('You are not authorized to upload files for this course.', 'error')
             return redirect(url_for('class_management.course_file', session_id=session_id))
         
@@ -4700,6 +4750,136 @@ def _is_course_outline_authorized(session, teacher):
     return False
 
 
+_OUTLINE_SYNC_FIELDS = (
+    'course_objectives', 'course_summary', 'prerequisites', 'contact_hours',
+    'cie_marks', 'smee_marks', 'credit_value', 'course_type', 'level_term_section',
+    'clo_data', 'plo_mapping', 'lesson_plan', 'course_content_summary',
+    'course_content_classes', 'clo_plo_mapping', 'assessment_strategy',
+    'assessment_techniques', 'rubrics', 'grading_policy', 'evaluation_policy',
+    'cie_breakdown', 'smee_breakdown', 'textbooks', 'reference_books',
+    'other_resources', 'course_file_components', 'make_up_procedures',
+    'other_issues', 'student_access_enabled',
+)
+
+
+def _is_split_course_outline_session(session):
+    return bool(
+        session
+        and session.split_group_id
+        and (getattr(session, 'course_scope', None) or SCOPE_FULL) in SPLIT_PARTS
+    )
+
+
+def _split_outline_peer_sessions(session):
+    if not _is_split_course_outline_session(session):
+        return []
+    return [
+        s for s in _get_related_sessions(session, include_archived=False)
+        if s.id != session.id and (getattr(s, 'course_scope', None) or SCOPE_FULL) in SPLIT_PARTS
+    ]
+
+
+def _outline_has_content(outline):
+    if not outline:
+        return False
+    for field in (
+        'course_objectives', 'course_summary', 'clo_data', 'lesson_plan',
+        'course_content_summary', 'assessment_strategy', 'assessment_techniques',
+        'textbooks', 'reference_books', 'other_resources', 'course_file_components',
+    ):
+        val = getattr(outline, field, None)
+        if isinstance(val, str) and val.strip() and val.strip() not in ('[]', '{}', 'null'):
+            return True
+    for field in ('prerequisites', 'contact_hours', 'cie_marks', 'smee_marks', 'credit_value', 'make_up_procedures'):
+        val = getattr(outline, field, None)
+        if isinstance(val, str) and val.strip():
+            return True
+    return False
+
+
+def _pick_canonical_split_outline(session):
+    """Newest non-empty outline among split partners (Part A/B)."""
+    if not _is_split_course_outline_session(session):
+        return None
+    candidates = []
+    for peer_session in _get_related_sessions(session, include_archived=False):
+        if (getattr(peer_session, 'course_scope', None) or SCOPE_FULL) not in SPLIT_PARTS:
+            continue
+        outline = CourseOutline.query.filter_by(session_id=peer_session.id).first()
+        if outline:
+            candidates.append(outline)
+    if not candidates:
+        return None
+
+    def _rank(outline):
+        ts = outline.updated_at or outline.created_at or datetime.min
+        return (_outline_has_content(outline), ts, outline.id or 0)
+
+    return max(candidates, key=_rank)
+
+
+def _resolve_course_outline(session, teacher=None, create=False):
+    """Return the outline visible for this offering (shared across split partners)."""
+    if not session:
+        return None
+    local = CourseOutline.query.filter_by(session_id=session.id).first()
+    if _is_split_course_outline_session(session):
+        canonical = _pick_canonical_split_outline(session)
+        if canonical:
+            return canonical
+    if local:
+        return local
+    if not create:
+        return None
+    owner_id = teacher.id if teacher else session.teacher_id
+    local = CourseOutline(session_id=session.id, teacher_id=owner_id)
+    db.session.add(local)
+    db.session.flush()
+    return local
+
+
+def _outline_record_for_save(session, teacher):
+    """Writable outline row for the current session (creates if missing)."""
+    outline = CourseOutline.query.filter_by(session_id=session.id).first()
+    if not outline:
+        outline = CourseOutline(
+            session_id=session.id,
+            teacher_id=teacher.id if teacher else session.teacher_id,
+        )
+        db.session.add(outline)
+    return outline
+
+
+def _copy_outline_fields(source, target):
+    for field in _OUTLINE_SYNC_FIELDS:
+        if hasattr(source, field) and hasattr(target, field):
+            setattr(target, field, getattr(source, field))
+    target.updated_at = datetime.utcnow()
+
+
+def _sync_split_course_outline(source_outline, session):
+    """Mirror saved outline to all split partners so both teachers see the same file."""
+    if not source_outline or not _is_split_course_outline_session(session):
+        return
+    for peer in _split_outline_peer_sessions(session):
+        peer_outline = CourseOutline.query.filter_by(session_id=peer.id).first()
+        if not peer_outline:
+            peer_outline = CourseOutline(session_id=peer.id, teacher_id=peer.teacher_id)
+            db.session.add(peer_outline)
+        _copy_outline_fields(source_outline, peer_outline)
+
+
+def _split_outline_access_enabled(session):
+    outline = _resolve_course_outline(session)
+    if outline and getattr(outline, 'student_access_enabled', False):
+        return True
+    for peer in _split_outline_peer_sessions(session):
+        peer_outline = CourseOutline.query.filter_by(session_id=peer.id).first()
+        if peer_outline and peer_outline.student_access_enabled:
+            return True
+    return False
+
+
 def _ai_outline_calendar_and_course(session):
     from blueprints.academic_calendar.models import AcademicCalendarEvent
     from utils.ai.calendar_utils import calendar_query_range
@@ -4819,6 +4999,7 @@ def patch_outline_section_ai(session_id):
             instruction=data.get('instruction'),
             current_outline=data.get('current') or {},
             allow_topic_change=bool(data.get('allow_topic_change')),
+            context=data.get('context') or {},
         )
         reset_db_session()
         return jsonify({
@@ -5031,19 +5212,7 @@ def generate_weekly_plan_ai(session_id):
     session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     
-    # Check if teacher is authorized (either main teacher or part of split group)
-    is_authorized = False
-    if teacher:
-        if teacher.id == session.teacher_id:
-            is_authorized = True
-        elif session.split_group_id:
-            related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
-            for related_session in related_sessions:
-                if related_session.teacher_id == teacher.id:
-                    is_authorized = True
-                    break
-    
-    if not is_authorized:
+    if not _is_course_outline_authorized(session, teacher):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 403
     
     data = request.get_json()
@@ -5071,8 +5240,8 @@ def generate_weekly_plan_ai(session_id):
                 pass
         
         if not credit:
-            # Try to get from course outline
-            course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
+            # Try to get from course outline (shared for split courses)
+            course_outline = _resolve_course_outline(session, teacher=teacher)
             if course_outline and course_outline.credit_value:
                 try:
                     credit = float(course_outline.credit_value)
@@ -5129,40 +5298,14 @@ def generate_weekly_plan_ai(session_id):
         # If no course content from section 14, try to get from curriculum
         if not course_contents:
             if course_data := find_course_from_curriculum(session.course_code, session.course_name, session=session):
-                # For split courses, use only the specified part (A or B)
-                # For full courses, combine both sections
+                from utils.ai.curriculum_anchor import parse_curriculum_content_rows
                 if part == 'A':
-                    if course_data.content_section_a:
-                        try:
-                            content_a = json.loads(course_data.content_section_a) if isinstance(course_data.content_section_a, str) else course_data.content_section_a
-                            if isinstance(content_a, list):
-                                course_contents.extend(content_a)
-                        except:
-                            pass
+                    course_contents.extend(parse_curriculum_content_rows(course_data.content_section_a))
                 elif part == 'B':
-                    if course_data.content_section_b:
-                        try:
-                            content_b = json.loads(course_data.content_section_b) if isinstance(course_data.content_section_b, str) else course_data.content_section_b
-                            if isinstance(content_b, list):
-                                course_contents.extend(content_b)
-                        except:
-                            pass
+                    course_contents.extend(parse_curriculum_content_rows(course_data.content_section_b))
                 else:
-                    # Full course: combine both sections
-                    if course_data.content_section_a:
-                        try:
-                            content_a = json.loads(course_data.content_section_a) if isinstance(course_data.content_section_a, str) else course_data.content_section_a
-                            if isinstance(content_a, list):
-                                course_contents.extend(content_a)
-                        except:
-                            pass
-                    if course_data.content_section_b:
-                        try:
-                            content_b = json.loads(course_data.content_section_b) if isinstance(course_data.content_section_b, str) else course_data.content_section_b
-                            if isinstance(content_b, list):
-                                course_contents.extend(content_b)
-                        except:
-                            pass
+                    course_contents.extend(parse_curriculum_content_rows(course_data.content_section_a))
+                    course_contents.extend(parse_curriculum_content_rows(course_data.content_section_b))
         
         # Get CLOs
         clos = []
@@ -5233,7 +5376,7 @@ def generate_weekly_plan_ai(session_id):
         # Also load Classes data from course_content_classes (separate column)
         # This is where the teacher's manual Classes input is stored
         classes_data = {'section_a': [], 'section_b': []}
-        course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
+        course_outline = _resolve_course_outline(session, teacher=teacher)
         if course_outline and getattr(course_outline, 'course_content_classes', None):
             try:
                 classes_data = json.loads(course_outline.course_content_classes)
@@ -5441,21 +5584,24 @@ def generate_weekly_plan_ai(session_id):
         peer_scope = None
         if part in ('A', 'B') and session.split_group_id:
             wanted_scope = SCOPE_PART_A if part == 'A' else SCOPE_PART_B
+            target_session = session
             if (session.course_scope or '') != wanted_scope:
-                peer = next(
+                target_session = next(
                     (s for s in _get_related_sessions(session) if (s.course_scope or '') == wanted_scope),
                     None,
-                )
-                if peer:
-                    peer_outline = CourseOutline.query.filter_by(session_id=peer.id).first()
-                    if not peer_outline:
-                        peer_outline = CourseOutline(session_id=peer.id, teacher_id=peer.teacher_id)
-                        db.session.add(peer_outline)
-                    peer_outline.lesson_plan = json.dumps(lesson_plan)
-                    db.session.commit()
-                    saved_to_peer = True
-                    peer_scope = part
-                    msg += f' Saved to Part {part} outline.'
+                ) or session
+            target_outline = _outline_record_for_save(
+                target_session,
+                Teacher.query.get(target_session.teacher_id) if target_session.teacher_id else teacher,
+            )
+            target_outline.lesson_plan = json.dumps(lesson_plan)
+            db.session.commit()
+            _sync_split_course_outline(target_outline, target_session)
+            db.session.commit()
+            if target_session.id != session.id:
+                saved_to_peer = True
+                peer_scope = part
+                msg += f' Saved to Part {part} outline.'
         
         return jsonify({
             'success': True,
@@ -5682,31 +5828,15 @@ def edit_course_outline(session_id):
     session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     
-    # Check if teacher is authorized (either main teacher or part of split group)
-    is_authorized = False
-    if teacher:
-        if teacher.id == session.teacher_id:
-            is_authorized = True
-        elif session.split_group_id:
-            # Check if teacher is part of the split group
-            related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
-            for related_session in related_sessions:
-                if related_session.teacher_id == teacher.id:
-                    is_authorized = True
-                    break
-    
-    if not is_authorized:
+    if not _is_course_outline_authorized(session, teacher):
         flash('You are not authorized to edit this course outline.', 'danger')
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
     # Current instructors only (replaced/archived teachers are omitted)
     course_teachers = _current_course_instructors(session)
     
-    course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
-    if not course_outline:
-        course_outline = CourseOutline(session_id=session_id, teacher_id=teacher.id)
-        db.session.add(course_outline)
-        db.session.commit()
+    course_outline = _resolve_course_outline(session, teacher=teacher, create=True)
+    db.session.commit()
     
     # Get course data from curriculum using improved matching
     # IMPORTANT: Same course can exist in multiple curricula, so we need to find the right one
@@ -5977,26 +6107,13 @@ def edit_course_outline(session_id):
             current_app.logger.warning(f"Error parsing course CLOs: {e}")
     
     # Parse course contents from curriculum for import
+    from utils.ai.curriculum_anchor import parse_curriculum_content_rows, resolve_course_content_summary
     course_contents_a = []
     course_contents_b = []
     if course_data:
         try:
-            if course_data.content_section_a:
-                content_a = course_data.content_section_a
-                try:
-                    content_a_data = json.loads(content_a) if isinstance(content_a, str) else content_a
-                    if isinstance(content_a_data, list):
-                        course_contents_a = content_a_data
-                except:
-                    pass
-            if course_data.content_section_b:
-                content_b = course_data.content_section_b
-                try:
-                    content_b_data = json.loads(content_b) if isinstance(content_b, str) else content_b
-                    if isinstance(content_b_data, list):
-                        course_contents_b = content_b_data
-                except:
-                    pass
+            course_contents_a = parse_curriculum_content_rows(course_data.content_section_a)
+            course_contents_b = parse_curriculum_content_rows(course_data.content_section_b)
         except Exception as e:
             current_app.logger.warning(f"Error parsing course contents: {e}")
     
@@ -6020,7 +6137,6 @@ def edit_course_outline(session_id):
         except (TypeError, ValueError, json.JSONDecodeError):
             existing_content_summary = course_outline.course_content_summary
 
-    from utils.ai.curriculum_anchor import resolve_course_content_summary
     existing_content_summary = resolve_course_content_summary(
         existing_content_summary, course_data=course_data, classes_data=existing_classes,
     )
@@ -6140,18 +6256,19 @@ def edit_course_outline(session_id):
                          ai_outline_enabled=ai_outline_enabled,
                          session_delivery_type=(session.course_type or 'theory'),
                          ai_default_total_classes=ai_default_total_classes,
-                         ai_default_classes_per_week=ai_default_classes_per_week)
+                         ai_default_classes_per_week=ai_default_classes_per_week,
+                         is_split_shared_outline=_is_split_course_outline_session(session))
 
 def _generate_course_outline_docx(session_id):
     """Generate course outline as DOCX document"""
     session = get_or_404_for_window(Session, session_id)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     
-    if not teacher or teacher.id != session.teacher_id:
+    if not _is_course_outline_authorized(session, teacher):
         flash('You are not authorized to download this course outline.', 'danger')
         return redirect(url_for('class_management.course_file', session_id=session_id))
     
-    course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
+    course_outline = _resolve_course_outline(session)
     if not course_outline:
         flash('Course outline not found. Please create it first.', 'warning')
         return redirect(url_for('class_management.course_file', session_id=session_id))
@@ -6311,23 +6428,11 @@ def _generate_course_outline_pdf(session_id, skip_auth_check=False):
     # Skip authorization check if requested (for student downloads)
     if not skip_auth_check:
         teacher = Teacher.query.filter_by(name=current_user.full_name).first()
-        
-        # Check if user is authorized (teacher or part of split group)
-        is_authorized = False
-        if teacher and teacher.id == session.teacher_id:
-            is_authorized = True
-        elif session.split_group_id:
-            related_sessions = query_for_window(Session).filter_by(split_group_id=session.split_group_id).all()
-            for related_session in related_sessions:
-                if related_session.teacher and related_session.teacher.id == teacher.id:
-                    is_authorized = True
-                    break
-        
-        if not is_authorized:
+        if not _is_course_outline_authorized(session, teacher):
             flash('You are not authorized to download this course outline.', 'danger')
             return redirect(url_for('class_management.course_file', session_id=session_id))
     
-    course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
+    course_outline = _resolve_course_outline(session)
     if not course_outline:
         flash('Course outline not found. Please create it first.', 'warning')
         return redirect(url_for('class_management.course_file', session_id=session_id))
@@ -8661,7 +8766,7 @@ def student_create_course_question(session_id):
     selected_session = get_or_404_for_window(Session, selected_session_id)
 
     subject = request.form.get('subject', '').strip()
-    message_body = request.form.get('message', '').strip()
+    message_body = _sanitize_qa_body(request.form.get('message'))
     files = request.files.getlist('attachments')
 
     if not subject:
@@ -8705,6 +8810,7 @@ def student_create_course_question(session_id):
 
         db.session.commit()
         flash('Your question has been sent to the teacher.', 'success')
+        _try_qa_auto_reply(thread.id)
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error creating question thread: {e}", exc_info=True)
@@ -8727,7 +8833,7 @@ def student_reply_course_question(thread_id):
         flash('You are not authorized to reply to this thread.', 'error')
         return redirect(url_for('class_management.student_view_scores'))
 
-    message_body = request.form.get('message', '').strip()
+    message_body = _sanitize_qa_body(request.form.get('message'))
     files = request.files.getlist('attachments')
 
     if not message_body and not files:
@@ -8758,6 +8864,7 @@ def student_reply_course_question(thread_id):
         thread.teacher_read_at = None  # so teacher sees new reply in bell (unread)
         db.session.commit()
         flash('Reply sent successfully.', 'success')
+        _try_qa_auto_reply(thread.id)
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error replying to question thread: {e}", exc_info=True)
@@ -8812,7 +8919,8 @@ def course_questions(session_id):
     return render_template(
         'class_management/course_questions.html',
         session=session_obj,
-        threads=threads
+        threads=threads,
+        qa_ai_auto_reply=bool(getattr(session_obj, 'qa_ai_auto_reply', False)),
     )
 
 
@@ -8828,7 +8936,7 @@ def teacher_reply_course_question(thread_id):
         flash('You are not authorized to reply to this thread.', 'error')
         return redirect(url_for('class_management.index'))
 
-    message_body = request.form.get('message', '').strip()
+    message_body = _sanitize_qa_body(request.form.get('message'))
     files = request.files.getlist('attachments')
 
     if not message_body and not files:
@@ -8866,7 +8974,8 @@ def teacher_reply_course_question(thread_id):
                 thread.student_id,
                 'question_reply',
                 f'Teacher replied to your question: {thread.subject[:50]}{"..." if len(thread.subject) > 50 else ""}',
-                link_url
+                link_url,
+                session_id=thread.session_id,
             )
         except Exception as notif_e:
             current_app.logger.warning(f"Student notification (question reply): {notif_e}")
@@ -8876,6 +8985,111 @@ def teacher_reply_course_question(thread_id):
         flash('Failed to send reply. Please try again.', 'error')
 
     return redirect(url_for('class_management.course_questions', session_id=session_obj.id))
+
+
+def _try_qa_auto_reply(thread_id):
+    """Post an AI teacher reply if the session toggle is on. Never raises to the student."""
+    try:
+        thread = CourseQuestionThread.query.get(thread_id)
+        if not thread:
+            return
+        session_obj = Session.query.get(thread.session_id)
+        if not session_obj or not getattr(session_obj, 'qa_ai_auto_reply', False):
+            return
+        import re
+        from utils.ai.qa_reply import AI_PREFIX, generate_teacher_reply, looks_like_marks_or_attendance
+
+        last_student = None
+        for msg in sorted(thread.messages or [], key=lambda m: (m.created_at or datetime.min, m.id or 0)):
+            if msg.sender_role == 'student':
+                last_student = msg
+        student_text = (last_student.body if last_student else '') or thread.subject or ''
+        student_plain = re.sub(r'<[^>]+>', ' ', student_text)
+        if looks_like_marks_or_attendance(student_plain):
+            return
+        reply_text, _rag = generate_teacher_reply(session_obj, thread, student_plain)
+        body = _sanitize_qa_body(f'{AI_PREFIX}: {reply_text}')
+        message = CourseQuestionMessage(
+            thread_id=thread.id,
+            sender_role='teacher',
+            sender_user_id=session_obj.teacher_id,
+            body=body,
+            is_ai_generated=True,
+        )
+        db.session.add(message)
+        thread.updated_at = datetime.utcnow()
+        db.session.commit()
+        try:
+            link_url = url_for('class_management.student_view_scores')
+            _notify_student_by_username(
+                thread.student_id,
+                'question_reply',
+                f'Teacher replied to your question: {thread.subject[:50]}{"..." if len(thread.subject) > 50 else ""}',
+                link_url,
+                session_id=thread.session_id,
+            )
+        except Exception as notif_e:
+            current_app.logger.warning(f"Student notification (AI question reply): {notif_e}")
+    except ValueError:
+        db.session.rollback()
+        return
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.warning(f'QA auto-reply skipped for thread {thread_id}: {exc}')
+
+
+@class_management_bp.route('/course-questions/<int:session_id>/ai-auto-reply', methods=['POST'])
+@login_required
+def toggle_qa_ai_auto_reply(session_id):
+    session_obj = get_or_404_for_window(Session, session_id)
+    teacher = _ensure_current_teacher()
+    if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
+        flash('You are not authorized to change this setting.', 'error')
+        return redirect(url_for('class_management.index'))
+    values = request.form.getlist('enabled')
+    enabled = (values[-1] if values else '0') in ('1', 'true', 'on', 'yes')
+    session_obj.qa_ai_auto_reply = enabled
+    db.session.commit()
+    flash('এআই স্বয়ংক্রিয় উত্তর চালু করা হয়েছে।' if enabled else 'এআই স্বয়ংক্রিয় উত্তর বন্ধ করা হয়েছে।', 'success')
+    return redirect(url_for('class_management.course_questions', session_id=session_id))
+
+
+@class_management_bp.route('/course-questions/<int:thread_id>/ai-draft', methods=['POST'])
+@login_required
+def course_question_ai_draft(thread_id):
+    thread = CourseQuestionThread.query.get_or_404(thread_id)
+    session_obj = get_or_404_for_window(Session, thread.session_id)
+    teacher = _ensure_current_teacher()
+    if not teacher or (teacher.id != session_obj.teacher_id and not is_admin(current_user)):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    try:
+        from utils.ai.client import AIClientError, get_active_provider_setting, user_facing_generation_error
+        from utils.ai.qa_reply import generate_teacher_reply
+        from utils.ai.session_utils import reset_db_session
+
+        get_active_provider_setting()
+        last_student = ''
+        for msg in sorted(thread.messages or [], key=lambda m: (m.created_at or datetime.min, m.id or 0)):
+            if msg.sender_role == 'student' and msg.body:
+                last_student = msg.body
+        draft, _rag = generate_teacher_reply(session_obj, thread, last_student or thread.subject or '')
+        reset_db_session()
+        return jsonify({'success': True, 'draft': draft})
+    except ValueError as exc:
+        code = str(exc)
+        if code == 'empty_rag':
+            return jsonify({'success': False, 'message': 'কোর্স আউটলাইন বা আপলোড করা ফাইল থেকে কনটেক্সট পাওয়া যায়নি।'}), 400
+        if code == 'marks_or_attendance':
+            return jsonify({'success': False, 'message': 'মার্ক বা উপস্থিতি নিয়ে এআই উত্তর দেবে না।'}), 400
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except AIClientError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        current_app.logger.error(f'QA AI draft failed for thread {thread_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({'success': False, 'message': user_facing_generation_error(exc)}), 500
 
 
 @class_management_bp.route('/course-questions/<int:thread_id>/mark-read', methods=['POST'])
@@ -9437,18 +9651,30 @@ def jinja_getattr(obj, name):
 
 @class_management_bp.app_template_filter('qa_message_body')
 def qa_message_body_filter(value):
-    """Q&A message body: treat literal <br> as line breaks, preserve \\n, linkify URLs (XSS-safe)."""
+    """Render Q&A bodies as sanitized HTML; keep old plain-text messages readable."""
     import re
     from markupsafe import Markup
     from jinja2.utils import urlize
+    from utils.outline_richtext import html_is_empty, sanitize_outline_html
 
     if value is None or value == '':
         return Markup('')
     text = str(value)
+    if '<' in text and '>' in text:
+        html = sanitize_outline_html(text)
+        return Markup('') if html_is_empty(html) else Markup(html)
     text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
     text = text.replace('\r\n', '\n').replace('\r', '\n')
     linked = urlize(text, trim_url_limit=True)
     return Markup(str(linked).replace('\n', '<br />'))
+
+
+def _sanitize_qa_body(raw):
+    """Sanitize rich-text Q&A input; empty editor shells become ''."""
+    from utils.outline_richtext import html_is_empty, sanitize_outline_html
+
+    html = sanitize_outline_html(raw)
+    return '' if html_is_empty(html) else html
 
 @class_management_bp.route('/evaluation/<int:session_id>')
 @login_required
@@ -9541,7 +9767,7 @@ def _pending_teacher_question_threads_query(teacher_id):
         .subquery()
     )
     latest_msg = aliased(CourseQuestionMessage)
-    return (
+    q = (
         CourseQuestionThread.query.join(
             last_msg_sq, CourseQuestionThread.id == last_msg_sq.c.t_id
         )
@@ -9551,8 +9777,10 @@ def _pending_teacher_question_threads_query(teacher_id):
             CourseQuestionThread.teacher_read_at.is_(None),
             latest_msg.sender_role == 'student',
         )
-        .order_by(CourseQuestionThread.updated_at.desc())
     )
+    if filter_by_window_sessions:
+        q = filter_by_window_sessions(q, CourseQuestionThread.session_id, admin_override=False)
+    return q.order_by(CourseQuestionThread.updated_at.desc())
 
 
 # Context processor to inject pending invites count, question notifications, and student notifications
@@ -9574,7 +9802,10 @@ def inject_invites_count():
                     evaluator_teacher_id=teacher.id, status='invited'
                 ).count()
                 exam_count = query_for_window(ExamScrutinizerInvite).filter_by(scrutinizer_teacher_id=teacher.id, status='invited').count()
-                split_count = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending').count()
+                split_q = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id, status='pending')
+                if filter_by_window_sessions:
+                    split_q = filter_by_window_sessions(split_q, ClassSplitInvite.inviter_session_id, admin_override=False)
+                split_count = split_q.count()
                 out['pending_invites_count'] = count + exam_count + split_count
                 pending_q = _pending_teacher_question_threads_query(teacher.id)
                 out['question_notification_count'] = pending_q.count()
@@ -9593,9 +9824,7 @@ def inject_invites_count():
                     for t in unread
                 ]
         if current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role):
-            unread_student = StudentNotification.query.filter_by(
-                user_id=current_user.id
-            ).filter(
+            unread_student = _student_notifications_query(current_user.id).filter(
                 StudentNotification.read_at.is_(None)
             ).order_by(StudentNotification.created_at.desc()).limit(20).all()
             out['student_notification_count'] = len(unread_student)
@@ -9637,7 +9866,7 @@ def student_notifications_page():
     if not (current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role)):
         return redirect(url_for('index'))
     notifications = (
-        StudentNotification.query.filter_by(user_id=current_user.id)
+        _student_notifications_query(current_user.id)
         .order_by(StudentNotification.created_at.desc())
         .limit(50)
         .all()
@@ -9657,9 +9886,8 @@ def student_notifications_mark_all_read():
     if not (current_user.is_authenticated and parse_roles(current_user.role) and 'student' in parse_roles(current_user.role)):
         return redirect(url_for('index'))
     try:
-        StudentNotification.query.filter_by(
-            user_id=current_user.id,
-            read_at=None
+        _student_notifications_query(current_user.id).filter(
+            StudentNotification.read_at.is_(None)
         ).update({StudentNotification.read_at: datetime.utcnow()}, synchronize_session=False)
         db.session.commit()
     except Exception:
@@ -9692,7 +9920,12 @@ def my_invitations():
     exam_inviter_ids = [inv.inviter_teacher_id for inv in exam_invites]
     exam_inviter_by_id = {t.id: t for t in Teacher.query.filter(Teacher.id.in_(exam_inviter_ids)).all()} if exam_inviter_ids else {}
 
-    split_invites = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id).order_by(ClassSplitInvite.created_at.desc()).all()
+    split_invites = ClassSplitInvite.query.filter_by(invited_teacher_id=teacher.id).order_by(ClassSplitInvite.created_at.desc())
+    if filter_by_window_sessions:
+        split_invites = filter_by_window_sessions(
+            split_invites, ClassSplitInvite.inviter_session_id, admin_override=False
+        )
+    split_invites = split_invites.all()
     split_sessions_ids = {inv.inviter_session_id for inv in split_invites}
     split_sessions_by_id = {s.id: s for s in query_for_window(Session).filter(Session.id.in_(split_sessions_ids)).all()} if split_sessions_ids else {}
     split_inviter_ids = {inv.inviter_teacher_id for inv in split_invites}
@@ -10172,6 +10405,37 @@ def course_review_form(session_id):
     )
 
 
+@class_management_bp.route('/evaluation/<int:session_id>/course-review/ai-summarize', methods=['POST'])
+@login_required
+def course_review_ai_summarize(session_id):
+    session = get_or_404_for_window(Session, session_id)
+    teacher = Teacher.query.filter_by(name=current_user.full_name).first()
+    if not teacher or session.teacher_id != teacher.id:
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    data = request.get_json(silent=True) or {}
+    sources = (data.get('sources') or 'student').strip().lower()
+    extra_fields = bool(data.get('extra_fields'))
+    try:
+        from utils.ai.client import AIClientError, get_active_provider_setting, user_facing_generation_error
+        from utils.ai.course_review_summary import summarize_course_review
+        from utils.ai.session_utils import reset_db_session
+
+        get_active_provider_setting()
+        fields = summarize_course_review(session, sources=sources, extra_fields=extra_fields)
+        reset_db_session()
+        return jsonify({'success': True, 'fields': fields})
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except AIClientError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        current_app.logger.error(f'Course review AI summary failed for {session_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({'success': False, 'message': user_facing_generation_error(exc)}), 500
+
+
 @class_management_bp.route('/evaluation/<int:session_id>/course-review/pdf')
 @login_required
 def course_review_pdf(session_id):
@@ -10361,20 +10625,34 @@ def course_review_pdf(session_id):
     elements.append(comment_table)
     elements.append(Spacer(1, 20))
 
+    from utils.user_signature import reportlab_signature_flowable, find_head_user
+    from reportlab.lib.units import mm
+
+    instructor_name_raw = stored_data.get('instructor_name') or (session.teacher.name if session.teacher else '')
+    head_user = find_head_user()
+    instructor_teacher = session.teacher
+
     signature_width = table_width / 2
+    sig_w = signature_width * 0.55
+    sig_h = 16 * mm
+    head_name = head_user.full_name if head_user else ''
     signature_table_data = [
         [
             Paragraph('Head of the Discipline Signature', label_style),
-            Paragraph('Course Instructor (s) Signature', label_style)
+            Paragraph('Course Instructor (s) Signature', label_style),
         ],
         [
-            Paragraph('&nbsp;' * 4, comment_style),
-            Paragraph('&nbsp;' * 4, comment_style)
+            reportlab_signature_flowable(head_user, sig_w, sig_h),
+            reportlab_signature_flowable(instructor_teacher or instructor_name_raw, sig_w, sig_h),
+        ],
+        [
+            Paragraph(escape(head_name) or '&nbsp;', comment_style),
+            Paragraph(escape(str(instructor_name_raw or '')), comment_style),
         ],
         [
             Paragraph('Date: ___________________', label_style),
-            Paragraph('Date: ___________________', label_style)
-        ]
+            Paragraph('Date: ___________________', label_style),
+        ],
     ]
 
     signature_table = Table(
@@ -10384,13 +10662,15 @@ def course_review_pdf(session_id):
     )
     signature_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (0, 1), (-1, 2), 'CENTER'),
         ('LEFTPADDING', (0, 0), (-1, -1), 24),
         ('RIGHTPADDING', (0, 0), (-1, -1), 24),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
         ('LINEABOVE', (0, 1), (0, 1), 0.8, colors.black),
         ('LINEABOVE', (1, 1), (1, 1), 0.8, colors.black),
-        ('BOTTOMPADDING', (0, 1), (1, 1), 24),
+        ('BOTTOMPADDING', (0, 1), (1, 1), 8),
+        ('TOPPADDING', (0, 2), (-1, 2), 2),
     ]))
 
     elements.append(signature_table)
@@ -10668,18 +10948,47 @@ def course_assessment_pdf(session_id, invite_id):
         elements.append(Paragraph("Presenter's Comments", comment_header_style))
         elements.append(Paragraph(escape(presenter_comment).replace('\n', '<br/>') or '-', styles['BodyText']))
 
-        elements.append(Spacer(1, 60))
+        from utils.user_signature import reportlab_signature_flowable
+        from reportlab.lib.units import mm
+
+        presenter_teacher = Teacher.query.get(invite.inviter_teacher_id) or (session.teacher if session else None)
+        observer_teacher = Teacher.query.get(invite.evaluator_teacher_id)
+        presenter_name = escape(
+            general.get('teacher_name') or (presenter_teacher.name if presenter_teacher else '-')
+        )
+        observer_name = escape(
+            general.get('observer_name') or (observer_teacher.name if observer_teacher else '-')
+        )
+
+        elements.append(Spacer(1, 24))
         line_width = (A4[0] - 72) / 2
+        sig_w = line_width * 0.55
+        sig_h = 16 * mm
         signature_table = Table(
-            [['', ''], ["Presenter's Signature", "Observer's Signature"]],
-            colWidths=[line_width, line_width]
+            [
+                [
+                    reportlab_signature_flowable(presenter_teacher, sig_w, sig_h),
+                    reportlab_signature_flowable(observer_teacher, sig_w, sig_h),
+                ],
+                [
+                    Paragraph(presenter_name, center_value_style),
+                    Paragraph(observer_name, center_value_style),
+                ],
+                [
+                    Paragraph("Presenter's Signature", center_value_style),
+                    Paragraph("Observer's Signature", center_value_style),
+                ],
+            ],
+            colWidths=[line_width, line_width],
         )
         signature_table.setStyle(TableStyle([
-            ('LINEABOVE', (0,0), (0,0), 0.7, colors.black),
-            ('LINEABOVE', (1,0), (1,0), 0.7, colors.black),
-            ('TOPPADDING', (0,0), (-1,0), 30),
-            ('ALIGN', (0,1), (-1,1), 'CENTER'),
-            ('TOPPADDING', (0,1), (-1,1), 8)
+            ('LINEABOVE', (0, 0), (0, 0), 0.7, colors.black),
+            ('LINEABOVE', (1, 0), (1, 0), 0.7, colors.black),
+            ('TOPPADDING', (0, 0), (-1, 0), 8),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, 0), 'BOTTOM'),
+            ('TOPPADDING', (0, 1), (-1, 1), 4),
+            ('TOPPADDING', (0, 2), (-1, 2), 8),
         ]))
         elements.append(signature_table)
 
@@ -10823,10 +11132,20 @@ def student_feedback_responses_pdf(session_id):
     buffer = io.BytesIO()
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
+
+    tick_style = ParagraphStyle(
+        'TickMark',
+        parent=getSampleStyleSheet()['Normal'],
+        fontName='ZapfDingbats',
+        fontSize=11,
+        leading=11,
+        alignment=TA_CENTER,
+    )
 
     response_font = 'Helvetica'
     response_bold_font = 'Helvetica-Bold'
@@ -10875,10 +11194,11 @@ def student_feedback_responses_pdf(session_id):
         data = [[Paragraph(text, label_style) for text in likert_header]]
         for key, question in labels:
             selected = (section_values or {}).get(key)
+            selected_norm = (selected or '').strip().lower() if selected else ''
             row = [Paragraph(question, value_style)]
             for option in likert_header[1:]:
-                mark = '✓' if selected and selected.lower() == option.lower() else ''
-                row.append(Paragraph(mark, value_style))
+                mark = Paragraph('4', tick_style) if selected_norm == option.lower() else Paragraph('', tick_style)
+                row.append(mark)
             data.append(row)
         table = Table(data, colWidths=[240, 52, 52, 52, 52, 52])
         table.setStyle(TableStyle([
@@ -10898,8 +11218,10 @@ def student_feedback_responses_pdf(session_id):
             for offset in (0, 1):
                 if idx + offset < len(options):
                     option = options[idx + offset]
-                    mark = '✓' if option in selected else ''
-                    row.append(Paragraph(f"{mark} {option}", value_style))
+                    if option in selected:
+                        row.append(Paragraph('<font name="ZapfDingbats" size="11">4</font>&nbsp;' + option, value_style))
+                    else:
+                        row.append(Paragraph(option, value_style))
                 else:
                     row.append('')
             rows.append(row)
@@ -11089,7 +11411,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             })
         
         # Get fonts for WeasyPrint (Liberation for English body; Kalpurush for Bengali comments)
-        from utils.pdf_fonts import resolve_formal_pdf_fonts
+        from utils.pdf_fonts import resolve_formal_pdf_fonts, resolve_dejavu_pdf_fonts
         import os
 
         formal_fonts = resolve_formal_pdf_fonts()
@@ -11099,6 +11421,8 @@ def student_feedback_responses_pdf_weasyprint(session_id):
                 'error',
             )
             return redirect(url_for('class_management.student_feedback_manage', session_id=session_id))
+
+        dejavu_regular, _dejavu_bold, _dejavu_dir = resolve_dejavu_pdf_fonts()
 
         font_path = os.path.join(current_app.root_path, 'static', 'Fonts', 'kalpurush.ttf')
         if not os.path.exists(font_path):
@@ -11118,6 +11442,7 @@ def student_feedback_responses_pdf_weasyprint(session_id):
             pdf_font_bold=formal_fonts['bold'],
             pdf_font_italic=formal_fonts.get('italic'),
             pdf_font_bold_italic=formal_fonts.get('bold_italic'),
+            pdf_font_dejavu_regular=dejavu_regular,
         )
         
         # Generate PDF with WeasyPrint (lazy import already done above)
@@ -11345,9 +11670,13 @@ def student_course_files():
         
         # Get course outlines that are enabled for student access
         course_files = []
+        seen_split_outlines = set()
         for session in enrolled_sessions:
-            course_outline = CourseOutline.query.filter_by(session_id=session.id).first()
-            if course_outline and course_outline.student_access_enabled:
+            if _split_outline_access_enabled(session):
+                dedupe_key = session.split_group_id or session.id
+                if dedupe_key in seen_split_outlines:
+                    continue
+                seen_split_outlines.add(dedupe_key)
                 course_files.append({
                     'session_id': session.id,
                     'course_code': session.course_code,
@@ -11416,14 +11745,8 @@ def student_download_course_outline_pdf(session_id):
             flash('You are not enrolled in this course.', 'error')
             return redirect(url_for('class_management.student_course_files'))
         
-        # Get course outline
-        course_outline = CourseOutline.query.filter_by(session_id=session_id).first()
-        if not course_outline:
-            flash('Course outline not found.', 'error')
-            return redirect(url_for('class_management.student_course_files'))
-        
-        # Check if student access is enabled
-        if not course_outline.student_access_enabled:
+        # Get course outline (shared across split Part A/B)
+        if not _split_outline_access_enabled(session_obj):
             flash('This course outline is not available for download.', 'error')
             return redirect(url_for('class_management.student_course_files'))
         
@@ -11511,6 +11834,7 @@ def question_bank():
     folders = QuestionBankFolder.query.order_by(QuestionBankFolder.name.asc()).all()
     can_upload = current_user.is_authenticated
     can_manage = has_teacher_privileges(current_user) or is_admin(current_user)
+    files = [f for f in files if (getattr(f, 'file_kind', None) or 'question') != 'answer_guideline']
     grouped_files = {}
     folder_options = []
     for folder in folders:
@@ -11660,6 +11984,23 @@ def _qb_subtree_filter(column_attr, folder_path):
         func.lower(column_attr) == lowered,
         func.lower(column_attr).like(f"{lowered}/%")
     )
+
+
+def _qb_is_staff():
+    return has_teacher_privileges(current_user) or is_admin(current_user)
+
+
+def _qb_is_guideline(qb_file):
+    return (getattr(qb_file, 'file_kind', None) or 'question') == 'answer_guideline'
+
+
+def _qb_visible_files(files):
+    return [f for f in files if not _qb_is_guideline(f)]
+
+
+def _qb_ensure_extracted(qb_file):
+    from utils.ai.question_bank import ensure_extracted
+    return ensure_extracted(qb_file)
 
 
 @class_management_bp.route('/question-bank/folder/create', methods=['POST'])
@@ -11942,6 +12283,7 @@ def upload_question_bank_file():
     folder_name = (request.form.get('folder_name') or '').strip()
     question_year = (request.form.get('question_year') or '').strip()
     title = (request.form.get('title') or '').strip()  # optional (used as common title/prefix)
+    file_kind = 'question'
 
     if not folder_name or not question_year:
         flash('Folder name and year are required.', 'error')
@@ -11984,17 +12326,25 @@ def upload_question_bank_file():
             file_size = os.path.getsize(file_path) if os.path.exists(file_path) else None
             file_stem = os.path.splitext(safe_name)[0]
             effective_title = title if len(valid_files) == 1 and title else (f"{title} - {file_stem}" if title else file_stem)
+            from utils.ai.question_bank import infer_course_code, ensure_extracted
+            inferred_code = infer_course_code(effective_title, folder_name, file_stem)
 
             entry = QuestionBankFile(
                 subject_name=folder_name,
-                course_code=None,
+                course_code=inferred_code,
                 question_year=question_year,
                 title=effective_title,
                 file_path=file_path,
                 file_size=file_size,
-                uploaded_by_user_id=getattr(current_user, 'id', None)
+                uploaded_by_user_id=getattr(current_user, 'id', None),
+                file_kind=file_kind,
             )
             db.session.add(entry)
+            db.session.flush()
+            try:
+                ensure_extracted(entry)
+            except Exception:
+                pass
             uploaded_count += 1
 
         if uploaded_count == 0:
@@ -12002,7 +12352,7 @@ def upload_question_bank_file():
             return redirect(url_for('class_management.question_bank'))
 
         db.session.commit()
-        flash(f'{uploaded_count} question PDF file(s) uploaded successfully.', 'success')
+        flash(f'{uploaded_count} PDF file(s) uploaded successfully.', 'success')
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error uploading question bank PDF: {e}", exc_info=True)
@@ -12016,6 +12366,9 @@ def upload_question_bank_file():
 def download_question_bank_file(file_id):
     """Download a question bank PDF (available to logged-in users)."""
     qb_file = QuestionBankFile.query.get_or_404(file_id)
+    if _qb_is_guideline(qb_file) and not _qb_is_staff():
+        flash('You are not authorized to download this file.', 'error')
+        return redirect(url_for('class_management.question_bank'))
     if not qb_file.file_path or not os.path.exists(qb_file.file_path):
         flash('File not found.', 'error')
         return redirect(url_for('class_management.question_bank'))
@@ -12042,6 +12395,7 @@ def download_question_bank_folder():
             QuestionBankFile.question_year.desc(),
             QuestionBankFile.created_at.desc()
         ).all()
+        files = _qb_visible_files(files)
 
         if not files:
             flash('No files found in this folder.', 'warning')
@@ -12145,6 +12499,7 @@ def download_question_bank_zip():
             return redirect(url_for('class_management.question_bank'))
 
         files = QuestionBankFile.query.filter(QuestionBankFile.id.in_(file_ids)).all()
+        files = _qb_visible_files(files)
         if not files:
             flash('Selected files were not found.', 'warning')
             return redirect(url_for('class_management.question_bank'))
@@ -12239,3 +12594,202 @@ def edit_question_bank_file_title(file_id):
         flash('Failed to update title.', 'error')
 
     return redirect(url_for('class_management.question_bank'))
+
+
+@class_management_bp.route('/question-bank/file/<int:file_id>/analyze', methods=['POST'])
+@login_required
+def analyze_question_bank_file(file_id):
+    """Extract + analyse a past question paper against Course Information CLOs."""
+    if not _qb_is_staff():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    qb_file = QuestionBankFile.query.get_or_404(file_id)
+    if _qb_is_guideline(qb_file):
+        return jsonify({'success': False, 'message': 'Answer Guideline ফাইল বিশ্লেষণ করা যায় না।'}), 400
+    try:
+        from utils.ai.client import AIClientError, get_active_provider_setting, user_facing_generation_error
+        from utils.ai.question_bank import analyze_question_paper
+        from utils.ai.session_utils import reset_db_session
+
+        get_active_provider_setting()
+        payload = analyze_question_paper(qb_file)
+        db.session.commit()
+        qb_fresh = QuestionBankFile.query.get(file_id)
+        course_code = qb_fresh.course_code if qb_fresh else None
+        reset_db_session()
+        return jsonify({'success': True, 'analysis': payload, 'course_code': course_code})
+    except AIClientError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Question bank analysis failed for {file_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({'success': False, 'message': user_facing_generation_error(exc)}), 500
+
+
+@class_management_bp.route('/question-bank/file/<int:file_id>/analysis')
+@login_required
+def question_bank_file_analysis(file_id):
+    if not _qb_is_staff():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    qb_file = QuestionBankFile.query.get_or_404(file_id)
+    analysis = None
+    if qb_file.analysis_json:
+        try:
+            analysis = json.loads(qb_file.analysis_json)
+        except (json.JSONDecodeError, TypeError):
+            analysis = None
+    from utils.ai.question_bank import find_guideline_in_folder
+    return jsonify({
+        'success': True,
+        'analysis': analysis,
+        'course_code': qb_file.course_code,
+        'has_guideline': bool(find_guideline_in_folder(qb_file)),
+    })
+
+
+@class_management_bp.route('/question-bank/file/<int:file_id>/questions')
+@login_required
+def question_bank_file_questions(file_id):
+    """List individual questions in a paper so teachers can pick which to answer."""
+    if not _qb_is_staff():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    qb_file = QuestionBankFile.query.get_or_404(file_id)
+    if _qb_is_guideline(qb_file):
+        return jsonify({'success': False, 'message': 'প্রশ্নপত্র বেছে নিন।'}), 400
+    try:
+        from utils.ai.client import AIClientError
+        from utils.ai.question_bank import find_active_guideline, list_paper_questions
+        from utils.ai.session_utils import reset_db_session
+
+        questions = list_paper_questions(qb_file)
+        reset_db_session()
+        qb_file = QuestionBankFile.query.get(file_id)
+        answered_numbers = []
+        if qb_file and qb_file.model_answers_json:
+            try:
+                stored = json.loads(qb_file.model_answers_json) or {}
+            except (json.JSONDecodeError, TypeError):
+                stored = {}
+            for item in stored.get('answers') or []:
+                if isinstance(item, dict) and item.get('number'):
+                    answered_numbers.append(str(item.get('number')))
+        guideline = find_active_guideline()
+        guideline_title = guideline.title if guideline else None
+        return jsonify({
+            'success': True,
+            'questions': questions,
+            'answered_numbers': answered_numbers,
+            'has_guideline': bool(guideline),
+            'guideline_title': guideline_title,
+        })
+    except AIClientError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Question list failed for {file_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({'success': False, 'message': user_facing_generation_error(exc)}), 500
+
+
+@class_management_bp.route('/question-bank/file/<int:file_id>/model-answers', methods=['POST', 'GET'])
+@login_required
+def question_bank_model_answers(file_id):
+    """Generate or download model answers (teachers only; never shown to students)."""
+    if not _qb_is_staff():
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+    qb_file = QuestionBankFile.query.get_or_404(file_id)
+    if _qb_is_guideline(qb_file):
+        return jsonify({'success': False, 'message': 'প্রশ্নপত্র বেছে নিন।'}), 400
+
+    if request.method == 'GET':
+        payload = None
+        if qb_file.model_answers_json:
+            try:
+                payload = json.loads(qb_file.model_answers_json)
+            except (json.JSONDecodeError, TypeError):
+                payload = None
+        from utils.ai.answer_format import decorate_payload
+        from utils.ai.question_bank import find_active_guideline
+        display = decorate_payload(payload or {})
+        if not display.get('guideline_title'):
+            guideline = find_active_guideline()
+            if guideline:
+                display['guideline_title'] = guideline.title
+        want_json = request.args.get('json') or request.headers.get('X-Requested-With')
+        if want_json and not request.args.get('download'):
+            return jsonify({
+                'success': True,
+                'from_cache': True,
+                'has_answers': bool(display.get('items')),
+                'answers': payload or {},
+                'items': display.get('items') or [],
+                'guideline_title': display.get('guideline_title') or '',
+                'warnings': display.get('warnings') or [],
+                'download_url': url_for('class_management.question_bank_model_answers', file_id=file_id, download=1),
+            })
+        if not request.args.get('download'):
+            return redirect(url_for('class_management.question_bank'))
+        if not payload or not display.get('items'):
+            flash('আগে মডেল আনসার তৈরি করুন।', 'warning')
+            return redirect(url_for('class_management.question_bank'))
+        return render_template(
+            'class_management/question_bank_model_answers.html',
+            qb_file=qb_file,
+            payload=payload,
+            display=display,
+        )
+
+    try:
+        from utils.ai.client import AIClientError, user_facing_generation_error
+        from utils.ai.answer_format import decorate_payload
+        from utils.ai.question_bank import generate_model_answers
+        from utils.ai.session_utils import reset_db_session
+
+        body = request.get_json(silent=True) or {}
+        selected = body.get('questions') or []
+        if not selected:
+            return jsonify({
+                'success': False,
+                'message': 'কমপক্ষে একটি প্রশ্ন বেছে নিন।',
+            }), 400
+        regenerate = bool(body.get('regenerate'))
+        payload = generate_model_answers(
+            qb_file, selected_questions=selected, regenerate=regenerate
+        )
+        db.session.commit()
+        reset_db_session()
+        display = decorate_payload(payload)
+        return jsonify({
+            'success': True,
+            'from_cache': bool(payload.get('from_cache')),
+            'answers': payload,
+            'items': display.get('items') or [],
+            'guideline_title': payload.get('guideline_title') or display.get('guideline_title'),
+            'warnings': display.get('warnings') or [],
+            'download_url': url_for('class_management.question_bank_model_answers', file_id=file_id, download=1),
+        })
+    except AIClientError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.error(f'Model answer generation failed for {file_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({'success': False, 'message': user_facing_generation_error(exc)}), 500

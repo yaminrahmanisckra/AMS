@@ -158,3 +158,76 @@ def find_user_for_signature_by_name(full_name):
 def signature_data_uri_for_name(full_name):
     """Data URI for the user matching ``full_name``, or None."""
     return user_signature_data_uri(find_user_for_signature_by_name(full_name))
+
+
+def find_user_for_teacher(teacher):
+    """Resolve a Teacher record to its linked User account."""
+    if not teacher:
+        return None
+    try:
+        from user_models import User
+    except Exception:
+        return None
+    user = User.query.filter_by(teacher_id=teacher.id).first()
+    if user:
+        return user
+    name = (getattr(teacher, 'name', None) or '').strip()
+    if name:
+        user = User.query.filter(User.full_name == name).first()
+        if user:
+            return user
+        return find_user_for_signature_by_name(name)
+    return None
+
+
+def find_head_user():
+    """First user with head role; prefer one that has an uploaded signature."""
+    try:
+        from user_models import User
+        from role_utils import parse_roles
+    except Exception:
+        return None
+    heads = []
+    for user in User.query.all():
+        if 'head' in parse_roles(getattr(user, 'role', None)):
+            heads.append(user)
+    if not heads:
+        return None
+    for user in heads:
+        if getattr(user, 'signature_path', None):
+            return user
+    return heads[0]
+
+
+def _resolve_signature_user(user_or_name):
+    """Accept User, Teacher, or full_name string."""
+    if not user_or_name:
+        return None
+    if isinstance(user_or_name, str):
+        return find_user_for_signature_by_name(user_or_name)
+    try:
+        from user_models import User
+        if isinstance(user_or_name, User):
+            return user_or_name
+    except Exception:
+        pass
+    return find_user_for_teacher(user_or_name)
+
+
+def reportlab_signature_flowable(user_or_name, max_width, max_height):
+    """ReportLab Image flowable for a profile signature, or empty Spacer."""
+    from reportlab.platypus import Image as RLImage, Spacer
+
+    user = _resolve_signature_user(user_or_name)
+    path = user_signature_abs_path(user)
+    if not path:
+        return Spacer(max_width, max_height * 0.5)
+    try:
+        return RLImage(path, width=max_width, height=max_height, kind='proportional')
+    except Exception:
+        current_app.logger.warning(
+            'Could not embed signature for %s',
+            getattr(user, 'id', user_or_name),
+            exc_info=True,
+        )
+        return Spacer(max_width, max_height * 0.5)

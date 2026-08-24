@@ -13,7 +13,9 @@
     <h2 class="mb-4">{{ survey_title }} – Responses</h2>
 
     <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
-        <a href="{{ url_for('self_assessment.survey_responses_pdf', survey_type=survey_type) }}" class="btn btn-primary" target="_blank" rel="noopener">
+        <a href="{{ url_for('self_assessment.survey_insights', survey_type=survey_type) }}" class="btn btn-outline-info">
+            <i class="fas fa-lightbulb me-1"></i>থিম সারাংশ (শুধু মন্তব্য)
+        </a>
             <i class="fas fa-file-pdf me-1"></i>Download all responses as PDF
         </a>
         <a href="{{ url_for('self_assessment.survey_responses_pdf', survey_type=survey_type, only_starred=1) }}" class="btn btn-outline-primary" target="_blank" rel="noopener">

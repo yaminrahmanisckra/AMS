@@ -7,10 +7,10 @@ from flask_login import login_required, current_user
 from extensions import csrf
 from role_utils import parse_roles, get_teachers_excluding_head
 from utils.tenant import current_tenant, load_survey_pack
-from utils.window_utils import get_for_window, get_or_404_for_window, query_for_window, stamp_window_id
+from utils.window_utils import get_for_window, get_or_404_for_window, query_for_window, stamp_window_id, get_effective_window_id
 
 from . import self_assessment_bp
-from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse
+from .models import PsacCommittee, PsacCommitteeMember, SurveyLink, SurveyResponse, AlumniSurveyResponse, SurveyInsightSnapshot
 from blueprints.class_management.models import Teacher
 
 SURVEY_TYPES = ('alumni', 'employer', 'faculty', 'non_academic', 'student')
@@ -770,6 +770,85 @@ def survey_responses_list(survey_type):
         links=links,
         responses=responses,
         response_type=response_type,
+    )
+
+
+def _survey_responses_for_type(survey_type):
+    links = query_for_window(SurveyLink).filter_by(survey_type=survey_type).order_by(SurveyLink.created_at.desc()).all()
+    link_ids = [l.id for l in links]
+    if not link_ids:
+        return []
+    if survey_type == 'alumni':
+        return AlumniSurveyResponse.query.filter(
+            AlumniSurveyResponse.survey_link_id.in_(link_ids)
+        ).order_by(AlumniSurveyResponse.created_at.desc()).all()
+    return SurveyResponse.query.filter_by(survey_type=survey_type).filter(
+        SurveyResponse.survey_link_id.in_(link_ids)
+    ).order_by(SurveyResponse.created_at.desc()).all()
+
+
+@self_assessment_bp.route('/survey/<survey_type>/insights', methods=['GET', 'POST'])
+@login_required
+def survey_insights(survey_type):
+    if survey_type not in SURVEY_TYPES:
+        flash('Invalid survey type.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+    if not _can_access_responses():
+        flash('You are not authorized to view responses.', 'danger')
+        return redirect(url_for('self_assessment.index'))
+
+    from datetime import datetime
+    from extensions import db
+
+    titles = {'alumni': 'Alumni Survey', 'employer': 'Employer Survey', 'faculty': 'Faculty Survey',
+              'non_academic': 'Non Academic Staff Survey', 'student': 'Student Survey'}
+    window_id = get_effective_window_id()
+    snapshot = SurveyInsightSnapshot.query.filter_by(
+        survey_type=survey_type, window_id=window_id
+    ).order_by(SurveyInsightSnapshot.generated_at.desc()).first()
+    summary = None
+    if snapshot and snapshot.summary_json:
+        try:
+            summary = json.loads(snapshot.summary_json)
+        except (json.JSONDecodeError, TypeError):
+            summary = None
+
+    if request.method == 'POST':
+        responses = _survey_responses_for_type(survey_type)
+        try:
+            from utils.ai.client import AIClientError, get_active_provider_setting, user_facing_generation_error
+            from utils.ai.survey_summary import summarize_survey_comments
+            from utils.ai.session_utils import reset_db_session
+
+            get_active_provider_setting()
+            summary = summarize_survey_comments(survey_type, responses)
+            reset_db_session()
+            row = SurveyInsightSnapshot(
+                survey_type=survey_type,
+                window_id=window_id,
+                summary_json=json.dumps(summary, ensure_ascii=False),
+                generated_at=datetime.utcnow(),
+                generated_by_user_id=getattr(current_user, 'id', None),
+            )
+            db.session.add(row)
+            db.session.commit()
+            snapshot = row
+            flash('থিম সারাংশ তৈরি হয়েছে।', 'success')
+        except AIClientError as exc:
+            flash(str(exc), 'danger')
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.error(f'SAR insight failed for {survey_type}: {exc}', exc_info=True)
+            from utils.ai.client import user_facing_generation_error
+            flash(user_facing_generation_error(exc), 'danger')
+        return redirect(url_for('self_assessment.survey_insights', survey_type=survey_type))
+
+    return render_template(
+        'self_assessment/survey_insights.html',
+        survey_type=survey_type,
+        survey_title=titles.get(survey_type, survey_type),
+        summary=summary,
+        snapshot=snapshot,
     )
 
 

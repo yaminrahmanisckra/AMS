@@ -30,7 +30,7 @@
                 <a href="{{ url_for('class_management.edit_course_outline', session_id=session.id) }}" class="btn btn-light btn-sm">
                     <i class="fas fa-edit me-1"></i>Create/Edit Outline
                 </a>
-                {% if course_outline %}
+                {% if outline_has_content %}
                 <a href="{{ url_for('class_management.download_course_outline_pdf', session_id=session.id) }}" class="btn btn-danger btn-sm">
                     <i class="fas fa-file-pdf me-1"></i>Download PDF
                 </a>
@@ -41,8 +41,11 @@
             <div class="alert alert-primary">
                 <i class="fas fa-info-circle me-2"></i>
                 <strong>Course Outline:</strong> Create a comprehensive course outline with lesson plans, assessment strategies, and learning resources. Export to DOCX or PDF format.
+                {% if is_split_shared_outline %}
+                <span class="d-block mt-1 small">Split course: the outline is shared with your Part A/B partner — either teacher can edit and both will see the same file.</span>
+                {% endif %}
             </div>
-            {% if course_outline %}
+            {% if outline_has_content %}
             <div class="row">
                 <div class="col-md-6">
                     <p class="mb-1"><strong>Status:</strong> <span class="badge bg-success">Created</span></p>

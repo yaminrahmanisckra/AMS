@@ -7,8 +7,8 @@ import string
 from . import student_management_bp
 from .models import Student
 from extensions import db
-from blueprints.course_management.models import Curriculum, DutyAssignment
-from blueprints.class_management.models import ClassStudent
+from blueprints.course_management.models import Curriculum, DutyAssignment, StudentCourseRegistration, CourseRegistrationInvite
+from blueprints.class_management.models import ClassStudent, StudentNotification
 from user_models import User
 from role_utils import (
     parse_roles, serialize_roles, role_required, can_manage_students,
@@ -21,6 +21,22 @@ except ImportError:
 
 
 _PRIVILEGED_ROLES = STAFF_ROLES | CORE_ROLES | {ADMIN_ROLE, 'dean', 'head', 'officer', 'teacher'}
+
+
+def _delete_linked_student_user(account):
+    """Remove a student-only login account and dependent rows that block FK delete."""
+    if not account:
+        return
+    roles = parse_roles(account.role)
+    if 'student' not in roles:
+        return
+    roles = [r for r in roles if r != 'student']
+    if roles:
+        account.role = serialize_roles(roles)
+        return
+    # Dependent rows that reference users.id without ON DELETE CASCADE
+    StudentNotification.query.filter_by(user_id=account.id).delete(synchronize_session=False)
+    db.session.delete(account)
 
 
 def _generate_student_password(length=12):
@@ -277,16 +293,14 @@ def delete_student(student_id):
         for cs in class_students:
             db.session.delete(cs)
 
-        # 3) Clean up linked login account / roles
+        # 3) Remove course registration invites, then registrations (student FK)
+        CourseRegistrationInvite.query.filter_by(student_id=student.id).delete(synchronize_session=False)
+        StudentCourseRegistration.query.filter_by(student_id=student.id).delete(synchronize_session=False)
+
+        # 4) Clean up linked login account / roles (notifications first — FK to users.id)
         account = User.query.filter_by(username=student.student_id).first()
-        if account:
-            roles = parse_roles(account.role)
-            if 'student' in roles:
-                roles.remove('student')
-                if roles:
-                    account.role = serialize_roles(roles)
-                else:
-                    db.session.delete(account)
+        _delete_linked_student_user(account)
+
         db.session.delete(student)
         db.session.commit()
         flash(f'Student {name} ({student_id_val}) deleted successfully!', 'success')

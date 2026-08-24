@@ -2,6 +2,7 @@
 
 :root {
     --m-topbar-height: 52px;
+    --m-impersonation-banner-height: 0px;
     --m-canvas: #f0f2f5;
     --m-card-bg: #ffffff;
     --m-card-radius: 8px;
@@ -15,6 +16,23 @@
 }
 
 @media (max-width: 991.98px) {
+    body.m-shell:has(.impersonation-banner) {
+        --m-impersonation-banner-height: 44px;
+        padding-top: calc(var(--m-topbar-height) + var(--m-impersonation-banner-height) + env(safe-area-inset-top, 0px));
+    }
+
+    body.m-shell:has(.impersonation-banner) .m-topbar {
+        top: var(--m-impersonation-banner-height);
+    }
+
+    .impersonation-banner {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1050;
+    }
+
     body.m-shell {
         background: var(--m-canvas) !important;
         font-size: var(--m-text);
@@ -2230,6 +2248,48 @@
 
     body.m-shell .course-filter-item {
         min-height: 44px;
+    }
+
+    /* Window selection page */
+    body.m-shell .window-select-page {
+        max-width: 100% !important;
+        padding: 0.35rem 0 1.25rem !important;
+        margin-top: 0 !important;
+    }
+
+    body.m-shell .window-select-hero {
+        margin-bottom: 0.85rem;
+        padding: 0 0.15rem;
+    }
+
+    body.m-shell .window-select-hero-icon {
+        width: 48px;
+        height: 48px;
+        font-size: 1.2rem;
+        margin-bottom: 0.55rem;
+    }
+
+    body.m-shell .window-select-hero h1 {
+        font-size: 1.05rem;
+    }
+
+    body.m-shell .window-select-hero p {
+        font-size: 0.82rem;
+    }
+
+    body.m-shell .window-option-body {
+        padding: 0.75rem 0.8rem;
+    }
+
+    body.m-shell .window-option-title {
+        font-size: 0.9rem;
+    }
+
+    body.m-shell .window-select-submit {
+        min-height: 48px;
+        position: sticky;
+        bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+        z-index: 5;
     }
 }
 

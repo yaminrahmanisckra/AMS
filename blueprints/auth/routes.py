@@ -19,6 +19,8 @@ from role_utils import (
     validate_role_selection,
     serialize_roles,
     parse_roles,
+    has_stored_admin,
+    pick_impersonation_role,
 )
 
 auth_bp = Blueprint('auth', __name__, template_folder='templates')
@@ -209,6 +211,87 @@ def no_active_window():
         return redirect(url_for('auth.select_window'))
 
     return render_template('auth/no_active_window.html')
+
+def _can_admin_login_as():
+    """Only a real administrator (not already impersonating) may use Login as."""
+    if not current_user.is_authenticated:
+        return False
+    if session.get('impersonator_id'):
+        return False
+    return has_stored_admin(current_user)
+
+
+@auth_bp.route('/login-as/<int:user_id>', methods=['POST'])
+@login_required
+def login_as(user_id):
+    if not _can_admin_login_as():
+        flash('You do not have permission to use Login as.', 'danger')
+        return redirect(url_for('index'))
+
+    if user_id == current_user.id:
+        flash('You are already logged in as this account.', 'info')
+        return redirect(url_for('admin_users'))
+
+    target = User.query.get_or_404(user_id)
+    target_roles = set(parse_roles(target.role))
+    if ADMIN_ROLE in target_roles:
+        flash('Cannot login as another administrator account.', 'warning')
+        return redirect(url_for('admin_users'))
+
+    requested_role = (request.form.get('active_role') or '').strip().lower()
+    active_role = requested_role if requested_role in target_roles else pick_impersonation_role(target)
+
+    session['impersonator_id'] = current_user.id
+    session['impersonator_active_role'] = session.get('active_role') or ADMIN_ROLE
+    if session.get('active_window_id') is not None:
+        session['impersonator_window_id'] = session.get('active_window_id')
+
+    logout_user()
+    login_user(target, remember=False)
+    session['active_role'] = active_role
+    session.pop('active_window_id', None)
+
+    from utils.window_utils import resolve_window_after_login
+    next_endpoint = resolve_window_after_login(target, active_role)
+
+    role_label = dict(ROLE_CHOICES).get(active_role, active_role)
+    flash(f'Viewing as {target.full_name} ({role_label}). Use "Return to admin" to exit.', 'info')
+
+    if next_endpoint:
+        return redirect(url_for(next_endpoint))
+    return redirect(url_for('index'))
+
+
+@auth_bp.route('/stop-login-as', methods=['POST'])
+@login_required
+def stop_login_as():
+    impersonator_id = session.get('impersonator_id')
+    if not impersonator_id:
+        flash('You are not using Login as.', 'info')
+        return redirect(url_for('index'))
+
+    admin_user = User.query.get(impersonator_id)
+    if not admin_user or not has_stored_admin(admin_user):
+        logout_user()
+        session.clear()
+        flash('Administrator session could not be restored. Please log in again.', 'warning')
+        return redirect(url_for('auth.login'))
+
+    impersonator_role = session.pop('impersonator_active_role', ADMIN_ROLE)
+    impersonator_window = session.pop('impersonator_window_id', None)
+    session.pop('impersonator_id', None)
+
+    logout_user()
+    login_user(admin_user, remember=False)
+    session['active_role'] = impersonator_role
+    if impersonator_window is not None:
+        session['active_window_id'] = impersonator_window
+    else:
+        session.pop('active_window_id', None)
+
+    flash('Returned to your administrator account.', 'success')
+    return redirect(url_for('admin_users'))
+
 
 @auth_bp.route('/logout')
 @login_required

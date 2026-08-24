@@ -1162,6 +1162,69 @@ def course_entry_save(entry_id):
     return jsonify({'success': True})
 
 
+@curriculator_bp.route('/api/course-entry/<int:entry_id>/ai-generate', methods=['POST'])
+@login_required
+def course_entry_ai_generate(entry_id):
+    """Return a Part C proposal JSON. Does not save until the teacher clicks Save."""
+    entry = SyllabusCourseEntry.query.get_or_404(entry_id)
+    teacher = _teacher().query.filter_by(name=current_user.full_name).first()
+    is_assigned = any(
+        a.teacher_id == teacher.id for a in entry.author_assignments
+    ) if teacher else False
+    if not _can_edit_syllabus() and not is_assigned:
+        return jsonify({'success': False, 'message': 'Forbidden'}), 403
+    data = request.get_json(silent=True) or {}
+    sections = data.get('sections') or ['rationale', 'clos', 'mapping', 'content']
+    try:
+        from flask import current_app
+        from utils.ai.client import AIClientError, get_active_provider_setting, user_facing_generation_error
+        from utils.ai.curriculator_draft import generate_course_entry_draft
+        from utils.ai.session_utils import reset_db_session
+
+        get_active_provider_setting()
+        proposal = generate_course_entry_draft(entry, sections=sections)
+        reset_db_session()
+        return jsonify({'success': True, 'proposal': proposal})
+    except AIClientError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        from flask import current_app
+        current_app.logger.error(f'Curriculator AI draft failed for entry {entry_id}: {exc}', exc_info=True)
+        from utils.ai.client import user_facing_generation_error
+        from utils.ai.session_utils import reset_db_session
+        reset_db_session()
+        return jsonify({'success': False, 'message': user_facing_generation_error(exc)}), 500
+
+
+@curriculator_bp.route('/api/course-entry/<int:entry_id>/push-to-course', methods=['POST'])
+@login_required
+def course_entry_push_to_course(entry_id):
+    """Copy accepted Part C fields into Course Information after explicit confirm."""
+    entry = SyllabusCourseEntry.query.get_or_404(entry_id)
+    teacher = _teacher().query.filter_by(name=current_user.full_name).first()
+    is_assigned = any(
+        a.teacher_id == teacher.id for a in entry.author_assignments
+    ) if teacher else False
+    if not _can_edit_syllabus() and not is_assigned:
+        return jsonify({'success': False, 'message': 'Forbidden'}), 403
+    try:
+        from flask import current_app
+        from utils.ai.curriculator_draft import push_entry_to_course
+        course_id = push_entry_to_course(entry)
+        db.session.commit()
+        return jsonify({'success': True, 'course_id': course_id})
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        from flask import current_app
+        current_app.logger.error(f'Push to Course failed for entry {entry_id}: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Course Information-এ পাঠানো যায়নি।'}), 500
+
+
 def _infer_year_term_from_code(course_code):
     """Infer year and term from last 4 digits of course code (matches course_management)."""
     return infer_year_term_from_code(course_code)

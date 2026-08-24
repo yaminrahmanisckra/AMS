@@ -19,6 +19,8 @@ WINDOW_EXEMPT_ENDPOINTS = frozenset({
     'auth.select_window',
     'auth.set_window',
     'auth.no_active_window',
+    'auth.login_as',
+    'auth.stop_login_as',
 })
 
 

@@ -23,6 +23,14 @@
         </a>
     </div>
 
+    <form method="POST" action="{{ url_for('class_management.toggle_qa_ai_auto_reply', session_id=session.id) }}" class="card card-body mb-3 py-2">
+        <div class="form-check form-switch mb-0">
+            <input type="hidden" name="enabled" value="0">
+            <input class="form-check-input" type="checkbox" name="enabled" value="1" id="qaAiAuto" {% if qa_ai_auto_reply %}checked{% endif %} onchange="this.form.submit()">
+            <label class="form-check-label" for="qaAiAuto">এআই স্বয়ংক্রিয় উত্তর (কোর্স ফাইল/আউটলাইন থেকে; মার্ক/উপস্থিতি নয়)</label>
+        </div>
+    </form>
+
     {% if threads %}
         {% for thread in threads %}
         <div class="card mb-3 shadow-sm">
@@ -59,6 +67,9 @@
                             <span class="badge {% if msg.sender_role == 'teacher' %}bg-primary{% else %}bg-success{% endif %}">
                                 {{ 'Teacher' if msg.sender_role == 'teacher' else 'Student' }}
                             </span>
+                            {% if msg.is_ai_generated|default(false) %}
+                                <span class="badge bg-info text-dark">এআই সহায়তায়</span>
+                            {% endif %}
                             {% if msg.created_at %}
                                 <span class="ms-2">{{ msg.created_at|bd('%Y-%m-%d %H:%M') }}</span>
                             {% endif %}
@@ -97,15 +108,18 @@
                 </div>
                 {% endfor %}
 
-                <form method="POST" action="{{ url_for('class_management.teacher_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data">
+                <form method="POST" action="{{ url_for('class_management.teacher_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data" class="qa-reply-form">
                     <div class="mb-2">
                         <label class="form-label mb-1">Reply</label>
-                        <textarea name="message" class="form-control form-control-sm" rows="3" placeholder="Write a reply..."></textarea>
+                        <textarea id="qa-reply-{{ thread.id }}" name="message" class="form-control form-control-sm qa-reply-box qa-rich-editor" rows="6" placeholder="Write a reply..."></textarea>
                     </div>
                     <div class="mb-2">
                         <label class="form-label mb-1">Attachments (optional)</label>
                         <input type="file" name="attachments" class="form-control form-control-sm" multiple>
                     </div>
+                    <button type="button" class="btn btn-sm btn-outline-info qa-ai-draft" data-url="{{ url_for('class_management.course_question_ai_draft', thread_id=thread.id) }}">
+                        <i class="fas fa-magic me-1"></i>এআই খসড়া
+                    </button>
                     <button type="submit" class="btn btn-sm btn-primary">
                         <i class="fas fa-reply me-1"></i>Send Reply
                     </button>
@@ -119,4 +133,84 @@
         </div>
     {% endif %}
 </div>
+<style>
+.qa-message-body p { margin: 0 0 0.4rem; }
+.qa-message-body p:last-child { margin-bottom: 0; }
+.qa-message-body ul, .qa-message-body ol { margin: 0.25rem 0 0.4rem 1.1rem; padding: 0; }
+.qa-message-body li { margin: 0.1rem 0; }
+.qa-message-body a { word-break: break-word; }
+.tox-tinymce { border-radius: 6px !important; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
+<script>
+function qaPlainToHtml(text) {
+    const raw = (text || '').toString();
+    if (!raw.trim()) return '';
+    if (raw.indexOf('<') !== -1 && raw.indexOf('>') !== -1) return raw;
+    const escaped = raw
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    return '<p>' + escaped.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>') + '</p>';
+}
+
+function qaSetRichContent(textarea, text) {
+    const html = qaPlainToHtml(text);
+    const ed = textarea && textarea.id && window.tinymce ? tinymce.get(textarea.id) : null;
+    if (ed) ed.setContent(html);
+    else if (textarea) textarea.value = html;
+}
+
+function initQaRichEditors(root) {
+    if (!window.tinymce) return;
+    const scope = root || document;
+    scope.querySelectorAll('textarea.qa-rich-editor').forEach(function(el) {
+        if (!el.id) el.id = 'qa-ed-' + Math.random().toString(36).slice(2, 10);
+        if (tinymce.get(el.id)) return;
+        tinymce.init({
+            selector: '#' + el.id,
+            height: 200,
+            menubar: false,
+            branding: false,
+            promotion: false,
+            plugins: 'lists link autolink',
+            toolbar: 'undo redo | bold italic underline | bullist numlist | link | removeformat',
+            toolbar_mode: 'wrap',
+            convert_urls: false,
+            link_default_target: '_blank',
+            link_assume_external_targets: true,
+            content_style: 'body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }'
+        });
+    });
+}
+
+document.addEventListener('submit', function(e) {
+    const form = e.target;
+    if (!form || !form.querySelector || !form.querySelector('textarea.qa-rich-editor')) return;
+    if (window.tinymce) {
+        try { tinymce.triggerSave(); } catch (err) {}
+    }
+}, true);
+
+document.addEventListener('DOMContentLoaded', function() {
+    initQaRichEditors(document);
+});
+
+document.querySelectorAll('.qa-ai-draft').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const box = btn.closest('form').querySelector('.qa-reply-box');
+        btn.disabled = true;
+        try {
+            const res = await fetch(btn.dataset.url, { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) return alert(data.message || 'Failed');
+            qaSetRichContent(box, data.draft || '');
+        } catch (e) {
+            alert('AI draft failed.');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+</script>
 {% endblock %}

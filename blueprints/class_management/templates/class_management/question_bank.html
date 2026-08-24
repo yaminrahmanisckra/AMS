@@ -80,6 +80,73 @@
             padding-bottom: 0.45rem !important;
             font-size: 0.88rem;
         }
+        .qb-q-pick {
+            max-height: 48vh;
+            overflow: auto;
+            border: 1px solid #eef1f4;
+            border-radius: 8px;
+        }
+        .qb-q-item {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            margin: 0;
+            padding: 10px 12px;
+            border-bottom: 1px solid #eef1f4;
+            cursor: pointer;
+        }
+        .qb-q-item:last-child {
+            border-bottom: none;
+        }
+        .qb-q-item:hover {
+            background: #f8fafc;
+        }
+        .qb-guide-banner {
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+        .qb-answer-card {
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 1rem;
+            margin-bottom: 1rem;
+        }
+        .qb-md h1, .qb-md h2, .qb-md h3, .qb-md h4, .qb-md h5 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin: 0.9rem 0 0.35rem;
+        }
+        .qb-md p { margin-bottom: 0.55rem; }
+        .qb-md ul, .qb-md ol { padding-left: 1.3rem; margin-bottom: 0.7rem; }
+        .qb-md li { margin-bottom: 0.2rem; }
+        .qb-md blockquote {
+            border-left: 3px solid #6366f1;
+            background: #f8fafc;
+            padding: 8px 12px;
+            margin: 0.6rem 0;
+            color: #334155;
+        }
+        .qb-md-table th, .qb-md-table td {
+            border: 1px solid #cbd5e1;
+            padding: 6px 8px;
+            vertical-align: top;
+        }
+        .qb-md-table th { background: #f1f5f9; }
+        .qb-figure {
+            border: 1px dashed #94a3b8;
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 0.6rem 0;
+            font-size: 0.9rem;
+        }
+        .qb-md code {
+            background: #f1f5f9;
+            padding: 0 4px;
+            border-radius: 4px;
+            font-size: 0.88em;
+        }
     </style>
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 m-page-header">
         <h2 class="mb-0"><i class="fas fa-book-reader me-2"></i>Question Bank</h2>
@@ -312,6 +379,12 @@
                                                     <i class="fas fa-trash me-1"></i>Delete
                                                 </button>
                                             </form>
+                                            <button type="button" class="btn btn-sm btn-outline-info qb-analyze-btn" data-url="{{ url_for('class_management.analyze_question_bank_file', file_id=f.id) }}">
+                                                <i class="fas fa-search me-1"></i>Analyze
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-success qb-answers-btn" data-url="{{ url_for('class_management.question_bank_model_answers', file_id=f.id) }}" data-questions-url="{{ url_for('class_management.question_bank_file_questions', file_id=f.id) }}">
+                                                <i class="fas fa-pen-nib me-1"></i>Model answers
+                                            </button>
                                             {% endif %}
                                             <a href="{{ url_for('class_management.download_question_bank_file', file_id=f.id) }}" class="btn btn-sm btn-outline-primary">
                                                 <i class="fas fa-download me-1"></i>Download
@@ -742,5 +815,265 @@ document.addEventListener('DOMContentLoaded', () => {
 
     qbSetCurrentFolder('');
 });
+
+{% if can_manage %}
+const qbAnalyzeModalHtml = `
+<div class="modal fade" id="qbAiModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="qbAiModalTitle">Analysis</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="qbAiModalBody"></div>
+    </div>
+  </div>
+</div>`;
+document.body.insertAdjacentHTML('beforeend', qbAnalyzeModalHtml);
+
+function qbShowAiModal(title, html) {
+    document.getElementById('qbAiModalTitle').textContent = title;
+    document.getElementById('qbAiModalBody').innerHTML = html;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('qbAiModal')).show();
+}
+
+function qbRenderAnalysis(data) {
+    const a = data.analysis || {};
+    const questions = a.questions || [];
+    const coverage = a.clo_coverage || [];
+    let html = '';
+    if (data.course_code) html += `<p class="small text-muted">Course: ${qbEscapeHtml(data.course_code)}</p>`;
+    if (a.notes) html += `<p>${qbEscapeHtml(a.notes)}</p>`;
+    if (questions.length) {
+        html += '<h6>Questions</h6><ul>';
+        questions.forEach(q => {
+            html += `<li><strong>${qbEscapeHtml(q.number || '')}</strong> ${qbEscapeHtml(q.text || '')}` +
+                (q.bloom ? ` <span class="badge bg-secondary">${qbEscapeHtml(q.bloom)}</span>` : '') +
+                (q.clos ? ` <span class="small text-muted">${qbEscapeHtml((q.clos || []).join(', '))}</span>` : '') +
+                '</li>';
+        });
+        html += '</ul>';
+    }
+    if (coverage.length) {
+        html += '<h6>CLO coverage</h6><ul>';
+        coverage.forEach(c => {
+            html += `<li>${qbEscapeHtml(c.clo || '')}: ${c.covered ? 'covered' : 'missing'} ${qbEscapeHtml(c.notes || '')}</li>`;
+        });
+        html += '</ul>';
+    }
+    if ((a.missing_topics || []).length) {
+        html += '<p><strong>Missing:</strong> ' + qbEscapeHtml((a.missing_topics || []).join(', ')) + '</p>';
+    }
+    if (!html) html = '<p class="text-muted">কোনো বিশ্লেষণ নেই।</p>';
+    return html;
+}
+
+function qbRenderAnswers(data) {
+    const items = Array.isArray(data.items) ? data.items : [];
+    const title = data.guideline_title || '';
+    let html = '';
+    if (title) {
+        html += `<div class="qb-guide-banner mb-3">
+            <div class="small text-muted mb-1">উত্তর যে Answer Guideline অনুসরণ করে লেখা হয়েছে</div>
+            <strong>${qbEscapeHtml(title)}</strong>
+        </div>`;
+    } else {
+        html += '<div class="alert alert-warning py-2">কোন গাইডলাইন মডেল ব্যবহার হয়েছে তা সংরক্ষিত নেই। রিজেনারেট করলে দেখাবে।</div>';
+    }
+    if (data.from_cache) {
+        html += '<p class="small text-muted">সংরক্ষিত উত্তর দেখানো হচ্ছে। নতুন করে জেনারেট হয়নি।</p>';
+    }
+    items.forEach((item, idx) => {
+        html += `<div class="qb-answer-card">
+            <h6>${qbEscapeHtml(item.number ? (item.number + ' — ') : '')}${qbEscapeHtml(item.question || '')}</h6>`;
+        if (item.followed_model) {
+            html += `<p class="small mb-2"><span class="badge text-bg-primary">গাইডলাইন মডেল</span> ${qbEscapeHtml(item.followed_model)}</p>`;
+        }
+        html += `<div class="qb-md">${item.model_answer_html || '<p class="text-muted">উত্তর নেই।</p>'}</div>`;
+        if ((item.marking_points || []).length) {
+            html += '<p class="small fw-semibold mb-1 mt-2">Marking points</p><ul>' +
+                item.marking_points.map(p => `<li>${qbEscapeHtml(p)}</li>`).join('') + '</ul>';
+        }
+        if ((item.citations || []).length) {
+            html += '<p class="small fw-semibold mb-1">Citations</p><ul>' +
+                item.citations.map(p => `<li>${qbEscapeHtml(p)}</li>`).join('') + '</ul>';
+        }
+        html += `<button type="button" class="btn btn-sm btn-outline-success qb-regen-one" data-index="${idx}">
+            <i class="fas fa-rotate me-1"></i>রিজেনারেট</button>
+        </div>`;
+    });
+    html += '<div class="d-flex flex-wrap gap-2 mt-2">';
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" id="qbMoreQuestions">আরও প্রশ্ন বেছে নিন</button>';
+    if (data.download_url) {
+        html += `<a class="btn btn-sm btn-primary" href="${data.download_url}" target="_blank">Download / Print</a>`;
+    }
+    html += '</div>';
+    if (!items.length) html += '<p class="text-muted mt-2">মডেল আনসার পাওয়া যায়নি।</p>';
+    return html;
+}
+
+function qbRenderQuestionPicker(questions, meta) {
+    const answered = new Set((meta.answered_numbers || []).map(String));
+    let html = '<p class="small text-muted mb-2">যে প্রশ্নগুলোর মডেল উত্তর চান, সেগুলো টিক দিন। সংরক্ষিত উত্তর থাকলে আবার জেনারেট হবে না, যদি না রিজেনারেট টিক দেন।</p>';
+    if (meta.guideline_title) {
+        html += `<p class="small mb-2">Guideline: ${qbEscapeHtml(meta.guideline_title)}</p>`;
+    } else {
+        html += '<div class="alert alert-warning py-2">Answer Guideline নেই। Admin Dashboard → Answer Guideline থেকে PDF আপলোড করুন।</div>';
+    }
+    html += `<div class="d-flex gap-2 mb-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="qbPickAll">সব নির্বাচন</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="qbPickNone">কোনোটি নয়</button>
+    </div><div class="qb-q-pick">`;
+    (questions || []).forEach((q, i) => {
+        const done = answered.has(String(q.number || '')) ? '<span class="badge bg-success ms-1">সংরক্ষিত</span>' : '';
+        html += `<label class="qb-q-item">
+          <input type="checkbox" class="form-check-input qb-q-check mt-1" data-index="${i}">
+          <span><strong>${qbEscapeHtml(q.number || '')}</strong> ${done}<br>
+          <span class="small">${qbEscapeHtml(q.text || '')}</span></span>
+        </label>`;
+    });
+    html += '</div>';
+    html += `<div class="form-check mt-3">
+        <input class="form-check-input" type="checkbox" id="qbPickRegen">
+        <label class="form-check-label small" for="qbPickRegen">সংরক্ষিত উত্তর থাকলেও রিজেনারেট করো</label>
+    </div>`;
+    html += `<div class="mt-3"><button type="button" class="btn btn-success" id="qbPickGenerate" ${meta.has_guideline ? '' : 'disabled'}>নির্বাচিত প্রশ্নের মডেল উত্তর তৈরি করুন</button></div>`;
+    return html;
+}
+
+function qbCsrfHeaders() {
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    return { 'Content-Type': 'application/json', 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' };
+}
+
+async function qbPostAnswers(questions, regenerate) {
+    const generateUrl = window._qbPickState && window._qbPickState.generateUrl;
+    const body = document.getElementById('qbAiModalBody');
+    document.getElementById('qbAiModalTitle').textContent = 'Model answers';
+    body.innerHTML = regenerate
+        ? '<p class="text-muted">রিজেনারেট হচ্ছে… প্রথমবারের মতো সময় লাগতে পারে। শেষ হলে আবার সংরক্ষিত হবে।</p>'
+        : '<p class="text-muted">মডেল উত্তর তৈরি হচ্ছে… প্রথমবার ১–২ মিনিট লাগতে পারে। শেষ হলে সংরক্ষিত থাকবে, পরে আর অপেক্ষা করতে হবে না।</p>';
+    try {
+        const res = await fetch(generateUrl, {
+            method: 'POST',
+            headers: qbCsrfHeaders(),
+            body: JSON.stringify({ questions: questions, regenerate: !!regenerate })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            body.innerHTML = `<div class="alert alert-danger">${qbEscapeHtml(data.message || 'Failed')}</div>`;
+            return;
+        }
+        window._qbPickState.items = data.items || [];
+        body.innerHTML = qbRenderAnswers(data);
+        qbBindAnswerViewHandlers();
+    } catch (e) {
+        body.innerHTML = '<div class="alert alert-warning">অনুরোধ সময় শেষ হতে পারে, কিন্তু উত্তর সংরক্ষিত হয়ে থাকতে পারে। মডাল বন্ধ করে <strong>Model answers</strong> আবার চাপুন।</div>';
+    }
+}
+
+async function qbOpenPicker() {
+    const st = window._qbPickState || {};
+    const body = document.getElementById('qbAiModalBody');
+    document.getElementById('qbAiModalTitle').textContent = 'প্রশ্ন বেছে নিন';
+    body.innerHTML = '<p class="text-muted">প্রশ্ন তালিকা লোড হচ্ছে… আগে Analyze / লিস্ট হয়ে থাকলে সাথে সাথে আসবে।</p>';
+    try {
+        const res = await fetch(st.questionsUrl);
+        const data = await res.json();
+        if (!data.success) {
+            body.innerHTML = `<div class="alert alert-danger">${qbEscapeHtml(data.message || 'Failed')}</div>`;
+            return;
+        }
+        window._qbPickState.questions = data.questions || [];
+        qbShowAiModal('প্রশ্ন বেছে নিন', qbRenderQuestionPicker(data.questions || [], data));
+        qbBindPickerHandlers();
+    } catch (e) {
+        body.innerHTML = '<div class="alert alert-danger">প্রশ্ন তালিকা লোড করা যায়নি।</div>';
+    }
+}
+
+function qbBindAnswerViewHandlers() {
+    const body = document.getElementById('qbAiModalBody');
+    body.querySelector('#qbMoreQuestions')?.addEventListener('click', () => qbOpenPicker());
+    body.querySelectorAll('.qb-regen-one').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const item = (window._qbPickState && window._qbPickState.items || [])[Number(btn.dataset.index)];
+            if (!item) return;
+            if (!confirm('এই প্রশ্নের মডেল উত্তর আবার তৈরি হবে এবং আগেরটা প্রতিস্থাপিত হবে।')) return;
+            qbPostAnswers([{ number: item.number, text: item.question }], true);
+        });
+    });
+}
+
+function qbBindPickerHandlers() {
+    const body = document.getElementById('qbAiModalBody');
+    body.querySelector('#qbPickAll')?.addEventListener('click', () => {
+        body.querySelectorAll('.qb-q-check').forEach(c => { c.checked = true; });
+    });
+    body.querySelector('#qbPickNone')?.addEventListener('click', () => {
+        body.querySelectorAll('.qb-q-check').forEach(c => { c.checked = false; });
+    });
+    body.querySelector('#qbPickGenerate')?.addEventListener('click', (ev) => {
+        const selected = [];
+        body.querySelectorAll('.qb-q-check:checked').forEach(c => {
+            const q = (window._qbPickState && window._qbPickState.questions || [])[Number(c.dataset.index)];
+            if (q) selected.push(q);
+        });
+        if (!selected.length) {
+            alert('কমপক্ষে একটি প্রশ্ন বেছে নিন।');
+            return;
+        }
+        ev.target.disabled = true;
+        const regenerate = !!body.querySelector('#qbPickRegen')?.checked;
+        qbPostAnswers(selected, regenerate);
+    });
+}
+
+document.querySelectorAll('.qb-analyze-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+            const res = await fetch(btn.dataset.url, { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) return alert(data.message || 'Failed');
+            qbShowAiModal('Paper analysis', qbRenderAnalysis(data));
+        } catch (e) {
+            alert('Analysis failed.');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+
+document.querySelectorAll('.qb-answers-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        window._qbPickState = {
+            generateUrl: btn.dataset.url,
+            questionsUrl: btn.dataset.questionsUrl,
+            questions: [],
+            items: []
+        };
+        qbShowAiModal('Model answers', '<p class="text-muted">সংরক্ষিত উত্তর খোঁজা হচ্ছে…</p>');
+        try {
+            const storedUrl = btn.dataset.url + (btn.dataset.url.indexOf('?') >= 0 ? '&' : '?') + 'json=1';
+            const res = await fetch(storedUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const data = await res.json();
+            if (data.success && data.has_answers) {
+                window._qbPickState.items = data.items || [];
+                qbShowAiModal('Model answers', qbRenderAnswers(data));
+                qbBindAnswerViewHandlers();
+                return;
+            }
+            await qbOpenPicker();
+        } catch (e) {
+            await qbOpenPicker();
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+{% endif %}
 </script>
 {% endblock %}
+

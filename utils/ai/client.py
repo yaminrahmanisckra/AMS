@@ -187,19 +187,28 @@ def _extract_text_openai_compatible(response):
     return content, usage
 
 
-def _call_openai(cfg, system_prompt, user_prompt, timeout=120, json_mode=True):
+def _call_openai(cfg, system_prompt, user_prompt, timeout=120, json_mode=True, images=None):
     base = _clean_optional_url(cfg.get('api_base_url')) or 'https://api.openai.com/v1'
     url = f'{base}/chat/completions'
+    if images:
+        user_content = [{'type': 'text', 'text': user_prompt}]
+        for img in images:
+            user_content.append({
+                'type': 'image_url',
+                'image_url': {'url': f'data:image/jpeg;base64,{img}'},
+            })
+    else:
+        user_content = user_prompt
     body = {
         'model': cfg['model_name'],
         'temperature': cfg['temperature'],
         'max_tokens': cfg['max_tokens'],
         'messages': [
             {'role': 'system', 'content': system_prompt},
-            {'role': 'user', 'content': user_prompt},
+            {'role': 'user', 'content': user_content},
         ],
     }
-    if json_mode:
+    if json_mode and not images:
         body['response_format'] = {'type': 'json_object'}
     headers = {
         'Authorization': f'Bearer {cfg["api_key"]}',
@@ -234,7 +243,9 @@ def _normalize_gemini_model(model_name):
     return lowered
 
 
-def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True):
+def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True, images=None, pdf_bytes=None):
+    import base64
+
     model = _normalize_gemini_model(cfg['model_name'])
     base = _clean_optional_url(cfg.get('api_base_url')) or 'https://generativelanguage.googleapis.com/v1beta'
     url = f'{base}/models/{model}:generateContent?key={cfg["api_key"].strip()}'
@@ -242,11 +253,21 @@ def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True):
         'temperature': cfg['temperature'],
         'maxOutputTokens': cfg['max_tokens'],
     }
-    if json_mode:
+    if json_mode and not images and not pdf_bytes:
         generation_config['responseMimeType'] = 'application/json'
+    parts = [{'text': user_prompt}]
+    if pdf_bytes:
+        parts.append({
+            'inline_data': {
+                'mime_type': 'application/pdf',
+                'data': base64.b64encode(pdf_bytes).decode('ascii'),
+            }
+        })
+    for img in images or []:
+        parts.append({'inline_data': {'mime_type': 'image/jpeg', 'data': img}})
     body = {
         'systemInstruction': {'parts': [{'text': system_prompt}]},
-        'contents': [{'role': 'user', 'parts': [{'text': user_prompt}]}],
+        'contents': [{'role': 'user', 'parts': parts}],
         'generationConfig': generation_config,
     }
     headers = {'Content-Type': 'application/json'}
@@ -262,18 +283,27 @@ def _call_gemini(cfg, system_prompt, user_prompt, timeout=120, json_mode=True):
     return text, usage
 
 
-def _call_anthropic(cfg, system_prompt, user_prompt, timeout=120):
+def _call_anthropic(cfg, system_prompt, user_prompt, timeout=120, images=None):
     from utils.ai.provider_presets import normalize_model_for_provider
 
     model = normalize_model_for_provider('anthropic', cfg.get('model_name'))
     base = _clean_optional_url(cfg.get('api_base_url')) or 'https://api.anthropic.com/v1'
     url = f'{base}/messages'
+    if images:
+        content = [{'type': 'text', 'text': user_prompt}]
+        for img in images:
+            content.append({
+                'type': 'image',
+                'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': img},
+            })
+    else:
+        content = user_prompt
     body = {
         'model': model,
         'max_tokens': cfg['max_tokens'],
         'temperature': cfg['temperature'],
         'system': system_prompt,
-        'messages': [{'role': 'user', 'content': user_prompt}],
+        'messages': [{'role': 'user', 'content': content}],
     }
     headers = {
         'x-api-key': cfg['api_key'],
@@ -289,17 +319,25 @@ def _call_anthropic(cfg, system_prompt, user_prompt, timeout=120):
     return text, usage
 
 
-def _call_configured_provider(cfg, system_prompt, user_prompt, json_mode=True):
+def _call_configured_provider(cfg, system_prompt, user_prompt, json_mode=True, images=None, pdf_bytes=None):
     provider = cfg['provider']
     if provider in (AIProviderSetting.PROVIDER_OPENAI, AIProviderSetting.PROVIDER_DEEPSEEK):
         if provider == AIProviderSetting.PROVIDER_DEEPSEEK and not cfg.get('api_base_url'):
             cfg = dict(cfg)
             cfg['api_base_url'] = 'https://api.deepseek.com/v1'
-        return _call_openai(cfg, system_prompt, user_prompt, json_mode=json_mode)
+        if images and provider == AIProviderSetting.PROVIDER_DEEPSEEK:
+            raise AIClientError('DeepSeek স্ক্যান করা PDF পড়তে পারে না। Admin → AI Settings-এ Gemini বা OpenAI বেছে নিন।')
+        timeout = 180 if (images or pdf_bytes) else 120
+        return _call_openai(cfg, system_prompt, user_prompt, json_mode=json_mode, images=images, timeout=timeout)
     if provider == AIProviderSetting.PROVIDER_GEMINI:
-        return _call_gemini(cfg, system_prompt, user_prompt, json_mode=json_mode)
+        timeout = 180 if (images or pdf_bytes) else 120
+        return _call_gemini(
+            cfg, system_prompt, user_prompt, json_mode=json_mode,
+            images=images, pdf_bytes=pdf_bytes, timeout=timeout,
+        )
     if provider == AIProviderSetting.PROVIDER_ANTHROPIC:
-        return _call_anthropic(cfg, system_prompt, user_prompt)
+        timeout = 180 if images else 120
+        return _call_anthropic(cfg, system_prompt, user_prompt, images=images, timeout=timeout)
     raise AIClientError(f'Unsupported AI provider: {provider}')
 
 
@@ -352,6 +390,21 @@ def generate_outline_json_with_meta(system_prompt, user_prompt, max_tokens=None)
 
 def generate_outline_json(system_prompt, user_prompt):
     return generate_outline_json_with_meta(system_prompt, user_prompt)['text']
+
+
+def generate_text_from_media(system_prompt, user_prompt, images=None, pdf_bytes=None, max_tokens=4000):
+    """Vision/OCR-style call: page images and/or a PDF. Returns plain text."""
+    images = [img for img in (images or []) if img]
+    reset_db_session()
+    cfg = get_active_provider_setting()
+    cfg = dict(cfg)
+    cfg['max_tokens'] = max(512, int(max_tokens or cfg.get('max_tokens') or 4000))
+    reset_db_session()
+    text, _usage = _call_configured_provider(
+        cfg, system_prompt, user_prompt, json_mode=False,
+        images=images or None, pdf_bytes=pdf_bytes,
+    )
+    return (text or '').strip()
 
 
 def generate_text_with_meta(system_prompt, user_prompt, max_tokens=None):

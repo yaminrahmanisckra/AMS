@@ -54,6 +54,7 @@ class Session(db.Model):
     split_group_id = db.Column(db.String(36), nullable=True, index=True)
     # Assessment reveal status (JSON format: {teacher_id: {assessment1: true, assessment2: false, ...}})
     assessment_revealed = db.Column(db.Text, nullable=True)
+    qa_ai_auto_reply = db.Column(db.Boolean, default=False, nullable=False)
 
 
 class ClassSplitInvite(db.Model):
@@ -160,6 +161,20 @@ class CourseFileUpload(db.Model):
     teacher = db.relationship('Teacher', backref=db.backref('uploaded_files', lazy='dynamic'))
 
 
+class AnswerGuideline(db.Model):
+    """Global answer-writing guideline uploaded from Admin Dashboard."""
+    __tablename__ = 'answer_guideline'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    file_name = db.Column(db.String(255), nullable=True)
+    file_path = db.Column(db.String(500), nullable=False)
+    file_size = db.Column(db.Integer, nullable=True)
+    extracted_text = db.Column(db.Text, nullable=True)
+    uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class QuestionBankFile(db.Model):
     """Past-question PDF files shared for all students/teachers."""
     __tablename__ = 'question_bank_file'
@@ -172,6 +187,10 @@ class QuestionBankFile(db.Model):
     file_size = db.Column(db.Integer, nullable=True)
     uploaded_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    file_kind = db.Column(db.String(30), nullable=False, default='question')  # question | answer_guideline
+    extracted_text = db.Column(db.Text, nullable=True)
+    analysis_json = db.Column(db.Text, nullable=True)
+    model_answers_json = db.Column(db.Text, nullable=True)
 
 
 class QuestionBankFolder(db.Model):
@@ -218,6 +237,7 @@ class CourseQuestionMessage(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     seen_by_teacher_at = db.Column(db.DateTime, nullable=True)  # when teacher viewed a student message
     seen_by_student_at = db.Column(db.DateTime, nullable=True)  # when student viewed a teacher message
+    is_ai_generated = db.Column(db.Boolean, default=False, nullable=False)
 
     attachments = db.relationship(
         'CourseQuestionAttachment',
@@ -249,6 +269,12 @@ class StudentNotification(db.Model):
     link_url = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     read_at = db.Column(db.DateTime, nullable=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
+
+    operational_window = db.relationship(
+        'OperationalWindow',
+        backref=db.backref('student_notifications', lazy='dynamic'),
+    )
 
 
 # Evaluation invitation for external/internal teacher to assess a course session

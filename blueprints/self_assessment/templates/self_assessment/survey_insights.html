@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ survey_title }} – Insights{% endblock %}
+{% block mobile_title %}Insights{% endblock %}
+{% block content %}
+<div class="container my-4">
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('self_assessment.index') }}">Self Assessment</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('self_assessment.survey_responses_list', survey_type=survey_type) }}">{{ survey_title }}</a></li>
+            <li class="breadcrumb-item active">থিম সারাংশ</li>
+        </ol>
+    </nav>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h2 class="mb-0">{{ survey_title }} – থিম সারাংশ</h2>
+        <form method="post">
+            <button type="submit" class="btn btn-info">মন্তব্য থেকে সারাংশ তৈরি করুন</button>
+        </form>
+    </div>
+    <p class="text-muted">রেটিং টেবিল মডেলে যায় না। নিচে শুধু গড় নম্বর (Python) এবং ওপেন মন্তব্যের থিম।</p>
+
+    {% if snapshot %}
+    <p class="small text-muted">Last generated: {{ snapshot.generated_at|bd('%Y-%m-%d %H:%M') if snapshot.generated_at else '—' }}</p>
+    {% endif %}
+
+    {% if summary and summary.rating_means %}
+    <div class="card mb-3">
+        <div class="card-header">Rating averages (not AI)</div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0">
+                <thead><tr><th>Item</th><th>Mean</th><th>n</th></tr></thead>
+                <tbody>
+                {% for key, row in summary.rating_means.items() %}
+                <tr>
+                    <td>{{ row.label }}</td>
+                    <td>{{ row.mean }}</td>
+                    <td>{{ row.n }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if summary %}
+        {% if summary.comment_count == 0 %}
+        <div class="alert alert-warning">মন্তব্য নেই</div>
+        {% endif %}
+        {% if summary.notes %}<p>{{ summary.notes }}</p>{% endif %}
+        {% for theme in summary.themes or [] %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h5>{{ theme.title }}</h5>
+                <p>{{ theme.summary }}</p>
+                {% if theme.quotes %}
+                <ul>
+                    {% for q in theme.quotes %}
+                    <li><em>{{ q }}</em></li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="alert alert-info">এখনো সারাংশ তৈরি হয়নি।</div>
+    {% endif %}
+</div>
+{% endblock %}

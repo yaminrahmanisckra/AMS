@@ -252,7 +252,7 @@
                             </div>
                             <div class="mb-2">
                                 <label class="form-label">Message</label>
-                                <textarea name="message" class="form-control form-control-sm" rows="3" placeholder="Write your question"></textarea>
+                                <textarea id="qa-ask-{{ course.session.id }}" name="message" class="form-control form-control-sm qa-rich-editor" rows="5" placeholder="Write your question"></textarea>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Attachments <span class="text-muted">(optional)</span></label>
@@ -334,7 +334,7 @@
                                         {% endfor %}
                                     </div>
                                     <form class="sv-reply-form" method="POST" action="{{ url_for('class_management.student_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data">
-                                        <textarea name="message" class="form-control form-control-sm mb-2" rows="2" placeholder="Reply..."></textarea>
+                                        <textarea id="qa-student-reply-{{ thread.id }}" name="message" class="form-control form-control-sm mb-2 qa-rich-editor" rows="4" placeholder="Reply..."></textarea>
                                         <input type="file" name="attachments" class="form-control form-control-sm mb-2" multiple>
                                         <button type="submit" class="btn btn-sm btn-outline-primary">
                                             <i class="fas fa-reply me-1"></i>Reply
@@ -845,6 +845,13 @@
     line-height: 1.45;
 }
 
+.qa-message-body p { margin: 0 0 0.4rem; }
+.qa-message-body p:last-child { margin-bottom: 0; }
+.qa-message-body ul, .qa-message-body ol { margin: 0.25rem 0 0.4rem 1.1rem; padding: 0; }
+.qa-message-body li { margin: 0.1rem 0; }
+.qa-message-body a { word-break: break-word; }
+.tox-tinymce { border-radius: 6px !important; }
+
 .sv-attachments {
     margin-top: 0.45rem;
     display: flex;
@@ -952,7 +959,39 @@
 }
 </style>
 
+<script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
 <script>
+function initQaRichEditors(root) {
+    if (!window.tinymce) return;
+    const scope = root || document;
+    scope.querySelectorAll('textarea.qa-rich-editor').forEach(function(el) {
+        if (!el.id) el.id = 'qa-ed-' + Math.random().toString(36).slice(2, 10);
+        if (tinymce.get(el.id)) return;
+        tinymce.init({
+            selector: '#' + el.id,
+            height: 180,
+            menubar: false,
+            branding: false,
+            promotion: false,
+            plugins: 'lists link autolink',
+            toolbar: 'undo redo | bold italic underline | bullist numlist | link | removeformat',
+            toolbar_mode: 'wrap',
+            convert_urls: false,
+            link_default_target: '_blank',
+            link_assume_external_targets: true,
+            content_style: 'body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 14px; }'
+        });
+    });
+}
+
+document.addEventListener('submit', function(e) {
+    const form = e.target;
+    if (!form || !form.querySelector || !form.querySelector('textarea.qa-rich-editor')) return;
+    if (window.tinymce) {
+        try { tinymce.triggerSave(); } catch (err) {}
+    }
+}, true);
+
 document.addEventListener('DOMContentLoaded', function() {
     document.querySelectorAll('.sv-course-header').forEach(function(btn) {
         var target = document.querySelector(btn.getAttribute('data-bs-target'));
@@ -962,6 +1001,9 @@ document.addEventListener('DOMContentLoaded', function() {
         target.addEventListener('show.bs.collapse', function() {
             btn.setAttribute('aria-expanded', 'true');
             if (card) card.classList.add('is-open');
+        });
+        target.addEventListener('shown.bs.collapse', function() {
+            initQaRichEditors(target);
         });
         target.addEventListener('hide.bs.collapse', function() {
             btn.setAttribute('aria-expanded', 'false');

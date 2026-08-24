@@ -63,6 +63,17 @@ class SurveyResponse(db.Model):
     survey_link = db.relationship('SurveyLink', backref=db.backref('responses', lazy='dynamic'))
 
 
+class SurveyInsightSnapshot(db.Model):
+    """Cached Head-facing AI theme summary for a survey type (comments only)."""
+    __tablename__ = 'survey_insight_snapshot'
+    id = db.Column(db.Integer, primary_key=True)
+    survey_type = db.Column(db.String(32), nullable=False, index=True)
+    window_id = db.Column(db.Integer, db.ForeignKey('operational_window.id'), nullable=True, index=True)
+    summary_json = db.Column(db.Text, nullable=True)
+    generated_at = db.Column(db.DateTime, default=datetime.utcnow)
+    generated_by_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+
 class AlumniSurveyResponse(db.Model):
     """Response for Alumni Survey (Public). When payload is set, form follows Law Program Accreditation (Parts A–E); else legacy columns."""
     __tablename__ = 'alumni_survey_response'

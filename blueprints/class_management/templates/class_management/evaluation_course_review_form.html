@@ -119,6 +119,11 @@
         <div class="mb-4">
           <h6 class="text-uppercase text-secondary mb-3">Overview / Evaluation (Course Coordinator's Comments)</h6>
           <p class="small text-muted mb-3">Summarize and comment on feedback received from the following sources. (Textarea fields will expand as you type.)</p>
+          <div class="mb-3 d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-sm btn-outline-info" data-review-ai="student">স্টুডেন্ট কমেন্ট থেকে সারাংশ</button>
+            <button type="button" class="btn btn-sm btn-outline-info" data-review-ai="peer">পিয়ার পর্যবেক্ষণ থেকে সারাংশ</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-review-ai="both" data-extra="1">সব মন্তব্য ক্ষেত্রে খসড়া</button>
+          </div>
           <div class="review-comments">
             {% for item in comment_fields %}
             <div class="mb-3">
@@ -234,6 +239,33 @@
 
     enrollmentInput.addEventListener('input', updateGrades);
     updateGrades();
+  });
+
+  document.querySelectorAll('[data-review-ai]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const res = await fetch({{ url_for('class_management.course_review_ai_summarize', session_id=session.id) | tojson }}, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sources: btn.dataset.reviewAi,
+            extra_fields: btn.dataset.extra === '1'
+          })
+        });
+        const data = await res.json();
+        if (!data.success) return alert(data.message || 'Failed');
+        const fields = data.fields || {};
+        Object.keys(fields).forEach(key => {
+          const el = document.querySelector(`[name="${key}"]`);
+          if (el && fields[key]) el.value = fields[key];
+        });
+      } catch (e) {
+        alert('AI summary failed.');
+      } finally {
+        btn.disabled = false;
+      }
+    });
   });
 </script>
 {% endblock %}

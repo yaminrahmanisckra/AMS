@@ -214,7 +214,7 @@
     .ai-copilot-row {
         display: flex;
         gap: 8px;
-        align-items: stretch;
+        align-items: flex-start;
     }
     #aiCopilotSection {
         max-width: 160px;
@@ -222,13 +222,18 @@
         background: #0b1220;
         color: #e2e8f0;
         border-color: rgba(255,255,255,0.12);
+        min-height: 42px;
     }
     #aiCopilotInstruction {
         flex: 1 1 auto;
         min-width: 0;
+        min-height: 42px;
+        max-height: 96px;
+        resize: vertical;
         background: #0b1220;
         color: #f8fafc;
         border-color: rgba(255,255,255,0.12);
+        line-height: 1.35;
     }
     #aiCopilotInstruction::placeholder { color: #64748b; }
     .ai-copilot-topic {
@@ -277,7 +282,8 @@
     .tox-tinymce { border-radius: 6px !important; }
     .part-d-editor { min-height: 160px; }
     .lesson-plan-row.ai-just-changed,
-    .border.ai-just-changed {
+    .border.ai-just-changed,
+    .form-control.ai-just-changed {
         outline: 2px solid #f59e0b;
         background: #fffbeb;
         transition: background 1.2s ease;
@@ -384,6 +390,13 @@
         </span>
     </div>
 
+    {% if is_split_shared_outline %}
+    <div class="alert alert-info py-2 mb-3">
+        <i class="fas fa-users me-2"></i>
+        <strong>Shared split-course outline:</strong> Changes you save here are visible to your Part A/B partner, and you can edit an outline they create with AI or Generate Plan.
+    </div>
+    {% endif %}
+
     <form id="courseOutlineForm" action="{{ url_for('class_management.save_course_outline', session_id=session.id) }}" method="POST">
         <input type="hidden" name="session_id" value="{{ session.id }}">
         
@@ -391,7 +404,14 @@
         <div class="card shadow mb-3">
             <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#partA" aria-expanded="false" aria-controls="partA">
                 <h5 class="mb-0">PART A: INTRODUCTION</h5>
-                <i class="fas fa-chevron-up"></i>
+                <div class="d-flex align-items-center gap-2">
+                    {% if ai_outline_enabled %}
+                    <button type="button" class="btn btn-sm btn-light ai-section-fix-btn" data-ai-section="overview" onclick="event.stopPropagation();" title="এআই দিয়ে এই অংশ ঠিক করুন">
+                        <i class="fas fa-magic me-1"></i>এআই
+                    </button>
+                    {% endif %}
+                    <i class="fas fa-chevron-up"></i>
+                </div>
             </div>
             <div class="collapse" id="partA">
             <div class="card-body">
@@ -1264,22 +1284,28 @@
                 <button type="button" class="ai-copilot-min" id="aiCopilotMinBtn" title="ছোট করুন"><i class="fas fa-minus"></i></button>
             </div>
             <div class="ai-copilot-chips" id="aiCopilotChips">
+                <button type="button" class="ai-copilot-chip" data-section="overview" data-fill="Course Summary এই কোর্সের বিষয় অনুযায়ী একাডেমিক ভাষায় লিখে দাও">Course Summary</button>
                 <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="সপ্তাহ ৫-এ কুইজ দাও">সপ্তাহ ৫-এ কুইজ</button>
                 <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="প্রতি সপ্তাহে discussion রাখো">প্রতি সপ্তাহে discussion</button>
                 <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="সপ্তাহ ৪ ও ৮-এ Class Test দাও">দুইটি Class Test</button>
-                <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="খালি আউটকামগুলো সংক্ষেপে লিখে দাও">আউটকাম লিখো</button>
+                <button type="button" class="ai-copilot-chip" data-section="lesson_plan" data-fill="খালি আউটকামগুলো সংক্ষেপে লিখে দাও">খালি আউটকাম</button>
+                <button type="button" class="ai-copilot-chip" data-section="assessment" data-fill="শুধু Academic Honesty এই কোর্স অনুযায়ী পূরণ করো">Academic Honesty</button>
+                <button type="button" class="ai-copilot-chip" data-section="assessment" data-fill="Part C-এর Class Discussion/Participation, General Expectations, Communication with Course Teachers এবং Academic Honesty ফিল্ডগুলো পূরণ করো">Part C Other Issues</button>
+                <button type="button" class="ai-copilot-chip" data-section="resources" data-fill="শুধু Textbooks এই কোর্সের বিষয় অনুযায়ী লিখে দাও">Textbooks</button>
+                <button type="button" class="ai-copilot-chip" data-section="resources" data-fill="Part D-এর Textbooks, Reference Books, Other Resources এবং Course File পূরণ করো">Part D Resources</button>
             </div>
             <div class="ai-copilot-row">
                 <select id="aiCopilotSection" class="form-select form-select-sm">
-                    <option value="lesson_plan">Lesson Plan</option>
+                    <option value="overview">Part A</option>
+                    <option value="lesson_plan" selected>Lesson Plan</option>
                     <option value="assessment_techniques">Techniques</option>
                     <option value="cie">CIE</option>
                     <option value="smee">SMEE</option>
                     <option value="assessment">Part C</option>
                     <option value="resources">Part D</option>
                 </select>
-                <input type="text" id="aiCopilotInstruction" class="form-control form-control-sm" maxlength="500"
-                       placeholder="বাংলা বা ইংরেজিতে যা খুশি লিখুন">
+                <textarea id="aiCopilotInstruction" class="form-control form-control-sm" maxlength="1200" rows="2"
+                          placeholder="যেকোনো সূক্ষ্ম কাজ: শুধু Academic Honesty, খালি আউটকাম, সপ্তাহ ৫-এ কুইজ…"></textarea>
                 <div class="form-check form-switch mb-0 ai-copilot-topic" id="aiCopilotLockWrap"
                      title="বন্ধ = সিলেবাসের টপিক অক্ষত থাকবে। চালু = এআই টপিকও বদলাতে পারবে।">
                     <input class="form-check-input" type="checkbox" id="aiCopilotAllowTopics">
@@ -1289,7 +1315,7 @@
                     <i class="fas fa-magic"></i><span>প্রয়োগ</span>
                 </button>
             </div>
-            <div id="aiCopilotStatus" class="small mt-2 mb-0">যেমন: «সপ্তাহ ৫-এ কুইজ», «মাঝামাঝি অ্যাসাইনমেন্ট», «আউটকামগুলো সংক্ষেপে লিখো»। সহকারী অর্থ বুঝে ফর্মে লাগাবে।</div>
+            <div id="aiCopilotStatus" class="small mt-2 mb-0">ফিল্ডের নাম লিখলে শুধু সেই ফিল্ড বদলাবে। Ctrl+Enter-এ প্রয়োগ। ড্রপডাউন থেকে অংশ বেছে নিতে পারেন।</div>
         </div>
     </div>
     {% endif %}
@@ -2883,11 +2909,12 @@ function removeCLORow(index) {
 
 function initializeCourseContentsSummary() {
     let hasExistingData = false;
-    
-    // Parse existing course content summary
-    {% if course_outline.course_content_summary %}
+    let existingContent = {{ (outline_data.course_content_summary if outline_data else {})|tojson }};
+    if (typeof existingContent === 'string' && existingContent.trim()) {
+        try { existingContent = JSON.parse(existingContent); } catch (e) { existingContent = null; }
+    }
+
     try {
-        const existingContent = {{ course_outline.course_content_summary|tojson }};
         if (existingContent && typeof existingContent === 'object' && existingContent !== null) {
             if (existingContent.sectionA && Array.isArray(existingContent.sectionA) && existingContent.sectionA.length > 0) {
                 existingContent.sectionA.forEach((item, idx) => {
@@ -2913,27 +2940,10 @@ function initializeCourseContentsSummary() {
                     }
                 });
             }
-        } else if (typeof existingContent === 'string' && existingContent.trim()) {
-            const lines = existingContent.split('\n').filter(l => l.trim());
-            let currentSection = null;
-            lines.forEach(line => {
-                if (line.toLowerCase().includes('section a')) {
-                    currentSection = 'A';
-                } else if (line.toLowerCase().includes('section b')) {
-                    currentSection = 'B';
-                } else if (currentSection && /^\d+\./.test(line.trim())) {
-                    const match = line.match(/^\d+\.\s*(.+?)(?:\s*-\s*(\d+(?:\.\d+)?)\s*hours?)?(?:,\s*CLOs?\s*(.+))?$/i);
-                    if (match) {
-                        addCourseContentRow(currentSection, match[1].trim(), match[2] || '', match[3] || '');
-                        hasExistingData = true;
-                    }
-                }
-            });
         }
     } catch(e) {
         hasExistingData = false;
     }
-    {% endif %}
     
     // Auto-import from curriculum if no existing data
     // Classes: NEVER from curriculum - only from saved existingClasses; otherwise empty (user fills)
@@ -2985,7 +2995,7 @@ function importCourseContentsFromCurriculum() {
         // NOTE: Classes field will be empty - user must fill manually
         if (curriculumContentsA && curriculumContentsA.length > 0) {
             curriculumContentsA.forEach((item) => {
-                addCourseContentRow('A', item.content || '', item.hrs || '', item.clo || '', null, true, '1');
+                addCourseContentRow('A', item.content || item.topic || '', item.hrs || '', item.clo || item.clos || '', null, true, '1');
             });
         }
         
@@ -2993,7 +3003,7 @@ function importCourseContentsFromCurriculum() {
         // NOTE: Classes field will be empty - user must fill manually
         if (curriculumContentsB && curriculumContentsB.length > 0) {
             curriculumContentsB.forEach((item) => {
-                addCourseContentRow('B', item.content || '', item.hrs || '', item.clo || '', null, true, '1');
+                addCourseContentRow('B', item.content || item.topic || '', item.hrs || '', item.clo || item.clos || '', null, true, '1');
             });
         }
         
@@ -4357,13 +4367,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
         function inferSection(instruction, selected) {
             const text = (instruction || '').toLowerCase();
-            if (/textbook|reference book|বই|resource/.test(text)) return 'resources';
-            if (/rubric|রুব্রিক|grading/.test(text)) return 'assessment';
-            if (/\bcie\b/.test(text)) return 'cie';
-            if (/\bsmee\b/.test(text)) return 'smee';
-            if (/week|সপ্তাহ|quiz|কুইজ|lesson|আউটকাম|discussion|ডিসকাশন|টপিক|class test/.test(text)) {
-                return 'lesson_plan';
-            }
+            const namedPartA = /part\s*a|পার্ট\s*a/.test(text);
+            const namedPartC = /part\s*c|পার্ট\s*c/.test(text);
+            const namedPartD = /part\s*d|পার্ট\s*d/.test(text);
+            const otherIssues = /academic honesty|general expectations|class discussion|participation|communication with|other issues|একাডেমিক হনেস্টি|সাধারণ প্রত্যাশা/.test(text);
+            const resources = /textbook|reference book|other resources|course file|বইয়ের তালিকা|পাঠ্যবই/.test(text);
+            const overview = /course summary|কোর্স সামারি|prerequisite|পূর্বশর্ত|course learning outcome/.test(text);
+            const weekPlan = /(?:week|সপ্তাহ)\s*\d|lesson plan/.test(text);
+            if (namedPartD && !namedPartC) return 'resources';
+            if (namedPartC || (otherIssues && !weekPlan)) return 'assessment';
+            if (namedPartA || (overview && !weekPlan && !namedPartC && !namedPartD)) return 'overview';
+            if (resources && !namedPartC && !weekPlan) return 'resources';
+            if (/\bcie\b/.test(text) && !namedPartC && !namedPartD) return 'cie';
+            if (/\bsmee\b/.test(text) && !namedPartC && !namedPartD) return 'smee';
+            if (/assessment technique/.test(text)) return 'assessment_techniques';
+            if (weekPlan && !namedPartC && !namedPartD && !namedPartA) return 'lesson_plan';
             return selected || 'lesson_plan';
         }
 
@@ -4373,12 +4391,42 @@ document.addEventListener('DOMContentLoaded', function() {
             bootstrap.Collapse.getOrCreateInstance(el, { toggle: false }).show();
         }
 
+        function scrollToName(name) {
+            const el = document.querySelector('#courseOutlineForm [name="' + name + '"]') || document.getElementById(name);
+            if (!el) return;
+            try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+            el.classList.add('ai-just-changed');
+            setTimeout(function() { el.classList.remove('ai-just-changed'); }, 1800);
+        }
+
         function focusSection(section) {
             if (sectionSel) sectionSel.value = section;
             if (section === 'resources') expandPart('partD');
             else if (section === 'assessment') expandPart('partC');
+            else if (section === 'overview') expandPart('partA');
             else expandPart('partB');
             if (lockWrap) lockWrap.classList.toggle('d-none', section !== 'lesson_plan');
+        }
+
+        function collectCourseContext() {
+            const form = document.getElementById('courseOutlineForm');
+            if (!form) return {};
+            const fd = new FormData(form);
+            const clos = [];
+            (fd.getAll('clo_description[]') || []).forEach(function(d, i) {
+                if ((d || '').trim()) clos.push('CLO ' + (i + 1) + ': ' + d.trim().slice(0, 160));
+            });
+            const topics = [];
+            (fd.getAll('lesson_topic[]') || []).forEach(function(t) {
+                if ((t || '').trim() && topics.length < 8) topics.push(t.trim().slice(0, 80));
+            });
+            return {
+                course_code: fd.get('course_no') || '',
+                course_title: fd.get('course_title') || '',
+                course_summary: (fd.get('course_summary') || '').slice(0, 700),
+                clos: clos.slice(0, 8),
+                topics: topics
+            };
         }
 
         function writeLessonPlanRow(rowEl, data) {
@@ -4442,7 +4490,20 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!form) return {};
             const fd = new FormData(form);
             const snap = {};
-            if (section === 'lesson_plan') {
+            if (section === 'overview') {
+                snap.course_summary = fd.get('course_summary') || '';
+                snap.prerequisites = fd.get('prerequisites') || '';
+                const cloDescriptions = fd.getAll('clo_description[]');
+                const cloPlos = fd.getAll('clo_plos[]');
+                snap.clo_data = [];
+                cloDescriptions.forEach(function(desc, idx) {
+                    snap.clo_data.push({
+                        number: idx + 1,
+                        description: (desc || '').trim(),
+                        plos: cloPlos[idx] ? cloPlos[idx].split(',').map(function(p) { return p.trim(); }).filter(Boolean) : []
+                    });
+                });
+            } else if (section === 'lesson_plan') {
                 const weeks = fd.getAll('lesson_week[]');
                 const dates = fd.getAll('lesson_date[]');
                 const topics = fd.getAll('lesson_topic[]');
@@ -4539,17 +4600,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 for (let i = 0; i < gradeRanges.length; i++) {
                     if (gradeRanges[i] || grades[i]) snap.grading_policy.push({ range: gradeRanges[i] || '', grade: grades[i] || '' });
                 }
-            } else if (section === 'resources') {
-                snap.textbooks = getPartDHtml('textbooks');
-                snap.reference_books = getPartDHtml('reference_books');
-                snap.other_resources = getPartDHtml('other_resources');
-                snap.course_file_components = getPartDHtml('course_file_components');
                 snap.other_issues = {
                     class_discussion: fd.get('class_discussion') || '',
                     general_expectations: fd.get('general_expectations') || '',
                     communication: fd.get('communication') || '',
                     academic_honesty: fd.get('academic_honesty') || ''
                 };
+            } else if (section === 'resources') {
+                snap.textbooks = getPartDHtml('textbooks');
+                snap.reference_books = getPartDHtml('reference_books');
+                snap.other_resources = getPartDHtml('other_resources');
+                snap.course_file_components = getPartDHtml('course_file_components');
             }
             return snap;
         }
@@ -4646,16 +4707,72 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
             }
-            if (payload.make_up_procedures != null) setField('make_up_procedures', payload.make_up_procedures);
-            if (payload.textbooks != null) setRichField('textbooks', payload.textbooks);
-            if (payload.reference_books != null) setRichField('reference_books', payload.reference_books);
-            if (payload.other_resources != null) setRichField('other_resources', payload.other_resources);
-            if (payload.course_file_components != null) setRichField('course_file_components', payload.course_file_components);
+            if (payload.course_summary != null) {
+                setField('course_summary', payload.course_summary);
+                expandPart('partA');
+                scrollToName('course_summary');
+            }
+            if (payload.prerequisites != null) {
+                setField('prerequisites', payload.prerequisites);
+                expandPart('partA');
+                if (payload.course_summary == null) scrollToName('prerequisites');
+            }
+            if (Array.isArray(payload.clo_data)) {
+                expandPart('partA');
+                payload.clo_data.forEach(function(clo, idx) {
+                    const desc = (clo && clo.description) || '';
+                    const plos = (clo && clo.plos) || [];
+                    const descInputs = document.querySelectorAll('#courseOutlineForm [name="clo_description[]"]');
+                    const ploInputs = document.querySelectorAll('#courseOutlineForm [name="clo_plos[]"]');
+                    if (descInputs[idx]) {
+                        if (desc) {
+                            descInputs[idx].value = desc;
+                            if (typeof updateCLOData === 'function') updateCLOData(idx, desc);
+                        }
+                        if (ploInputs[idx] && plos.length && typeof updateCLOPLOs === 'function') {
+                            ploInputs[idx].value = Array.isArray(plos) ? plos.join(', ') : String(plos);
+                            updateCLOPLOs(idx, ploInputs[idx].value);
+                        }
+                    } else if (desc && typeof addCLORow === 'function') {
+                        addCLORow({ description: desc, plos: Array.isArray(plos) ? plos : [] });
+                    }
+                });
+                if (payload.course_summary == null && payload.prerequisites == null) {
+                    const firstClo = document.querySelector('#courseOutlineForm [name="clo_description[]"]');
+                    if (firstClo) {
+                        try { firstClo.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+                    }
+                }
+            }
             if (payload.other_issues && typeof payload.other_issues === 'object') {
+                const issueOrder = ['academic_honesty', 'class_discussion', 'general_expectations', 'communication'];
                 setField('class_discussion', payload.other_issues.class_discussion);
                 setField('general_expectations', payload.other_issues.general_expectations);
                 setField('communication', payload.other_issues.communication);
                 setField('academic_honesty', payload.other_issues.academic_honesty);
+                expandPart('partC');
+                let scrollName = 'class_discussion';
+                for (let i = 0; i < issueOrder.length; i++) {
+                    if (payload.other_issues[issueOrder[i]]) {
+                        scrollName = issueOrder[i];
+                        break;
+                    }
+                }
+                scrollToName(scrollName);
+            }
+            if (payload.textbooks != null) setRichField('textbooks', payload.textbooks);
+            if (payload.reference_books != null) setRichField('reference_books', payload.reference_books);
+            if (payload.other_resources != null) setRichField('other_resources', payload.other_resources);
+            if (payload.course_file_components != null) setRichField('course_file_components', payload.course_file_components);
+            if (payload.textbooks != null || payload.reference_books != null || payload.other_resources != null || payload.course_file_components != null) {
+                expandPart('partD');
+                const resourceOrder = ['textbooks', 'reference_books', 'other_resources', 'course_file_components'];
+                for (let i = 0; i < resourceOrder.length; i++) {
+                    if (payload[resourceOrder[i]] != null) {
+                        scrollToName(resourceOrder[i]);
+                        break;
+                    }
+                }
             }
         }
 
@@ -4691,17 +4808,23 @@ document.addEventListener('DOMContentLoaded', function() {
                         section: section,
                         instruction: instruction,
                         current: current,
+                        context: collectCourseContext(),
                         allow_topic_change: !!(allowTopicsEl && allowTopicsEl.checked)
                     })
                 });
                 const data = await resp.json().catch(function() { return {}; });
                 if (!data.success) throw new Error(data.message || 'Patch failed');
-                const usedSection = data.section || section;
-                if (usedSection !== section) {
-                    section = usedSection;
-                    if (sectionSel) sectionSel.value = section;
-                    focusSection(section);
-                }
+            const usedSection = data.section || section;
+            if (usedSection !== section) {
+                section = usedSection;
+                if (sectionSel) sectionSel.value = section;
+                focusSection(section);
+            }
+            if ((data.payload || {}).other_issues && !(data.payload || {}).lesson_plan) {
+                section = 'assessment';
+                if (sectionSel) sectionSel.value = 'assessment';
+                focusSection('assessment');
+            }
                 applyOutlinePatch(data.payload || {});
                 if (typeof autoSaveTimeout !== 'undefined' && autoSaveTimeout) clearTimeout(autoSaveTimeout);
                 await new Promise(function(resolve) { requestAnimationFrame(function() { resolve(); }); });
@@ -4814,7 +4937,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (applyBtn) applyBtn.addEventListener('click', function() { runPatch(); });
         if (instructionEl) {
             instructionEl.addEventListener('keydown', function(ev) {
-                if (ev.key === 'Enter') {
+                if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
                     ev.preventDefault();
                     runPatch();
                 }

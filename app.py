@@ -26,6 +26,7 @@ from role_utils import (
     is_head,
     validate_role_selection,
     serialize_roles,
+    has_stored_admin,
 )
 from blueprints.class_management.models import (
     ExamPaperEvaluation,
@@ -399,6 +400,8 @@ def create_app():
     MUST_CHANGE_PASSWORD_EXEMPT_ENDPOINTS = frozenset({
         'static',
         'auth.logout',
+        'auth.login_as',
+        'auth.stop_login_as',
         'profile',
     })
 
@@ -407,6 +410,8 @@ def create_app():
         """Force a password change before anything else once must_change_password is set
         (e.g. freshly-created student accounts with a random one-time password)."""
         if not current_user.is_authenticated:
+            return
+        if session.get('impersonator_id'):
             return
         if not getattr(current_user, 'must_change_password', False):
             return
@@ -866,6 +871,17 @@ def create_app():
             'datetime': datetime,
             'student_notification_count': student_notification_count,
             'student_notifications': student_notifications,
+            'is_impersonating': bool(session.get('impersonator_id')) if current_user.is_authenticated else False,
+            'impersonator_user': (
+                User.query.get(session.get('impersonator_id'))
+                if current_user.is_authenticated and session.get('impersonator_id')
+                else None
+            ),
+            'can_login_as': (
+                current_user.is_authenticated
+                and not session.get('impersonator_id')
+                and has_stored_admin(current_user)
+            ),
             **visible_items,  # Add visible dashboard items to context
         }
 
@@ -2399,21 +2415,52 @@ def create_app():
         elements.append(table)
         elements.append(Spacer(1, 18))
 
-        signature_table = Table(
+        from utils.user_signature import reportlab_signature_flowable
+
+        examiner_teacher = entry.owner_teacher if entry.owner_teacher_id else None
+        scrutinizer_teacher = entry.assigned_scrutinizer if entry.assigned_scrutinizer_id else None
+        sig_w = 42 * mm
+        sig_h = 14 * mm
+        row_h = 24 * mm
+
+        signature_rows = [
+            ['', '', 'Signature', 'Signature Date'],
             [
-                ['Name of Examiner:', '', 'Signature Date:', ''],
-                ['Name of Scrutinizer:', '', 'Signature Date:', ''],
+                'Name of Examiner:',
+                examiner_teacher.name if examiner_teacher else '',
+                reportlab_signature_flowable(examiner_teacher, sig_w, sig_h),
+                '',
             ],
-            colWidths=[30 * mm, 58 * mm, 26 * mm, 60 * mm],
-            rowHeights=[18 * mm, 18 * mm],
+        ]
+        row_heights = [8 * mm, row_h]
+        if scrutinizer_teacher:
+            signature_rows.append([
+                'Name of Scrutinizer:',
+                scrutinizer_teacher.name or '',
+                reportlab_signature_flowable(scrutinizer_teacher, sig_w, sig_h),
+                '',
+            ])
+            row_heights.append(row_h)
+
+        signature_table = Table(
+            signature_rows,
+            colWidths=[32 * mm, 48 * mm, sig_w, 28 * mm],
+            rowHeights=row_heights,
         )
         signature_table.setStyle(
             TableStyle(
                 [
                     ('BOX', (0, 0), (-1, -1), 0, colors.white),
                     ('INNERGRID', (0, 0), (-1, -1), 0, colors.white),
-                    ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('VALIGN', (2, 1), (2, -1), 'BOTTOM'),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('ALIGN', (2, 0), (3, 0), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 9),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                    ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
                 ]
             )
         )
@@ -3064,10 +3111,81 @@ def create_app():
         if not is_admin(current_user):
             flash('You do not have permission to access this page.', 'danger')
             return redirect(url_for('index'))
+        role_rows = [row[0] for row in User.query.with_entities(User.role).all()]
+        staff_count = sum(1 for role in role_rows if 'student' not in parse_roles(role))
+        student_count = sum(1 for role in role_rows if 'student' in parse_roles(role))
+        response = make_response(render_template(
+            'admin_dashboard.html',
+            staff_count=staff_count,
+            student_count=student_count,
+        ))
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+
+    @app.route('/admin/users')
+    @login_required
+    def admin_users():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
         search = request.args.get('search', '').strip()
         teacher_filter = request.args.get('teacher_filter', 'all').strip().lower()  # all | internal | external
         if teacher_filter not in ('all', 'internal', 'external'):
             teacher_filter = 'all'
+        per_page_options = (10, 20, 30, 50, 100, 200)
+        try:
+            per_page = int(request.args.get('per_page', 20))
+        except (TypeError, ValueError):
+            per_page = 20
+        if per_page not in per_page_options:
+            per_page = 20
+        active_tab = (request.args.get('tab') or 'staff').strip().lower()
+        if active_tab not in ('staff', 'students'):
+            active_tab = 'staff'
+
+        def _safe_page(name):
+            try:
+                return max(1, int(request.args.get(name, 1)))
+            except (TypeError, ValueError):
+                return 1
+
+        def _paginate(items, page, size):
+            total = len(items)
+            pages = max(1, (total + size - 1) // size) if total else 1
+            page = min(page, pages)
+            start = (page - 1) * size
+            sliced = items[start:start + size]
+            if pages <= 7:
+                page_numbers = list(range(1, pages + 1))
+            else:
+                wanted = {1, pages}
+                for i in range(page - 2, page + 3):
+                    if 1 <= i <= pages:
+                        wanted.add(i)
+                page_numbers = []
+                prev = 0
+                for n in sorted(wanted):
+                    if prev and n > prev + 1:
+                        page_numbers.append(None)
+                    page_numbers.append(n)
+                    prev = n
+            return {
+                'items': sliced,
+                'page': page,
+                'per_page': size,
+                'total': total,
+                'pages': pages,
+                'has_prev': page > 1,
+                'has_next': page < pages,
+                'prev_num': page - 1,
+                'next_num': page + 1 if page < pages else page,
+                'start_index': (start + 1) if sliced else 0,
+                'end_index': start + len(sliced),
+                'page_numbers': page_numbers,
+            }
+
         query = User.query
         if search:
             like = f"%{search}%"
@@ -3079,8 +3197,7 @@ def create_app():
         users = query.order_by(User.id.asc()).all()
         student_users = [u for u in users if 'student' in parse_roles(u.role)]
         other_users = [u for u in users if 'student' not in parse_roles(u.role)]
-        
-        # Fetch teacher information for users with teacher role (prefer user.teacher_id link, else match by name)
+
         user_teachers = {}
         teacher_users = [u for u in other_users if 'teacher' in parse_roles(u.role)]
         if teacher_users:
@@ -3092,28 +3209,86 @@ def create_app():
                     teacher = Teacher.query.filter_by(name=user.full_name).first()
                 if teacher:
                     user_teachers[user.id] = teacher
-        
-        # Filter by External/Internal teacher category
+
         if teacher_filter == 'external':
             other_users = [u for u in other_users if user_teachers.get(u.id) and getattr(user_teachers[u.id], 'is_external', False)]
         elif teacher_filter == 'internal':
             other_users = [u for u in other_users if u.id not in user_teachers or not getattr(user_teachers.get(u.id), 'is_external', False)]
-        
+
+        staff_pg = _paginate(other_users, _safe_page('staff_page'), per_page)
+        student_pg = _paginate(student_users, _safe_page('student_page'), per_page)
+
         response = make_response(render_template(
-            'admin_dashboard.html',
-            users=other_users,
-            student_users=student_users,
+            'admin_users.html',
+            users=staff_pg['items'],
+            student_users=student_pg['items'],
+            staff_count=staff_pg['total'],
+            student_count=student_pg['total'],
+            staff_pg=staff_pg,
+            student_pg=student_pg,
+            per_page=per_page,
+            per_page_options=per_page_options,
+            active_tab=active_tab,
             role_labels=ROLE_LABELS,
             role_choices=NON_ADMIN_ROLE_CHOICES,
             search_query=search,
             user_teachers=user_teachers,
             teacher_filter=teacher_filter
         ))
-        # Add cache-control headers to prevent browser caching of user-specific content
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
+
+    @app.route('/admin/account', methods=['POST'])
+    @login_required
+    def admin_update_account():
+        if not is_admin(current_user):
+            flash('You do not have permission to perform this action.', 'danger')
+            return redirect(url_for('index'))
+
+        email = (request.form.get('email') or '').strip()
+        current_password = request.form.get('current_password') or ''
+        new_password = (request.form.get('new_password') or '').strip()
+        confirm_password = (request.form.get('confirm_password') or '').strip()
+
+        if not current_password or not current_user.check_password(current_password):
+            flash('Current password is incorrect.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+        if not email:
+            flash('Email is required.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+
+        changed = []
+        if email.lower() != (current_user.email or '').lower():
+            existing = User.query.filter(User.id != current_user.id, User.email == email).first()
+            if existing:
+                flash('Email already in use by another user.', 'danger')
+                return redirect(url_for('admin_dashboard'))
+            current_user.email = email
+            changed.append('email')
+
+        if new_password or confirm_password:
+            if new_password != confirm_password:
+                flash('New passwords do not match.', 'danger')
+                db.session.rollback()
+                return redirect(url_for('admin_dashboard'))
+            if len(new_password) < 6:
+                flash('Password must be at least 6 characters long.', 'danger')
+                db.session.rollback()
+                return redirect(url_for('admin_dashboard'))
+            current_user.set_password(new_password)
+            current_user.must_change_password = False
+            changed.append('password')
+
+        if not changed:
+            flash('No changes to save.', 'info')
+            return redirect(url_for('admin_dashboard'))
+
+        db.session.commit()
+        flash('Administrator ' + ' and '.join(changed) + ' updated.', 'success')
+        return redirect(url_for('admin_dashboard'))
 
     @app.route('/admin/role-privileges')
     @login_required
@@ -3817,6 +3992,169 @@ def create_app():
         db.session.commit()
         flash('AI provider deleted.', 'success')
         return redirect(url_for('admin_ai_settings'))
+
+    def _answer_guideline_upload_dir():
+        path = os.path.join(app.root_path, 'static', 'uploads', 'answer_guidelines')
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    @app.route('/admin/answer-guideline', methods=['GET', 'POST'])
+    @login_required
+    def admin_answer_guideline():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+
+        from uuid import uuid4
+        from werkzeug.utils import secure_filename
+        from blueprints.class_management.models import AnswerGuideline
+        from utils.ai.question_bank import ensure_extracted
+
+        if request.method == 'POST':
+            wants_json = (
+                request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or 'application/json' in (request.headers.get('Accept') or '')
+            )
+
+            def _fail(message, category='danger'):
+                if wants_json:
+                    return jsonify({'success': False, 'message': message}), 400
+                flash(message, category)
+                return redirect(url_for('admin_answer_guideline'))
+
+            upload = request.files.get('file')
+            title = (request.form.get('title') or '').strip()
+            if not upload or not upload.filename:
+                return _fail('একটি PDF ফাইল বেছে নিন।')
+            ext = os.path.splitext(upload.filename)[1].lower()
+            if ext not in ('.pdf', '.docx', '.txt'):
+                return _fail('শুধু PDF, DOCX বা TXT চলবে।')
+            safe_name = secure_filename(upload.filename) or 'guideline.pdf'
+            stored = f"{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}_{safe_name}"
+            dest = os.path.join(_answer_guideline_upload_dir(), stored)
+            upload.save(dest)
+            file_stem = os.path.splitext(safe_name)[0]
+            row = AnswerGuideline(
+                title=title or file_stem,
+                file_name=safe_name,
+                file_path=dest,
+                file_size=os.path.getsize(dest) if os.path.exists(dest) else None,
+                uploaded_by_user_id=getattr(current_user, 'id', None),
+                is_active=True,
+            )
+            try:
+                AnswerGuideline.query.filter_by(is_active=True).update(
+                    {AnswerGuideline.is_active: False}, synchronize_session=False
+                )
+                db.session.add(row)
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.error(f'Answer guideline upload failed: {exc}', exc_info=True)
+                return _fail('আপলোড ব্যর্থ। আবার চেষ্টা করুন।')
+
+            if wants_json:
+                return jsonify({
+                    'success': True,
+                    'id': row.id,
+                    'extract_url': url_for('admin_answer_guideline_extract', guideline_id=row.id),
+                })
+
+            try:
+                ensure_extracted(row)
+                db.session.commit()
+                if (row.extracted_text or '').strip():
+                    flash('Answer Guideline আপলোড হয়েছে। এআই এই ফাইল অনুসরণ করে মডেল উত্তর লিখবে।', 'success')
+                else:
+                    flash(
+                        'ফাইল তোলা হয়েছে, কিন্তু টেক্সট পড়া যায়নি। স্ক্যান হলে Gemini/OpenAI চালু আছে কিনা দেখুন, অথবা টেক্সট-PDF তুলুন।',
+                        'warning',
+                    )
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.error(f'Answer guideline extract failed: {exc}', exc_info=True)
+                flash('ফাইল তোলা হয়েছে, কিন্তু টেক্সট পড়া যায়নি। আবার চেষ্টা করুন।', 'warning')
+            return redirect(url_for('admin_answer_guideline'))
+
+        current = (
+            AnswerGuideline.query.filter_by(is_active=True)
+            .order_by(AnswerGuideline.created_at.desc())
+            .first()
+        )
+        history = (
+            AnswerGuideline.query.order_by(AnswerGuideline.created_at.desc())
+            .limit(8)
+            .all()
+        )
+        preview = ((current.extracted_text or '')[:1200] if current else '')
+        return render_template(
+            'admin_answer_guideline.html',
+            guideline=current,
+            history=history,
+            preview=preview,
+        )
+
+    @app.route('/admin/answer-guideline/<int:guideline_id>/download')
+    @login_required
+    def admin_answer_guideline_download(guideline_id):
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+        from blueprints.class_management.models import AnswerGuideline
+
+        row = AnswerGuideline.query.get_or_404(guideline_id)
+        if not row.file_path or not os.path.exists(row.file_path):
+            flash('ফাইল পাওয়া যায়নি।', 'danger')
+            return redirect(url_for('admin_answer_guideline'))
+        return send_file(
+            row.file_path,
+            as_attachment=True,
+            download_name=row.file_name or (row.title + '.pdf'),
+        )
+
+    @app.route('/admin/answer-guideline/<int:guideline_id>/extract', methods=['POST'])
+    @login_required
+    def admin_answer_guideline_extract(guideline_id):
+        if not is_admin(current_user):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 403
+        from blueprints.class_management.models import AnswerGuideline
+        from utils.ai.question_bank import ensure_extracted
+
+        row = AnswerGuideline.query.get_or_404(guideline_id)
+        try:
+            ensure_extracted(row, refresh=True)
+            db.session.commit()
+            has_text = bool((row.extracted_text or '').strip())
+            if has_text:
+                flash('Answer Guideline আপলোড হয়েছে। এআই এই ফাইল অনুসরণ করে মডেল উত্তর লিখবে।', 'success')
+            else:
+                flash(
+                    'ফাইল তোলা হয়েছে, কিন্তু টেক্সট পড়া যায়নি। স্ক্যান হলে Gemini/OpenAI চালু আছে কিনা দেখুন।',
+                    'warning',
+                )
+            return jsonify({
+                'success': True,
+                'has_text': has_text,
+            })
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.error(f'Answer guideline extract failed: {exc}', exc_info=True)
+            return jsonify({'success': False, 'message': 'টেক্সট পড়া যায়নি। আবার চেষ্টা করুন।'}), 500
+
+    @app.route('/admin/answer-guideline/<int:guideline_id>/activate', methods=['POST'])
+    @login_required
+    def admin_answer_guideline_activate(guideline_id):
+        if not is_admin(current_user):
+            flash('You do not have permission to perform this action.', 'danger')
+            return redirect(url_for('index'))
+        from blueprints.class_management.models import AnswerGuideline
+
+        row = AnswerGuideline.query.get_or_404(guideline_id)
+        AnswerGuideline.query.update({AnswerGuideline.is_active: False}, synchronize_session=False)
+        row.is_active = True
+        db.session.commit()
+        flash('এই গাইডলাইন এখন সক্রিয়।', 'success')
+        return redirect(url_for('admin_answer_guideline'))
 
     @app.route('/admin/student-dashboard-settings', methods=['GET', 'POST'])
     @login_required
@@ -17712,12 +18050,12 @@ def create_app():
         user_to_delete = User.query.get_or_404(user_id)
         if is_admin(user_to_delete):
             flash('Admin users cannot be deleted.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         db.session.delete(user_to_delete)
         db.session.commit()
         flash('User deleted successfully.', 'success')
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('admin_users'))
 
     @app.route('/admin/edit_user/<int:user_id>', methods=['GET', 'POST'])
     @login_required
@@ -17729,7 +18067,7 @@ def create_app():
         user_to_edit = User.query.get_or_404(user_id)
         if is_admin(user_to_edit):
             flash('Cannot edit admin users from here.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
 
         if request.method == 'POST':
             old_full_name = user_to_edit.full_name
@@ -17794,7 +18132,7 @@ def create_app():
             
             db.session.commit()
             flash('User updated successfully.', 'success')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         # Get teacher record for display: use user.teacher_id link first (same teacher dashboard shows), else match by name and save link
         current_roles = parse_roles(user_to_edit.role)
@@ -17838,34 +18176,34 @@ def create_app():
         # Validation
         if not all([username, email, full_name, password, confirm_password]):
             flash('All fields are required.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         if password != confirm_password:
             flash('Passwords do not match.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         if len(password) < 6:
             flash('Password must be at least 6 characters long.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         if not selected_roles:
             flash('Please select at least one role/category.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         # Check if user already exists
         if User.query.filter_by(username=username).first():
             flash('Username already exists.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         if User.query.filter_by(email=email).first():
             flash('Email already registered.', 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         # Validate role selection
         is_valid, normalized_roles = validate_role_selection(selected_roles)
         if not is_valid:
             flash(normalized_roles, 'danger')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
         
         try:
             # Create user
@@ -17914,7 +18252,7 @@ def create_app():
             current_app.logger.error(f'Error creating user: {e}', exc_info=True)
             flash(f'Error creating user: {str(e)}', 'danger')
         
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('admin_users'))
 
     @app.route('/admin/reset_password/<int:user_id>', methods=['GET', 'POST'])
     @login_required
@@ -17924,16 +18262,24 @@ def create_app():
             return redirect(url_for('index'))
 
         user_to_reset = User.query.get_or_404(user_id)
-        if is_admin(user_to_reset):
-            flash('Cannot reset password for admin users from here.', 'danger')
-            return redirect(url_for('admin_dashboard'))
 
         if request.method == 'POST':
-            new_password = request.form['new_password']
+            new_password = (request.form.get('new_password') or '').strip()
+            confirm_password = (request.form.get('confirm_password') or '').strip()
+            if not new_password or not confirm_password:
+                flash('Please fill out both password fields.', 'danger')
+                return render_template('admin_reset_password.html', user=user_to_reset)
+            if new_password != confirm_password:
+                flash('Passwords do not match.', 'danger')
+                return render_template('admin_reset_password.html', user=user_to_reset)
+            if len(new_password) < 6:
+                flash('Password must be at least 6 characters long.', 'danger')
+                return render_template('admin_reset_password.html', user=user_to_reset)
             user_to_reset.set_password(new_password)
+            user_to_reset.must_change_password = False
             db.session.commit()
             flash(f"Password for {user_to_reset.username} has been reset.", 'success')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_users'))
             
         return render_template('admin_reset_password.html', user=user_to_reset)
 

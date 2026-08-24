@@ -93,14 +93,14 @@ def _fanout_notifications_and_email(notice: Notice, recipients: list[User]):
         if not user or user.id in seen:
             continue
         seen.add(user.id)
-        db.session.add(
-            StudentNotification(
-                user_id=user.id,
-                type='notice',
-                title=title,
-                link_url=link_url,
-            )
+        notif = StudentNotification(
+            user_id=user.id,
+            type='notice',
+            title=title,
+            link_url=link_url,
         )
+        stamp_window_id(notif, getattr(notice, 'window_id', None))
+        db.session.add(notif)
     try:
         db.session.commit()
     except Exception as e:

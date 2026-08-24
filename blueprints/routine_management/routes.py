@@ -2076,6 +2076,64 @@ def get_courses_by_batch():
     """Alternative endpoint for batch courses"""
     return get_courses_batch_wise()
 
+
+@routine_management_bp.route('/api/routine/auto-fill', methods=['POST'])
+@login_required
+def auto_fill_routine():
+    """Conflict-free greedy placement. Returns the same routine[] shape as /api/routine/save."""
+    if not can_edit_routine():
+        return jsonify({'success': False, 'message': 'You do not have permission to edit routine.'}), 403
+    data = request.get_json(silent=True) or {}
+    days = data.get('days') or ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday']
+    time_slots = data.get('time_slots') or []
+    rooms = data.get('rooms') or []
+    courses = data.get('courses') or []
+    existing = data.get('existing') or []
+    keep_existing = bool(data.get('keep_existing', True))
+    preferences = data.get('preferences') or {}
+    prompt = data.get('prompt') or preferences.get('prompt') or ''
+    clear_selected = bool(data.get('clear_selected'))
+    clear_course_ids = data.get('clear_course_ids') or []
+    if clear_selected and not clear_course_ids:
+        clear_course_ids = [
+            str(c.get('assigned_id') or c.get('id') or c.get('course_code') or '').strip()
+            for c in courses
+            if (c.get('assigned_id') or c.get('id') or c.get('course_code'))
+        ]
+
+    if not rooms:
+        rooms = [{'id': r.id, 'room_number': r.room_number} for r in get_rooms_for_routine_window()]
+    if not time_slots:
+        time_slots = [
+            "09:10 AM - 10:00 AM", "10:10 AM - 11:00 AM", "11:10 AM - 12:00 PM",
+            "12:10 PM - 01:00 PM", "02:00 PM - 02:50 PM", "03:00 PM - 03:50 PM",
+            "04:00 PM - 04:50 PM",
+        ]
+    if not courses:
+        return jsonify({'success': False, 'message': 'অটো-সাজানোর জন্য অন্তত একটি সাবজেক্ট বেছে নিন।'}), 400
+
+    from utils.routine_solver import auto_place
+
+    result = auto_place(
+        days=days,
+        time_slots=time_slots,
+        rooms=rooms,
+        courses=courses,
+        existing=existing,
+        keep_existing=keep_existing,
+        preferences=preferences,
+        prompt=prompt,
+        clear_course_ids=clear_course_ids if clear_selected else None,
+    )
+    return jsonify({
+        'success': True,
+        'routine': result.get('routine') or [],
+        'unplaced': result.get('unplaced') or [],
+        'explanations': result.get('explanations') or [],
+        'preferences_applied': result.get('preferences_applied') or {},
+    })
+
+
 @routine_management_bp.route('/api/routine/save', methods=['POST'])
 @login_required
 def save_routine():

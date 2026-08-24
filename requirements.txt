@@ -34,7 +34,7 @@ python-docx==1.1.0
 openpyxl==3.1.2
 typing-extensions==4.9.0
 # xhtml2pdf==0.2.11  # Removed - requires reportlab<4, conflicts with reportlab 4.0.7
-PyPDF2==1.26.0
+pypdfium2>=4.30.0  # Render scanned PDF pages for AI OCR (no Poppler/Tesseract needed)
 flask-socketio==5.3.5
 python-socketio==5.10.0
 eventlet==0.33.3

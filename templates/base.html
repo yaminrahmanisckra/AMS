@@ -110,10 +110,43 @@
             vertical-align: 0.1em;
             font-size: 0.55rem;
         }
+        .impersonation-banner {
+            background: linear-gradient(90deg, #b45309 0%, #d97706 50%, #b45309 100%);
+            color: #fff;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+            font-size: 0.85rem;
+            z-index: 1040;
+            position: relative;
+        }
+        .impersonation-banner-text {
+            line-height: 1.35;
+        }
+        body:has(.impersonation-banner) .navbar-desktop {
+            top: 0;
+        }
     </style>
     {% block force_scrolling_css %}{% endblock %}
 </head>
 <body data-active-endpoint="{{ request.endpoint or '' }}">
+    {% if is_impersonating %}
+    <div class="impersonation-banner" role="status">
+        <div class="container-fluid px-3 d-flex flex-wrap align-items-center justify-content-between gap-2 py-2">
+            <span class="impersonation-banner-text">
+                <i class="fas fa-user-secret me-2"></i>
+                Viewing as <strong>{{ current_user.full_name or current_user.username }}</strong>
+                {% if impersonator_user %}
+                <span class="text-white-50">(admin: {{ impersonator_user.username }})</span>
+                {% endif %}
+            </span>
+            <form method="POST" action="{{ url_for('auth.stop_login_as') }}" class="mb-0">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-light fw-semibold">
+                    <i class="fas fa-arrow-left me-1"></i>Return to admin
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
     {% set is_admission_public = request.path.startswith('/admission-exam/apply/') %}
     {% set admission_public_token = request.view_args.get('token') if is_admission_public and request.view_args else none %}
     <nav class="navbar navbar-expand-lg navbar-dark navbar-desktop d-none d-lg-block">

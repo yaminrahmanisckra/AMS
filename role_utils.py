@@ -203,6 +203,21 @@ def is_admin(user) -> bool:
     return ADMIN_ROLE in parse_roles(getattr(user, 'role', None))
 
 
+def has_stored_admin(user) -> bool:
+    """True if the account has administrator in its stored role list."""
+    return ADMIN_ROLE in parse_roles(getattr(user, 'role', None))
+
+
+def pick_impersonation_role(user) -> str:
+    """Default active_role when an admin uses Login as."""
+    roles = parse_roles(getattr(user, 'role', None))
+    order = [key for key, _ in ROLE_CHOICES]
+    for key in order:
+        if key in roles and key != ADMIN_ROLE:
+            return key
+    return roles[0] if roles else DEFAULT_USER_ROLE
+
+
 def has_role(user, *roles) -> bool:
     """True if user holds any of the given roles (respects active_role when set)."""
     if not user:

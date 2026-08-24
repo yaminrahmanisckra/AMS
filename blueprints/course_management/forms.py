@@ -31,9 +31,9 @@ class CourseForm(FlaskForm):
 class CourseInfoForm(FlaskForm):
     year = StringField('Year', validators=[Length(max=50)], render_kw={'placeholder': 'e.g., 1st Year, 2nd Year'})
     term = StringField('Term', validators=[Length(max=50)], render_kw={'placeholder': 'e.g., 1st Term, 2nd Term'})
-    rationale = TextAreaField('Rationale', validators=[Length(max=2000)], render_kw={'rows': 5})
+    rationale = TextAreaField('Rationale', validators=[Length(max=20000)], render_kw={'rows': 5})
     clos_json = StringField('CLOs JSON')  # Hidden field to store JSON string of CLOs
-    content_section_a = TextAreaField('Content Section A', validators=[Length(max=2000)], render_kw={'rows': 5})
-    content_section_b = TextAreaField('Content Section B', validators=[Length(max=2000)], render_kw={'rows': 5})
+    content_section_a = TextAreaField('Content Section A', validators=[Length(max=200000)], render_kw={'rows': 5})
+    content_section_b = TextAreaField('Content Section B', validators=[Length(max=200000)], render_kw={'rows': 5})
     submit = SubmitField('Save Information')
 

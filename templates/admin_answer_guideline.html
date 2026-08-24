@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block title %}Answer Guideline{% endblock %}
+{% block mobile_title %}Guideline{% endblock %}
+
+{% block extra_css %}
+<style>
+    .admin-dash { --ad-radius: 10px; --ad-border: rgba(15, 23, 42, 0.08); --ad-muted: #64748b; --ad-surface: #fff; --ad-bg: #f8fafc; }
+    .admin-dash .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.75rem 1rem; margin-bottom: 1rem; }
+    .admin-dash .page-head h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+    .admin-dash .page-head .sub { font-size: 0.8rem; color: var(--ad-muted); margin: 0.15rem 0 0; }
+    .admin-dash .panel { background: var(--ad-surface); border: 1px solid var(--ad-border); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+    .admin-dash .panel-toolbar { padding: 0.75rem 0.9rem; border-bottom: 1px solid var(--ad-border); background: linear-gradient(180deg, #fff 0%, #fafbfc 100%); }
+    .admin-dash .panel-toolbar h2 { font-size: 0.95rem; font-weight: 700; margin: 0; }
+    .admin-dash .muted { color: var(--ad-muted); font-size: 0.82rem; }
+    .preview-box { white-space: pre-wrap; font-size: 0.82rem; max-height: 280px; overflow: auto; background: #f8fafc; border: 1px solid var(--ad-border); border-radius: 8px; padding: 0.75rem; }
+    .ag-progress { display: none; margin-top: 0.85rem; }
+    .ag-progress.is-on { display: block; }
+    .ag-progress .bar-wrap { height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
+    .ag-progress .bar { height: 100%; width: 0; background: #4f46e5; border-radius: 999px; transition: width 0.2s ease; }
+    .ag-progress.is-wait .bar { width: 100% !important; background: repeating-linear-gradient(90deg, #4f46e5 0 40%, #818cf8 40% 80%); background-size: 200% 100%; animation: ag-slide 1.1s linear infinite; }
+    .ag-progress .pct { font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 0.35rem; }
+    .ag-progress .hint { font-size: 0.75rem; color: var(--ad-muted); margin: 0.4rem 0 0; }
+    @keyframes ag-slide { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 px-lg-4 py-3 admin-dash" style="max-width: 880px;">
+    <div class="page-head">
+        <div>
+            <a href="{{ url_for('admin_dashboard') }}" class="small text-muted text-decoration-none"><i class="fas fa-arrow-left me-1"></i>Admin</a>
+            <h1>Answer Guideline</h1>
+            <p class="sub">একটি ফাইলে সব ধরনের প্রশ্নের উত্তর লেখার নির্দেশ। Question Bank-এর মডেল উত্তর এখান থেকে পড়ে।</p>
+        </div>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="mb-3">
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} py-2 mb-2">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    <div class="panel mb-3">
+        <div class="panel-toolbar"><h2>নতুন গাইডলাইন তুলুন</h2></div>
+        <div class="p-3">
+            <form id="agUploadForm" method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="col-md-5">
+                    <label class="form-label small fw-semibold">Title</label>
+                    <input type="text" name="title" class="form-control form-control-sm" placeholder="যেমন: Faculty answer guideline 2026">
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label small fw-semibold">File (PDF) *</label>
+                    <input type="file" name="file" class="form-control form-control-sm" accept=".pdf,.docx,.txt,application/pdf" required>
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" id="agUploadBtn" class="btn btn-primary btn-sm w-100"><i class="fas fa-upload me-1"></i>Upload</button>
+                </div>
+            </form>
+            <div id="agProgress" class="ag-progress" aria-live="polite">
+                <div class="pct" id="agProgressPct">0%</div>
+                <div class="bar-wrap"><div class="bar" id="agProgressBar"></div></div>
+                <p class="hint" id="agProgressHint">ফাইল যাচ্ছে…</p>
+            </div>
+            <p class="muted mt-2 mb-0">নতুন ফাইল তুললে আগেরটা নিষ্ক্রিয় হয়ে যায়। স্ক্যান করা PDF হলে এআই পাতা পড়ে টেক্সট তুলবে (Gemini/OpenAI)।</p>
+        </div>
+    </div>
+
+    <div class="panel mb-3">
+        <div class="panel-toolbar d-flex justify-content-between align-items-center">
+            <h2>সক্রিয় গাইডলাইন</h2>
+            {% if guideline %}
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_answer_guideline_download', guideline_id=guideline.id) }}">Download</a>
+            {% endif %}
+        </div>
+        <div class="p-3">
+            {% if guideline %}
+            <p class="mb-1 fw-semibold">{{ guideline.title }}</p>
+            <p class="muted mb-2">{{ guideline.file_name or '' }} · {{ guideline.created_at.strftime('%d %b %Y %H:%M') if guideline.created_at else '' }}</p>
+            {% if preview %}
+            <div class="preview-box">{{ preview }}{% if guideline.extracted_text and guideline.extracted_text|length > 1200 %}…{% endif %}</div>
+            {% else %}
+            <p class="muted mb-0">এখনও টেক্সট উদ্ধার হয়নি।</p>
+            {% endif %}
+            {% else %}
+            <p class="muted mb-0">এখনও কোনো গাইডলাইন নেই।</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if history %}
+    <div class="panel">
+        <div class="panel-toolbar"><h2>আগের ফাইল</h2></div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead class="table-light"><tr><th>Title</th><th>Date</th><th></th></tr></thead>
+                <tbody>
+                {% for row in history %}
+                <tr>
+                    <td>{{ row.title }} {% if row.is_active %}<span class="badge bg-success">Active</span>{% endif %}</td>
+                    <td class="muted">{{ row.created_at.strftime('%d %b %Y') if row.created_at else '' }}</td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_answer_guideline_download', guideline_id=row.id) }}">Download</a>
+                        {% if not row.is_active %}
+                        <form method="post" action="{{ url_for('admin_answer_guideline_activate', guideline_id=row.id) }}" class="d-inline">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Activate</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+<script>
+(function () {
+    var form = document.getElementById('agUploadForm');
+    if (!form) return;
+    var box = document.getElementById('agProgress');
+    var bar = document.getElementById('agProgressBar');
+    var pctEl = document.getElementById('agProgressPct');
+    var hint = document.getElementById('agProgressHint');
+    var btn = document.getElementById('agUploadBtn');
+
+    function setProgress(pct, text, waiting) {
+        box.classList.add('is-on');
+        box.classList.toggle('is-wait', !!waiting);
+        var n = Math.max(0, Math.min(100, Math.round(pct)));
+        bar.style.width = n + '%';
+        pctEl.textContent = waiting ? '…' : (n + '%');
+        if (text) hint.textContent = text;
+    }
+
+    form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        if (!form.file.files.length) {
+            alert('একটি PDF ফাইল বেছে নিন।');
+            return;
+        }
+        btn.disabled = true;
+        setProgress(0, 'ফাইল যাচ্ছে…', false);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', form.action || window.location.href);
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.setRequestHeader('Accept', 'application/json');
+        var csrf = window.getCsrfToken && window.getCsrfToken();
+        if (csrf) xhr.setRequestHeader('X-CSRFToken', csrf);
+        xhr.upload.onprogress = function (e) {
+            if (!e.lengthComputable) return;
+            var pct = (e.loaded / e.total) * 100;
+            setProgress(pct, 'ফাইল যাচ্ছে… ' + Math.round(pct) + '%', false);
+        };
+        xhr.onload = function () {
+            var data = {};
+            try { data = JSON.parse(xhr.responseText || '{}'); } catch (err) { data = {}; }
+            if (xhr.status >= 400 || !data.success) {
+                btn.disabled = false;
+                box.classList.remove('is-on', 'is-wait');
+                alert(data.message || 'আপলোড ব্যর্থ।');
+                return;
+            }
+            setProgress(100, 'ফাইল পৌঁছেছে। এআই এখন টেক্সট তুলছে, অপেক্ষা করুন…', true);
+            var extractUrl = data.extract_url;
+            var headers = { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' };
+            if (csrf) headers['X-CSRFToken'] = csrf;
+            fetch(extractUrl, { method: 'POST', headers: headers })
+                .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
+                .then(function (result) {
+                    window.location.reload();
+                })
+                .catch(function () {
+                    btn.disabled = false;
+                    box.classList.remove('is-wait');
+                    hint.textContent = 'ফাইল তোলা হয়েছে, কিন্তু টেক্সট পড়া যায়নি। পেজ রিফ্রেশ করে দেখুন।';
+                });
+        };
+        xhr.onerror = function () {
+            btn.disabled = false;
+            box.classList.remove('is-on', 'is-wait');
+            alert('নেটওয়ার্ক ত্রুটি। আবার চেষ্টা করুন।');
+        };
+        xhr.send(new FormData(form));
+    });
+})();
+</script>
+{% endblock %}

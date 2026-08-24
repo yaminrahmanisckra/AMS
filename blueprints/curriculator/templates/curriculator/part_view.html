@@ -756,6 +756,14 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
+                <div class="d-flex flex-wrap gap-2 mb-3" id="edit-ai-chips">
+                    <button type="button" class="btn btn-sm btn-outline-info" data-ai-sections="rationale">এআই: Rationale</button>
+                    <button type="button" class="btn btn-sm btn-outline-info" data-ai-sections="clos,mapping">এআই: CLO + PLO</button>
+                    <button type="button" class="btn btn-sm btn-outline-info" data-ai-sections="mapping">এআই: Teaching/Assessment</button>
+                    <button type="button" class="btn btn-sm btn-outline-info" data-ai-sections="content">এআই: Course content</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-ai-sections="rationale,clos,mapping,content">এআই খসড়া (খালি ক্ষেত্র)</button>
+                    <button type="button" class="btn btn-sm btn-outline-warning" id="edit-push-to-course">Course Information-এ পাঠান</button>
+                </div>
                 <input type="hidden" id="edit-entry-id">
                 <div class="mb-3">
                     <label class="form-label">Course code</label>
@@ -1350,6 +1358,58 @@
         }).then(r => r.json()).then(d => {
             if (d.success) { window.location.reload(); } else { alert(d.message || 'Save failed.'); }
         }).catch(() => alert('Save failed.'));
+    });
+
+    function applyProposal(proposal, overwrite) {
+        if (!proposal) return;
+        const rationaleEl = document.getElementById('edit-rationale');
+        if (proposal.rationale && (overwrite || !(rationaleEl.value || '').trim())) {
+            rationaleEl.value = proposal.rationale;
+        }
+        if (proposal.clos && proposal.clos.length && (overwrite || !collectClos().some(c => (c.text || '').trim()))) {
+            renderClos(proposal.clos);
+        }
+        if (proposal.mapping_clos && proposal.mapping_clos.length && (overwrite || !collectMappingClos().some(m => (m.teaching_learning || m.assessment || '').trim()))) {
+            renderMappingClos(proposal.mapping_clos, Math.max(1, collectClos().length, proposal.mapping_clos.length));
+        }
+        if ((proposal.section_a_items || proposal.section_b_items) && (overwrite || collectCourseContentsItems().section_a_items.every(i => !(i.content || '').trim()))) {
+            var cc = collectCourseContentsItems();
+            renderCourseContentsItems(
+                proposal.section_a_items || cc.section_a_items,
+                proposal.section_b_items || cc.section_b_items
+            );
+        }
+    }
+
+    document.querySelectorAll('#edit-ai-chips [data-ai-sections]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const id = document.getElementById('edit-entry-id')?.value;
+            if (!id) return;
+            const filled = (document.getElementById('edit-rationale')?.value || '').trim() || collectClos().some(c => (c.text || '').trim());
+            const overwrite = filled ? confirm('ভরাট ক্ষেত্রও বদলাতে চান? Cancel করলে শুধু খালি ক্ষেত্র পূরণ হবে।') : false;
+            const url = '{{ url_for("curriculator.course_entry_ai_generate", entry_id=0) }}'.replace(/\/0\/ai-generate$/, '/' + id + '/ai-generate');
+            btn.disabled = true;
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ sections: (btn.dataset.aiSections || '').split(',').filter(Boolean) })
+            }).then(r => r.json()).then(d => {
+                if (!d.success) return alert(d.message || 'Failed');
+                applyProposal(d.proposal, overwrite);
+            }).catch(() => alert('AI draft failed.')).finally(() => { btn.disabled = false; });
+        });
+    });
+
+    document.getElementById('edit-push-to-course')?.addEventListener('click', function() {
+        const id = document.getElementById('edit-entry-id')?.value;
+        if (!id) return;
+        if (!confirm('আগে এই মডালে Save করুন। তারপর এই বাটন সংরক্ষিত Part C ক্ষেত্রগুলো Course Information-এ পাঠাবে। চালিয়ে যাবেন?')) return;
+        const url = '{{ url_for("curriculator.course_entry_push_to_course", entry_id=0) }}'.replace(/\/0\/push-to-course$/, '/' + id + '/push-to-course');
+        fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(r => r.json()).then(d => {
+                if (d.success) alert('Course Information আপডেট হয়েছে।');
+                else alert(d.message || 'Failed');
+            }).catch(() => alert('Push failed.'));
     });
 })();
 </script>
