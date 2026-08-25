@@ -99,6 +99,22 @@ def _class_sessions_for_offering(course_code, academic_session, year, term, wind
         query = query.filter(_window_rows_filter(Session, window_id))
     return query.all()
 
+
+def _sync_window_id(reg=None, window_id=None):
+    """Window used for class-session add/remove. Never fall back across windows."""
+    if window_id is not None:
+        return window_id
+    if reg is not None and getattr(reg, 'window_id', None) is not None:
+        return reg.window_id
+    return _active_window_id()
+
+
+def _registrations_in_window_query(window_id=None, **filters):
+    """StudentCourseRegistration query locked to one operational window."""
+    window_id = _active_window_id() if window_id is None else window_id
+    query = StudentCourseRegistration.query.filter_by(**filters) if filters else StudentCourseRegistration.query
+    return query.filter(_window_rows_filter(StudentCourseRegistration, window_id))
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -353,82 +369,160 @@ def _resolve_class_target_context(registration_like, fallback_course_code, fallb
     }
 
 
-def _remove_students_from_class_sessions(course_code, academic_session, year, term, student_ids, window_id=None):
-    """Remove students from class sessions in the active window only."""
+def _resolve_class_students(student_ids):
+    """Map Student.id or roll strings to Student rows and roll numbers."""
+    students = []
+    student_ids_list = []
+    seen_rolls = set()
+    for sid in student_ids:
+        student = Student.query.get(sid) if isinstance(sid, int) else Student.query.filter_by(student_id=sid).first()
+        if not student or student.student_id in seen_rolls:
+            continue
+        students.append(student)
+        student_ids_list.append(student.student_id)
+        seen_rolls.add(student.student_id)
+    return students, student_ids_list
+
+
+def _delete_class_students_from_sessions(sessions, student_ids_list, window_id=None):
+    """Delete ClassStudent rows (and split peers) for the given sessions."""
+    removed_count = 0
+    if not student_ids_list:
+        return removed_count
+
+    for session in sessions:
+        class_students = ClassStudent.query.filter(
+            ClassStudent.session_id == session.id,
+            ClassStudent.student_id.in_(student_ids_list)
+        ).all()
+
+        for class_student in class_students:
+            db.session.delete(class_student)
+            removed_count += 1
+
+            try:
+                if hasattr(session, 'split_group_id') and session.split_group_id:
+                    peer_query = Session.query.filter_by(
+                        split_group_id=session.split_group_id,
+                        course_code=session.course_code,
+                        academic_session=session.academic_session,
+                        year=session.year,
+                        term=session.term,
+                    ).filter(Session.id != session.id)
+                    if window_id is not None and hasattr(Session, 'window_id'):
+                        peer_query = peer_query.filter(_window_rows_filter(Session, window_id))
+                    for peer_session in peer_query.all():
+                        peer_class_student = ClassStudent.query.filter_by(
+                            session_id=peer_session.id,
+                            student_id=class_student.student_id
+                        ).first()
+                        if peer_class_student:
+                            db.session.delete(peer_class_student)
+                            removed_count += 1
+            except Exception as replicate_error:
+                current_app.logger.warning(
+                    'Error removing student from peers for %s: %s',
+                    class_student.student_id,
+                    replicate_error,
+                )
+    return removed_count
+
+
+def _student_has_course_registration(student_db_id, course_code, academic_session, year, term, exclude_registration_ids=None):
+    """True if the student still has any registration row for this offering."""
+    query = StudentCourseRegistration.query.filter_by(
+        student_id=student_db_id,
+        course_code=course_code,
+        academic_session=academic_session,
+        year=year,
+        term=term,
+    )
+    exclude_ids = [rid for rid in (exclude_registration_ids or []) if rid]
+    if exclude_ids:
+        query = query.filter(StudentCourseRegistration.id.notin_(exclude_ids))
+    return query.first() is not None
+
+
+def _remove_students_from_class_sessions(
+    course_code,
+    academic_session,
+    year,
+    term,
+    student_ids,
+    window_id=None,
+    exclude_registration_ids=None,
+    cleanup_orphan_windows=False,
+):
+    """Remove students from class sessions for one offering.
+
+    By default removes rows only in the given operational window. When
+    cleanup_orphan_windows=True, also removes rows from other windows if the
+    student will have no remaining registration for this offering (excluding
+    exclude_registration_ids, e.g. rows being deleted in the same transaction).
+    """
     if not Session or not ClassStudent or not Student:
-        return
-    
-    try:
-        window_id = _active_window_id() if window_id is None else window_id
-        sessions = _class_sessions_for_offering(
-            course_code, academic_session, year, term, window_id=window_id
+        return 0
+
+    window_id = _active_window_id() if window_id is None else window_id
+    students, student_ids_list = _resolve_class_students(student_ids)
+    if not student_ids_list:
+        return 0
+
+    removed_count = 0
+    primary_sessions = _class_sessions_for_offering(
+        course_code, academic_session, year, term, window_id=window_id
+    )
+    if primary_sessions:
+        removed_count += _delete_class_students_from_sessions(
+            primary_sessions, student_ids_list, window_id=window_id
         )
-        
-        if not sessions:
-            current_app.logger.info(f'No sessions found for course {course_code}, session {academic_session}, year {year}, term {term}')
-            return
-        
-        removed_count = 0
-        
-        for session in sessions:
-            # Get student records - student_ids can be either Student.id (int) or student_id (string)
-            # Try to get by id first, then by student_id
-            students = []
-            student_ids_list = []
-            for sid in student_ids:
-                student = Student.query.get(sid) if isinstance(sid, int) else Student.query.filter_by(student_id=sid).first()
-                if student:
-                    students.append(student)
-                    student_ids_list.append(student.student_id)
-            
-            if not student_ids_list:
-                continue
-            
-            # Find and delete ClassStudent records for these students in this session
-            class_students = ClassStudent.query.filter(
-                ClassStudent.session_id == session.id,
-                ClassStudent.student_id.in_(student_ids_list)
+    else:
+        current_app.logger.info(
+            'No class sessions in window %s for course %s, session %s, year %s, term %s',
+            window_id, course_code, academic_session, year, term,
+        )
+
+    if cleanup_orphan_windows:
+        orphan_student_ids = [
+            student.student_id
+            for student in students
+            if not _student_has_course_registration(
+                student.id,
+                course_code,
+                academic_session,
+                year,
+                term,
+                exclude_registration_ids=exclude_registration_ids,
+            )
+        ]
+        if orphan_student_ids:
+            orphan_sessions = Session.query.filter_by(
+                course_code=course_code,
+                academic_session=academic_session,
+                year=year,
+                term=term,
             ).all()
-            
-            for class_student in class_students:
-                db.session.delete(class_student)
-                removed_count += 1
-                
-                # Also remove from peer sessions for split courses (same window only)
-                try:
-                    from blueprints.class_management.routes import _replicate_student_to_peers
-                    # Find peer sessions
-                    if hasattr(session, 'split_group_id') and session.split_group_id:
-                        peer_query = Session.query.filter_by(
-                            split_group_id=session.split_group_id,
-                            course_code=course_code,
-                            academic_session=academic_session,
-                            year=year,
-                            term=term
-                        ).filter(Session.id != session.id)
-                        if hasattr(Session, 'window_id'):
-                            peer_query = peer_query.filter(_window_rows_filter(Session, window_id))
-                        peer_sessions = peer_query.all()
-                        
-                        for peer_session in peer_sessions:
-                            peer_class_student = ClassStudent.query.filter_by(
-                                session_id=peer_session.id,
-                                student_id=class_student.student_id
-                            ).first()
-                            if peer_class_student:
-                                db.session.delete(peer_class_student)
-                                removed_count += 1
-                except Exception as replicate_error:
-                    current_app.logger.warning(f'Error removing student from peers for {class_student.student_id}: {replicate_error}')
-        
-        if removed_count > 0:
-            db.session.commit()
-            current_app.logger.info(f'Removed {removed_count} student(s) from {len(sessions)} session(s) for course {course_code}')
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f'Error removing students from class sessions: {e}', exc_info=True)
-        raise
+            if orphan_sessions:
+                removed_count += _delete_class_students_from_sessions(
+                    orphan_sessions,
+                    orphan_student_ids,
+                    window_id=None,
+                )
+                current_app.logger.info(
+                    'Removed orphan class rows for %s student(s) across all windows for %s',
+                    len(orphan_student_ids),
+                    course_code,
+                )
+
+    if removed_count > 0:
+        current_app.logger.info(
+            'Removed %s class row(s) for course %s (window=%s, orphan_cleanup=%s)',
+            removed_count,
+            course_code,
+            window_id,
+            cleanup_orphan_windows,
+        )
+    return removed_count
 
 
 def _add_students_to_class_sessions(course_code, academic_session, year, term, students_data, window_id=None):
@@ -1488,7 +1582,8 @@ def student_course_registration():
     if student_record:
         sessions = db.session.query(StudentCourseRegistration.academic_session).distinct().filter(
             StudentCourseRegistration.student_id == student_record.id,
-            StudentCourseRegistration.academic_session.isnot(None)
+            StudentCourseRegistration.academic_session.isnot(None),
+            _window_rows_filter(StudentCourseRegistration),
         ).order_by(StudentCourseRegistration.academic_session.desc()).all()
         academic_sessions = [s[0] for s in sessions if s[0]]
     else:
@@ -1742,12 +1837,12 @@ def get_saved_registrations():
     if not student_record:
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
 
-    # Return all non-archived registrations so student/head/coordinator views stay in sync.
-    reg_query = StudentCourseRegistration.query.filter_by(
+    # Return non-archived registrations for this operational window only.
+    reg_query = _registrations_in_window_query(
         student_id=student_record.id,
         academic_session=session_name,
         year=year,
-        term=term
+        term=term,
     ).filter(StudentCourseRegistration.status != 'archived')
     
     # Apply active semester filtering (if not admin and filter function available)
@@ -1757,9 +1852,6 @@ def get_saved_registrations():
         if hasattr(student_record, 'batch') and student_record.batch:
             batch = student_record.batch
         reg_query = filter_by_active_semester(reg_query, StudentCourseRegistration, batch=batch, admin_override=False)
-
-    if filter_by_active_window and not is_admin(current_user):
-        reg_query = filter_by_active_window(reg_query, StudentCourseRegistration, admin_override=False)
     
     registrations = reg_query.order_by(StudentCourseRegistration.course_code.asc()).all()
 
@@ -1812,13 +1904,15 @@ def student_remove_course():
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
     
     try:
-        # Find the registration
-        reg = StudentCourseRegistration.query.filter_by(
+        # Find the registration in the active window only
+        reg_window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else None
+        reg = _registrations_in_window_query(
+            window_id=reg_window_id,
             id=registration_id,
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
         ).first()
         
         if not reg:
@@ -1837,7 +1931,10 @@ def student_remove_course():
         if reg.status == 'finalized':
             try:
                 _remove_students_from_class_sessions(
-                    course_code, session_name, year, term, [student_record.id]
+                    course_code, session_name, year, term, [student_record.id],
+                    window_id=_sync_window_id(reg),
+                    exclude_registration_ids=[reg.id],
+                    cleanup_orphan_windows=True,
                 )
             except Exception as remove_error:
                 current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
@@ -1890,8 +1987,11 @@ def student_remove_all_courses():
         return jsonify({'success': False, 'message': 'Student profile not found'}), 404
     
     try:
-        # Find all registrations
-        regs = StudentCourseRegistration.query.filter(
+        # Find all registrations in the active window
+        reg_window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else None
+        regs = _registrations_in_window_query(
+            window_id=reg_window_id,
+        ).filter(
             StudentCourseRegistration.id.in_(registration_ids),
             StudentCourseRegistration.student_id == student_record.id,
             StudentCourseRegistration.academic_session == session_name,
@@ -1918,7 +2018,10 @@ def student_remove_all_courses():
             if reg.status == 'finalized':
                 try:
                     _remove_students_from_class_sessions(
-                        reg.course_code, session_name, year, term, [student_record.id]
+                        reg.course_code, session_name, year, term, [student_record.id],
+                        window_id=_sync_window_id(reg),
+                        exclude_registration_ids=[reg.id],
+                        cleanup_orphan_windows=True,
                     )
                 except Exception as remove_error:
                     current_app.logger.error(f'Error removing student from Class Management for course {reg.course_code}: {remove_error}', exc_info=True)
@@ -1976,12 +2079,12 @@ def save_course_registration():
 
     try:
         # Get existing registrations to preserve carry_on flags if needed
-        existing_regs = StudentCourseRegistration.query.filter_by(
+        existing_regs = _registrations_in_window_query(
+            window_id=reg_window_id,
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
             term=term,
-            window_id=reg_window_id
         ).all()
         existing_carry_on = {reg.course_code: getattr(reg, 'carry_on', False) for reg in existing_regs}
         existing_use_relevant_for_committee = {
@@ -1997,25 +2100,25 @@ def save_course_registration():
             }), 403
         
         # Get existing registrations before deletion to remove from Class Management
-        existing_regs_to_delete = StudentCourseRegistration.query.filter_by(
+        existing_regs_to_delete = _registrations_in_window_query(
+            window_id=reg_window_id,
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
             term=term,
-            window_id=reg_window_id
         ).all()
         
         # Track finalized registrations so class entries can be removed from their actual target context.
         finalized_regs_to_remove = [reg for reg in existing_regs_to_delete if reg.status == 'finalized']
         
-        # Delete existing registrations (only student-initiated ones)
-        StudentCourseRegistration.query.filter_by(
+        # Delete existing registrations in this window only (student-initiated ones)
+        _registrations_in_window_query(
+            window_id=reg_window_id,
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
             term=term,
-            window_id=reg_window_id
-        ).delete()
+        ).delete(synchronize_session=False)
         
         # Remove students from Class Management for deleted finalized registrations
         for reg in finalized_regs_to_remove:
@@ -2033,7 +2136,8 @@ def save_course_registration():
                     class_target['year'],
                     class_target['term'],
                     [student_record.id],
-                    window_id=reg_window_id
+                    window_id=reg_window_id,
+                    cleanup_orphan_windows=True,
                 )
             except Exception as remove_error:
                 current_app.logger.error(f'Error removing students from Class Management: {remove_error}', exc_info=True)
@@ -2158,11 +2262,11 @@ def download_registration_pdf():
         # Get registration data for approval timestamps
         registration_record = None
         if student_record:
-            registration_record = StudentCourseRegistration.query.filter_by(
+            registration_record = _registrations_in_window_query(
                 student_id=student_record.id,
                 academic_session=session_name,
                 year=year,
-                term=term
+                term=term,
             ).first()
         
         # Generate PDF with custom canvas for watermark
@@ -2522,11 +2626,11 @@ def send_to_coordinator():
                 db.session.flush()
 
         # Get registrations for this session/year/term
-        registrations = StudentCourseRegistration.query.filter_by(
+        registrations = _registrations_in_window_query(
             student_id=student_record.id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
         ).all()
 
         if not registrations:
@@ -2599,7 +2703,8 @@ def coordinator_registrations():
         status='pending',
         coordinator_teacher_id=teacher.id
     ).join(StudentCourseRegistration).filter(
-        StudentCourseRegistration.status != 'archived'
+        StudentCourseRegistration.status != 'archived',
+        _window_rows_filter(StudentCourseRegistration),
     )
     
     # Apply filters to pending invites if provided
@@ -2641,7 +2746,8 @@ def coordinator_registrations():
             batch_for_filter = batch_filter if batch_filter else None
             reg_query = filter_by_active_semester(reg_query, StudentCourseRegistration, batch=batch_for_filter, admin_override=False)
 
-        if filter_by_active_window and not can_view_all_registrations:
+        # Always isolate by the selected operational window (including Head/Dean).
+        if filter_by_active_window:
             reg_query = filter_by_active_window(reg_query, StudentCourseRegistration, admin_override=False)
         
         # Apply filters to registrations
@@ -2663,7 +2769,7 @@ def coordinator_registrations():
     for invite in pending_invites:
         reg = invite.registration
         if reg:
-            key = (reg.student_id, reg.academic_session, reg.year, reg.term)
+            key = (reg.student_id, reg.academic_session, reg.year, reg.term, getattr(reg, 'window_id', None))
             if key not in pending_by_student:
                 pending_by_student[key] = {
                     'student': reg.student,
@@ -2683,7 +2789,7 @@ def coordinator_registrations():
     # Group finalized registrations by student/session/year/term
     finalized_by_student = {}
     for reg in finalized_regs:
-        key = (reg.student_id, reg.academic_session, reg.year, reg.term)
+        key = (reg.student_id, reg.academic_session, reg.year, reg.term, getattr(reg, 'window_id', None))
         if key not in finalized_by_student:
             finalized_by_student[key] = {
                 'student': reg.student,
@@ -2974,12 +3080,12 @@ def view_student_registration(student_id):
         return jsonify({'success': False, 'message': 'Session, Year, and Term are required'}), 400
 
     student = Student.query.get_or_404(student_id)
-    # Get all registrations (both pending and finalized) for coordinator to review
-    registrations = StudentCourseRegistration.query.filter_by(
+    # Get registrations for this student/term in the active window only
+    registrations = _registrations_in_window_query(
         student_id=student_id,
         academic_session=session_name,
         year=year,
-        term=term
+        term=term,
     ).order_by(StudentCourseRegistration.course_code.asc()).all()
 
     data = [{
@@ -3043,8 +3149,8 @@ def remove_all_courses_from_registration():
         return jsonify({'success': False, 'message': 'No registration IDs provided'}), 400
     
     try:
-        # Find all registrations
-        regs = StudentCourseRegistration.query.filter(
+        # Find all registrations in the active window
+        regs = _registrations_in_window_query().filter(
             StudentCourseRegistration.id.in_(registration_ids),
             StudentCourseRegistration.student_id == student_id,
             StudentCourseRegistration.academic_session == session_name,
@@ -3076,7 +3182,10 @@ def remove_all_courses_from_registration():
                         class_target['academic_session'],
                         class_target['year'],
                         class_target['term'],
-                        [reg.student_id]
+                        [reg.student_id],
+                        window_id=_sync_window_id(reg),
+                        exclude_registration_ids=[reg.id],
+                        cleanup_orphan_windows=True,
                     )
                 except Exception as remove_error:
                     current_app.logger.error(f'Error removing students from Class Management for course {reg.course_code}: {remove_error}', exc_info=True)
@@ -3128,13 +3237,13 @@ def remove_course_from_registration():
         return jsonify({'success': False, 'message': 'Student ID, Session, Year, Term, and Registration ID are required'}), 400
     
     try:
-        # Find the registration
-        reg = StudentCourseRegistration.query.filter_by(
+        # Find the registration in the active window only
+        reg = _registrations_in_window_query(
             id=registration_id,
             student_id=student_id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
         ).first()
         
         if not reg:
@@ -3157,7 +3266,10 @@ def remove_course_from_registration():
                     class_target['academic_session'],
                     class_target['year'],
                     class_target['term'],
-                    [student_id]
+                    [student_id],
+                    window_id=_sync_window_id(reg),
+                    exclude_registration_ids=[reg.id],
+                    cleanup_orphan_windows=True,
                 )
             except Exception as remove_error:
                 current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
@@ -3212,12 +3324,13 @@ def update_student_registration():
         return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
     try:
-        # Get existing registrations
-        existing_regs = StudentCourseRegistration.query.filter_by(
+        # Get existing registrations in this operational window only
+        existing_regs = _registrations_in_window_query(
+            window_id=reg_window_id,
             student_id=student_id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
         ).all()
 
         # Update or create registrations
@@ -3363,7 +3476,10 @@ def update_student_registration():
                             class_target['academic_session'],
                             class_target['year'],
                             class_target['term'],
-                            [student_id]
+                            [student_id],
+                            window_id=_sync_window_id(reg),
+                            exclude_registration_ids=[reg.id],
+                            cleanup_orphan_windows=True,
                         )
                     except Exception as remove_error:
                         current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
@@ -3381,11 +3497,12 @@ def update_student_registration():
         # Also update if finalizing a pending invite
         if is_head or is_coordinator or finalize_request:
             # Get all registration IDs for this student/session/year/term (after updates/deletes)
-            all_regs = StudentCourseRegistration.query.filter_by(
+            all_regs = _registrations_in_window_query(
+                window_id=reg_window_id,
                 student_id=student_id,
                 academic_session=session_name,
                 year=year,
-                term=term
+                term=term,
             ).all()
             reg_ids = [reg.id for reg in all_regs]
             
@@ -3417,7 +3534,11 @@ def update_student_registration():
                     for reg_id in reg_ids:
                         if reg_id not in existing_invite_reg_ids:
                             # Create new invite for this coordinator
-                            reg = StudentCourseRegistration.query.get(reg_id)
+                            reg = (
+                                get_for_window(StudentCourseRegistration, reg_id, admin_override=False)
+                                if get_for_window
+                                else StudentCourseRegistration.query.get(reg_id)
+                            )
                             if reg:
                                 new_invite = CourseRegistrationInvite(
                                     registration_id=reg_id,
@@ -3437,7 +3558,8 @@ def update_student_registration():
                         StudentCourseRegistration.student_id == student_id,
                         StudentCourseRegistration.academic_session == session_name,
                         StudentCourseRegistration.year == year,
-                        StudentCourseRegistration.term == term
+                        StudentCourseRegistration.term == term,
+                        _window_rows_filter(StudentCourseRegistration, reg_window_id),
                     ).all()
                 else:
                     # Coordinator deletes only their own invites
@@ -3449,8 +3571,21 @@ def update_student_registration():
                 # Filter invites that match the session/year/term by checking their registration
                 invites_to_delete = []
                 for invite in invites:
-                    reg = StudentCourseRegistration.query.get(invite.registration_id)
-                    if reg and reg.academic_session == session_name and reg.year == year and reg.term == term:
+                    reg = (
+                        get_for_window(StudentCourseRegistration, invite.registration_id, admin_override=False)
+                        if get_for_window
+                        else StudentCourseRegistration.query.get(invite.registration_id)
+                    )
+                    if (
+                        reg
+                        and reg.academic_session == session_name
+                        and reg.year == year
+                        and reg.term == term
+                        and (
+                            getattr(reg, 'window_id', None) == reg_window_id
+                            or (reg_window_id == DEFAULT_WINDOW_ID and getattr(reg, 'window_id', None) is None)
+                        )
+                    ):
                         invites_to_delete.append(invite)
                 
                 # Delete invites if all registrations are removed
@@ -3463,12 +3598,13 @@ def update_student_registration():
         if is_head or is_coordinator:
             try:
                 # Get all finalized registrations after commit
-                finalized_regs = StudentCourseRegistration.query.filter_by(
+                finalized_regs = _registrations_in_window_query(
+                    window_id=reg_window_id,
                     student_id=student_id,
                     academic_session=session_name,
                     year=year,
                     term=term,
-                    status='finalized'
+                    status='finalized',
                 ).all()
                 
                 # Get student record to ensure it exists
@@ -3506,6 +3642,7 @@ def update_student_registration():
                             academic_session=session_name,
                             year=year,
                             term=term,
+                            window_id=_sync_window_id(reg, reg_window_id),
                             students_data=[{
                                 'student_id': student_id,
                                 'carry_on': reg.carry_on if hasattr(reg, 'carry_on') else False,
@@ -3552,12 +3689,12 @@ def finalize_registration():
         return jsonify({'success': False, 'message': 'Teacher profile not found'}), 404
 
     try:
-        # Get registrations
-        registrations = StudentCourseRegistration.query.filter_by(
+        # Get registrations in the active window only
+        registrations = _registrations_in_window_query(
             student_id=student_id,
             academic_session=session_name,
             year=year,
-            term=term
+            term=term,
         ).all()
 
         if not registrations:
@@ -3660,52 +3797,83 @@ def coordinator_save_student_registration():
     # Handle individual deregistration
     if remove_student_ids and len(remove_student_ids) > 0:
         try:
+            removed_count = 0
+            not_found_count = 0
             for student_id_to_remove in remove_student_ids:
-                # Find and delete the registration
-                reg_to_delete = StudentCourseRegistration.query.filter_by(
+                # Find and delete the registration (current operational window only)
+                reg_to_delete = _registrations_in_window_query(
+                    window_id=reg_window_id,
                     student_id=student_id_to_remove,
                     course_code=course_code,
                     academic_session=session_name,
                     year=year,
-                    term=term
+                    term=term,
                 ).first()
-                
-                if reg_to_delete:
-                    # Remove from Class Management if finalized
-                    if reg_to_delete.status == 'finalized':
-                        try:
-                            class_target = _resolve_class_target_context(
-                                reg_to_delete,
-                                fallback_course_code=course_code,
-                                fallback_session=session_name,
-                                fallback_year=year,
-                                fallback_term=term
-                            )
-                            _remove_students_from_class_sessions(
-                                class_target['course_code'],
-                                class_target['academic_session'],
-                                class_target['year'],
-                                class_target['term'],
-                                [student_id_to_remove]
-                            )
-                        except Exception as remove_error:
-                            current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
-                    
-                    # Delete related invites
-                    invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
-                        registration_id=reg_to_delete.id
-                    ).all()
-                    for invite in invites_to_delete:
-                        db.session.delete(invite)
-                    
-                    # Delete the registration
-                    db.session.delete(reg_to_delete)
-                    current_app.logger.info(f'Deregistered student {student_id_to_remove} from course {course_code}')
-            
+
+                if not reg_to_delete:
+                    not_found_count += 1
+                    current_app.logger.warning(
+                        'Deregister skipped: no registration in window %s for student %s course %s',
+                        reg_window_id,
+                        student_id_to_remove,
+                        course_code,
+                    )
+                    continue
+
+                # Remove from Class Management if finalized
+                if reg_to_delete.status == 'finalized':
+                    try:
+                        class_target = _resolve_class_target_context(
+                            reg_to_delete,
+                            fallback_course_code=course_code,
+                            fallback_session=session_name,
+                            fallback_year=year,
+                            fallback_term=term
+                        )
+                        _remove_students_from_class_sessions(
+                            class_target['course_code'],
+                            class_target['academic_session'],
+                            class_target['year'],
+                            class_target['term'],
+                            [student_id_to_remove],
+                            window_id=_sync_window_id(reg_to_delete, reg_window_id),
+                            exclude_registration_ids=[reg_to_delete.id],
+                            cleanup_orphan_windows=True,
+                        )
+                    except Exception as remove_error:
+                        current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
+
+                # Delete related invites
+                invites_to_delete = query_for_window(CourseRegistrationInvite).filter_by(
+                    registration_id=reg_to_delete.id
+                ).all()
+                for invite in invites_to_delete:
+                    db.session.delete(invite)
+
+                # Delete the registration
+                db.session.delete(reg_to_delete)
+                removed_count += 1
+                current_app.logger.info(f'Deregistered student {student_id_to_remove} from course {course_code}')
+
+            if removed_count == 0:
+                db.session.rollback()
+                return jsonify({
+                    'success': False,
+                    'message': (
+                        'No registration found in the current window for the selected student(s). '
+                        'If they were registered in another window, switch to that window and try again.'
+                    ),
+                }), 404
+
             db.session.commit()
+            message = f'Successfully deregistered {removed_count} student(s) from {course_name}.'
+            if not_found_count:
+                message += (
+                    f' {not_found_count} student(s) were not registered in the current window.'
+                )
             return jsonify({
                 'success': True,
-                'message': f'Successfully deregistered {len(remove_student_ids)} student(s) from {course_name}.'
+                'message': message,
             })
         except Exception as exc:
             db.session.rollback()
@@ -3750,7 +3918,8 @@ def coordinator_save_student_registration():
             StudentCourseRegistration.course_code == course_code,
             StudentCourseRegistration.academic_session == session_name,
             StudentCourseRegistration.year == year,
-            StudentCourseRegistration.term == term
+            StudentCourseRegistration.term == term,
+            _window_rows_filter(StudentCourseRegistration, reg_window_id),
         ).all()
         
         # Get existing student IDs from these invites (BEFORE any updates)
@@ -3819,12 +3988,13 @@ def coordinator_save_student_registration():
                 effective_relevant_mapping = _normalize_relevant_course_mapping({})
             existing_row = None
             if student_id and course_code and session_name and year and term:
-                existing_row = StudentCourseRegistration.query.filter_by(
+                existing_row = _registrations_in_window_query(
+                    window_id=reg_window_id,
                     student_id=student_id,
                     course_code=course_code,
                     academic_session=session_name,
                     year=year,
-                    term=term
+                    term=term,
                 ).first()
             effective_use_relevant_for_committee = _resolve_use_relevant_for_committee(
                 row_use_relevant_for_committee,
@@ -3846,12 +4016,13 @@ def coordinator_save_student_registration():
                 continue
             
             # Check if registration already exists
-            existing_reg = StudentCourseRegistration.query.filter_by(
+            existing_reg = _registrations_in_window_query(
+                window_id=reg_window_id,
                 student_id=student_id,
                 course_code=course_code,
                 academic_session=session_name,
                 year=year,
-                term=term
+                term=term,
             ).first()
             
             # Both Head and Coordinator registrations are FINAL
@@ -3869,7 +4040,8 @@ def coordinator_save_student_registration():
                 if was_finalized and not will_be_finalized:
                     try:
                         _remove_students_from_class_sessions(
-                            course_code, session_name, year, term, [student_id]
+                            course_code, session_name, year, term, [student_id],
+                            window_id=_sync_window_id(existing_reg, reg_window_id),
                         )
                     except Exception as remove_error:
                         current_app.logger.error(f'Error removing student from Class Management: {remove_error}', exc_info=True)
@@ -3973,12 +4145,13 @@ def coordinator_save_student_registration():
         # Check which registrations were actually deleted (existed before but don't exist now)
         
         # Get all finalized registrations AFTER the update to see what's still there
-        final_regs_after = StudentCourseRegistration.query.filter_by(
+        final_regs_after = _registrations_in_window_query(
+            window_id=reg_window_id,
             course_code=course_code,
             academic_session=session_name,
             year=year,
             term=term,
-            status='finalized'
+            status='finalized',
         ).all()
         
         final_student_ids_after = {reg.student_id for reg in final_regs_after}
@@ -4017,11 +4190,16 @@ def coordinator_save_student_registration():
                             class_target['academic_session'],
                             class_target['year'],
                             class_target['term'],
-                            [reg.student_id]
+                            [reg.student_id],
+                            window_id=_sync_window_id(reg, reg_window_id),
+                            exclude_registration_ids=[reg.id],
+                            cleanup_orphan_windows=True,
                         )
                 else:
                     _remove_students_from_class_sessions(
-                        course_code, session_name, year, term, list(removed_student_ids)
+                        course_code, session_name, year, term, list(removed_student_ids),
+                        window_id=reg_window_id,
+                        cleanup_orphan_windows=True,
                     )
                 current_app.logger.info(f'[coordinator_save] Successfully removed {len(removed_student_ids)} student(s) from Class Management')
             except Exception as remove_error:
@@ -4037,12 +4215,14 @@ def coordinator_save_student_registration():
         # Only for finalized registrations (Head registrations are automatically finalized)
         if registration_status == 'finalized':
             try:
-                finalized_regs_for_students = StudentCourseRegistration.query.filter(
-                    StudentCourseRegistration.course_code == course_code,
-                    StudentCourseRegistration.academic_session == session_name,
-                    StudentCourseRegistration.year == year,
-                    StudentCourseRegistration.term == term,
-                    StudentCourseRegistration.status == 'finalized',
+                finalized_regs_for_students = _registrations_in_window_query(
+                    window_id=reg_window_id,
+                    course_code=course_code,
+                    academic_session=session_name,
+                    year=year,
+                    term=term,
+                    status='finalized',
+                ).filter(
                     StudentCourseRegistration.student_id.in_([s.get('student_id') for s in students_data if isinstance(s, dict)])
                 ).all()
                 reg_map = {reg.student_id: reg for reg in finalized_regs_for_students}
@@ -4082,6 +4262,7 @@ def coordinator_save_student_registration():
                     academic_session=session_name,
                     year=year,
                     term=term,
+                    window_id=reg_window_id,
                     students_data=students_for_class
                 )
             except Exception as session_error:
@@ -4238,24 +4419,22 @@ def get_students_for_course_registration():
         registered_student_ids = set()
         if course_code and session_name and year and term:
             try:
-                # Use raw SQL query to avoid carry_on column issue until migration is run
-                from sqlalchemy import text
-                sql = text("""
-                    SELECT student_id 
-                    FROM student_course_registration 
-                    WHERE course_code = :course_code 
-                    AND academic_session = :session 
-                    AND year = :year 
-                    AND term = :term
-                """)
-                result = db.session.execute(sql, {
-                    'course_code': course_code,
-                    'session': session_name,
-                    'year': year,
-                    'term': term
-                })
-                registered_student_ids = {row[0] for row in result}
-                current_app.logger.info(f'Found {len(registered_student_ids)} already registered students')
+                reg_window_id = _active_window_id()
+                registered_student_ids = {
+                    reg.student_id
+                    for reg in _registrations_in_window_query(
+                        window_id=reg_window_id,
+                        course_code=course_code,
+                        academic_session=session_name,
+                        year=year,
+                        term=term,
+                    ).all()
+                }
+                current_app.logger.info(
+                    'Found %s already registered students in window %s',
+                    len(registered_student_ids),
+                    reg_window_id,
+                )
             except Exception as reg_error:
                 current_app.logger.warning(f'Error querying registrations: {reg_error}, continuing without registration check')
                 # Continue without registration check
@@ -4866,8 +5045,13 @@ def assign_teacher_session():
             existing_split_session = Session.query.filter_by(
                 split_group_id=split_group_id,
                 archived=False
-            ).first()
-            
+            )
+            if hasattr(Session, 'window_id'):
+                existing_split_session = existing_split_session.filter(
+                    _window_rows_filter(Session, _active_window_id())
+                )
+            existing_split_session = existing_split_session.first()
+
             if existing_split_session:
                 current_app.logger.info(
                     f'Found existing split course session {existing_split_session.id} '
@@ -4879,11 +5063,16 @@ def assign_teacher_session():
         # IMPORTANT: do not skip an active same-scope session solely because academic_session
         # differs (empty vs "2024-25") — that creates duplicate Active Courses rows.
         normalized_academic_session = (academic_session or '').strip()
-        all_matching_sessions = Session.query.filter_by(
+        matching_sessions_query = Session.query.filter_by(
             course_code=course.course_code,
             year=year,
             term=term
-        ).all()
+        )
+        if hasattr(Session, 'window_id'):
+            matching_sessions_query = matching_sessions_query.filter(
+                _window_rows_filter(Session, _active_window_id())
+            )
+        all_matching_sessions = matching_sessions_query.all()
 
         reusable_session = None
         soft_reuse_candidates = []
@@ -5027,13 +5216,14 @@ def assign_teacher_session():
                     
                     # Check if student is registered for this course (finalized registration only)
                     if StudentCourseRegistration and session_obj.course_code and session_obj.academic_session and session_obj.year and session_obj.term:
-                        registration = StudentCourseRegistration.query.filter_by(
+                        registration = _registrations_in_window_query(
+                            window_id=getattr(session_obj, 'window_id', None) or _active_window_id(),
                             student_id=student.id,
                             course_code=session_obj.course_code,
                             academic_session=session_obj.academic_session,
                             year=session_obj.year,
                             term=session_obj.term,
-                            status='finalized'
+                            status='finalized',
                         ).first()
                         
                         if not registration:
@@ -5199,13 +5389,18 @@ def unassign_teacher_session():
         # Also archive duplicate/orphan sessions for this teacher offering so reassign is not blocked
         if course_for_unassign and assignment_teacher_id and assignment_year and assignment_term:
             try:
-                sibling_sessions = Session.query.filter_by(
+                sibling_sessions_q = Session.query.filter_by(
                     course_code=course_for_unassign.course_code,
                     year=assignment_year,
                     term=assignment_term,
                     teacher_id=assignment_teacher_id,
                     archived=False,
-                ).all()
+                )
+                if hasattr(Session, 'window_id'):
+                    sibling_sessions_q = sibling_sessions_q.filter(
+                        _window_rows_filter(Session, _active_window_id())
+                    )
+                sibling_sessions = sibling_sessions_q.all()
                 for sibling in sibling_sessions:
                     # Same scope duplicates, or any session no longer linked to a CSA
                     still_linked = _csa_query().filter_by(session_id=sibling.id).first()

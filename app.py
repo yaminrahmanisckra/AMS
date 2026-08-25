@@ -1716,9 +1716,13 @@ def create_app():
         registrations = []
         if assignment_course_ids:
             registrations.extend(
-                StudentCourseRegistration.query.filter(
-                    StudentCourseRegistration.course_id.in_(assignment_course_ids),
-                    StudentCourseRegistration.use_relevant_for_committee.is_(False)
+                filter_by_active_window(
+                    StudentCourseRegistration.query.filter(
+                        StudentCourseRegistration.course_id.in_(assignment_course_ids),
+                        StudentCourseRegistration.use_relevant_for_committee.is_(False)
+                    ),
+                    StudentCourseRegistration,
+                    admin_override=False,
                 ).all()
             )
 
@@ -8579,10 +8583,14 @@ def create_app():
             # Fallback: include theory courses from finalized student registrations in this context.
             if not matching_courses:
                 registration_course_codes = set()
-                context_regs = StudentCourseRegistration.query.filter(
-                    StudentCourseRegistration.status.in_(['finalized', 'approved']),
-                    StudentCourseRegistration.course_code.isnot(None),
-                    StudentCourseRegistration.course_code != '',
+                context_regs = filter_by_active_window(
+                    StudentCourseRegistration.query.filter(
+                        StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                        StudentCourseRegistration.course_code.isnot(None),
+                        StudentCourseRegistration.course_code != '',
+                    ),
+                    StudentCourseRegistration,
+                    admin_override=False,
                 ).all()
                 for reg in context_regs:
                     if str(reg.academic_session or '').strip().casefold() != str(academic_session or '').strip().casefold():
@@ -8636,14 +8644,18 @@ def create_app():
                 from sqlalchemy import func as sa_func, or_
                 retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
                 separate_retake_student_ids = set()
-                separate_retake_regs = StudentCourseRegistration.query.filter(
-                    StudentCourseRegistration.status.in_(['finalized', 'approved']),
-                    or_(
-                        StudentCourseRegistration.use_relevant_for_committee.is_(False),
-                        StudentCourseRegistration.use_relevant_for_committee.is_(None)
+                separate_retake_regs = filter_by_active_window(
+                    StudentCourseRegistration.query.filter(
+                        StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                        or_(
+                            StudentCourseRegistration.use_relevant_for_committee.is_(False),
+                            StudentCourseRegistration.use_relevant_for_committee.is_(None)
+                        ),
+                        StudentCourseRegistration.course_code.isnot(None),
+                        StudentCourseRegistration.course_code != ''
                     ),
-                    StudentCourseRegistration.course_code.isnot(None),
-                    StudentCourseRegistration.course_code != ''
+                    StudentCourseRegistration,
+                    admin_override=False,
                 ).all()
 
                 for reg in separate_retake_regs:
@@ -8751,10 +8763,14 @@ def create_app():
             student_regs_by_code = {}
             student_ids_for_subjects = set()
             try:
-                all_subject_regs = StudentCourseRegistration.query.filter(
-                    StudentCourseRegistration.status.in_(['finalized', 'approved']),
-                    StudentCourseRegistration.course_code.isnot(None),
-                    StudentCourseRegistration.course_code != ''
+                all_subject_regs = filter_by_active_window(
+                    StudentCourseRegistration.query.filter(
+                        StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                        StudentCourseRegistration.course_code.isnot(None),
+                        StudentCourseRegistration.course_code != ''
+                    ),
+                    StudentCourseRegistration,
+                    admin_override=False,
                 ).all()
 
                 selected_session = str(academic_session or '').strip().casefold()
@@ -9051,9 +9067,13 @@ def create_app():
             return jsonify({'success': False, 'message': 'Valid registration_id and student_id are required'}), 400
 
         try:
-            reg = StudentCourseRegistration.query.filter_by(
-                id=registration_id,
-                student_id=student_id
+            reg = filter_by_active_window(
+                StudentCourseRegistration.query.filter_by(
+                    id=registration_id,
+                    student_id=student_id
+                ),
+                StudentCourseRegistration,
+                admin_override=False,
             ).first()
             if not reg:
                 return jsonify({'success': False, 'message': 'Registration not found'}), 404
@@ -9064,6 +9084,16 @@ def create_app():
                 return jsonify({'success': False, 'message': 'Registration year mismatch'}), 400
             if term and str(reg.term or '').strip() != term:
                 return jsonify({'success': False, 'message': 'Registration term mismatch'}), 400
+
+            from utils.window_utils import DEFAULT_WINDOW_ID
+            active_wid = get_effective_window_id(admin_override=False)
+            reg_wid = getattr(reg, 'window_id', None)
+            if active_wid is not None:
+                if active_wid == DEFAULT_WINDOW_ID:
+                    if reg_wid not in (None, DEFAULT_WINDOW_ID):
+                        return jsonify({'success': False, 'message': 'Registration not found in this window'}), 404
+                elif reg_wid != active_wid:
+                    return jsonify({'success': False, 'message': 'Registration not found in this window'}), 404
 
             if reg.status == 'finalized':
                 try:
@@ -9083,7 +9113,10 @@ def create_app():
                         class_target['academic_session'],
                         class_target['year'],
                         class_target['term'],
-                        [student_id]
+                        [student_id],
+                        window_id=reg_wid if reg_wid is not None else active_wid,
+                        exclude_registration_ids=[reg.id],
+                        cleanup_orphan_windows=True,
                     )
                 except Exception as remove_error:
                     current_app.logger.error(
@@ -9520,14 +9553,18 @@ def create_app():
             normalized_term = normalize_label(term, is_term=True)
             separate_retake_rows = {}
             retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
-            separate_retake_regs = StudentCourseRegistration.query.filter(
-                StudentCourseRegistration.status.in_(['finalized', 'approved']),
-                or_(
-                    StudentCourseRegistration.use_relevant_for_committee.is_(False),
-                    StudentCourseRegistration.use_relevant_for_committee.is_(None)
+            separate_retake_regs = filter_by_active_window(
+                StudentCourseRegistration.query.filter(
+                    StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                    or_(
+                        StudentCourseRegistration.use_relevant_for_committee.is_(False),
+                        StudentCourseRegistration.use_relevant_for_committee.is_(None)
+                    ),
+                    StudentCourseRegistration.course_code.isnot(None),
+                    StudentCourseRegistration.course_code != ''
                 ),
-                StudentCourseRegistration.course_code.isnot(None),
-                StudentCourseRegistration.course_code != ''
+                StudentCourseRegistration,
+                admin_override=False,
             ).all()
 
             for reg in separate_retake_regs:
@@ -13325,14 +13362,18 @@ def create_app():
 
             # Add separate (merge OFF) retake courses that belong to this relevant context.
             retake_remarks = {'retake', 're-retake', 're retake', 'reretake'}
-            separate_retake_regs = StudentCourseRegistration.query.filter(
-                StudentCourseRegistration.status.in_(['finalized', 'approved']),
-                or_(
-                    StudentCourseRegistration.use_relevant_for_committee.is_(False),
-                    StudentCourseRegistration.use_relevant_for_committee.is_(None)
+            separate_retake_regs = filter_by_active_window(
+                StudentCourseRegistration.query.filter(
+                    StudentCourseRegistration.status.in_(['finalized', 'approved']),
+                    or_(
+                        StudentCourseRegistration.use_relevant_for_committee.is_(False),
+                        StudentCourseRegistration.use_relevant_for_committee.is_(None)
+                    ),
+                    StudentCourseRegistration.course_code.isnot(None),
+                    StudentCourseRegistration.course_code != ''
                 ),
-                StudentCourseRegistration.course_code.isnot(None),
-                StudentCourseRegistration.course_code != ''
+                StudentCourseRegistration,
+                admin_override=False,
             ).all()
 
             separate_retake_entries = {}

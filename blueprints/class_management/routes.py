@@ -92,6 +92,7 @@ try:
         get_or_404_for_window,
         filter_offered_courses,
         stamp_window_id,
+        DEFAULT_WINDOW_ID,
     )
 except ImportError:
     filter_by_active_window = None
@@ -103,6 +104,7 @@ except ImportError:
     get_or_404_for_window = None
     filter_offered_courses = None
     stamp_window_id = None
+    DEFAULT_WINDOW_ID = 1
 
 
 def _class_students_for_session(session_id, order=True):
@@ -161,6 +163,75 @@ def _student_notifications_query(user_id):
     if window_id is None:
         return q
     return q.filter(StudentNotification.window_id == window_id)
+
+
+def _registration_window_clause(session_obj):
+    """Match course registrations to the class session's operational window only."""
+    if not hasattr(StudentCourseRegistration, 'window_id'):
+        return True
+    sess_win = getattr(session_obj, 'window_id', None)
+    if sess_win is None or sess_win == DEFAULT_WINDOW_ID:
+        return or_(
+            StudentCourseRegistration.window_id == DEFAULT_WINDOW_ID,
+            StudentCourseRegistration.window_id.is_(None),
+        )
+    return StudentCourseRegistration.window_id == sess_win
+
+
+def _csa_window_clause(session_obj):
+    """Match CourseSessionAssignment rows to a class session's operational window."""
+    if not CourseSessionAssignment or not hasattr(CourseSessionAssignment, 'window_id'):
+        return True
+    sess_win = getattr(session_obj, 'window_id', None)
+    if sess_win is None or sess_win == DEFAULT_WINDOW_ID:
+        return or_(
+            CourseSessionAssignment.window_id == DEFAULT_WINDOW_ID,
+            CourseSessionAssignment.window_id.is_(None),
+        )
+    return CourseSessionAssignment.window_id == sess_win
+
+
+def _csa_for_class_session(session_obj):
+    """Find CSA for a class session without crossing operational windows."""
+    if not CourseSessionAssignment or not session_obj:
+        return None
+    assignment = CourseSessionAssignment.query.filter_by(session_id=session_obj.id).first()
+    if assignment or not Course:
+        return assignment
+    if not (session_obj.course_code and session_obj.teacher_id and session_obj.year and session_obj.term):
+        return None
+    q = CourseSessionAssignment.query.filter_by(
+        teacher_id=session_obj.teacher_id,
+        year=session_obj.year,
+        term=session_obj.term,
+    ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
+        Course.course_code == session_obj.course_code,
+        _csa_window_clause(session_obj),
+    )
+    assignment = q.first()
+    if not assignment:
+        assignment = q.filter(
+            or_(
+                CourseSessionAssignment.section.is_(None),
+                CourseSessionAssignment.section == '',
+            )
+        ).first()
+    return assignment
+
+
+def _finalized_registration_for_session(student_pk, session_obj):
+    if not StudentCourseRegistration or not session_obj:
+        return None
+    if not session_obj.course_code or not session_obj.academic_session or not session_obj.year or not session_obj.term:
+        return None
+    return StudentCourseRegistration.query.filter_by(
+        student_id=student_pk,
+        course_code=session_obj.course_code,
+        academic_session=session_obj.academic_session,
+        year=session_obj.year,
+        term=session_obj.term,
+        status='finalized',
+    ).filter(_registration_window_clause(session_obj)).first()
 
 
 def _notify_students_in_session(session_id, notif_type, title, link_url):
@@ -1293,9 +1364,15 @@ def _get_related_sessions(session, include_archived=False):
     if not session or not session.split_group_id:
         return [session] if session else []
 
-    query = query_for_window(Session).filter_by(split_group_id=session.split_group_id)
+    query = Session.query.filter_by(split_group_id=session.split_group_id)
     if not include_archived:
         query = query.filter_by(archived=False)
+    if hasattr(Session, 'window_id'):
+        sess_win = getattr(session, 'window_id', None)
+        if sess_win is None or sess_win == DEFAULT_WINDOW_ID:
+            query = query.filter(or_(Session.window_id == DEFAULT_WINDOW_ID, Session.window_id.is_(None)))
+        else:
+            query = query.filter(Session.window_id == sess_win)
     related = query.order_by(Session.id.asc()).all()
     return related or [session]
 
@@ -1373,13 +1450,7 @@ def _carry_on_assessment_marks(class_student, session):
             return
         
         # Find registration for this course and session
-        registration = StudentCourseRegistration.query.filter_by(
-            student_id=student_record.id,
-            course_code=session.course_code,
-            academic_session=session.academic_session,
-            year=session.year,
-            term=session.term
-        ).first()
+        registration = _finalized_registration_for_session(student_record.id, session)
         
         if not registration or not registration.carry_on:
             return
@@ -2143,8 +2214,15 @@ def index():
     # IMPORTANT: Do this BEFORE auto-creating sessions so assignments have correct academic_session
     if CourseSessionAssignment and Curriculum and CurriculumYearTerm:
         try:
-            # First, update all assignments that are missing batch/academic_session from curriculum year-term config
-            all_assignments = CourseSessionAssignment.query.all()
+            # First, update current-window assignments missing batch/academic_session from curriculum year-term config
+            all_assignments_q = CourseSessionAssignment.query
+            if filter_by_active_window and hasattr(CourseSessionAssignment, 'window_id'):
+                all_assignments_q = filter_by_active_window(
+                    all_assignments_q,
+                    CourseSessionAssignment,
+                    admin_override=False,
+                )
+            all_assignments = all_assignments_q.all()
             assignment_update_count = 0
             for assignment in all_assignments:
                 if assignment.curriculum_id and (not assignment.batch or not assignment.academic_session):
@@ -2229,15 +2307,26 @@ def index():
                     CourseSessionAssignment.session_id.is_(None)
                 )
             )
-            if get_effective_window_id and not is_admin(current_user):
-                eff_window = get_effective_window_id(admin_override=False)
-                if eff_window is not None:
-                    missing_assignments_query = missing_assignments_query.filter(
-                        or_(
-                            CourseSessionAssignment.window_id == eff_window,
-                            CourseSessionAssignment.window_id.is_(None),
-                        )
+            if hasattr(CourseSessionAssignment, 'window_id'):
+                if filter_by_active_window:
+                    missing_assignments_query = filter_by_active_window(
+                        missing_assignments_query,
+                        CourseSessionAssignment,
+                        admin_override=False,
                     )
+                elif get_effective_window_id:
+                    eff_window = get_effective_window_id(admin_override=False)
+                    if eff_window is None or eff_window == DEFAULT_WINDOW_ID:
+                        missing_assignments_query = missing_assignments_query.filter(
+                            or_(
+                                CourseSessionAssignment.window_id == DEFAULT_WINDOW_ID,
+                                CourseSessionAssignment.window_id.is_(None),
+                            )
+                        )
+                    else:
+                        missing_assignments_query = missing_assignments_query.filter(
+                            CourseSessionAssignment.window_id == eff_window
+                        )
             missing_assignments = missing_assignments_query.all()
             
             current_app.logger.info(f'[DEBUG] Teacher {teacher.id} ({teacher.name}): Found {len(missing_assignments)} assignments without sessions')
@@ -2414,49 +2503,21 @@ def index():
     if CourseSessionAssignment and Course:
         try:
             for session in sessions:
-                # Try to find assignment by session_id first
-                assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
-                
-                # If not found by session_id, try to find by course_code, teacher_id, year, term
-                if not assignment and session.course_code and session.teacher_id and session.year and session.term:
-                    try:
-                        # Try to match by course_code, teacher_id, year, term
-                        # First try exact match
-                        assignment = CourseSessionAssignment.query.filter_by(
-                            teacher_id=session.teacher_id,
-                            year=session.year,
-                            term=session.term
-                        ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
-                            Course.course_code == session.course_code
-                        ).first()
-                        
-                        # If not found, try without section matching (for full course sessions)
-                        if not assignment:
-                            assignment = CourseSessionAssignment.query.filter_by(
-                                teacher_id=session.teacher_id,
-                                year=session.year,
-                                term=session.term
-                            ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
-                                Course.course_code == session.course_code
-                            ).filter(
-                                or_(
-                                    CourseSessionAssignment.section.is_(None),
-                                    CourseSessionAssignment.section == ''
-                                )
-                            ).first()
-                        
-                        # If found, update the session_id to link them
-                        if assignment and not assignment.session_id:
-                            assignment.session_id = session.id
-                            assignment.session_created = True
-                            try:
-                                db.session.commit()
-                                current_app.logger.info(f'Linked assignment {assignment.id} to session {session.id} for course {session.course_code}')
-                            except Exception as commit_error:
-                                db.session.rollback()
-                                current_app.logger.warning(f'Could not link assignment {assignment.id} to session {session.id}: {commit_error}')
-                    except Exception as query_error:
-                        current_app.logger.warning(f'Error querying assignment for session {session.id}: {query_error}')
+                try:
+                    assignment = _csa_for_class_session(session)
+                    # If found without session_id link, wire them together in this window only
+                    if assignment and not assignment.session_id:
+                        assignment.session_id = session.id
+                        assignment.session_created = True
+                        try:
+                            db.session.commit()
+                            current_app.logger.info(f'Linked assignment {assignment.id} to session {session.id} for course {session.course_code}')
+                        except Exception as commit_error:
+                            db.session.rollback()
+                            current_app.logger.warning(f'Could not link assignment {assignment.id} to session {session.id}: {commit_error}')
+                except Exception as query_error:
+                    current_app.logger.warning(f'Error querying assignment for session {session.id}: {query_error}')
+                    assignment = None
                 
                 if assignment:
                     # If assignment doesn't have batch/academic_session, try to get from curriculum year-term config
@@ -2520,14 +2581,7 @@ def index():
                                     for student in students_from_batch:
                                         # Check if student is registered for this course (finalized registration only)
                                         if not getattr(session, 'is_external_course', False) and StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
-                                            registration = StudentCourseRegistration.query.filter_by(
-                                                student_id=student.id,
-                                                course_code=session.course_code,
-                                                academic_session=session.academic_session,
-                                                year=session.year,
-                                                term=session.term,
-                                                status='finalized'
-                                            ).first()
+                                            registration = _finalized_registration_for_session(student.id, session)
                                             
                                             if not registration:
                                                 current_app.logger.info(f'Student {student.student_id} ({student.name}) not registered for course {session.course_code}, skipping...')
@@ -2689,16 +2743,18 @@ def create_session():
             return redirect(url_for('class_management.index'))
 
         # Prevent more than two teachers (Part A & Part B) from taking the same course simultaneously
-        window_id = get_effective_window_id(admin_override=is_admin(current_user)) if get_effective_window_id else None
-        active_sessions_query = query_for_window(Session).filter(
+        window_id = get_effective_window_id(admin_override=False) if get_effective_window_id else None
+        active_sessions_query = Session.query.filter(
             Session.course_code == course_code,
             Session.archived.is_(False),
             Session.is_external_course.is_(False),
         )
-        if window_id is not None:
+        if window_id is None or window_id == DEFAULT_WINDOW_ID:
             active_sessions_query = active_sessions_query.filter(
-                or_(Session.window_id == window_id, Session.window_id.is_(None))
+                or_(Session.window_id == DEFAULT_WINDOW_ID, Session.window_id.is_(None))
             )
+        else:
+            active_sessions_query = active_sessions_query.filter(Session.window_id == window_id)
         active_sessions = active_sessions_query.all()
         full_exists = any(s.course_scope == SCOPE_FULL for s in active_sessions)
         part_a_exists = any(s.course_scope == SCOPE_PART_A for s in active_sessions)
@@ -2888,14 +2944,7 @@ def create_session():
                     
                     # Check if student is registered for this course (finalized registration only)
                     if StudentCourseRegistration and current_session.course_code and current_session.academic_session and current_session.year and current_session.term:
-                        registration = StudentCourseRegistration.query.filter_by(
-                            student_id=student.id,
-                            course_code=current_session.course_code,
-                            academic_session=current_session.academic_session,
-                            year=current_session.year,
-                            term=current_session.term,
-                            status='finalized'
-                        ).first()
+                        registration = _finalized_registration_for_session(student.id, current_session)
                         
                         if not registration:
                             not_registered_count += 1
@@ -4079,14 +4128,7 @@ def add_student(session_id):
             
             # Check if student is registered for this course (finalized registration only)
             if not getattr(session, 'is_external_course', False) and StudentCourseRegistration and session.course_code and session.academic_session and session.year and session.term:
-                registration = StudentCourseRegistration.query.filter_by(
-                    student_id=student.id,
-                    course_code=session.course_code,
-                    academic_session=session.academic_session,
-                    year=session.year,
-                    term=session.term,
-                    status='finalized'
-                ).first()
+                registration = _finalized_registration_for_session(student.id, session)
                 
                 if not registration:
                     not_registered_count += 1
@@ -6702,38 +6744,12 @@ def archive():
     if CourseSessionAssignment and Course:
         try:
             for session in archived_sessions:
-                # Try to find assignment by session_id first
-                assignment = CourseSessionAssignment.query.filter_by(session_id=session.id).first()
-                
-                # If not found by session_id, try to find by course_code, teacher_id, year, term
-                if not assignment and session.course_code and session.teacher_id and session.year and session.term:
-                    try:
-                        # Try to match by course_code, teacher_id, year, term
-                        assignment = CourseSessionAssignment.query.filter_by(
-                            teacher_id=session.teacher_id,
-                            year=session.year,
-                            term=session.term
-                        ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
-                            Course.course_code == session.course_code
-                        ).first()
-                        
-                        # If not found, try without section matching (for full course sessions)
-                        if not assignment:
-                            assignment = CourseSessionAssignment.query.filter_by(
-                                teacher_id=session.teacher_id,
-                                year=session.year,
-                                term=session.term
-                            ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
-                                Course.course_code == session.course_code
-                            ).filter(
-                                or_(
-                                    CourseSessionAssignment.section.is_(None),
-                                    CourseSessionAssignment.section == ''
-                                )
-                            ).first()
-                    except Exception as query_error:
-                        current_app.logger.warning(f'Error querying assignment for archived session {session.id}: {query_error}')
-                
+                try:
+                    assignment = _csa_for_class_session(session)
+                except Exception as query_error:
+                    current_app.logger.warning(f'Error querying assignment for archived session {session.id}: {query_error}')
+                    assignment = None
+
                 if assignment:
                     # If assignment doesn't have batch/academic_session, try to get from curriculum year-term config
                     batch = assignment.batch
@@ -7688,20 +7704,10 @@ def download_attendance_sheet_weasyprint(session_id):
         # Get assignment data for Session, Year, Term, Course Teacher
         assignment = None
         if CourseSessionAssignment:
-            assignment = CourseSessionAssignment.query.filter_by(session_id=session_id).first()
-            # If not found by session_id, try to find by course_code, teacher_id, year, term
-            if not assignment and session.course_code and session.teacher_id and session.year and session.term:
-                try:
-                    if Course:
-                        assignment = CourseSessionAssignment.query.filter_by(
-                            teacher_id=session.teacher_id,
-                            year=session.year,
-                            term=session.term
-                        ).join(Course, CourseSessionAssignment.course_id == Course.id).filter(
-                            Course.course_code == session.course_code
-                        ).first()
-                except Exception as query_error:
-                    current_app.logger.warning(f'Error querying CourseSessionAssignment: {query_error}')
+            try:
+                assignment = _csa_for_class_session(session)
+            except Exception as query_error:
+                current_app.logger.warning(f'Error querying CourseSessionAssignment: {query_error}')
         
         # Get course information
         course_code = session.course_code or ''
@@ -8353,8 +8359,16 @@ def student_view_scores():
             flash('Student ID not found.', 'error')
             return redirect(url_for('index'))
         
-        # Find all ClassStudent records for this student
-        student_records = ClassStudent.query.filter_by(student_id=student_id).all()
+        # Find all ClassStudent records for this student in the current operational window only
+        student_records_q = ClassStudent.query.filter_by(student_id=student_id)
+        if filter_by_window_sessions:
+            student_records_q = filter_by_window_sessions(
+                student_records_q,
+                ClassStudent.session_id,
+                session_model=Session,
+                admin_override=False,
+            )
+        student_records = student_records_q.all()
         
         # First pass: collect all sessions and identify split groups
         # Filter: Only show Theory courses (course_type == 'theory')
@@ -8365,7 +8379,7 @@ def student_view_scores():
         
         # Collect all sessions first
         for student_record in student_records:
-            session_obj = get_for_window(Session, student_record.session_id)
+            session_obj = get_for_window(Session, student_record.session_id) if get_for_window else Session.query.get(student_record.session_id)
             if not session_obj or session_obj.archived:
                 continue
             
@@ -8616,7 +8630,19 @@ def student_view_scores():
                 else:
                     pg_total = None
             # Note: Sessional courses are filtered out - only Theory courses should reach this point
-            
+
+            # Absent flags (teacher-marked) — empty marks must not display as Absent.
+            assessment_absent = {}
+            for rec in student_records:
+                if not getattr(rec, 'assessment_absent', None):
+                    continue
+                try:
+                    parsed = json.loads(rec.assessment_absent) or {}
+                except Exception:
+                    parsed = {}
+                for key, value in parsed.items():
+                    if value:
+                        assessment_absent[key] = True
             
             # Get attendance marks if revealed
             # For split courses, aggregate attendance from all related sessions
@@ -8711,6 +8737,7 @@ def student_view_scores():
                 'attendance_data': attendance_data,
                 'reveal_status': reveal_status,
                 'reveal_callsigns': reveal_callsigns,
+                'assessment_absent': assessment_absent,
                 'is_split_course': is_split_course,
                 'qa_threads': qa_threads,
                 'qa_new_reply_count': qa_new_reply_count,
@@ -11655,13 +11682,21 @@ def student_course_files():
             flash('Student ID not found.', 'error')
             return redirect(url_for('index'))
         
-        # Find all ClassStudent records for this student
-        student_records = ClassStudent.query.filter_by(student_id=student_id).all()
+        # Find ClassStudent records for this student in the current operational window only
+        student_records_q = ClassStudent.query.filter_by(student_id=student_id)
+        if filter_by_window_sessions:
+            student_records_q = filter_by_window_sessions(
+                student_records_q,
+                ClassStudent.session_id,
+                session_model=Session,
+                admin_override=False,
+            )
+        student_records = student_records_q.all()
         
         # Get all sessions where student is enrolled
         enrolled_sessions = []
         for student_record in student_records:
-            session_obj = get_for_window(Session, student_record.session_id)
+            session_obj = get_for_window(Session, student_record.session_id) if get_for_window else Session.query.get(student_record.session_id)
             if session_obj and not session_obj.archived:
                 enrolled_sessions.append(session_obj)
         
@@ -11735,7 +11770,12 @@ def student_download_course_outline_pdf(session_id):
             flash('Student ID not found.', 'error')
             return redirect(url_for('class_management.student_course_files'))
         
-        # Check if student is enrolled in this session
+        # Check if student is enrolled in this session (current window only)
+        session_obj = get_for_window(Session, session_id) if get_for_window else Session.query.get(session_id)
+        if not session_obj:
+            flash('Course not found.', 'error')
+            return redirect(url_for('class_management.student_course_files'))
+
         student_record = ClassStudent.query.filter_by(
             session_id=session_id,
             student_id=student_id
@@ -11780,7 +11820,12 @@ def student_download_uploaded_file(file_id):
             flash('This file is not available for download.', 'error')
             return redirect(url_for('class_management.student_course_files'))
         
-        # Check if student is enrolled in this session
+        # Check if student is enrolled in this session (and session is in current window)
+        file_session = get_for_window(Session, uploaded_file.session_id) if get_for_window else Session.query.get(uploaded_file.session_id)
+        if not file_session:
+            flash('Course not found.', 'error')
+            return redirect(url_for('class_management.student_course_files'))
+
         student_record = ClassStudent.query.filter_by(
             session_id=uploaded_file.session_id,
             student_id=student_id

@@ -18,7 +18,18 @@ from blueprints.class_management.models import Teacher, Session as ClassSession,
 from blueprints.course_management.models import StudentCourseRegistration, Course, ActiveSemesterConfig, CurriculumYearTerm
 from blueprints.student_management.models import Student as StudentProfile
 from blueprints.course_management.models import DutyAssignment
-from utils.window_utils import query_for_window, filter_by_active_window, stamp_window_id, ensure_record_in_window, get_for_window, get_or_404_for_window, get_effective_window_id, filter_offered_courses
+from utils.window_utils import (
+    filter_query_by_window_id,
+    filter_by_active_window,
+    filter_offered_courses,
+    get_effective_window_id,
+    get_for_window,
+    get_or_404_for_window,
+    query_for_window,
+    stamp_window_id,
+    ensure_record_in_window,
+    window_rows_clause,
+)
 import json
 from openpyxl import load_workbook
 import io
@@ -32,6 +43,26 @@ import zipfile
 # from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 result_management_bp = Blueprint('result_management', __name__, template_folder='templates/result_management')
+
+
+def _append_registration_window_filter(filters, session=None, window_id=None):
+    """Append StudentCourseRegistration window isolation to a filter list."""
+    if window_id is None and session is not None:
+        window_id = getattr(session, 'window_id', None)
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+    if window_id is not None and hasattr(StudentCourseRegistration, 'window_id'):
+        filters.append(window_rows_clause(StudentCourseRegistration, window_id))
+    return filters
+
+
+def _class_session_query_for_result(session, **filters):
+    """ClassSession query locked to a result session's operational window."""
+    q = ClassSession.query.filter_by(**filters) if filters else ClassSession.query
+    window_id = getattr(session, 'window_id', None) if session is not None else None
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+    return filter_query_by_window_id(q, ClassSession, window_id)
 
 
 def _is_head_user():
@@ -176,16 +207,22 @@ def _class_session_matches_result(class_session, session_name=None, year=None, t
     return True
 
 
-def _find_class_sessions_for_result(course_code, session_name=None, year=None, term=None):
+def _find_class_sessions_for_result(course_code, session_name=None, year=None, term=None, window_id=None):
     """Find Class Management sessions for a result subject context."""
     from blueprints.class_management.models import Session as ClassSession
+    from utils.window_utils import filter_query_by_window_id, get_effective_window_id
 
     if not course_code:
         return []
 
-    candidates = ClassSession.query.filter(
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+
+    candidates_q = ClassSession.query.filter(
         ClassSession.course_code == course_code
-    ).order_by(ClassSession.created_at.desc()).all()
+    )
+    candidates_q = filter_query_by_window_id(candidates_q, ClassSession, window_id)
+    candidates = candidates_q.order_by(ClassSession.created_at.desc()).all()
 
     if not session_name and not year and not term:
         return candidates
@@ -209,24 +246,32 @@ def _find_class_sessions_for_result(course_code, session_name=None, year=None, t
     return candidates
 
 
-def _find_class_student_for_result(student_public_id, course_code, session_name=None, year=None, term=None):
+def _find_class_student_for_result(student_public_id, course_code, session_name=None, year=None, term=None, window_id=None):
     """Find a ClassStudent row and its session using robust ID/year matching."""
     from blueprints.class_management.models import Session as ClassSession, ClassStudent
+    from utils.window_utils import filter_query_by_window_id, get_effective_window_id
 
     target_id = _normalize_student_public_id(student_public_id)
     if not target_id or not course_code:
         return None, None
 
-    for class_session in _find_class_sessions_for_result(course_code, session_name, year, term):
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+
+    for class_session in _find_class_sessions_for_result(
+        course_code, session_name, year, term, window_id=window_id
+    ):
         for class_student in ClassStudent.query.filter_by(session_id=class_session.id).all():
             if _normalize_student_public_id(class_student.student_id) == target_id:
                 return class_student, class_session
 
-    fallback_rows = ClassStudent.query.join(
+    fallback_q = ClassStudent.query.join(
         ClassSession, ClassStudent.session_id == ClassSession.id
     ).filter(
         ClassSession.course_code == course_code,
-    ).order_by(ClassSession.created_at.desc(), ClassStudent.id.desc()).all()
+    )
+    fallback_q = filter_query_by_window_id(fallback_q, ClassSession, window_id)
+    fallback_rows = fallback_q.order_by(ClassSession.created_at.desc(), ClassStudent.id.desc()).all()
 
     for class_student in fallback_rows:
         if _normalize_student_public_id(class_student.student_id) == target_id:
@@ -313,12 +358,14 @@ def _populate_class_management_marks(mark, student, selected_subject, result_ses
 
     theory_types = ('Theory', 'Theory (UG)', 'Theory (PG)')
     updated = False
+    result_window_id = getattr(result_session, 'window_id', None)
     class_student, class_session = _find_class_student_for_result(
         student.student_id,
         selected_subject.code,
         session_name=result_session.name,
         year=result_session.year,
         term=result_session.term,
+        window_id=result_window_id,
     )
 
     if not class_session and class_student:
@@ -330,6 +377,7 @@ def _populate_class_management_marks(mark, student, selected_subject, result_ses
             session_name=result_session.name,
             year=result_session.year,
             term=result_session.term,
+            window_id=result_window_id,
         )
         class_session = matching_sessions[0] if matching_sessions else None
 
@@ -400,7 +448,7 @@ def _get_rsubject_or_404(subject_id):
     return subject
 
 
-def _build_original_course_registration_filters(student_profile_ids, subject_code, session_name=None, year=None, term=None, statuses=None):
+def _build_original_course_registration_filters(student_profile_ids, subject_code, session_name=None, year=None, term=None, statuses=None, window_id=None, result_session=None):
     """Build strict filters anchored to original course_code context only."""
     filters = [
         StudentCourseRegistration.student_id.in_(student_profile_ids),
@@ -425,6 +473,7 @@ def _build_original_course_registration_filters(student_profile_ids, subject_cod
             filters.append(StudentCourseRegistration.term == term_variants[0])
         else:
             filters.append(StudentCourseRegistration.term.in_(term_variants))
+    _append_registration_window_filter(filters, session=result_session, window_id=window_id)
     return filters
 
 
@@ -490,6 +539,12 @@ def _load_course_management_retake_lookup(session, subject_codes, rstudents):
         else:
             filters.append(StudentCourseRegistration.term.in_(term_variants))
 
+    window_id = getattr(session, 'window_id', None)
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+    if window_id is not None and hasattr(StudentCourseRegistration, 'window_id'):
+        filters.append(window_rows_clause(StudentCourseRegistration, window_id))
+
     lookup = {}
     for reg in StudentCourseRegistration.query.filter(*filters).all():
         rstudent_id = profile_id_to_rstudent_id.get(reg.student_id)
@@ -538,6 +593,12 @@ def _load_course_management_remark_lookup(session, subject_codes, rstudents):
             filters.append(StudentCourseRegistration.term == term_variants[0])
         else:
             filters.append(StudentCourseRegistration.term.in_(term_variants))
+
+    window_id = getattr(session, 'window_id', None)
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+    if window_id is not None and hasattr(StudentCourseRegistration, 'window_id'):
+        filters.append(window_rows_clause(StudentCourseRegistration, window_id))
 
     lookup = {}
     for reg in StudentCourseRegistration.query.filter(*filters).all():
@@ -741,6 +802,12 @@ def _course_management_session_registration_filters(session, profile_ids, subjec
             filters.append(StudentCourseRegistration.term == term_variants[0])
         else:
             filters.append(StudentCourseRegistration.term.in_(term_variants))
+
+    window_id = getattr(session, 'window_id', None)
+    if window_id is None:
+        window_id = get_effective_window_id(admin_override=False)
+    if window_id is not None and hasattr(StudentCourseRegistration, 'window_id'):
+        filters.append(window_rows_clause(StudentCourseRegistration, window_id))
     return filters
 
 
@@ -1348,8 +1415,10 @@ def add_student(session_id):
         
         # Find candidate ClassSessions, then robust-match academic session/year/term in Python.
         # This handles formatting differences and stray spaces/case mismatches.
-        candidate_class_sessions = ClassSession.query.filter(
-            ClassSession.academic_session.isnot(None)
+        candidate_class_sessions = filter_query_by_window_id(
+            ClassSession.query.filter(ClassSession.academic_session.isnot(None)),
+            ClassSession,
+            getattr(session, 'window_id', None) or get_effective_window_id(admin_override=False),
         ).all()
 
         target_session = _normalize_session_name(session.name)
@@ -1412,6 +1481,7 @@ def add_student(session_id):
             StudentCourseRegistration.academic_session.isnot(None),
             StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
         ]
+        _append_registration_window_filter(reg_filters, session=session)
         registration_rows = StudentCourseRegistration.query.filter(*reg_filters).all()
         matching_profile_ids = set()
         for reg in registration_rows:
@@ -1548,6 +1618,11 @@ def get_students_for_result():
                 # Only filter by year if it's provided in the result session
                 if session.year:
                     query_class_sessions = query_class_sessions.filter(ClassSession.year == session.year)
+                query_class_sessions = filter_query_by_window_id(
+                    query_class_sessions,
+                    ClassSession,
+                    getattr(session, 'window_id', None) or get_effective_window_id(admin_override=False),
+                )
                 
                 matching_class_sessions = query_class_sessions.all()
                 
@@ -1848,7 +1923,11 @@ def add_subject(session_id):
                     StudentCourseRegistration.academic_session == session.name,
                     StudentCourseRegistration.year == session.year,
                     StudentCourseRegistration.term == session.term,
-                    StudentCourseRegistration.status.in_(['draft', 'pending', 'finalized'])
+                    StudentCourseRegistration.status.in_(['draft', 'pending', 'finalized']),
+                    window_rows_clause(
+                        StudentCourseRegistration,
+                        getattr(session, 'window_id', None) or get_effective_window_id(admin_override=False),
+                    ),
                 ).all()
 
                 registered_by_code = {}
@@ -2024,7 +2103,8 @@ def refresh_marks(session_id):
                 session_name=session.name,
                 year=session.year,
                 term=session.term,
-                statuses=['finalized', 'pending', 'archived']
+                statuses=['finalized', 'pending', 'archived'],
+                result_session=session,
             )
             
             registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
@@ -2065,6 +2145,7 @@ def refresh_marks(session_id):
                             session_name=session.name,
                             year=session.year,
                             term=session.term,
+                            window_id=getattr(session, 'window_id', None),
                         )
                         if class_student:
                             if class_student.sessional_report is not None:
@@ -3090,7 +3171,8 @@ def add_marks(session_id):
                     session_name=session.name,
                     year=session.year,
                     term=session.term,
-                    statuses=['finalized', 'pending', 'archived']
+                    statuses=['finalized', 'pending', 'archived'],
+                    result_session=session,
                 )
 
                 registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
@@ -3156,7 +3238,8 @@ def add_marks(session_id):
                 session_name=session.name,
                 year=session.year,
                 term=session.term,
-                statuses=['finalized']
+                statuses=['finalized'],
+                result_session=session,
             )
             
             registered_regs = StudentCourseRegistration.query.filter(*course_filters).all()
@@ -3191,30 +3274,33 @@ def add_marks(session_id):
                     
                     # Strategy 1: Exact match (course_code + year + term + academic_session)
                     if session.year and session.term and session.name:
-                        class_session = Session.query.filter_by(
+                        class_session = _class_session_query_for_result(
+                            session,
                             course_code=selected_subject.code,
                             year=session.year,
                             term=session.term,
-                            academic_session=session.name
+                            academic_session=session.name,
                         ).first()
                         if class_session:
                             current_app.logger.debug(f'Found class_session (exact match) for {selected_subject.code}')
                     
                     # Strategy 2: Partial match (course_code + year + term)
                     if not class_session and session.year and session.term:
-                        class_session = Session.query.filter_by(
+                        class_session = _class_session_query_for_result(
+                            session,
                             course_code=selected_subject.code,
                             year=session.year,
-                            term=session.term
+                            term=session.term,
                         ).first()
                         if class_session:
                             current_app.logger.debug(f'Found class_session (year+term match) for {selected_subject.code}')
                     
                     # Strategy 3: Fallback (course_code only, most recent)
                     if not class_session:
-                        class_session = Session.query.filter_by(
-                            course_code=selected_subject.code
-                        ).order_by(Session.created_at.desc()).first()
+                        class_session = _class_session_query_for_result(
+                            session,
+                            course_code=selected_subject.code,
+                        ).order_by(ClassSession.created_at.desc()).first()
                         if class_session:
                             current_app.logger.debug(f'Found class_session (course_code only) for {selected_subject.code}')
                     
@@ -3669,6 +3755,7 @@ def auto_save_marks(session_id):
             StudentCourseRegistration.course_code == subject.code,
             StudentCourseRegistration.status.in_(['finalized', 'pending', 'archived'])
         ]
+        _append_registration_window_filter(course_filters, session=session)
         if session.name:
             course_filters.append(StudentCourseRegistration.academic_session == session.name)
         if session.year:
@@ -3969,7 +4056,8 @@ def course_registration(session_id):
                     session_name=session.name,
                     year=session.year,
                     term=session.term,
-                    statuses=allowed_statuses
+                    statuses=allowed_statuses,
+                    result_session=session,
                 )
                 auto_regs = StudentCourseRegistration.query.filter(
                     *course_filters

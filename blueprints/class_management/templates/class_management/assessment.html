@@ -1224,6 +1224,13 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
         for (let [key, value] of formData.entries()) {
             data[key] = value;
         }
+        // FormData omits disabled fields (e.g. Absent). Include them so auto-save
+        // does not treat missing keys as blank and wipe marks.
+        form.querySelectorAll('input[disabled][name]').forEach((input) => {
+            if (!(input.name in data)) {
+                data[input.name] = input.value;
+            }
+        });
         
         showSaveStatus('Saving...', true);
         

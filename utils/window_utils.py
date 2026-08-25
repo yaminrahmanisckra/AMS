@@ -140,17 +140,38 @@ def get_effective_window_id(admin_override=False):
     return DEFAULT_WINDOW_ID
 
 
+def window_rows_clause(model, window_id):
+    """SQLAlchemy filter clause isolating rows to one operational window.
+
+    Legacy rows with window_id IS NULL are treated as Window 1 (DEFAULT_WINDOW_ID)
+    only — never as universal across all windows.
+    """
+    if not hasattr(model, 'window_id'):
+        return True
+    try:
+        window_id = int(window_id)
+    except (TypeError, ValueError):
+        window_id = DEFAULT_WINDOW_ID
+    if window_id == DEFAULT_WINDOW_ID:
+        return or_(
+            model.window_id == window_id,
+            model.window_id.is_(None),
+        )
+    return model.window_id == window_id
+
+
+def filter_query_by_window_id(query, model, window_id):
+    """Apply an explicit window_id filter (e.g. a result session's window)."""
+    if window_id is None or not hasattr(model, 'window_id'):
+        return query
+    return query.filter(window_rows_clause(model, window_id))
+
+
 def filter_by_active_window(query, model, admin_override=False):
     """Filter query to the user's selected operational window.
 
-    SECURITY NOTE: rows with window_id IS NULL are treated as "universal" and are
-    returned for EVERY window (see the `or_(... .is_(None))` below). This is
-    intentional for legacy/shared rows created before windows existed, but it
-    means any row that is never stamped with a window_id (e.g. a bug in
-    stamp_window_id/ensure_record_in_window, or a manual DB insert) silently
-    becomes visible across all operational windows instead of being isolated.
-    When adding new window-scoped models/tables, make sure every write path
-    sets window_id explicitly — don't rely on this fallback for isolation.
+    Legacy NULL window_id rows are visible only in Window 1, matching
+    curriculum/registration isolation helpers. Always stamp window_id on writes.
     """
     if admin_override:
         return query
@@ -162,12 +183,7 @@ def filter_by_active_window(query, model, admin_override=False):
     if not hasattr(model, 'window_id'):
         return query
 
-    return query.filter(
-        or_(
-            getattr(model, 'window_id') == window_id,
-            getattr(model, 'window_id').is_(None),
-        )
-    )
+    return query.filter(window_rows_clause(model, window_id))
 
 
 def query_for_window(model, admin_override=None):
@@ -228,7 +244,13 @@ def ensure_record_in_window(record, admin_override=None):
     window_id = get_effective_window_id()
     if window_id is None:
         return record
-    if record.window_id is not None and record.window_id != window_id:
+    record_wid = getattr(record, 'window_id', None)
+    if record_wid is None:
+        if int(window_id) != DEFAULT_WINDOW_ID:
+            from flask import abort
+            abort(404)
+        return record
+    if record_wid != window_id:
         from flask import abort
         abort(404)
     return record

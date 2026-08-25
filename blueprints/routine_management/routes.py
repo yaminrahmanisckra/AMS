@@ -49,8 +49,32 @@ def _window_scope_filter(model, window_id=None):
     return model.window_id == window_id
 
 
+def _shared_resource_filter(model, window_id=None):
+    """Filter for campus-shared routine resources (rooms, routine-maker duty).
+
+    Saved routines / timetable rows stay strictly window-scoped. Rooms and the
+    Routine Maker duty are often legacy W1/NULL rows that must remain usable in
+    every operational window so W2 does not look empty.
+    """
+    window_id = _routine_window_id() if window_id is None else window_id
+    if not hasattr(model, 'window_id'):
+        return True
+    return or_(
+        model.window_id == window_id,
+        model.window_id.is_(None),
+        model.window_id == DEFAULT_WINDOW_ID,
+    )
+
+
 def _query_for_routine_window(model):
     return query_for_window(model, admin_override=False)
+
+
+def _query_shared_routine_resource(model):
+    """Query shared resources visible across windows (rooms, maker duty)."""
+    if not hasattr(model, 'window_id'):
+        return model.query
+    return model.query.filter(_shared_resource_filter(model))
 
 
 def _parse_batch_values(batch_text):
@@ -722,18 +746,19 @@ def _teacher_ids_linked_to_routine_window():
 
 
 def get_teachers_for_routine_window():
-    """Teachers scoped to the current operational window."""
+    """Teachers usable in the current routine window (includes W1/legacy catalog)."""
     from role_utils import get_teachers_excluding_head
 
     scoped_ids = {
-        row[0] for row in _query_for_routine_window(Teacher).with_entities(Teacher.id)
+        row[0] for row in _query_shared_routine_resource(Teacher).with_entities(Teacher.id)
     }
     allowed_ids = scoped_ids | _teacher_ids_linked_to_routine_window()
     return [t for t in get_teachers_excluding_head() if t.id in allowed_ids]
 
 
 def get_rooms_for_routine_window():
-    return _query_for_routine_window(Room).order_by(Room.room_number).all()
+    """Rooms for the grid: current window, plus W1/legacy shared catalog."""
+    return _query_shared_routine_resource(Room).order_by(Room.room_number).all()
 
 
 def _course_ids_for_routine_window():
@@ -781,7 +806,11 @@ def _get_teacher_for_routine_or_404(teacher_id):
 
 
 def _get_room_for_routine_or_404(room_id):
-    return get_or_404_for_window(Room, room_id, admin_override=False)
+    room = _query_shared_routine_resource(Room).filter_by(id=room_id).first()
+    if room is None:
+        from flask import abort
+        abort(404)
+    return room
 
 
 def _window_sql_clause(column='window_id'):
@@ -1220,11 +1249,11 @@ def can_edit_routine():
     if not current_user.is_authenticated:
         return False
     
-    # Check if user has Routine Maker assignment
+    # Check if user has Routine Maker assignment (W1/legacy duties count in every window)
     teacher = Teacher.query.filter_by(name=current_user.full_name).first()
     if teacher:
         from blueprints.course_management.models import DutyAssignment
-        routine_maker = _query_for_routine_window(DutyAssignment).filter_by(
+        routine_maker = _query_shared_routine_resource(DutyAssignment).filter_by(
             assigned_teacher_id=teacher.id,
             duty_type='routine_maker',
             status='active'
@@ -1405,8 +1434,8 @@ def check_edit_permission():
             result['teacher_id'] = teacher.id
             result['teacher_name'] = teacher.name
             
-            # Check routine_maker assignment
-            routine_maker = _query_for_routine_window(DutyAssignment).filter(
+            # Check routine_maker assignment (shared across windows: current + W1/legacy)
+            routine_maker = _query_shared_routine_resource(DutyAssignment).filter(
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.duty_type == 'routine_maker',
                 DutyAssignment.status == 'active'
@@ -1421,7 +1450,7 @@ def check_edit_permission():
                 }
             
             # Check discipline head assignment
-            discipline_head = _query_for_routine_window(DutyAssignment).filter(
+            discipline_head = _query_shared_routine_resource(DutyAssignment).filter(
                 DutyAssignment.assigned_teacher_id == teacher.id,
                 DutyAssignment.status == 'active',
                 DutyAssignment.assigned_by_id.isnot(None)
@@ -2632,8 +2661,11 @@ def get_saved_routine(saved_routine_id):
         except Exception as e:
             current_app.logger.warning(f'Could not load routine_time_slot for {saved_routine_id}: {e}')
         
-        # Get all rooms
+        # Get all rooms (current window + W1/legacy shared) so saved cells remount
         all_rooms = {r.room_number: r.id for r in get_rooms_for_routine_window()}
+        if not all_rooms:
+            # Last-resort: any room row, so historical routines still display
+            all_rooms = {r.room_number: r.id for r in Room.query.order_by(Room.room_number).all()}
         
         # Check if saved_routine_id column exists in routine table
         routine_columns = [col['name'] for col in inspector.get_columns('routine')]

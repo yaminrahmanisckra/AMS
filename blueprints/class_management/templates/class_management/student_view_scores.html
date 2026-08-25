@@ -5,14 +5,16 @@
 {% block mobile_title %}Scores{% endblock %}
 
 {% block content %}
-{% macro score_value(reveal, score, highest=None, callsign=None, is_split=False) -%}
+{% macro score_value(reveal, score, highest=None, callsign=None, is_split=False, is_absent=False) -%}
     {% if reveal %}
-        {% if score is not none %}
+        {% if is_absent %}
+            <span class="sv-score-absent">Absent</span>
+        {% elif score is not none %}
             <span class="sv-score-num">{{ score }}</span>
         {% else %}
-            <span class="sv-score-absent">Absent</span>
+            <span class="sv-score-empty">—</span>
         {% endif %}
-        {% if highest is not none %}
+        {% if highest is not none and not is_absent %}
             <span class="sv-meta">Class highest: {{ highest }}</span>
         {% endif %}
         {% if is_split and callsign %}
@@ -23,11 +25,11 @@
     {% endif %}
 {%- endmacro %}
 
-{% macro score_tile(label, reveal, score, highest=None, callsign=None, is_split=False, highlight=False) %}
+{% macro score_tile(label, reveal, score, highest=None, callsign=None, is_split=False, highlight=False, is_absent=False) %}
 <div class="sv-tile{% if highlight %} sv-tile-highlight{% endif %}">
     <div class="sv-tile-label">{{ label }}</div>
     <div class="sv-tile-value">
-        {{ score_value(reveal, score, highest, callsign, is_split) }}
+        {{ score_value(reveal, score, highest, callsign, is_split, is_absent) }}
     </div>
 </div>
 {% endmacro %}
@@ -78,10 +80,10 @@
                                 </div>
                             </div>
                             <div class="sv-tile-grid">
-                                {{ score_tile('Assessment 1', course.reveal_status.get('assessment1', False), course.assessment_scores.get('assessment1') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment1'), (course.reveal_callsigns or {}).get('assessment1'), course.is_split_course) }}
-                                {{ score_tile('Assessment 2', course.reveal_status.get('assessment2', False), course.assessment_scores.get('assessment2') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment2'), (course.reveal_callsigns or {}).get('assessment2'), course.is_split_course) }}
-                                {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course) }}
-                                {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course) }}
+                                {{ score_tile('Assessment 1', course.reveal_status.get('assessment1', False), course.assessment_scores.get('assessment1') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment1'), (course.reveal_callsigns or {}).get('assessment1'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment1', False)) }}
+                                {{ score_tile('Assessment 2', course.reveal_status.get('assessment2', False), course.assessment_scores.get('assessment2') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment2'), (course.reveal_callsigns or {}).get('assessment2'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment2', False)) }}
+                                {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment3', False)) }}
+                                {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment4', False)) }}
                                 <div class="sv-tile sv-tile-highlight sv-tile-wide">
                                     <div class="sv-tile-label">{{ course.assessment_total_label or ('Best ' ~ academic_rules.assessment.take_best ~ ' Total') }}</div>
                                     <div class="sv-tile-value">
@@ -106,10 +108,10 @@
                                 </div>
                             </div>
                             <div class="sv-tile-grid">
-                                {{ score_tile('Assessment 1', course.reveal_status.get('assessment1', False), course.assessment_scores.get('assessment1') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment1'), (course.reveal_callsigns or {}).get('assessment1'), course.is_split_course) }}
-                                {{ score_tile('Assessment 2', course.reveal_status.get('assessment2', False), course.assessment_scores.get('assessment2') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment2'), (course.reveal_callsigns or {}).get('assessment2'), course.is_split_course) }}
-                                {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course) }}
-                                {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course) }}
+                                {{ score_tile('Assessment 1', course.reveal_status.get('assessment1', False), course.assessment_scores.get('assessment1') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment1'), (course.reveal_callsigns or {}).get('assessment1'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment1', False)) }}
+                                {{ score_tile('Assessment 2', course.reveal_status.get('assessment2', False), course.assessment_scores.get('assessment2') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment2'), (course.reveal_callsigns or {}).get('assessment2'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment2', False)) }}
+                                {{ score_tile('Assessment 3', course.reveal_status.get('assessment3', False), course.assessment_scores.get('assessment3') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment3'), (course.reveal_callsigns or {}).get('assessment3'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment3', False)) }}
+                                {{ score_tile('Assessment 4', course.reveal_status.get('assessment4', False), course.assessment_scores.get('assessment4') if course.assessment_scores else None, (course.highest_assessment_scores or {}).get('assessment4'), (course.reveal_callsigns or {}).get('assessment4'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('assessment4', False)) }}
                                 <div class="sv-tile sv-tile-highlight sv-tile-wide">
                                     <div class="sv-tile-label">{{ course.assessment_total_label or ('Total (out of ' ~ academic_rules.assessment.pg_out_of ~ ')') }}</div>
                                     <div class="sv-tile-value">
@@ -134,8 +136,8 @@
                                 </div>
                             </div>
                             <div class="sv-tile-grid">
-                                {{ score_tile('Sessional Report (60)', course.reveal_status.get('sessional_report', False), course.assessment_scores.get('sessional_report') if course.assessment_scores else None, None, (course.reveal_callsigns or {}).get('sessional_report'), course.is_split_course) }}
-                                {{ score_tile('Sessional Viva (30)', course.reveal_status.get('sessional_viva', False), course.assessment_scores.get('sessional_viva') if course.assessment_scores else None, None, (course.reveal_callsigns or {}).get('sessional_viva'), course.is_split_course) }}
+                                {{ score_tile('Sessional Report (60)', course.reveal_status.get('sessional_report', False), course.assessment_scores.get('sessional_report') if course.assessment_scores else None, None, (course.reveal_callsigns or {}).get('sessional_report'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('sessional_report', False)) }}
+                                {{ score_tile('Sessional Viva (30)', course.reveal_status.get('sessional_viva', False), course.assessment_scores.get('sessional_viva') if course.assessment_scores else None, None, (course.reveal_callsigns or {}).get('sessional_viva'), course.is_split_course, is_absent=(course.assessment_absent or {}).get('sessional_viva', False)) }}
                                 <div class="sv-tile sv-tile-highlight sv-tile-wide">
                                     <div class="sv-tile-label">Total (out of 90)</div>
                                     <div class="sv-tile-value">
@@ -578,6 +580,12 @@
     font-size: 0.9rem;
     font-weight: 600;
     color: #b45309;
+}
+
+.sv-score-empty {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: #9ca3af;
 }
 
 .sv-score-pending {
