@@ -10,10 +10,11 @@ from io import BytesIO
 from .models import db, RSession, RStudent, RSubject, RMark, RCourseRegistration
 from role_utils import parse_roles, is_admin
 try:
-    from utils.semester_utils import filter_by_active_semester, get_active_semesters
+    from utils.semester_utils import filter_by_active_semester, get_active_semesters, get_active_semesters_for_user
 except ImportError:
     filter_by_active_semester = None
     get_active_semesters = None
+    get_active_semesters_for_user = None
 from blueprints.class_management.models import Teacher, Session as ClassSession, ExamPaperEvaluation
 from blueprints.course_management.models import StudentCourseRegistration, Course, ActiveSemesterConfig, CurriculumYearTerm
 from blueprints.student_management.models import Student as StudentProfile
@@ -432,6 +433,45 @@ def _term_registration_variants(term):
 def _get_rsession_or_404(session_id):
     """Load a result session scoped to the active operational window."""
     return get_or_404_for_window(RSession, session_id)
+
+
+def _find_exam_entry_for_result_subject(result_session, subject):
+    """
+    Find Exam Paper Evaluation for a result subject within the same window.
+
+    Prefer course_code + academic_session/year/term matching the result session,
+    then course_code alone, then course_name (still window-scoped).
+    """
+    if not subject:
+        return None
+
+    base = query_for_window(ExamPaperEvaluation).filter_by(archived=False)
+    session_name = (getattr(result_session, 'name', None) or '').strip() or None
+    session_year = (getattr(result_session, 'year', None) or '').strip() or None
+    session_term = (getattr(result_session, 'term', None) or '').strip() or None
+    course_code = (getattr(subject, 'code', None) or '').strip()
+    course_name = (getattr(subject, 'name', None) or '').strip()
+
+    if course_code:
+        scoped = base.filter_by(course_code=course_code)
+        if session_name:
+            scoped = scoped.filter(ExamPaperEvaluation.academic_session == session_name)
+        if session_year:
+            scoped = scoped.filter(ExamPaperEvaluation.year == session_year)
+        if session_term:
+            scoped = scoped.filter(ExamPaperEvaluation.term == session_term)
+        entry = scoped.order_by(ExamPaperEvaluation.id.desc()).first()
+        if entry:
+            return entry
+        entry = base.filter_by(course_code=course_code).order_by(ExamPaperEvaluation.id.desc()).first()
+        if entry:
+            return entry
+
+    if course_name:
+        return base.filter(
+            ExamPaperEvaluation.course_name.ilike(f'%{course_name}%')
+        ).order_by(ExamPaperEvaluation.id.desc()).first()
+    return None
 
 
 def _get_rstudent_or_404(student_id):
@@ -1213,24 +1253,41 @@ def add_session():
         return redirect(url_for('result_management.index'))
 
     # Use Active Semester configuration for Result Management session creation.
+    # Strictly scoped to the current operational window (never mix W1/W2 options).
     session_year_term_options = []
     session_options = []
     year_options = []
     term_options = []
-    assignment_rows = db.session.query(
-        ActiveSemesterConfig.academic_session,
-        ActiveSemesterConfig.year,
-        ActiveSemesterConfig.term
-    ).filter(
-        ActiveSemesterConfig.is_active.is_(True),
-        ActiveSemesterConfig.academic_session.isnot(None),
-        ActiveSemesterConfig.year.isnot(None),
-        ActiveSemesterConfig.term.isnot(None)
-    ).distinct().order_by(
-        ActiveSemesterConfig.academic_session.asc(),
-        ActiveSemesterConfig.year.asc(),
-        ActiveSemesterConfig.term.asc()
-    ).all()
+    assignment_rows = []
+    if get_active_semesters_for_user:
+        active_semesters = get_active_semesters_for_user(admin_override=False)
+        assignment_rows = [
+            (sem.academic_session, sem.year, sem.term)
+            for sem in active_semesters
+            if sem.academic_session and sem.year and sem.term
+        ]
+    else:
+        window_id = get_effective_window_id(admin_override=False)
+        semester_q = ActiveSemesterConfig.query.filter(
+            ActiveSemesterConfig.is_active.is_(True),
+            ActiveSemesterConfig.academic_session.isnot(None),
+            ActiveSemesterConfig.year.isnot(None),
+            ActiveSemesterConfig.term.isnot(None),
+        )
+        if window_id is not None and hasattr(ActiveSemesterConfig, 'window_id'):
+            semester_q = semester_q.filter(window_rows_clause(ActiveSemesterConfig, window_id))
+        assignment_rows = [
+            (r[0], r[1], r[2])
+            for r in semester_q.with_entities(
+                ActiveSemesterConfig.academic_session,
+                ActiveSemesterConfig.year,
+                ActiveSemesterConfig.term,
+            ).distinct().order_by(
+                ActiveSemesterConfig.academic_session.asc(),
+                ActiveSemesterConfig.year.asc(),
+                ActiveSemesterConfig.term.asc(),
+            ).all()
+        ]
 
     if assignment_rows:
         session_options = sorted({r[0] for r in assignment_rows if r[0]})
@@ -2171,19 +2228,9 @@ def refresh_marks(session_id):
                     # This should be done for all students, regardless of class_student existence
                     if selected_subject.subject_type in ('Theory', 'Theory (UG)', 'Theory (PG)'):
                                 try:
-                                    from blueprints.class_management.models import ExamPaperEvaluation
                                     import json
                                     
-                                    exam_entry = query_for_window(ExamPaperEvaluation).filter_by(
-                                        course_code=selected_subject.code,
-                                        archived=False
-                                    ).first()
-                                    
-                                    if not exam_entry:
-                                        exam_entry = query_for_window(ExamPaperEvaluation).filter(
-                                            ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
-                                            ExamPaperEvaluation.archived == False
-                                        ).first()
+                                    exam_entry = _find_exam_entry_for_result_subject(session, selected_subject)
                                     
                                     if exam_entry and exam_entry.marks_data:
                                         try:
@@ -3320,22 +3367,10 @@ def add_marks(session_id):
                             
                             # Get Section A and B marks from Exam Paper Evaluation
                             try:
-                                from blueprints.class_management.models import ExamPaperEvaluation
                                 import json
                                 
-                                # Find Exam Paper Evaluation entry for this course
-                                # Try exact match first, then partial match
-                                exam_entry = query_for_window(ExamPaperEvaluation).filter_by(
-                                    course_code=selected_subject.code,
-                                    archived=False
-                                ).first()
-                                
-                                # If not found, try searching by course name
-                                if not exam_entry:
-                                    exam_entry = query_for_window(ExamPaperEvaluation).filter(
-                                        ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
-                                        ExamPaperEvaluation.archived == False
-                                    ).first()
+                                # Find Exam Paper Evaluation entry for this course (window + session scoped)
+                                exam_entry = _find_exam_entry_for_result_subject(session, selected_subject)
                                 
                                 if exam_entry and exam_entry.marks_data:
                                     try:
@@ -3471,19 +3506,9 @@ def add_marks(session_id):
                             
                             # Import exam marks (Part A/B) even if class_student not found
                             try:
-                                from blueprints.class_management.models import ExamPaperEvaluation
                                 import json
                                 
-                                exam_entry = query_for_window(ExamPaperEvaluation).filter_by(
-                                    course_code=selected_subject.code,
-                                    archived=False
-                                ).first()
-                                
-                                if not exam_entry:
-                                    exam_entry = query_for_window(ExamPaperEvaluation).filter(
-                                        ExamPaperEvaluation.course_name.ilike(f'%{selected_subject.name}%'),
-                                        ExamPaperEvaluation.archived == False
-                                    ).first()
+                                exam_entry = _find_exam_entry_for_result_subject(session, selected_subject)
                                 
                                 if exam_entry and exam_entry.marks_data:
                                     try:
