@@ -1231,6 +1231,13 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
                 data[input.name] = input.value;
             }
         });
+        // Readonly / hidden fields may carry marks in data-assessment-value.
+        form.querySelectorAll('input[name][data-assessment-value]').forEach((input) => {
+            const stored = input.dataset.assessmentValue;
+            if (stored !== undefined && stored !== '' && (!data[input.name] || data[input.name] === '')) {
+                data[input.name] = stored;
+            }
+        });
         
         showSaveStatus('Saving...', true);
         

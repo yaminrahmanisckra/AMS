@@ -428,8 +428,16 @@ def _delete_class_students_from_sessions(sessions, student_ids_list, window_id=N
     return removed_count
 
 
-def _student_has_course_registration(student_db_id, course_code, academic_session, year, term, exclude_registration_ids=None):
-    """True if the student still has any registration row for this offering."""
+def _student_has_course_registration(
+    student_db_id,
+    course_code,
+    academic_session,
+    year,
+    term,
+    exclude_registration_ids=None,
+    window_id=None,
+):
+    """True if the student still has a registration row for this offering."""
     query = StudentCourseRegistration.query.filter_by(
         student_id=student_db_id,
         course_code=course_code,
@@ -440,6 +448,8 @@ def _student_has_course_registration(student_db_id, course_code, academic_sessio
     exclude_ids = [rid for rid in (exclude_registration_ids or []) if rid]
     if exclude_ids:
         query = query.filter(StudentCourseRegistration.id.notin_(exclude_ids))
+    if window_id is not None and hasattr(StudentCourseRegistration, 'window_id'):
+        query = query.filter(_window_rows_filter(StudentCourseRegistration, window_id))
     return query.first() is not None
 
 

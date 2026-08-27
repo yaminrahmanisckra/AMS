@@ -662,15 +662,59 @@ def _session_offering_key(session):
     )
 
 
+def _class_student_has_assessment_data(class_student):
+    """True when a ClassStudent row stores any assessment marks."""
+    if not class_student:
+        return False
+    for i in range(1, 5):
+        if getattr(class_student, f'assessment{i}', None) is not None:
+            return True
+    for field in ('assessment_total', 'assessment_total_40', 'sessional_report', 'sessional_viva'):
+        if getattr(class_student, field, None) is not None:
+            return True
+    if getattr(class_student, 'assessment_absent', None):
+        return True
+    return False
+
+
+def _count_session_assessment_rows(session_id):
+    """Count students in a session that have any saved assessment data."""
+    count = 0
+    for class_student in ClassStudent.query.filter_by(session_id=session_id).all():
+        if _class_student_has_assessment_data(class_student):
+            count += 1
+    return count
+
+
+def _merge_class_student_assessment(winner_row, loser_row):
+    """Copy assessment marks from loser into winner without overwriting winner data."""
+    if not winner_row or not loser_row:
+        return False
+    changed = False
+    for i in range(1, 5):
+        attr = f'assessment{i}'
+        if getattr(winner_row, attr, None) is None and getattr(loser_row, attr, None) is not None:
+            setattr(winner_row, attr, getattr(loser_row, attr))
+            changed = True
+    for field in ('assessment_total', 'assessment_total_40', 'sessional_report', 'sessional_viva'):
+        if getattr(winner_row, field, None) is None and getattr(loser_row, field, None) is not None:
+            setattr(winner_row, field, getattr(loser_row, field))
+            changed = True
+    if not getattr(winner_row, 'assessment_absent', None) and getattr(loser_row, 'assessment_absent', None):
+        winner_row.assessment_absent = loser_row.assessment_absent
+        changed = True
+    return changed
+
+
 def _pick_canonical_session(candidates):
-    """Prefer CSA-linked session, then most students, then oldest id."""
+    """Prefer session with saved marks, then student count, then CSA link."""
     def score(session):
+        marks_count = _count_session_assessment_rows(session.id)
         has_csa = 0
         if CourseSessionAssignment:
             has_csa = 1 if CourseSessionAssignment.query.filter_by(session_id=session.id).first() else 0
         student_count = ClassStudent.query.filter_by(session_id=session.id).count()
-        # Prefer older session when other scores tie (keeps history).
-        return (has_csa, student_count, -(session.id or 0))
+        return (marks_count, student_count, has_csa, -(session.id or 0))
 
     return max(candidates, key=score)
 
@@ -713,16 +757,27 @@ def _dedupe_active_sessions(sessions):
             if winner.window_id is None and loser.window_id is not None:
                 winner.window_id = loser.window_id
 
-            # Move unique students onto the canonical session
+            # Move unique students onto the canonical session; merge marks when both exist
             for class_student in ClassStudent.query.filter_by(session_id=loser.id).all():
                 already = ClassStudent.query.filter_by(
                     session_id=winner.id,
                     student_id=class_student.student_id,
                 ).first()
                 if already:
+                    if _merge_class_student_assessment(already, class_student):
+                        current_app.logger.info(
+                            'Merged assessment marks for student %s from duplicate session %s into %s',
+                            class_student.student_id,
+                            loser.id,
+                            winner.id,
+                        )
+                    db.session.delete(class_student)
                     continue
                 class_student.session_id = winner.id
                 class_student.teacher_id = winner.teacher_id
+
+            if not getattr(winner, 'assessment_revealed', None) and getattr(loser, 'assessment_revealed', None):
+                winner.assessment_revealed = loser.assessment_revealed
 
             if CourseSessionAssignment:
                 for assignment in CourseSessionAssignment.query.filter_by(session_id=loser.id).all():
@@ -2370,7 +2425,8 @@ def index():
                             s for s in existing_candidates
                             if _normalize_offering_text(s.academic_session) == assign_session_norm
                         ]
-                        existing_session = exact[0] if exact else existing_candidates[0]
+                        pool = exact if exact else existing_candidates
+                        existing_session = _pick_canonical_session(pool)
                         if assignment.academic_session and not existing_session.academic_session:
                             existing_session.academic_session = assignment.academic_session
                         if assignment.window_id is not None and existing_session.window_id is None:
@@ -8284,7 +8340,16 @@ def auto_save_assessment(session_id):
                                 setattr(student, f'assessment{i}', None)
                             else:
                                 value = data.get(key, '')
-                                setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
+                                parsed = _parse_external_assessment_value(value, session)
+                                existing = getattr(student, f'assessment{i}', None)
+                                # Auto-save sends the whole form; blank fields must not wipe saved marks.
+                                if parsed is None and existing is not None and value in (None, ''):
+                                    current_app.logger.info(
+                                        'Auto-save preserved existing assessment%s for student %s session %s',
+                                        i, student.student_id, session_id,
+                                    )
+                                    continue
+                                setattr(student, f'assessment{i}', parsed)
                     
                     # Save absent status
                     student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -8312,7 +8377,10 @@ def auto_save_assessment(session_id):
                             student.sessional_report = None
                         else:
                             report = data.get(f'sessional_report_{student.id}', '')
-                            student.sessional_report = float(report) if report else None
+                            if report:
+                                student.sessional_report = float(report)
+                            elif student.sessional_report is None:
+                                student.sessional_report = None
 
                     if 'sessional_viva' in editable_sessional_fields:
                         viva_absent = data.get(viva_absent_key) == 'on' or data.get(viva_absent_key) == True
@@ -8322,7 +8390,10 @@ def auto_save_assessment(session_id):
                             student.sessional_viva = None
                         else:
                             viva = data.get(f'sessional_viva_{student.id}', '')
-                            student.sessional_viva = float(viva) if viva else None
+                            if viva:
+                                student.sessional_viva = float(viva)
+                            elif student.sessional_viva is None:
+                                student.sessional_viva = None
                     
                     # Save absent status
                     student.assessment_absent = json.dumps(absent_status) if absent_status else None
