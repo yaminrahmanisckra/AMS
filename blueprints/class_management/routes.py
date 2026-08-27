@@ -703,6 +703,18 @@ def _merge_class_student_assessment(winner_row, loser_row):
     if not getattr(winner_row, 'assessment_absent', None) and getattr(loser_row, 'assessment_absent', None):
         winner_row.assessment_absent = loser_row.assessment_absent
         changed = True
+    if changed:
+        try:
+            from error_handler import class_student_mark_snapshot, log_data_event
+            log_data_event(
+                'SESSION_DEDUPE_MERGE',
+                'Merged assessment marks from duplicate ClassStudent into winner',
+                level='WARNING',
+                winner=class_student_mark_snapshot(winner_row),
+                loser=class_student_mark_snapshot(loser_row),
+            )
+        except Exception:
+            pass
     return changed
 
 
@@ -795,6 +807,22 @@ def _dedupe_active_sessions(sessions):
                 loser.term,
                 getattr(loser, 'course_scope', SCOPE_FULL),
             )
+            try:
+                from error_handler import log_data_event
+                log_data_event(
+                    'SESSION_DEDUPE_ARCHIVE',
+                    'Archived duplicate class session in favor of canonical session',
+                    level='WARNING',
+                    winner_session_id=winner.id,
+                    loser_session_id=loser.id,
+                    course_code=loser.course_code,
+                    year=loser.year,
+                    term=loser.term,
+                    course_scope=getattr(loser, 'course_scope', SCOPE_FULL),
+                    window_id=getattr(loser, 'window_id', None),
+                )
+            except Exception:
+                pass
 
     if changed:
         try:
@@ -7965,12 +7993,44 @@ def assessment(session_id):
                                 absent_key = f'absent_{i}_{student.id}'
                                 is_absent = absent_key in request.form
                                 absent_status[f'assessment{i}'] = is_absent
-                                
+                                existing = getattr(student, f'assessment{i}', None)
+
                                 if is_absent:
+                                    if existing is not None:
+                                        try:
+                                            from error_handler import log_data_event
+                                            log_data_event(
+                                                'ASSESSMENT_CLEAR',
+                                                'Manual save cleared mark via Absent',
+                                                level='WARNING',
+                                                source='assessment_post',
+                                                session_id=session_id,
+                                                student_id=student.student_id,
+                                                field=f'assessment{i}',
+                                                previous_value=existing,
+                                            )
+                                        except Exception:
+                                            pass
                                     setattr(student, f'assessment{i}', None)
                                 else:
                                     value = request.form.get(f'assessment{i}_{student.id}')
-                                    setattr(student, f'assessment{i}', _parse_external_assessment_value(value, session))
+                                    parsed = _parse_external_assessment_value(value, session)
+                                    if existing is not None and parsed is None and value in (None, ''):
+                                        try:
+                                            from error_handler import log_data_event
+                                            log_data_event(
+                                                'ASSESSMENT_CLEAR',
+                                                'Manual save cleared existing mark with blank value',
+                                                level='WARNING',
+                                                source='assessment_post',
+                                                session_id=session_id,
+                                                student_id=student.student_id,
+                                                field=f'assessment{i}',
+                                                previous_value=existing,
+                                            )
+                                        except Exception:
+                                            pass
+                                    setattr(student, f'assessment{i}', parsed)
                         
                         # Save absent status
                         student.assessment_absent = json.dumps(absent_status) if absent_status else None
@@ -8337,6 +8397,22 @@ def auto_save_assessment(session_id):
                             
                             # If absent, set mark to None, otherwise save the value
                             if is_absent:
+                                existing = getattr(student, f'assessment{i}', None)
+                                if existing is not None:
+                                    try:
+                                        from error_handler import log_data_event
+                                        log_data_event(
+                                            'AUTO_SAVE_CLEAR',
+                                            'Auto-save cleared mark via Absent',
+                                            level='WARNING',
+                                            source='auto_save',
+                                            session_id=session_id,
+                                            student_id=student.student_id,
+                                            field=f'assessment{i}',
+                                            previous_value=existing,
+                                        )
+                                    except Exception:
+                                        pass
                                 setattr(student, f'assessment{i}', None)
                             else:
                                 value = data.get(key, '')
@@ -8344,11 +8420,37 @@ def auto_save_assessment(session_id):
                                 existing = getattr(student, f'assessment{i}', None)
                                 # Auto-save sends the whole form; blank fields must not wipe saved marks.
                                 if parsed is None and existing is not None and value in (None, ''):
-                                    current_app.logger.info(
-                                        'Auto-save preserved existing assessment%s for student %s session %s',
-                                        i, student.student_id, session_id,
-                                    )
+                                    try:
+                                        from error_handler import log_data_event
+                                        log_data_event(
+                                            'AUTO_SAVE_PRESERVE',
+                                            'Blocked blank auto-save from wiping saved mark',
+                                            level='WARNING',
+                                            source='auto_save',
+                                            session_id=session_id,
+                                            student_id=student.student_id,
+                                            field=f'assessment{i}',
+                                            preserved_value=existing,
+                                        )
+                                    except Exception:
+                                        pass
                                     continue
+                                if existing is not None and parsed is None:
+                                    try:
+                                        from error_handler import log_data_event
+                                        log_data_event(
+                                            'AUTO_SAVE_CLEAR',
+                                            'Auto-save replaced existing mark with empty/invalid value',
+                                            level='WARNING',
+                                            source='auto_save',
+                                            session_id=session_id,
+                                            student_id=student.student_id,
+                                            field=f'assessment{i}',
+                                            previous_value=existing,
+                                            incoming_value=value,
+                                        )
+                                    except Exception:
+                                        pass
                                 setattr(student, f'assessment{i}', parsed)
                     
                     # Save absent status

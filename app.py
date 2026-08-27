@@ -11,7 +11,14 @@ from flask import Flask, render_template, redirect, url_for, flash, request, sen
 from flask_login import LoginManager, current_user, login_required
 from extensions import db, migrate, mail
 from user_models import User
-from error_handler import register_error_handlers, setup_error_logging, check_dependencies, check_file_permissions, get_system_info
+from error_handler import (
+    register_error_handlers,
+    setup_application_logging,
+    setup_error_logging,
+    check_dependencies,
+    check_file_permissions,
+    get_system_info,
+)
 from role_utils import (
     ADMIN_ROLE,
     ROLE_LABELS,
@@ -660,9 +667,9 @@ def create_app():
     
     # Register error handlers for cPanel deployment
     register_error_handlers(app)
-    
-    # Setup logging
-    setup_error_logging()
+
+    # Central logs: ams_all.log, ams_errors.log, ams_data_events.log
+    setup_application_logging(app)
     
     # WeasyPrint availability check removed from startup to prevent hanging
     # WeasyPrint will be imported lazily when actually needed (in routes)

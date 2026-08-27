@@ -397,6 +397,33 @@ def _delete_class_students_from_sessions(sessions, student_ids_list, window_id=N
         ).all()
 
         for class_student in class_students:
+            had_marks = False
+            snapshot = None
+            try:
+                from error_handler import (
+                    class_student_has_marks,
+                    class_student_mark_snapshot,
+                    log_data_event,
+                )
+                had_marks = class_student_has_marks(class_student)
+                snapshot = class_student_mark_snapshot(class_student)
+            except Exception:
+                log_data_event = None  # noqa: F841
+
+            if had_marks:
+                try:
+                    log_data_event(
+                        'CLASS_STUDENT_DELETE',
+                        'Deleting ClassStudent row that has assessment marks',
+                        level='WARNING',
+                        course_code=getattr(session, 'course_code', None),
+                        session_id=session.id,
+                        window_id=getattr(session, 'window_id', None),
+                        marks_before=snapshot,
+                    )
+                except Exception:
+                    pass
+
             db.session.delete(class_student)
             removed_count += 1
 
@@ -417,6 +444,24 @@ def _delete_class_students_from_sessions(sessions, student_ids_list, window_id=N
                             student_id=class_student.student_id
                         ).first()
                         if peer_class_student:
+                            try:
+                                from error_handler import (
+                                    class_student_has_marks,
+                                    class_student_mark_snapshot,
+                                    log_data_event as log_peer_event,
+                                )
+                                if class_student_has_marks(peer_class_student):
+                                    log_peer_event(
+                                        'CLASS_STUDENT_DELETE',
+                                        'Deleting peer ClassStudent row that has assessment marks',
+                                        level='WARNING',
+                                        course_code=getattr(peer_session, 'course_code', None),
+                                        session_id=peer_session.id,
+                                        window_id=getattr(peer_session, 'window_id', None),
+                                        marks_before=class_student_mark_snapshot(peer_class_student),
+                                    )
+                            except Exception:
+                                pass
                             db.session.delete(peer_class_student)
                             removed_count += 1
             except Exception as replicate_error:
