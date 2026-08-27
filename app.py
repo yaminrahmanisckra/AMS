@@ -668,8 +668,14 @@ def create_app():
     # Register error handlers for cPanel deployment
     register_error_handlers(app)
 
-    # Central logs: ams_all.log, ams_errors.log, ams_data_events.log
-    setup_application_logging(app)
+    # Central logs: ams_all / ams_errors / ams_data_events (never blocks boot)
+    try:
+        setup_application_logging(app)
+    except Exception as _log_setup_err:
+        try:
+            app.logger.warning('Central logging setup skipped: %s', _log_setup_err)
+        except Exception:
+            pass
     
     # WeasyPrint availability check removed from startup to prevent hanging
     # WeasyPrint will be imported lazily when actually needed (in routes)

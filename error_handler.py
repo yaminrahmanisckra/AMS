@@ -1,10 +1,14 @@
 """Central application logging and HTTP error handlers.
 
-Log files (one directory, shared handlers):
-  ams_all.log         — INFO+ from the whole app (single place to read)
+Log files (one directory):
+  ams_all.log         — app/audit INFO+ from AMS loggers only (not every library)
   ams_errors.log      — WARNING+ and exceptions
   ams_data_events.log — silent data-loss risks / destructive data ops
   detailed_errors.log — human-readable exception dumps
+  app_errors.log      — legacy alias of ams_errors.log content
+
+Production-safe: setup never crashes the app; root stays at WARNING to avoid
+slow page loads from flooding shared-hosting disks.
 """
 import html
 import json
@@ -20,26 +24,30 @@ from werkzeug.exceptions import HTTPException
 
 _LOGGING_CONFIGURED = False
 _LOG_DIR = None
+_SETUP_ERROR = None
 
-# Shared format for rotating files
 _FILE_FORMAT = logging.Formatter(
     '%(asctime)s | %(levelname)-8s | %(name)s | %(message)s'
 )
 
 
 def _log_dir():
-    """Prefer a private log directory outside the web-served tree when configured."""
-    global _LOG_DIR
+    """Resolve a writable log directory without crashing the app."""
+    global _LOG_DIR, _SETUP_ERROR
     if _LOG_DIR:
         return _LOG_DIR
+
     configured = os.environ.get('AMS_LOG_DIR', '').strip()
+    base = os.path.dirname(os.path.abspath(__file__))
+    # Prefer in-app logs/ first (fast, always under the app tree), then private sibling.
     candidates = []
     if configured:
         candidates.append(configured)
-    base = os.path.dirname(os.path.abspath(__file__))
-    sibling = os.path.join(os.path.dirname(base), 'ams_logs')
-    candidates.append(sibling)
     candidates.append(os.path.join(base, 'logs'))
+    candidates.append(os.path.join(os.path.dirname(base), 'ams_logs'))
+    home = os.path.expanduser('~')
+    if home and home != '~':
+        candidates.append(os.path.join(home, 'ams_logs'))
 
     last_error = None
     for path in candidates:
@@ -54,27 +62,39 @@ def _log_dir():
         except OSError as exc:
             last_error = exc
             continue
-    raise OSError(f'Unable to create writable AMS log directory; last error: {last_error}')
+
+    _SETUP_ERROR = last_error
+    # Last resort: still return in-app logs path (handlers may fail soft later)
+    fallback = os.path.join(base, 'logs')
+    try:
+        os.makedirs(fallback, exist_ok=True)
+    except OSError:
+        pass
+    _LOG_DIR = fallback
+    return fallback
 
 
 def get_log_paths():
     """Return absolute paths of the central log files."""
     log_dir = _log_dir()
+    errors = os.path.join(log_dir, 'ams_errors.log')
     return {
         'dir': log_dir,
         'all': os.path.join(log_dir, 'ams_all.log'),
-        'errors': os.path.join(log_dir, 'ams_errors.log'),
+        'errors': errors,
         'data_events': os.path.join(log_dir, 'ams_data_events.log'),
         'detailed_errors': os.path.join(log_dir, 'detailed_errors.log'),
-        # Legacy alias (same as errors for older docs/scripts)
-        'app_errors': os.path.join(log_dir, 'ams_errors.log'),
+        'app_errors': os.path.join(log_dir, 'app_errors.log'),
     }
 
 
-def _rotating_handler(path, level, max_bytes=5 * 1024 * 1024, backups=10):
-    handler = RotatingFileHandler(path, maxBytes=max_bytes, backupCount=backups, encoding='utf-8')
+def _rotating_handler(path, level, max_bytes=5 * 1024 * 1024, backups=5):
+    handler = RotatingFileHandler(
+        path, maxBytes=max_bytes, backupCount=backups, encoding='utf-8', delay=True
+    )
     handler.setLevel(level)
     handler.setFormatter(_FILE_FORMAT)
+    handler._ams_central = True  # type: ignore[attr-defined]
     return handler
 
 
@@ -82,11 +102,12 @@ def _request_context_dict():
     if not has_request_context():
         return {}
     ctx = {
-        'url': request.url,
-        'path': request.path,
-        'method': request.method,
-        'endpoint': request.endpoint,
-        'remote_addr': request.headers.get('X-Forwarded-For', request.remote_addr),
+        'url': getattr(request, 'url', None),
+        'path': getattr(request, 'path', None),
+        'method': getattr(request, 'method', None),
+        'endpoint': getattr(request, 'endpoint', None),
+        'remote_addr': request.headers.get('X-Forwarded-For', request.remote_addr)
+        if request else None,
     }
     try:
         from flask_login import current_user
@@ -99,23 +120,35 @@ def _request_context_dict():
 
 
 def setup_error_logging():
-    """
-    Backward-compatible entry: configure central loggers if needed.
-    Prefer setup_application_logging(app) at app startup.
-    """
+    """Backward-compatible entry."""
     _configure_central_logging(app=None)
     return logging.getLogger('ams_errors')
 
 
 def setup_application_logging(app=None):
-    """Wire Flask + root loggers into one log directory (all / errors / data)."""
-    paths = _configure_central_logging(app=app)
-    if app is not None:
-        app.logger.info(
-            'Central logging ready: dir=%s files=ams_all.log,ams_errors.log,ams_data_events.log',
-            paths['dir'],
-        )
-    return paths
+    """Wire AMS loggers; never raise — site must still boot if disk logging fails."""
+    try:
+        paths = _configure_central_logging(app=app)
+        if app is not None:
+            # Production: keep app.logger quiet to avoid slow shared-hosting I/O.
+            import os as _os
+            if _os.getenv('FLASK_ENV') == 'production' or _os.getenv('CPANEL'):
+                app.logger.setLevel(logging.WARNING)
+            else:
+                app.logger.setLevel(logging.INFO)
+            app.logger.warning(
+                'Central logging ready: dir=%s (all/errors/data_events)',
+                paths.get('dir'),
+            )
+        return paths
+    except Exception as exc:
+        global _SETUP_ERROR
+        _SETUP_ERROR = exc
+        try:
+            sys.stderr.write(f'[AMS] logging setup failed (non-fatal): {exc}\n')
+        except Exception:
+            pass
+        return {}
 
 
 def _configure_central_logging(app=None):
@@ -124,108 +157,115 @@ def _configure_central_logging(app=None):
 
     if _LOGGING_CONFIGURED:
         if app is not None:
-            _attach_flask_logger(app, paths)
+            _attach_flask_logger(app)
         return paths
 
-    all_handler = _rotating_handler(paths['all'], logging.INFO)
-    error_handler = _rotating_handler(paths['errors'], logging.WARNING)
-    data_handler = _rotating_handler(paths['data_events'], logging.INFO)
-    # Legacy filename symlink-style duplicate for older deploy docs
-    legacy_errors = os.path.join(paths['dir'], 'app_errors.log')
-    if legacy_errors != paths['errors']:
-        legacy_handler = _rotating_handler(legacy_errors, logging.WARNING)
-    else:
-        legacy_handler = None
+    try:
+        all_handler = _rotating_handler(paths['all'], logging.INFO)
+        error_handler = _rotating_handler(paths['errors'], logging.WARNING)
+        data_handler = _rotating_handler(paths['data_events'], logging.INFO)
+        legacy_handler = _rotating_handler(paths['app_errors'], logging.WARNING)
+    except Exception as exc:
+        # Cannot open log files — leave stdout-only and continue.
+        global _SETUP_ERROR
+        _SETUP_ERROR = exc
+        stream = logging.StreamHandler(sys.stdout)
+        stream.setLevel(logging.WARNING)
+        stream.setFormatter(_FILE_FORMAT)
+        for name in ('ams_errors', 'ams_data', 'ams'):
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.INFO)
+            lg.propagate = False
+            if not lg.handlers:
+                lg.addHandler(stream)
+        _LOGGING_CONFIGURED = True
+        return paths
 
     stream = logging.StreamHandler(sys.stdout)
     stream.setLevel(logging.WARNING)
     stream.setFormatter(_FILE_FORMAT)
 
-    # Dedicated loggers
-    for name, level, extra_handlers in (
-        ('ams_errors', logging.INFO, []),
-        ('ams_data', logging.INFO, [data_handler]),
-        ('ams', logging.INFO, []),
+    # Dedicated AMS loggers only — do NOT put INFO on root (that flooded disk / slowed pages).
+    for name, handlers in (
+        ('ams_errors', (all_handler, error_handler, legacy_handler, stream)),
+        ('ams_data', (all_handler, error_handler, legacy_handler, data_handler, stream)),
+        ('ams', (all_handler, error_handler, legacy_handler, stream)),
     ):
         logger = logging.getLogger(name)
-        logger.setLevel(level)
+        logger.setLevel(logging.INFO)
         logger.propagate = False
         if not logger.handlers:
-            logger.addHandler(all_handler)
-            logger.addHandler(error_handler)
-            if legacy_handler is not None:
-                logger.addHandler(legacy_handler)
-            for h in extra_handlers:
-                logger.addHandler(h)
-            logger.addHandler(stream)
+            for handler in handlers:
+                logger.addHandler(handler)
 
-    # Root: capture third-party + unconfigured loggers into ams_all / ams_errors
+    # Root: WARNING+ only → errors file (uncaught library warnings), no INFO spam
     root = logging.getLogger()
     if not any(getattr(h, '_ams_central', False) for h in root.handlers):
-        for h in (all_handler, error_handler):
-            h._ams_central = True  # type: ignore[attr-defined]
-            root.addHandler(h)
-        root.setLevel(logging.INFO)
+        root.addHandler(error_handler)
+        root.addHandler(legacy_handler)
+        # Keep existing root level if already higher; otherwise WARNING for production safety
+        if root.level == logging.NOTSET or root.level < logging.WARNING:
+            if os.getenv('FLASK_ENV') == 'production' or os.getenv('CPANEL'):
+                root.setLevel(logging.WARNING)
+            else:
+                root.setLevel(logging.INFO)
+                root.addHandler(all_handler)
 
-    # Quiet noisy libraries in the shared file (still WARNING+)
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
     logging.getLogger('engineio').setLevel(logging.WARNING)
     logging.getLogger('socketio').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy').setLevel(logging.WARNING)
+    logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
     if app is not None:
-        _attach_flask_logger(app, paths)
+        _attach_flask_logger(app)
 
     _LOGGING_CONFIGURED = True
     return paths
 
 
-def _attach_flask_logger(app, paths):
-    """Ensure app.logger reaches central files via root (no duplicate handlers)."""
-    # Production used to clamp to WARNING; keep INFO so data/audit events land in ams_all.
-    app.logger.setLevel(logging.INFO)
-    # Remove previous AMS file handlers only (keep any StreamHandler Flask added)
-    kept = []
+def _attach_flask_logger(app):
+    """Route Flask logger through root; remove duplicate AMS file handlers."""
     for h in list(app.logger.handlers):
         if getattr(h, '_ams_central', False):
             app.logger.removeHandler(h)
-        else:
-            kept.append(h)
     app.logger.propagate = True
-    # Quiet default Flask stream noise is fine; files come from root handlers.
-    _ = (paths, kept)
 
 
 def log_data_event(event_type, message, level='WARNING', **context):
     """
-    Log a data-integrity / silent-loss related event to ams_data_events.log
-    (and ams_all / ams_errors according to level).
+    Log a data-integrity / silent-loss related event.
 
     event_type examples:
       AUTO_SAVE_PRESERVE, AUTO_SAVE_CLEAR, ASSESSMENT_CLEAR,
       CLASS_STUDENT_DELETE, SESSION_DEDUPE_MERGE, SESSION_DEDUPE_ARCHIVE
     """
-    _configure_central_logging()
-    logger = logging.getLogger('ams_data')
-    payload = {
-        'event': event_type,
-        'message': message,
-        'timestamp': datetime.now().isoformat(),
-        'request': _request_context_dict(),
-        'context': {k: v for k, v in context.items() if v is not None},
-    }
     try:
-        line = json.dumps(payload, ensure_ascii=False, default=str)
-    except Exception:
-        line = f'{event_type}: {message} | {context}'
+        _configure_central_logging()
+        logger = logging.getLogger('ams_data')
+        payload = {
+            'event': event_type,
+            'message': message,
+            'timestamp': datetime.now().isoformat(),
+            'request': _request_context_dict(),
+            'context': {k: v for k, v in context.items() if v is not None},
+        }
+        try:
+            line = json.dumps(payload, ensure_ascii=False, default=str)
+        except Exception:
+            line = f'{event_type}: {message} | {context}'
 
-    level_name = (level or 'WARNING').upper()
-    log_fn = getattr(logger, level_name.lower(), logger.warning)
-    log_fn('%s | %s', event_type, line)
-    return payload
+        level_name = (level or 'WARNING').upper()
+        log_fn = getattr(logger, level_name.lower(), logger.warning)
+        log_fn('%s | %s', event_type, line)
+        return payload
+    except Exception:
+        # Never break a request because logging failed
+        return None
 
 
 def class_student_mark_snapshot(class_student):
-    """Compact mark snapshot for data-event logs (no huge payloads)."""
+    """Compact mark snapshot for data-event logs."""
     if not class_student:
         return None
     snap = {
@@ -262,35 +302,41 @@ def class_student_has_marks(class_student):
 
 def log_error(error, context=None):
     """Log detailed error information to the private log only."""
-    _configure_central_logging()
-    logger = logging.getLogger('ams_errors')
-
-    error_info = {
-        'timestamp': datetime.now().isoformat(),
-        'error_type': type(error).__name__,
-        'error_message': str(error),
-        'traceback': traceback.format_exc(),
-        'request': _request_context_dict(),
-        'context': context or {},
-    }
-
-    logger.error('Application Error: %s', error_info)
-
-    error_file = get_log_paths()['detailed_errors']
     try:
-        with open(error_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n{'=' * 80}\n")
-            f.write(f"ERROR at {error_info['timestamp']}\n")
-            f.write(f"URL: {error_info['request'].get('url', 'No request')}\n")
-            f.write(f"Method: {error_info['request'].get('method', 'No request')}\n")
-            f.write(f"User: {error_info['request'].get('username', '-')}\n")
-            f.write(f"Error Type: {error_info['error_type']}\n")
-            f.write(f"Error Message: {error_info['error_message']}\n")
-            f.write(f"Context: {error_info['context']}\n")
-            f.write(f"Traceback:\n{error_info['traceback']}\n")
-            f.write(f"{'=' * 80}\n")
-    except OSError:
-        logger.error('Failed to append detailed_errors.log', exc_info=True)
+        _configure_central_logging()
+        logger = logging.getLogger('ams_errors')
+
+        error_info = {
+            'timestamp': datetime.now().isoformat(),
+            'error_type': type(error).__name__,
+            'error_message': str(error),
+            'traceback': traceback.format_exc(),
+            'request': _request_context_dict(),
+            'context': context or {},
+        }
+
+        logger.error('Application Error: %s', error_info)
+
+        error_file = get_log_paths()['detailed_errors']
+        try:
+            with open(error_file, 'a', encoding='utf-8') as f:
+                f.write(f"\n{'=' * 80}\n")
+                f.write(f"ERROR at {error_info['timestamp']}\n")
+                f.write(f"URL: {error_info['request'].get('url', 'No request')}\n")
+                f.write(f"Method: {error_info['request'].get('method', 'No request')}\n")
+                f.write(f"User: {error_info['request'].get('username', '-')}\n")
+                f.write(f"Error Type: {error_info['error_type']}\n")
+                f.write(f"Error Message: {error_info['error_message']}\n")
+                f.write(f"Context: {error_info['context']}\n")
+                f.write(f"Traceback:\n{error_info['traceback']}\n")
+                f.write(f"{'=' * 80}\n")
+        except OSError:
+            logger.error('Failed to append detailed_errors.log', exc_info=True)
+    except Exception:
+        try:
+            sys.stderr.write(f'[AMS] log_error failed for: {error}\n')
+        except Exception:
+            pass
 
 
 def check_dependencies():
@@ -373,6 +419,7 @@ def get_system_info():
         'processor': platform.processor(),
         'current_working_directory': os.getcwd(),
         'log_paths': get_log_paths(),
+        'logging_setup_error': str(_SETUP_ERROR) if _SETUP_ERROR else None,
         'environment_variables': {
             'FLASK_ENV': os.environ.get('FLASK_ENV'),
             'CPANEL': os.environ.get('CPANEL'),

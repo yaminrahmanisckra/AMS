@@ -35,6 +35,8 @@ try:
 except OSError:
     LOG_DIR = os.path.join(BASE_DIR, 'logs')
     os.makedirs(LOG_DIR, exist_ok=True)
+# Ensure app error_handler uses the same directory
+os.environ.setdefault('AMS_LOG_DIR', LOG_DIR)
 
 LOG_PATH = os.path.join(LOG_DIR, 'passenger_wsgi.log')
 ERROR_PATH = os.path.join(LOG_DIR, 'startup_error.log')
