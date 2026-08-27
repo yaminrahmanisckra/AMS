@@ -7450,12 +7450,6 @@ def create_app():
             all_scrs = query_for_window(DutyAssignment).filter_by(
                 duty_type='scrutinizer', status='active'
             ).all()
-            all_tabs_any_window = DutyAssignment.query.filter_by(
-                duty_type='tabulator', status='active'
-            ).all()
-            all_scrs_any_window = DutyAssignment.query.filter_by(
-                duty_type='scrutinizer', status='active'
-            ).all()
 
             def _dump(a):
                 return {
@@ -7468,12 +7462,12 @@ def create_app():
                     'term': repr(a.term),
                 }
 
-            return jsonify({
+            payload = {
                 'debug': True,
                 'current_user_id': current_user.id,
+                'current_window_id': get_effective_window_id(),
                 'is_chief': bool(chief_assignment),
                 'internal_member_count': len(internal_member_assignments),
-                'current_window_id': get_effective_window_id(),
                 'resolved_context': {
                     'session': repr(current_session),
                     'year': repr(current_year),
@@ -7484,13 +7478,24 @@ def create_app():
                     'year': repr(url_year),
                     'term': repr(url_term),
                 },
-                'matched_tabulators': [_dump(a) for a in tabulators],
-                'matched_scrutinizers': [_dump(a) for a in scrutinizers],
-                'all_tabulators_in_window': [_dump(a) for a in all_tabs],
-                'all_scrutinizers_in_window': [_dump(a) for a in all_scrs],
-                'all_tabulators_any_window': [_dump(a) for a in all_tabs_any_window],
-                'all_scrutinizers_any_window': [_dump(a) for a in all_scrs_any_window],
-            })
+                'windowed_tabulators': [_dump(a) for a in all_tabs],
+                'windowed_scrutinizers': [_dump(a) for a in all_scrs],
+                'scoped_tabulators': [_dump(a) for a in tabulators],
+                'scoped_scrutinizers': [_dump(a) for a in scrutinizers],
+            }
+            # Cross-window comparison only for admins (isolation diagnostics).
+            if is_admin(current_user):
+                payload['all_tabulators_any_window'] = [
+                    _dump(a) for a in DutyAssignment.query.filter_by(
+                        duty_type='tabulator', status='active'
+                    ).all()
+                ]
+                payload['all_scrutinizers_any_window'] = [
+                    _dump(a) for a in DutyAssignment.query.filter_by(
+                        duty_type='scrutinizer', status='active'
+                    ).all()
+                ]
+            return jsonify(payload)
 
         scrutinizer_part_labels = {}
         for scr in scrutinizers:
@@ -10931,9 +10936,6 @@ def create_app():
             if request.args.get('debug') in ('1', 'true', 'yes'):
                 def _win(f):
                     return getattr(f, 'window_id', None)
-                all_ignore_window = RemunerationForm.query.filter_by(
-                    academic_year=session, year=year, term=term
-                ).all()
                 windowed = query_for_window(RemunerationForm).filter_by(
                     academic_year=session, year=year, term=term
                 ).all()
@@ -10941,8 +10943,7 @@ def create_app():
                     duty_type='exam_committee_chief',
                     academic_session=session, year=year, term=term, status='active'
                 ).first()
-                recent = RemunerationForm.query.order_by(RemunerationForm.id.desc()).limit(30).all()
-                return jsonify({
+                debug_payload = {
                     'success': True,
                     'debug': True,
                     'current_window_id': get_effective_window_id(),
@@ -10958,16 +10959,23 @@ def create_app():
                         {'id': f.id, 'user_id': f.user_id, 'window_id': _win(f), 'has_data': bool(f.form_data)}
                         for f in windowed
                     ],
-                    'matches_ignoring_window': [
+                }
+                # Cross-window form dump only for admins.
+                if is_admin(current_user):
+                    all_ignore_window = RemunerationForm.query.filter_by(
+                        academic_year=session, year=year, term=term
+                    ).all()
+                    recent = RemunerationForm.query.order_by(RemunerationForm.id.desc()).limit(30).all()
+                    debug_payload['matches_ignoring_window'] = [
                         {'id': f.id, 'user_id': f.user_id, 'window_id': _win(f), 'has_data': bool(f.form_data)}
                         for f in all_ignore_window
-                    ],
-                    'recent_forms': [
+                    ]
+                    debug_payload['recent_forms'] = [
                         {'id': f.id, 'user_id': f.user_id, 'window_id': _win(f),
                          'academic_year': repr(f.academic_year), 'year': repr(f.year), 'term': repr(f.term)}
                         for f in recent
-                    ],
-                })
+                    ]
+                return jsonify(debug_payload)
 
             if not form_entry or not form_entry.form_data:
                 return jsonify({
@@ -13933,13 +13941,9 @@ def create_app():
                 == _normalize_committee_label(term, 'term')
             )
 
-        def _collect_tabulator_assignments(use_window=True):
-            query = (
-                query_for_window(DutyAssignment)
-                if use_window
-                else DutyAssignment.query
-            )
-            candidates = query.filter_by(
+        def _collect_tabulator_assignments():
+            # Strict window isolation: never fall back to other windows' duties.
+            candidates = query_for_window(DutyAssignment).filter_by(
                 duty_type='tabulator',
                 status='active',
             ).all()
@@ -13967,9 +13971,7 @@ def create_app():
             # Tabulators belong to the whole committee. Match flexibly on
             # session/year/term because committees store labels inconsistently
             # ('Third' vs 'Third Year', 'Second' vs 'Second Semester').
-            tabulator_assignments = _collect_tabulator_assignments(use_window=True)
-            if not tabulator_assignments:
-                tabulator_assignments = _collect_tabulator_assignments(use_window=False)
+            tabulator_assignments = _collect_tabulator_assignments()
             
             tabulators_data = []
             seen_names = set()
