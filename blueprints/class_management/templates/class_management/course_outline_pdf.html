@@ -283,6 +283,23 @@
         .rich-block strong, .rich-block b { font-weight: bold; }
         .rich-block em, .rich-block i { font-style: italic; }
         .rich-block u { text-decoration: underline; }
+        .rich-block table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.08in 0 0.12in 0;
+            font-size: 11pt;
+        }
+        .rich-block table td, .rich-block table th {
+            border: 1px solid #333;
+            padding: 4px 6px;
+            vertical-align: top;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        .rich-block table th {
+            font-weight: bold;
+            background: #f5f5f5;
+        }
         
         .page-break {
             page-break-before: always;
@@ -1070,11 +1087,13 @@
     {% if custom_enabled %}
     {% set custom_header = assessment_strategy.get('custom_section_header', '') if assessment_strategy else '' %}
     {% set custom_body = assessment_strategy.get('custom_section_body', '') if assessment_strategy else '' %}
-    {% if custom_header or custom_body %}
+    {% if custom_header or custom_body or custom_section_body_html %}
     <div class="subsection-title">{{ sec.n }}. {{ custom_header or 'Custom Section' }}</div>
     {% set sec.n = sec.n + 1 %}
-    {% if custom_body %}
-    <p style="white-space: pre-wrap;">{{ custom_body }}</p>
+    {% if custom_section_body_html %}
+    <div class="rich-block">{{ custom_section_body_html }}</div>
+    {% elif custom_body %}
+    <div class="rich-block">{{ custom_body }}</div>
     {% else %}
     <p class="not-specified">Not specified</p>
     {% endif %}

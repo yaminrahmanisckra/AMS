@@ -1214,7 +1214,7 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label"><strong>Section Content</strong></label>
-                        <textarea class="form-control" name="custom_section_body" rows="5" placeholder="Enter the content for this section…">{{ custom_ns.body }}</textarea>
+                        <textarea class="form-control custom-section-editor" id="customSectionBodyEditor" name="custom_section_body" rows="8" placeholder="Enter the content for this section…">{{ (outline_data.custom_section_body_html or custom_ns.body)|safe }}</textarea>
                     </div>
                 </div>
                 <p class="text-muted small mb-3 {% if custom_ns.enabled %}d-none{% endif %}" id="customSectionDisabledHint">Custom section is disabled and will be omitted from the PDF. Section numbers below will adjust automatically.</p>
@@ -2802,6 +2802,11 @@ function toggleCustomSection(enabled) {
     const hint = document.getElementById('customSectionDisabledHint');
     if (body) body.style.display = enabled ? '' : 'none';
     if (hint) hint.classList.toggle('d-none', !!enabled);
+    if (enabled) {
+        initCustomSectionEditor(true);
+    } else {
+        destroyCustomSectionEditor();
+    }
     updateOutlineSectionNumbers();
 }
 
@@ -3204,16 +3209,40 @@ function autoSave() {
     }, 2000);
 }
 
-function getPartDHtml(name) {
+function getPartDHtml(name, editorId) {
     if (window.tinymce) {
         try { tinymce.triggerSave(); } catch (e) {}
-        const el = document.querySelector('#courseOutlineForm [name="' + name + '"]');
-        if (el && el.id && tinymce.get(el.id)) {
-            return tinymce.get(el.id).getContent() || '';
-        }
     }
-    const el = document.querySelector('#courseOutlineForm [name="' + name + '"]');
+    if (editorId && window.tinymce) {
+        const ed = tinymce.get(editorId);
+        if (ed) return ed.getContent() || '';
+    }
+    const el = document.querySelector('#courseOutlineForm [name="' + name + '"]')
+        || (editorId ? document.getElementById(editorId) : null);
+    if (el && el.id && window.tinymce) {
+        const ed = tinymce.get(el.id);
+        if (ed) return ed.getContent() || '';
+    }
     return el ? (el.value || '') : '';
+}
+
+function getCustomSectionBodyHtml() {
+    return getPartDHtml('custom_section_body', 'customSectionBodyEditor');
+}
+
+function isCustomSectionEditorVisible() {
+    const body = document.getElementById('customSectionBody');
+    if (!body || body.style.display === 'none') return false;
+    return !!(document.getElementById('customSectionEnabledToggle') || {}).checked;
+}
+
+function destroyCustomSectionEditor() {
+    if (!window.tinymce) return;
+    const ed = tinymce.get('customSectionBodyEditor');
+    if (ed) {
+        try { ed.save(); } catch (e) {}
+        ed.remove();
+    }
 }
 
 function htmlFromResourceValue(value) {
@@ -3243,29 +3272,47 @@ function initPartDEditors() {
     if (!window.tinymce) return;
     const ids = ['textbooksEditor', 'referenceBooksEditor', 'otherResourcesEditor', 'courseFileEditor'];
     ids.forEach(function(id) {
-        const el = document.getElementById(id);
-        if (!el) return;
-        if (tinymce.get(id)) return;
-        tinymce.init({
-            selector: '#' + id,
-            height: 220,
-            menubar: false,
-            branding: false,
-            promotion: false,
-            plugins: 'lists link autolink',
-            toolbar: 'undo redo | bold italic underline | blocks fontsize | bullist numlist | link | removeformat',
-            block_formats: 'Paragraph=p; Heading 2=h2; Heading 3=h3; Heading 4=h4',
-            font_size_formats: '12px 14px 16px 18px 20px 24px',
-            convert_urls: false,
-            link_default_target: '_blank',
-            link_assume_external_targets: true,
-            content_style: 'body { font-family: "Times New Roman", Times, serif; font-size: 14px; }',
-            setup: function(editor) {
-                editor.on('change keyup', function() {
-                    if (typeof autoSave === 'function') autoSave();
-                });
-            }
-        });
+        initOutlineRichEditor('#' + id, { height: 220, table: false });
+    });
+}
+
+function initCustomSectionEditor(force) {
+    if (!window.tinymce) return;
+    if (!isCustomSectionEditorVisible()) return;
+    if (force) destroyCustomSectionEditor();
+    initOutlineRichEditor('#customSectionBodyEditor', { height: 280, table: true });
+}
+
+function initOutlineRichEditor(selector, opts) {
+    if (!window.tinymce) return;
+    const el = document.querySelector(selector);
+    if (!el || !el.id || tinymce.get(el.id)) return;
+    const withTable = !!(opts && opts.table);
+    const plugins = withTable ? 'lists link autolink table' : 'lists link autolink';
+    const toolbar = withTable
+        ? 'undo redo | bold italic underline | blocks fontsize | bullist numlist | link | table tabledelete | tableprops tablerowprops tablecellprops | tableinsertrowbefore tableinsertrowafter tabledeleterow | tableinsertcolbefore tableinsertcolafter tabledeletecol | removeformat'
+        : 'undo redo | bold italic underline | blocks fontsize | bullist numlist | link | removeformat';
+    tinymce.init({
+        selector: selector,
+        height: (opts && opts.height) || 220,
+        menubar: false,
+        branding: false,
+        promotion: false,
+        plugins: plugins,
+        toolbar: toolbar,
+        table_default_attributes: { border: '1' },
+        table_default_styles: { 'border-collapse': 'collapse', width: '100%' },
+        block_formats: 'Paragraph=p; Heading 2=h2; Heading 3=h3; Heading 4=h4',
+        font_size_formats: '12px 14px 16px 18px 20px 24px',
+        convert_urls: false,
+        link_default_target: '_blank',
+        link_assume_external_targets: true,
+        content_style: 'body { font-family: "Times New Roman", Times, serif; font-size: 14px; } table { border-collapse: collapse; width: 100%; } table td, table th { border: 1px solid #333; padding: 4px 6px; vertical-align: top; }',
+        setup: function(editor) {
+            editor.on('change keyup', function() {
+                if (typeof autoSave === 'function') autoSave();
+            });
+        }
     });
 }
 
@@ -3285,7 +3332,12 @@ function saveCourseOutline(isAutoSave = false) {
         try { tinymce.triggerSave(); } catch (e) {}
     }
     
-    // Ensure Section 13 (course content + Classes) is up to date in hidden field before save
+    // Ensure custom section editor content is synced before building payload
+    try {
+        const customEd = window.tinymce ? tinymce.get('customSectionBodyEditor') : null;
+        if (customEd) customEd.save();
+    } catch (e) {}
+    
     try {
         if (typeof updateCourseContentSummary === 'function') {
             updateCourseContentSummary();
@@ -3395,7 +3447,7 @@ function saveCourseOutline(isAutoSave = false) {
             smee_enabled: isPartBSectionEnabled('smeeEnabledToggle'),
             custom_section_enabled: !!(document.getElementById('customSectionEnabledToggle') || {}).checked,
             custom_section_header: formData.get('custom_section_header') || '',
-            custom_section_body: formData.get('custom_section_body') || ''
+            custom_section_body: getCustomSectionBodyHtml()
         } : {
             attendance_percent: formData.get('attendance_percent') || '10',
             attendance_comment: formData.get('attendance_comment') || 'Minimum mark is 4 for 60% attendance',
@@ -3414,7 +3466,7 @@ function saveCourseOutline(isAutoSave = false) {
             smee_enabled: isPartBSectionEnabled('smeeEnabledToggle'),
             custom_section_enabled: !!(document.getElementById('customSectionEnabledToggle') || {}).checked,
             custom_section_header: formData.get('custom_section_header') || '',
-            custom_section_body: formData.get('custom_section_body') || ''
+            custom_section_body: getCustomSectionBodyHtml()
         },
         assessment_techniques: [],
         rubrics: [],
@@ -3616,14 +3668,17 @@ function saveCourseOutline(isAutoSave = false) {
 
 // Handle collapse/expand for Part sections and set up auto-save
 document.addEventListener('DOMContentLoaded', function() {
-    function bootPartDEditors() {
+    function bootRichEditors() {
         if (!window.tinymce) {
-            setTimeout(bootPartDEditors, 60);
+            setTimeout(bootRichEditors, 60);
             return;
+        }
+        if (isCustomSectionEditorVisible()) {
+            initCustomSectionEditor(true);
         }
         initPartDEditors();
     }
-    bootPartDEditors();
+    bootRichEditors();
 
     // Add event listeners to all collapse elements
     const collapseElements = ['partA', 'partB', 'partC', 'partD'];
@@ -3641,6 +3696,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             collapseElement.addEventListener('shown.bs.collapse', function() {
                 if (partId === 'partD') initPartDEditors();
+                if (partId === 'partC' && isCustomSectionEditorVisible()) initCustomSectionEditor(true);
             });
             
             collapseElement.addEventListener('hide.bs.collapse', function() {

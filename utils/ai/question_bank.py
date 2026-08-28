@@ -200,6 +200,15 @@ def find_active_guideline():
     )
 
 
+def get_active_guideline_text_cached():
+    """Return (id, title, text) from DB only — never OCR/extract on this request."""
+    row = find_active_guideline()
+    if not row:
+        return None, None, None
+    text = (row.extracted_text or '').strip()
+    return row.id, row.title, text or None
+
+
 def find_guideline_in_folder(qb_file=None):
     """Back-compat name: guidelines now live in Admin → Answer Guideline."""
     return find_active_guideline()

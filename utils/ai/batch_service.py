@@ -71,7 +71,7 @@ def create_batch_outline_jobs(user_id, academic_session, year, term, batch=None,
 
     items = []
     for session in sessions:
-        course_data = find_course_from_curriculum(session.course_code, session.course_name) if find_course_from_curriculum else None
+        course_data = find_course_from_curriculum(session.course_code, session.course_name, session=session) if find_course_from_curriculum else None
         curriculum = course_data.curriculum if course_data and getattr(course_data, 'curriculum', None) else None
         teacher_name = ''
         if getattr(session, 'teacher', None):

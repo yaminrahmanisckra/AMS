@@ -9,6 +9,8 @@ from markupsafe import Markup, escape
 _ALLOWED = {
     'p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li',
     'a', 'h2', 'h3', 'h4', 'span', 'div', 'blockquote', 'sup', 'sub',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption',
+    'colgroup', 'col',
 }
 _VOID = {'br'}
 _STYLE_SAFE = re.compile(
@@ -45,6 +47,39 @@ class _HtmlSanitizer(HTMLParser):
                     safe.append(('rel', 'noopener noreferrer'))
             elif name == 'style' and _STYLE_SAFE.match(value or ''):
                 safe.append(('style', value))
+            elif name in ('colspan', 'rowspan') and tag in ('th', 'td'):
+                try:
+                    span = int(str(value).strip())
+                    if 1 <= span <= 50:
+                        safe.append((name, str(span)))
+                except (TypeError, ValueError):
+                    pass
+            elif name == 'border' and tag == 'table':
+                try:
+                    border = int(str(value).strip())
+                    if 0 <= border <= 4:
+                        safe.append((name, str(border)))
+                except (TypeError, ValueError):
+                    pass
+            elif name in ('cellpadding', 'cellspacing') and tag == 'table':
+                try:
+                    pad = int(str(value).strip())
+                    if 0 <= pad <= 20:
+                        safe.append((name, str(pad)))
+                except (TypeError, ValueError):
+                    pass
+            elif name == 'width' and tag in ('table', 'th', 'td', 'col'):
+                width = str(value or '').strip()
+                if width and len(width) <= 12 and re.match(r'^(\d{1,4}(\.\d+)?%?|auto)$', width, re.I):
+                    safe.append((name, width))
+            elif name == 'align' and tag in ('table', 'th', 'td'):
+                align = str(value or '').strip().lower()
+                if align in ('left', 'center', 'right', 'justify'):
+                    safe.append((name, align))
+            elif name == 'valign' and tag in ('th', 'td'):
+                valign = str(value or '').strip().lower()
+                if valign in ('top', 'middle', 'bottom', 'baseline'):
+                    safe.append((name, valign))
         attr_html = ''.join(f' {escape(n)}="{escape(v)}"' for n, v in safe)
         self._out.append(f'<{tag}{attr_html}>')
 

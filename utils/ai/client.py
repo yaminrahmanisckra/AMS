@@ -319,7 +319,7 @@ def _call_anthropic(cfg, system_prompt, user_prompt, timeout=120, images=None):
     return text, usage
 
 
-def _call_configured_provider(cfg, system_prompt, user_prompt, json_mode=True, images=None, pdf_bytes=None):
+def _call_configured_provider(cfg, system_prompt, user_prompt, json_mode=True, images=None, pdf_bytes=None, timeout=None):
     provider = cfg['provider']
     if provider in (AIProviderSetting.PROVIDER_OPENAI, AIProviderSetting.PROVIDER_DEEPSEEK):
         if provider == AIProviderSetting.PROVIDER_DEEPSEEK and not cfg.get('api_base_url'):
@@ -327,21 +327,24 @@ def _call_configured_provider(cfg, system_prompt, user_prompt, json_mode=True, i
             cfg['api_base_url'] = 'https://api.deepseek.com/v1'
         if images and provider == AIProviderSetting.PROVIDER_DEEPSEEK:
             raise AIClientError('DeepSeek স্ক্যান করা PDF পড়তে পারে না। Admin → AI Settings-এ Gemini বা OpenAI বেছে নিন।')
-        timeout = 180 if (images or pdf_bytes) else 120
+        if timeout is None:
+            timeout = 180 if (images or pdf_bytes) else 120
         return _call_openai(cfg, system_prompt, user_prompt, json_mode=json_mode, images=images, timeout=timeout)
     if provider == AIProviderSetting.PROVIDER_GEMINI:
-        timeout = 180 if (images or pdf_bytes) else 120
+        if timeout is None:
+            timeout = 180 if (images or pdf_bytes) else 120
         return _call_gemini(
             cfg, system_prompt, user_prompt, json_mode=json_mode,
             images=images, pdf_bytes=pdf_bytes, timeout=timeout,
         )
     if provider == AIProviderSetting.PROVIDER_ANTHROPIC:
-        timeout = 180 if images else 120
+        if timeout is None:
+            timeout = 180 if images else 120
         return _call_anthropic(cfg, system_prompt, user_prompt, images=images, timeout=timeout)
     raise AIClientError(f'Unsupported AI provider: {provider}')
 
 
-def _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_tokens=None):
+def _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_tokens=None, timeout=None, max_retries=None):
     """Load provider from DB, drop the MySQL connection, then call the AI API."""
     reset_db_session()
     cfg = get_active_provider_setting()
@@ -351,12 +354,13 @@ def _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_token
     reset_db_session()
     started = time.monotonic()
     last_exc = None
-    attempts = 1 + len(_RETRY_DELAYS)
+    retry_delays = _RETRY_DELAYS if max_retries is None else _RETRY_DELAYS[:max(0, int(max_retries))]
+    attempts = 1 + len(retry_delays)
 
     for attempt in range(attempts):
         try:
             text, usage = _call_configured_provider(
-                cfg, system_prompt, user_prompt, json_mode=json_mode,
+                cfg, system_prompt, user_prompt, json_mode=json_mode, timeout=timeout,
             )
             return {
                 'text': text,
@@ -369,7 +373,7 @@ def _generate_with_retries(system_prompt, user_prompt, json_mode=True, max_token
             last_exc = exc
             if not getattr(exc, 'retryable', False) or attempt >= attempts - 1:
                 raise
-            delay = _RETRY_DELAYS[attempt]
+            delay = retry_delays[attempt]
             try:
                 current_app.logger.warning(
                     'AI %s retry %s/%s in %ss: %s',
@@ -407,9 +411,12 @@ def generate_text_from_media(system_prompt, user_prompt, images=None, pdf_bytes=
     return (text or '').strip()
 
 
-def generate_text_with_meta(system_prompt, user_prompt, max_tokens=None):
+def generate_text_with_meta(system_prompt, user_prompt, max_tokens=None, timeout=None, max_retries=None):
     """Call AI for free-form text/HTML (no JSON response_format)."""
-    return _generate_with_retries(system_prompt, user_prompt, json_mode=False, max_tokens=max_tokens)
+    return _generate_with_retries(
+        system_prompt, user_prompt, json_mode=False, max_tokens=max_tokens,
+        timeout=timeout, max_retries=max_retries,
+    )
 
 
 def user_facing_generation_error(exc):

@@ -273,4 +273,5 @@ passenger_wsgi.log
 startup_error.log
 venv_feedback/
 venv_test/
+.venv_test312/
 .venv/

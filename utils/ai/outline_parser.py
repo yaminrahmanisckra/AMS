@@ -228,7 +228,11 @@ def normalize_assessment_strategy(strategy):
     if 'custom_section_header' in out and out.get('custom_section_header') is not None:
         out['custom_section_header'] = str(out.get('custom_section_header') or '').strip()
     if 'custom_section_body' in out and out.get('custom_section_body') is not None:
-        out['custom_section_body'] = str(out.get('custom_section_body') or '').strip()
+        try:
+            from utils.outline_richtext import sanitize_outline_html
+            out['custom_section_body'] = sanitize_outline_html(str(out.get('custom_section_body') or ''))
+        except Exception:
+            out['custom_section_body'] = str(out.get('custom_section_body') or '').strip()
 
     return out
 

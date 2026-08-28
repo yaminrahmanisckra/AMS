@@ -27,7 +27,7 @@
         <div class="form-check form-switch mb-0">
             <input type="hidden" name="enabled" value="0">
             <input class="form-check-input" type="checkbox" name="enabled" value="1" id="qaAiAuto" {% if qa_ai_auto_reply %}checked{% endif %} onchange="this.form.submit()">
-            <label class="form-check-label" for="qaAiAuto">এআই স্বয়ংক্রিয় উত্তর (কোর্স ফাইল/আউটলাইন থেকে; মার্ক/উপস্থিতি নয়)</label>
+            <label class="form-check-label" for="qaAiAuto">এআই স্বয়ংক্রিয় উত্তর (Answer Guideline + আইনি রিসোর্স; মার্ক/উপস্থিতি নয়)</label>
         </div>
     </form>
 
@@ -60,10 +60,27 @@
                 </div>
             </div>
             <div class="card-body">
+                {% set ns = namespace(target_id=none) %}
                 {% for msg in thread.messages|sort(attribute='created_at') %}
-                <div class="mb-3">
-                    <div class="small text-muted d-flex justify-content-between align-items-center">
-                        <div>
+                    {% if msg.sender_role == 'student' and msg.body %}
+                        {% set ns.target_id = msg.id %}
+                    {% endif %}
+                {% endfor %}
+                {% if not ns.target_id and thread.messages %}
+                    {% set ns.target_id = (thread.messages|sort(attribute='created_at')|last).id %}
+                {% endif %}
+                {% for msg in thread.messages|sort(attribute='created_at') %}
+                <div class="mb-3 qa-message-row{% if msg.id == ns.target_id %} qa-message-row--target{% endif %}" data-msg-id="{{ msg.id }}">
+                    <div class="small text-muted d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="d-flex align-items-center flex-wrap gap-2">
+                            <label class="mb-0 qa-target-label" title="এআই খসড়া এই মেসেজের উত্তর তৈরি করবে">
+                                <input type="radio"
+                                       name="qa-target-{{ thread.id }}"
+                                       class="qa-target-msg"
+                                       value="{{ msg.id }}"
+                                       {% if msg.id == ns.target_id %}checked{% endif %}>
+                                <span class="text-primary small">এআই উত্তর</span>
+                            </label>
                             <span class="badge {% if msg.sender_role == 'teacher' %}bg-primary{% else %}bg-success{% endif %}">
                                 {{ 'Teacher' if msg.sender_role == 'teacher' else 'Student' }}
                             </span>
@@ -111,6 +128,7 @@
                 <form method="POST" action="{{ url_for('class_management.teacher_reply_course_question', thread_id=thread.id) }}" enctype="multipart/form-data" class="qa-reply-form">
                     <div class="mb-2">
                         <label class="form-label mb-1">Reply</label>
+                        <div class="form-text mb-1">এআই খসড়ার জন্য উপরে কোন মেসেজের পাশে <strong>এআই উত্তর</strong> বেছে নিন।</div>
                         <textarea id="qa-reply-{{ thread.id }}" name="message" class="form-control form-control-sm qa-reply-box qa-rich-editor" rows="6" placeholder="Write a reply..."></textarea>
                     </div>
                     <div class="mb-2">
@@ -140,6 +158,10 @@
 .qa-message-body li { margin: 0.1rem 0; }
 .qa-message-body a { word-break: break-word; }
 .tox-tinymce { border-radius: 6px !important; }
+.qa-message-row { border-left: 3px solid transparent; padding-left: 0.5rem; transition: border-color 0.15s ease; }
+.qa-message-row--target { border-left-color: #0dcaf0; }
+.qa-target-label { cursor: pointer; user-select: none; }
+.qa-target-label input { margin-right: 0.25rem; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tinymce@6.8.5/tinymce.min.js" referrerpolicy="origin"></script>
 <script>
@@ -194,21 +216,75 @@ document.addEventListener('submit', function(e) {
 
 document.addEventListener('DOMContentLoaded', function() {
     initQaRichEditors(document);
+    document.querySelectorAll('.qa-target-msg').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            const card = radio.closest('.card-body');
+            if (!card) return;
+            card.querySelectorAll('.qa-message-row').forEach(function(row) {
+                row.classList.toggle('qa-message-row--target', row.dataset.msgId === radio.value);
+            });
+        });
+    });
 });
+
+function qaSelectedMessageId(form) {
+    const card = form.closest('.card-body');
+    if (!card) return null;
+    const selected = card.querySelector('.qa-target-msg:checked');
+    return selected ? selected.value : null;
+}
 
 document.querySelectorAll('.qa-ai-draft').forEach(btn => {
     btn.addEventListener('click', async () => {
-        const box = btn.closest('form').querySelector('.qa-reply-box');
+        const form = btn.closest('form');
+        const box = form.querySelector('.qa-reply-box');
+        const messageId = qaSelectedMessageId(form);
+        if (!messageId) {
+            return alert('কোন মেসেজের উত্তর দেবেন তা বেছে নিন।');
+        }
+        const originalHtml = btn.innerHTML;
         btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>তৈরি হচ্ছে...';
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 150000);
+        const slowTimer = setTimeout(() => {
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>আরও কিছুক্ষণ...';
+        }, 40000);
         try {
-            const res = await fetch(btn.dataset.url, { method: 'POST' });
-            const data = await res.json();
-            if (!data.success) return alert(data.message || 'Failed');
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            };
+            const csrf = window.getCsrfToken && window.getCsrfToken();
+            if (csrf) headers['X-CSRFToken'] = csrf;
+            const res = await fetch(btn.dataset.url, {
+                method: 'POST',
+                headers,
+                credentials: 'same-origin',
+                signal: controller.signal,
+                body: JSON.stringify({ message_id: Number(messageId) }),
+            });
+            let data;
+            try {
+                data = await res.json();
+            } catch (parseErr) {
+                throw new Error(res.ok ? 'সার্ভার থেকে ভুল উত্তর এসেছে।' : ('অনুরোধ ব্যর্থ (' + res.status + ')।'));
+            }
+            if (!res.ok || !data.success) {
+                return alert(data.message || ('এআই খসড়া ব্যর্থ (' + res.status + ')।'));
+            }
             qaSetRichContent(box, data.draft || '');
         } catch (e) {
-            alert('AI draft failed.');
+            if (e.name === 'AbortError') {
+                alert('সময় শেষ — এআই উত্তর তৈরি হতে দেরি হচ্ছে। কিছুক্ষণ পর আবার চেষ্টা করুন।');
+            } else {
+                alert(e.message || 'এআই খসড়া ব্যর্থ হয়েছে।');
+            }
         } finally {
+            clearTimeout(timer);
+            clearTimeout(slowTimer);
             btn.disabled = false;
+            btn.innerHTML = originalHtml;
         }
     });
 });
