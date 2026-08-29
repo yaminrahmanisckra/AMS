@@ -47,3 +47,25 @@ def test_autosave_requires_login(client, class_session_w1):
         json={f'assessment1_{student_id}': '10'},
     )
     assert rv.status_code in (302, 401, 403)
+
+
+def test_autosave_partial_payload_preserves_other_marks(app, client, teacher_user, class_session_w1, windows):
+    login_client(client, teacher_user['username'], window_id=windows['w1_id'])
+    session_id = class_session_w1['session_id']
+    student_id = class_session_w1['student_id']
+
+    client.post(
+        f'/class-management/assessment/{session_id}/auto-save',
+        json={f'assessment1_{student_id}': '7'},
+    )
+    rv = client.post(
+        f'/class-management/assessment/{session_id}/auto-save',
+        json={f'assessment2_{student_id}': '8'},
+    )
+    assert rv.status_code == 200
+    assert rv.get_json()['success'] is True
+
+    with app.app_context():
+        row = db.session.get(ClassStudent, student_id)
+        assert row.assessment1 == 7.0
+        assert row.assessment2 == 8.0

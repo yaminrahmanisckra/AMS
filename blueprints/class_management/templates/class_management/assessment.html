@@ -312,7 +312,7 @@
                 </div>
             </div>
             
-            <form method="POST">
+            <form method="POST" id="assessmentMarksForm">
                 <div class="table-responsive m-table-scroll-sticky">
                     <table class="table table-bordered align-middle table-sm assessment-marks-table m-keep-table" style="min-width: 700px; font-size: 0.95em;">
                         {% if uses_assessment_mode_picker %}
@@ -1196,6 +1196,8 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
 (function() {
     const sessionId = {{ session.id }};
     let saveTimeout = null;
+    let saveInFlight = false;
+    let saveQueued = false;
     const saveStatusEl = document.getElementById('auto-save-status');
     const saveSpinner = document.getElementById('save-spinner');
     const saveMessage = document.getElementById('save-message');
@@ -1214,51 +1216,69 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
             }, 2000);
         }
     }
+
+    function collectAssessmentAutosavePayload(form) {
+        const data = {};
+        form.querySelectorAll(
+            '.assessment-input[data-editable="1"], .pg-assessment-input[data-editable="1"], .sessional-input'
+        ).forEach((input) => {
+            if (!input.name) return;
+            data[input.name] = input.value ?? '';
+        });
+        form.querySelectorAll('input[disabled][name].assessment-input[data-editable="1"], input[disabled][name].pg-assessment-input[data-editable="1"]').forEach((input) => {
+            if (input.name && !(input.name in data)) {
+                data[input.name] = input.value ?? '';
+            }
+        });
+        form.querySelectorAll('.absent-checkbox, .sessional-absent-checkbox, .pg-absent-checkbox').forEach((chk) => {
+            if (!chk.name) return;
+            data[chk.name] = chk.checked ? 'on' : '';
+        });
+        return data;
+    }
     
     function autoSave() {
-        const form = document.querySelector('form[method="POST"]');
-        if (!form) return;
-        
-        const formData = new FormData(form);
-        const data = {};
-        for (let [key, value] of formData.entries()) {
-            data[key] = value;
+        if (saveInFlight) {
+            saveQueued = true;
+            return;
         }
-        // FormData omits disabled fields (e.g. Absent). Include them so auto-save
-        // does not treat missing keys as blank and wipe marks.
-        form.querySelectorAll('input[disabled][name]').forEach((input) => {
-            if (!(input.name in data)) {
-                data[input.name] = input.value;
-            }
-        });
-        // Readonly / hidden fields may carry marks in data-assessment-value.
-        form.querySelectorAll('input[name][data-assessment-value]').forEach((input) => {
-            const stored = input.dataset.assessmentValue;
-            if (stored !== undefined && stored !== '' && (!data[input.name] || data[input.name] === '')) {
-                data[input.name] = stored;
-            }
-        });
-        
+        const form = document.getElementById('assessmentMarksForm');
+        if (!form) return;
+
+        const data = collectAssessmentAutosavePayload(form);
+        saveInFlight = true;
         showSaveStatus('Saving...', true);
         
         fetch(`/class-management/assessment/${sessionId}/auto-save`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify(data)
         })
-        .then(response => response.json())
-        .then(result => {
-            if (result.success) {
-                showSaveStatus('✓ Saved automatically', false);
-            } else {
-                showSaveStatus('✗ Save failed', false);
+        .then(async (response) => {
+            let result = {};
+            try {
+                result = await response.json();
+            } catch (err) {
+                throw new Error('Invalid server response');
             }
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || 'Save failed');
+            }
+            showSaveStatus('✓ Saved automatically', false);
         })
-        .catch(error => {
+        .catch((error) => {
             console.error('Auto-save error:', error);
             showSaveStatus('✗ Save failed', false);
+        })
+        .finally(() => {
+            saveInFlight = false;
+            if (saveQueued) {
+                saveQueued = false;
+                autoSave();
+            }
         });
     }
     

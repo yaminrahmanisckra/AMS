@@ -952,8 +952,129 @@ def _external_assessment_column_header(assess_idx, mode):
     return f'Assessment {assess_idx} ({_external_assessment_mark_max(mode)})'
 
 
+def _autosave_blank_value(value):
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return False
+    return str(value).strip() == ''
+
+
+def _apply_theory_assessment_autosave(student, session, data, editable_indices):
+    """Apply only keys present in the autosave payload (partial updates)."""
+    import json as _json
+    absent_status = {}
+    if student.assessment_absent:
+        try:
+            absent_status = _json.loads(student.assessment_absent)
+        except Exception:
+            absent_status = {}
+
+    updated = 0
+    for i in range(1, 5):
+        if i not in editable_indices:
+            continue
+        key = f'assessment{i}_{student.id}'
+        absent_key = f'absent_{i}_{student.id}'
+        if key not in data and absent_key not in data:
+            continue
+
+        is_absent = data.get(absent_key) == 'on' or data.get(absent_key) is True
+        if absent_key in data:
+            absent_status[f'assessment{i}'] = is_absent
+
+        if is_absent:
+            if getattr(student, f'assessment{i}', None) is not None:
+                updated += 1
+            setattr(student, f'assessment{i}', None)
+            continue
+
+        if key not in data:
+            continue
+
+        value = data.get(key)
+        parsed = _parse_external_assessment_value(value, session)
+        existing = getattr(student, f'assessment{i}', None)
+        if parsed is None and existing is not None and _autosave_blank_value(value):
+            continue
+        if parsed != existing:
+            updated += 1
+        setattr(student, f'assessment{i}', parsed)
+
+    student.assessment_absent = _json.dumps(absent_status) if absent_status else None
+    return updated
+
+
+def _apply_sessional_assessment_autosave(student, data, editable_sessional_fields):
+    """Apply only sessional keys present in the autosave payload."""
+    import json as _json
+    absent_status = {}
+    if student.assessment_absent:
+        try:
+            absent_status = _json.loads(student.assessment_absent)
+        except Exception:
+            absent_status = {}
+
+    updated = 0
+    report_key = f'sessional_report_{student.id}'
+    viva_key = f'sessional_viva_{student.id}'
+    report_absent_key = f'sessional_absent_report_{student.id}'
+    viva_absent_key = f'sessional_absent_viva_{student.id}'
+
+    if 'sessional_report' in editable_sessional_fields and (
+        report_key in data or report_absent_key in data
+    ):
+        report_absent = data.get(report_absent_key) == 'on' or data.get(report_absent_key) is True
+        if report_absent_key in data:
+            absent_status['sessional_report'] = report_absent
+        if report_absent:
+            if student.sessional_report is not None:
+                updated += 1
+            student.sessional_report = None
+        elif report_key in data:
+            report = data.get(report_key)
+            if _autosave_blank_value(report):
+                if student.sessional_report is not None:
+                    pass  # preserve existing mark
+                else:
+                    student.sessional_report = None
+            else:
+                new_val = float(report)
+                if new_val != student.sessional_report:
+                    updated += 1
+                student.sessional_report = new_val
+
+    if 'sessional_viva' in editable_sessional_fields and (
+        viva_key in data or viva_absent_key in data
+    ):
+        viva_absent = data.get(viva_absent_key) == 'on' or data.get(viva_absent_key) is True
+        if viva_absent_key in data:
+            absent_status['sessional_viva'] = viva_absent
+        if viva_absent:
+            if student.sessional_viva is not None:
+                updated += 1
+            student.sessional_viva = None
+        elif viva_key in data:
+            viva = data.get(viva_key)
+            if _autosave_blank_value(viva):
+                if student.sessional_viva is not None:
+                    pass  # preserve existing mark
+                else:
+                    student.sessional_viva = None
+            else:
+                new_val = float(viva)
+                if new_val != student.sessional_viva:
+                    updated += 1
+                student.sessional_viva = new_val
+
+    student.assessment_absent = _json.dumps(absent_status) if absent_status else None
+    return updated
+
+
 def _parse_external_assessment_value(raw_value, session):
     """Parse and clamp assessment input for theory sessions."""
+    if isinstance(raw_value, str):
+        raw_value = raw_value.strip()
     if raw_value in (None, ''):
         return None
     try:
@@ -7996,21 +8117,8 @@ def assessment(session_id):
                                 else:
                                     value = request.form.get(f'assessment{i}_{student.id}')
                                     parsed = _parse_external_assessment_value(value, session)
-                                    if existing is not None and parsed is None and value in (None, ''):
-                                        try:
-                                            from error_handler import log_data_event
-                                            log_data_event(
-                                                'ASSESSMENT_CLEAR',
-                                                'Manual save cleared existing mark with blank value',
-                                                level='WARNING',
-                                                source='assessment_post',
-                                                session_id=session_id,
-                                                student_id=student.student_id,
-                                                field=f'assessment{i}',
-                                                previous_value=existing,
-                                            )
-                                        except Exception:
-                                            pass
+                                    if existing is not None and parsed is None and _autosave_blank_value(value):
+                                        continue
                                     setattr(student, f'assessment{i}', parsed)
                         
                         # Save absent status
@@ -8352,139 +8460,35 @@ def auto_save_assessment(session_id):
         editable_sessional_fields = _get_editable_sessional_fields(session)
         
         if request.is_json:
-            data = request.get_json()
+            data = request.get_json() or {}
         else:
             data = request.form.to_dict()
+        if not isinstance(data, dict):
+            return jsonify({'success': False, 'message': 'Invalid payload'}), 400
         
         try:
+            updated_fields = 0
             if session.course_type == 'theory':
                 for student in students:
-                    # Load existing absent status
-                    absent_status = {}
-                    if student.assessment_absent:
-                        try:
-                            absent_status = json.loads(student.assessment_absent)
-                        except:
-                            absent_status = {}
-                    
-                    for i in range(1, 5):
-                        if i in editable_indices:
-                            key = f'assessment{i}_{student.id}'
-                            absent_key = f'absent_{i}_{student.id}'
-                            
-                            # Check if absent checkbox is checked
-                            is_absent = data.get(absent_key) == 'on' or data.get(absent_key) == True
-                            absent_status[f'assessment{i}'] = is_absent
-                            
-                            # If absent, set mark to None, otherwise save the value
-                            if is_absent:
-                                existing = getattr(student, f'assessment{i}', None)
-                                if existing is not None:
-                                    try:
-                                        from error_handler import log_data_event
-                                        log_data_event(
-                                            'AUTO_SAVE_CLEAR',
-                                            'Auto-save cleared mark via Absent',
-                                            level='WARNING',
-                                            source='auto_save',
-                                            session_id=session_id,
-                                            student_id=student.student_id,
-                                            field=f'assessment{i}',
-                                            previous_value=existing,
-                                        )
-                                    except Exception:
-                                        pass
-                                setattr(student, f'assessment{i}', None)
-                            else:
-                                value = data.get(key, '')
-                                parsed = _parse_external_assessment_value(value, session)
-                                existing = getattr(student, f'assessment{i}', None)
-                                # Auto-save sends the whole form; blank fields must not wipe saved marks.
-                                if parsed is None and existing is not None and value in (None, ''):
-                                    try:
-                                        from error_handler import log_data_event
-                                        log_data_event(
-                                            'AUTO_SAVE_PRESERVE',
-                                            'Blocked blank auto-save from wiping saved mark',
-                                            level='WARNING',
-                                            source='auto_save',
-                                            session_id=session_id,
-                                            student_id=student.student_id,
-                                            field=f'assessment{i}',
-                                            preserved_value=existing,
-                                        )
-                                    except Exception:
-                                        pass
-                                    continue
-                                if existing is not None and parsed is None:
-                                    try:
-                                        from error_handler import log_data_event
-                                        log_data_event(
-                                            'AUTO_SAVE_CLEAR',
-                                            'Auto-save replaced existing mark with empty/invalid value',
-                                            level='WARNING',
-                                            source='auto_save',
-                                            session_id=session_id,
-                                            student_id=student.student_id,
-                                            field=f'assessment{i}',
-                                            previous_value=existing,
-                                            incoming_value=value,
-                                        )
-                                    except Exception:
-                                        pass
-                                setattr(student, f'assessment{i}', parsed)
-                    
-                    # Save absent status
-                    student.assessment_absent = json.dumps(absent_status) if absent_status else None
-                    
+                    updated_fields += _apply_theory_assessment_autosave(
+                        student, session, data, editable_indices
+                    )
                 _recalculate_assessment_totals(session)
 
             elif session.course_type == 'sessional' and session.category == 'ug':
                 for student in students:
-                    # Load existing absent status
-                    absent_status = {}
-                    if student.assessment_absent:
-                        try:
-                            absent_status = json.loads(student.assessment_absent)
-                        except:
-                            absent_status = {}
-                    
-                    report_absent_key = f'sessional_absent_report_{student.id}'
-                    viva_absent_key = f'sessional_absent_viva_{student.id}'
-
-                    if 'sessional_report' in editable_sessional_fields:
-                        report_absent = data.get(report_absent_key) == 'on' or data.get(report_absent_key) == True
-                        absent_status['sessional_report'] = report_absent
-
-                        if report_absent:
-                            student.sessional_report = None
-                        else:
-                            report = data.get(f'sessional_report_{student.id}', '')
-                            if report:
-                                student.sessional_report = float(report)
-                            elif student.sessional_report is None:
-                                student.sessional_report = None
-
-                    if 'sessional_viva' in editable_sessional_fields:
-                        viva_absent = data.get(viva_absent_key) == 'on' or data.get(viva_absent_key) == True
-                        absent_status['sessional_viva'] = viva_absent
-
-                        if viva_absent:
-                            student.sessional_viva = None
-                        else:
-                            viva = data.get(f'sessional_viva_{student.id}', '')
-                            if viva:
-                                student.sessional_viva = float(viva)
-                            elif student.sessional_viva is None:
-                                student.sessional_viva = None
-                    
-                    # Save absent status
-                    student.assessment_absent = json.dumps(absent_status) if absent_status else None
+                    updated_fields += _apply_sessional_assessment_autosave(
+                        student, data, editable_sessional_fields
+                    )
             else:
                 return jsonify({'success': False, 'message': 'Unsupported course type'}), 400
 
             db.session.commit()
-            return jsonify({'success': True, 'message': 'Assessment marks saved automatically'})
+            return jsonify({
+                'success': True,
+                'message': 'Assessment marks saved automatically',
+                'updated_fields': updated_fields,
+            })
             
         except Exception as e:
             db.session.rollback()
