@@ -2,8 +2,100 @@
 
 {% block mobile_title %}Assessment{% endblock %}
 
+{% block extra_css %}
+<style>
+    .assessment-page { max-width: 1280px; }
+    .as-hero {
+        background: #fff;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        margin-bottom: 0.85rem;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+    }
+    .as-hero h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; margin: 0.15rem 0 0; color: #0f172a; }
+    .as-hero .as-sub { font-size: 0.8rem; color: #64748b; margin: 0; }
+    .as-hero-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .as-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+    .as-chip {
+        display: inline-flex; align-items: center; gap: 0.3rem;
+        padding: 0.22rem 0.6rem; border-radius: 999px;
+        background: #f1f5f9; border: 1px solid #e2e8f0;
+        font-size: 0.75rem; font-weight: 600; color: #334155;
+    }
+    .as-search { position: relative; margin: 0 0 0.85rem; }
+    .as-search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.8rem; }
+    .as-search input { padding-left: 2rem; border-radius: 8px; }
+    .as-reveal { border: 1px solid #bae6fd; border-radius: 10px; background: #fff; margin-bottom: 1rem; }
+    .as-reveal > summary {
+        cursor: pointer; list-style: none; padding: 0.7rem 0.95rem;
+        font-weight: 700; color: #0c4a6e; font-size: 0.9rem;
+    }
+    .as-reveal > summary::-webkit-details-marker { display: none; }
+    .as-reveal > summary::after { content: "Show"; float: right; font-weight: 600; font-size: 0.75rem; color: #0284c7; }
+    .as-reveal[open] > summary::after { content: "Hide"; }
+    .as-save-bar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+        margin-top: 0.85rem; padding-top: 0.75rem;
+    }
+    @media (max-width: 767.98px) {
+        .as-hero { padding: 0.85rem; }
+        .as-hero h1 { font-size: 1.05rem; }
+        .assessment-page .assessment-marks-table { min-width: 0 !important; }
+        .assessment-page .assessment-marks-table thead { display: none; }
+        .assessment-page .assessment-marks-table,
+        .assessment-page .assessment-marks-table tbody { display: block; width: 100%; }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row {
+            display: block;
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 0.75rem 0.8rem;
+            margin-bottom: 0.55rem;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.6rem;
+            border: none;
+            padding: 0.4rem 0;
+            text-align: left;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td::before {
+            content: attr(data-label);
+            font-weight: 600;
+            font-size: 0.72rem;
+            color: #64748b;
+            flex: 0 0 34%;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-id,
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-name {
+            display: block;
+            padding: 0;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-id::before,
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-name::before { content: none; }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-name {
+            font-weight: 700; font-size: 0.95rem; color: #0f172a;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-id {
+            font-size: 0.75rem; color: #64748b; margin-bottom: 0.35rem;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-total {
+            border-top: 1px solid #e2e8f0; margin-top: 0.25rem; padding-top: 0.5rem;
+        }
+        .as-save-bar {
+            position: sticky; bottom: 0; z-index: 8;
+            background: #fff; padding: 0.65rem 0; margin-top: 0.5rem;
+            border-top: 1px solid #e2e8f0;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
+<div class="container mt-4 assessment-page">
     <style>
         .assessment-input-field {
             width: 85px !important;
@@ -129,31 +221,58 @@
             gap: 0.45rem;
         }
     </style>
-    <div class="card shadow">
-        <div class="card-header bg-primary text-white m-page-header">
-            <h5 class="card-title mb-0">
-                <i class="fas fa-chart-line me-2"></i>Assessment - {{ session.course_name or session.term }}
-                {% if session.course_code %}
-                    <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
-                {% endif %}
-            </h5>
-        </div>
-        <div class="card-body">
-            <div class="mb-3">
-                <h6 class="text-muted">Session: {{ session.year }}-{{ session.term }}</h6>
-                <h6 class="text-muted">Course Type: {{ session.course_type|title }} | Category: {{ session.category|upper }}</h6>
-                {% if split_meta %}
-                <div class="alert alert-info py-2 px-3 mt-2 mb-0">
-                    <small>
-                        Split Delivery ({{ split_meta.scope_label }})
-                        {% if split_meta.peers %}
-                            • Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
-                        {% endif %}
-                        • Each teacher records {{ assessment_slot_count }} assessment(s); overall best {{ academic_rules.assessment.take_best }} calculated automatically.
-                    </small>
-                </div>
-                {% endif %}
+    <div class="as-hero m-page-header">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <a href="{{ url_for('class_management.index') }}" class="small text-decoration-none text-muted">
+                    <i class="fas fa-arrow-left me-1"></i>Classes
+                </a>
+                <h1>{{ session.course_name or session.term or 'Assessment' }}</h1>
+                <p class="as-sub">{{ session.year }} · {{ session.term }} · {{ session.course_type|title }} · {{ session.category|upper }}</p>
             </div>
+            <div class="as-hero-actions">
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-download me-1"></i>Export
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('class_management.download_assessment_excel', session_id=session.id) }}">
+                                <i class="fas fa-file-excel me-2 text-success"></i>Excel
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('class_management.download_assessment_pdf', session_id=session.id) }}" target="_blank">
+                                <i class="fas fa-file-pdf me-2 text-danger"></i>Assessment PDF
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" target="_blank">
+                                <i class="fas fa-file-pdf me-2 text-secondary"></i>Summary PDF
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="as-chips">
+            {% if session.course_code %}<span class="as-chip"><code>{{ session.course_code }}</code></span>{% endif %}
+            <span class="as-chip"><i class="fas fa-user-graduate"></i> {{ students|length }} students</span>
+        </div>
+        {% if split_meta %}
+        <div class="alert alert-info py-2 px-3 mt-3 mb-0">
+            <small>
+                Split ({{ split_meta.scope_label }})
+                {% if split_meta.peers %}
+                    · Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
+                {% endif %}
+                · Each teacher records {{ assessment_slot_count }} assessment(s); best {{ academic_rules.assessment.take_best }} calculated automatically.
+            </small>
+        </div>
+        {% endif %}
+    </div>
+    <div class="card shadow">
+        <div class="card-body">
             
             {% if uses_assessment_mode_picker %}
             {% set atc_notes = {
@@ -202,13 +321,10 @@
             </div>
             {% endif %}
 
-            <!-- Assessment Reveal Controls -->
-            <div class="card mb-3 border-info assessment-reveal-card">
-                <div class="card-header bg-info text-white">
-                    <h6 class="mb-0"><i class="fas fa-eye me-2"></i>Score Reveal Controls</h6>
-                </div>
-                <div class="card-body">
-                    <p class="text-muted small mb-3">Control which assessment scores and attendance marks students can view.</p>
+            <details class="as-reveal assessment-reveal-card">
+                <summary><i class="fas fa-eye me-2"></i>Student score visibility</summary>
+                <div class="px-3 pb-3">
+                    <p class="text-muted small mb-3">Control which scores students can view.</p>
                     
                     <div class="row g-3 m-switch-grid">
                         {% if session.course_type == 'theory' and session.category == 'ug' %}
@@ -310,9 +426,14 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </details>
             
             <form method="POST" id="assessmentMarksForm">
+                {% if students %}
+                <div class="as-search">
+                    <i class="fas fa-search"></i>
+                    <input id="asStudentSearch" type="search" class="form-control form-control-sm" placeholder="Search name or ID" autocomplete="off">
+                </div>
                 <div class="table-responsive m-table-scroll-sticky">
                     <table class="table table-bordered align-middle table-sm assessment-marks-table m-keep-table" style="min-width: 700px; font-size: 0.95em;">
                         {% if uses_assessment_mode_picker %}
@@ -329,11 +450,11 @@
                         </thead>
                         <tbody>
                             {% for student in students %}
-                            <tr>
-                                <td class="text-start">{{ student.student_id }}</td>
-                                <td class="text-start">{{ student.name }}</td>
+                            <tr class="as-student-row" data-student-id="{{ student.id }}" data-search="{{ student.student_id }} {{ student.name }}">
+                                <td class="text-start as-col-id">{{ student.student_id }}</td>
+                                <td class="text-start as-col-name">{{ student.name }}</td>
                                 {% for i in range(1,5) %}
-                                <td class="text-end">
+                                <td class="text-end as-col-mark" data-label="A{{ i }}">
                                     {% set combined_val_dict = combined_assessment_values.get(student.student_id, {}) %}
                                     {% set value = combined_val_dict.get(i) if combined_val_dict else None %}
                                     {% set is_editable = i in editable_indices %}
@@ -364,7 +485,7 @@
                                     {% endif %}
                                 </td>
                                 {% endfor %}
-                                <td class="fw-bold text-end">
+                                <td class="fw-bold text-end as-col-total" data-label="Total">
                                     {% set ext_total = combined_external_total.get(student.student_id) %}
                                     <span id="assessment-total-{{ student.id }}" class="external-assessment-total" data-initial-value="{% if ext_total is not none %}{{ ext_total }}{% endif %}">
                                         {% if ext_total is not none %}
@@ -396,11 +517,11 @@
                         </thead>
                         <tbody>
                             {% for student in students %}
-                            <tr>
-                                <td class="text-start">{{ student.student_id }}</td>
-                                <td class="text-start">{{ student.name }}</td>
+                            <tr class="as-student-row" data-student-id="{{ student.id }}" data-search="{{ student.student_id }} {{ student.name }}">
+                                <td class="text-start as-col-id">{{ student.student_id }}</td>
+                                <td class="text-start as-col-name">{{ student.name }}</td>
                                 {% for i in range(1,5) %}
-                                <td class="text-end">
+                                <td class="text-end as-col-mark" data-label="A{{ i }}">
                                     {% set combined_val_dict = combined_assessment_values.get(student.student_id, {}) %}
                                     {% set value = combined_val_dict.get(i) if combined_val_dict else None %}
                                     {% set is_editable = i in editable_indices %}
@@ -438,7 +559,7 @@
                                     {% endif %}
                                 </td>
                                 {% endfor %}
-                                <td class="fw-bold text-end">
+                                <td class="fw-bold text-end as-col-total" data-label="Total">
                                     {% set best_total = combined_best3.get(student.student_id) %}
                                     <span id="best3total_{{ student.id }}" data-initial-value="{% if best_total is not none %}{{ best_total }}{% endif %}">
                                         {% if best_total is not none %}
@@ -467,10 +588,10 @@
                         </thead>
                         <tbody>
                             {% for student in students %}
-                            <tr>
-                                <td class="text-start">{{ student.student_id }}</td>
-                                <td class="text-start">{{ student.name }}</td>
-                                <td class="text-end">
+                            <tr class="as-student-row" data-student-id="{{ student.id }}" data-search="{{ student.student_id }} {{ student.name }}">
+                                <td class="text-start as-col-id">{{ student.student_id }}</td>
+                                <td class="text-start as-col-name">{{ student.name }}</td>
+                                <td class="text-end as-col-mark" data-label="Report">
                                     {% set sessional_row = sessional_display_map.get(student.id, {}) %}
                                     {% set report_absent = sessional_row.get('report_absent', False) %}
                                     {% set report_value = sessional_row.get('report_value') %}
@@ -488,7 +609,7 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td class="text-end">
+                                <td class="text-end as-col-mark" data-label="Viva">
                                     {% set viva_absent = sessional_row.get('viva_absent', False) %}
                                     {% set viva_value = sessional_row.get('viva_value') %}
                                     {% set viva_editable = sessional_row.get('viva_editable', True) %}
@@ -505,7 +626,7 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td class="fw-bold text-end">
+                                <td class="fw-bold text-end as-col-total" data-label="Total">
                                     <span id="sessional_total_{{ student.id }}">{% if report_value is not none or viva_value is not none %}{{ (report_value or 0) + (viva_value or 0) }}{% else %}<span class="text-muted">Absent</span>{% endif %}</span>
                                 </td>
                             </tr>
@@ -524,11 +645,11 @@
                         </thead>
                         <tbody>
                             {% for student in students %}
-                            <tr>
-                                <td class="text-start">{{ student.student_id }}</td>
-                                <td class="text-start">{{ student.name }}</td>
+                            <tr class="as-student-row" data-student-id="{{ student.id }}" data-search="{{ student.student_id }} {{ student.name }}">
+                                <td class="text-start as-col-id">{{ student.student_id }}</td>
+                                <td class="text-start as-col-name">{{ student.name }}</td>
                                 {% for i in range(1,5) %}
-                                <td class="text-end">
+                                <td class="text-end as-col-mark" data-label="A{{ i }}">
                                     {% set combined_val_dict = combined_assessment_values.get(student.student_id, {}) %}
                                     {% set value = combined_val_dict.get(i) if combined_val_dict else None %}
                                     {% set is_editable = i in editable_indices %}
@@ -559,7 +680,7 @@
                                     {% endif %}
                                 </td>
                                 {% endfor %}
-                                <td class="fw-bold text-end">
+                                <td class="fw-bold text-end as-col-total" data-label="Total">
                                     {% set pg_total = combined_pg_total.get(student.student_id) %}
                                     <span id="pg_total_{{ student.id }}">{% if pg_total is not none %}{{ pg_total|int }}{% else %}<span class="text-muted">-</span>{% endif %}</span>
                                 </td>
@@ -578,9 +699,19 @@
                         {% endif %}
                     </table>
                 </div>
+                {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-user-graduate fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No students found</h5>
+                    <p class="text-muted">Add students to this course first</p>
+                    <a href="{{ url_for('class_management.students_list', session_id=session.id) }}" class="btn btn-primary">
+                        <i class="fas fa-plus me-1"></i>Add Students
+                    </a>
+                </div>
+                {% endif %}
                 
                 {% if students and ((session.is_external_course and session.course_type == 'theory') or (session.course_type == 'theory' and session.category == 'ug') or (session.course_type == 'theory' and session.category == 'pg') or (session.course_type == 'sessional' and session.category == 'ug')) %}
-                    <div class="d-flex gap-2 mt-3 flex-wrap align-items-center">
+                    <div class="as-save-bar">
                         <div id="auto-save-status" class="me-2" style="display: none;">
                             <small class="text-muted">
                                 <i class="fas fa-spinner fa-spin" id="save-spinner" style="display: none;"></i>
@@ -590,18 +721,6 @@
                         <button type="submit" class="btn btn-primary">
                             <i class="fas fa-save me-1"></i>Save Assessment
                         </button>
-                        <a href="{{ url_for('class_management.download_assessment_excel', session_id=session.id) }}" class="btn btn-success">
-                            <i class="fas fa-download me-1"></i>Download Excel
-                        </a>
-                        <a href="{{ url_for('class_management.download_assessment_pdf', session_id=session.id) }}" class="btn btn-danger" target="_blank">
-                            <i class="fas fa-file-pdf me-1"></i>Assessment PDF
-                        </a>
-                        <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-dark" target="_blank">
-                            <i class="fas fa-file-pdf me-1"></i>Download PDF
-                        </a>
-                        <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary">
-                            <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
-                        </a>
                     </div>
                 {% endif %}
             </form>
@@ -1421,6 +1540,17 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
             .catch(() => alert('Could not update round-total setting. Please try again.'));
         });
     });
+
+    const searchInput = document.getElementById('asStudentSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const q = (this.value || '').trim().toLowerCase();
+            document.querySelectorAll('.as-student-row').forEach(function(row) {
+                const hay = (row.getAttribute('data-search') || '').toLowerCase();
+                row.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
+            });
+        });
+    }
 })();
 </script>
 

@@ -8080,6 +8080,12 @@ def assessment(session_id):
         if request.method == 'POST':
             try:
                 import json
+                before_marks = {}
+                try:
+                    from utils.audit import CLASS_MARK_FIELDS, snapshot_rows, write_row_changes
+                    before_marks = snapshot_rows(students, CLASS_MARK_FIELDS)
+                except Exception:
+                    before_marks = {}
                 if session.course_type == 'theory':
                     for student in students:
                         # Load existing absent status
@@ -8166,6 +8172,19 @@ def assessment(session_id):
 
 
                 db.session.commit()
+                try:
+                    from utils.audit import CLASS_MARK_FIELDS, snapshot_rows, write_row_changes
+                    after_marks = snapshot_rows(students, CLASS_MARK_FIELDS)
+                    write_row_changes(
+                        'class.assessment.save',
+                        'class_session',
+                        session_id,
+                        before_marks,
+                        after_marks,
+                        extra={'course_type': session.course_type},
+                    )
+                except Exception:
+                    pass
                 flash('Assessment marks saved successfully!', 'success')
                 return redirect(url_for('class_management.assessment', session_id=session_id))
                 
@@ -8467,6 +8486,12 @@ def auto_save_assessment(session_id):
             return jsonify({'success': False, 'message': 'Invalid payload'}), 400
         
         try:
+            before_marks = {}
+            try:
+                from utils.audit import CLASS_MARK_FIELDS, snapshot_rows, write_row_changes
+                before_marks = snapshot_rows(students, CLASS_MARK_FIELDS)
+            except Exception:
+                before_marks = {}
             updated_fields = 0
             if session.course_type == 'theory':
                 for student in students:
@@ -8484,6 +8509,20 @@ def auto_save_assessment(session_id):
                 return jsonify({'success': False, 'message': 'Unsupported course type'}), 400
 
             db.session.commit()
+            if updated_fields:
+                try:
+                    from utils.audit import CLASS_MARK_FIELDS, snapshot_rows, write_row_changes
+                    after_marks = snapshot_rows(students, CLASS_MARK_FIELDS)
+                    write_row_changes(
+                        'class.assessment.autosave',
+                        'class_session',
+                        session_id,
+                        before_marks,
+                        after_marks,
+                        extra={'course_type': session.course_type, 'updated_fields': updated_fields},
+                    )
+                except Exception:
+                    pass
             return jsonify({
                 'success': True,
                 'message': 'Assessment marks saved automatically',

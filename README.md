@@ -11,14 +11,11 @@ If you're experiencing PDF/Excel download issues on cPanel, follow these steps:
 python fix_cpanel_issues.py
 ```
 
-### 2. Check System Status
-Visit: `https://yourdomain.com/debug/system-info`
-
-### 3. Check Error Logs
+### 2. Check Error Logs
 - `logs/app_errors.log` - General errors
 - `logs/detailed_errors.log` - Detailed error information
 
-### 4. Common Issues & Solutions
+### 3. Common Issues & Solutions
 
 #### Internal Server Error (500)
 - **Cause**: Missing dependencies or permission issues

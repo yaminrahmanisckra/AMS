@@ -59,9 +59,9 @@ This guide helps you deploy the Academic Management System on cPanel and trouble
 **Symptoms**: PDF/Excel downloads show "Internal Server Error"
 
 **Diagnosis Steps**:
-1. Check the debug endpoint: `https://yourdomain.com/debug/system-info`
-2. Review error logs in `logs/app_errors.log`
-3. Check `logs/detailed_errors.log` for specific error details
+1. Review error logs in `logs/app_errors.log`
+2. Check `logs/detailed_errors.log` for specific error details
+3. Check cPanel error logs (cPanel → Logs)
 
 **Common Causes**:
 - Missing Python dependencies
@@ -112,21 +112,13 @@ This guide helps you deploy the Academic Management System on cPanel and trouble
 
 ### Debugging Tools
 
-#### 1. System Information Endpoint
-Visit: `https://yourdomain.com/debug/system-info`
-This shows:
-- Available dependencies
-- File permissions
-- System information
-- Environment variables
-
-#### 2. Error Logs
+#### Error Logs
 Check these log files:
 - `logs/app_errors.log` - General application errors
 - `logs/detailed_errors.log` - Detailed error information
 - cPanel error logs (in cPanel > Logs)
 
-#### 3. Manual Testing
+#### Manual Testing
 Test each component separately:
 1. **Class Management PDF**: Try downloading attendance PDF
 2. **Class Management Excel**: Try downloading attendance Excel
@@ -217,9 +209,8 @@ pip install --upgrade -r requirements.txt
 If you continue to experience issues:
 
 1. **Check Error Logs**: Review `logs/detailed_errors.log`
-2. **Test Debug Endpoint**: Visit `/debug/system-info`
-3. **Contact Hosting Provider**: Some issues may be hosting-specific
-4. **Check cPanel Logs**: Review cPanel error logs
+2. **Contact Hosting Provider**: Some issues may be hosting-specific
+3. **Check cPanel Logs**: Review cPanel error logs
 
 ## File Structure After Deployment
 ```

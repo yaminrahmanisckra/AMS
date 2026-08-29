@@ -60,10 +60,9 @@ PHOTO_MAX_DIMENSIONS = (600, 750)  # width × height — enough for admit-card p
 PHOTO_JPEG_QUALITY = 85
 CANDIDATE_SESSION_KEY = 'admission_candidate_id'
 
-# Bump this when admit-card PDF code changes. Visible in PDF title/footer + HTTP header
-# + /admission-exam/admit-engine — use it to confirm cPanel actually loaded new code.
+# Bump this when admit-card PDF code changes. Visible in PDF title/footer + HTTP header.
 ADMIT_PDF_ENGINE = 'WEASY-STAMP-6'
-# Application-form PDF engine (Weasy+stamp). Appears in download filename + admit-engine JSON.
+# Application-form PDF engine (Weasy+stamp). Appears in download filename.
 APP_FORM_PDF_ENGINE = 'APP-WEASY-3'
 
 PAYMENT_STATUSES = ('pending', 'verified', 'rejected')
@@ -3629,149 +3628,6 @@ def _admit_pdf_response(pdf_bytes, download_name):
     return resp
 
 
-def _engine_declared_on_disk(routes_file):
-    """Read ADMIT_PDF_ENGINE from the .py file on disk (detects stale Passenger)."""
-    try:
-        with open(routes_file, 'r', encoding='utf-8', errors='replace') as f:
-            text = f.read(8000)
-        m = re.search(r"ADMIT_PDF_ENGINE\s*=\s*'([^']+)'", text)
-        return m.group(1) if m else None
-    except Exception:
-        return None
-
-
-def _touch_passenger_restart():
-    """Ask Phusion Passenger to reload the app (tmp/restart.txt)."""
-    touched = []
-    for rel in ('tmp/restart.txt', 'tmp/restart', 'restart.txt'):
-        path = os.path.join(current_app.root_path, rel)
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(datetime.utcnow().isoformat() + 'Z\n')
-            os.utime(path, None)
-            touched.append(path)
-        except Exception as e:
-            current_app.logger.warning('Could not touch %s: %s', path, e)
-    return touched
-
-
-@admission_exam_bp.route('/admit-engine')
-def admit_engine():
-    """Diagnostic: memory engine vs disk engine (stale Passenger) + photo folders.
-
-    Visit: {public_app_url()}/admission-exam/admit-engine
-    If passenger_stale=true → Restart Python app (or open /admission-exam/force-restart).
-    """
-    import hashlib
-    routes_file = os.path.abspath(__file__)
-    try:
-        with open(routes_file, 'rb') as f:
-            raw = f.read()
-        file_md5 = hashlib.md5(raw).hexdigest()
-        file_mtime = datetime.utcfromtimestamp(os.path.getmtime(routes_file)).isoformat() + 'Z'
-        file_size = len(raw)
-    except Exception as e:
-        file_md5, file_mtime, file_size = None, None, None
-        current_app.logger.warning('admit-engine stat failed: %s', e)
-
-    engine_on_disk = _engine_declared_on_disk(routes_file)
-    passenger_stale = bool(
-        engine_on_disk and engine_on_disk != ADMIT_PDF_ENGINE
-    )
-
-    cycle_folders = {}
-    try:
-        for upload_root in (
-            os.path.join(current_app.root_path, 'static', 'uploads', 'admission_exam'),
-            os.path.join(current_app.root_path, 'uploads', 'admission_exam'),
-        ):
-            if not os.path.isdir(upload_root):
-                continue
-            for name in sorted(os.listdir(upload_root)):
-                folder = os.path.join(upload_root, name)
-                if not os.path.isdir(folder):
-                    continue
-                files = [
-                    f for f in os.listdir(folder)
-                    if f.rsplit('.', 1)[-1].lower() in ALLOWED_PHOTO_EXTS
-                ]
-                key = f'{os.path.basename(os.path.dirname(upload_root))}/{name}'
-                cycle_folders[key] = {
-                    'path': folder,
-                    'image_count': len(files),
-                    'sample': sorted(files)[:5],
-                }
-    except Exception as e:
-        cycle_folders = {'error': str(e)}
-
-    photo_check = None
-    cand_id = request.args.get('candidate_id', type=int)
-    if cand_id:
-        cand = AdmissionCandidate.query.get(cand_id)
-        if cand:
-            resolved = _photo_abs_path(cand)
-            photo_check = {
-                'candidate_id': cand.id,
-                'application_id': cand.application_id,
-                'db_photo_path': cand.photo_path,
-                'resolved': resolved,
-                'exists': bool(resolved and os.path.isfile(resolved)),
-                'size': os.path.getsize(resolved) if resolved and os.path.isfile(resolved) else 0,
-            }
-
-    app_form_template_ok = False
-    bangla_font = _kalpurush_font_path()
-    try:
-        current_app.jinja_env.get_template('admission_exam/application_form_pdf.html')
-        app_form_template_ok = True
-    except Exception:
-        app_form_template_ok = False
-
-    return jsonify({
-        'engine_in_memory': ADMIT_PDF_ENGINE,
-        'engine_on_disk': engine_on_disk,
-        'passenger_stale': passenger_stale,
-        'engine': ADMIT_PDF_ENGINE,  # backwards-compatible
-        'app_form_engine': APP_FORM_PDF_ENGINE,
-        'app_form_template_ok': app_form_template_ok,
-        'bangla_font_path': bangla_font,
-        'bangla_font_ok': bool(bangla_font and os.path.isfile(bangla_font)),
-        'routes_file': routes_file,
-        'routes_md5': file_md5,
-        'routes_mtime_utc': file_mtime,
-        'routes_size': file_size,
-        'root_path': current_app.root_path,
-        'static_folder': current_app.static_folder,
-        'cwd': os.getcwd(),
-        'upload_folders': cycle_folders,
-        'photo_check': photo_check,
-        'force_restart_url': '/admission-exam/force-restart',
-        'hint': (
-            'If passenger_stale is true, the .py file on disk is newer than the running '
-            'process — open /admission-exam/force-restart or Restart the Python app in cPanel. '
-            f'PDF must open as {public_app_url() or "https://<host>"}/.../admit-card.pdf (NOT file:// from Downloads) '
-            'App root: /home/kulawams/public_html/ams'
-        ),
-    })
-
-
-@admission_exam_bp.route('/force-restart')
-def force_restart():
-    """Touch Passenger restart.txt so cPanel reloads Python (no login required for deploy recovery)."""
-    touched = _touch_passenger_restart()
-    return jsonify({
-        'ok': bool(touched),
-        'touched': touched,
-        'was_engine_in_memory': ADMIT_PDF_ENGINE,
-        'next': (
-            'Wait 5-10 seconds, then reload /admission-exam/admit-engine. '
-            'engine_in_memory must equal engine_on_disk (REPORTLAB-RL8). '
-            'Then open admit card again - address bar must be https:// not file://'
-        ),
-    })
-
-
 @admission_exam_bp.route('/apply/<token>/admit-card.pdf')
 @candidate_required
 def candidate_admit_card(cycle, candidate):
@@ -4818,29 +4674,6 @@ def user_scrutinizer_signature_image(user_id):
     if not path:
         abort(404)
     return send_file(path)
-
-
-@admission_exam_bp.route('/candidate/<int:candidate_id>/admit-debug')
-@login_required
-@candidate_access_required
-def candidate_admit_debug(candidate):
-    """JSON diagnostics for photo/signature resolution (admin troubleshooting)."""
-    photo_src = _photo_abs_path(candidate)
-    sig_src = _signature_abs_path(candidate.cycle) if candidate.cycle else None
-    photo_bytes = _image_bytes_for_pdf(photo_src) if photo_src else None
-    return jsonify({
-        'engine': 'RL3',
-        'application_id': candidate.application_id,
-        'db_photo_path': candidate.photo_path,
-        'resolved_photo': photo_src,
-        'photo_exists': bool(photo_src and os.path.isfile(photo_src)),
-        'photo_bytes': len(photo_bytes) if photo_bytes else 0,
-        'db_signature_path': getattr(candidate.cycle, 'chairman_signature_path', None),
-        'resolved_signature': sig_src,
-        'signature_exists': bool(sig_src and os.path.isfile(sig_src)),
-        'root_path': current_app.root_path,
-        'cwd': os.getcwd(),
-    })
 
 
 @admission_exam_bp.route('/candidate/<int:candidate_id>/admit-card.pdf')

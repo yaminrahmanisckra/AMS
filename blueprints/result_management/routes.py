@@ -3613,6 +3613,13 @@ def add_marks(session_id):
 
         retake_map = _load_course_management_retake_map(session, subject.code, students)
 
+        before_marks = {}
+        try:
+            from utils.audit import snapshot_result_marks_by_student, write_row_changes
+            before_marks = snapshot_result_marks_by_student(students, subject.id, RMark)
+        except Exception:
+            before_marks = {}
+
         for student in students:
             existing_mark = RMark.query.filter_by(student_id=student.id, subject_id=subject.id).first()
             if existing_mark is None:
@@ -3720,6 +3727,19 @@ def add_marks(session_id):
             existing_mark.grade_point, existing_mark.grade_letter = calculate_grade(total_marks, is_retake=is_retake)
 
         db.session.commit()
+        try:
+            from utils.audit import snapshot_result_marks_by_student, write_row_changes
+            after_marks = snapshot_result_marks_by_student(students, subject.id, RMark)
+            write_row_changes(
+                'result.marks.save',
+                'result_session',
+                session_id,
+                before_marks,
+                after_marks,
+                extra={'subject_id': subject.id, 'subject_code': subject.code},
+            )
+        except Exception:
+            pass
         # Emit WebSocket event for live update
         try:
             from utils.websocket_events import emit_marks_update
@@ -3802,6 +3822,21 @@ def auto_save_marks(session_id):
         # Process marks from request
         marks_data = data.get('marks', {})
         updated_count = 0
+        touched_students = []
+        for sid_str in marks_data:
+            try:
+                sid = int(sid_str)
+            except (TypeError, ValueError):
+                continue
+            student = student_id_map.get(sid)
+            if student:
+                touched_students.append(student)
+        before_marks = {}
+        try:
+            from utils.audit import snapshot_result_marks_by_student, write_row_changes
+            before_marks = snapshot_result_marks_by_student(touched_students, subject.id, RMark)
+        except Exception:
+            before_marks = {}
         
         for student_id_str, student_marks in marks_data.items():
             try:
@@ -3885,6 +3920,24 @@ def auto_save_marks(session_id):
                 continue
         
         db.session.commit()
+        if updated_count:
+            try:
+                from utils.audit import snapshot_result_marks_by_student, write_row_changes
+                after_marks = snapshot_result_marks_by_student(touched_students, subject.id, RMark)
+                write_row_changes(
+                    'result.marks.autosave',
+                    'result_session',
+                    session_id,
+                    before_marks,
+                    after_marks,
+                    extra={
+                        'subject_id': subject.id,
+                        'subject_code': subject.code,
+                        'updated_count': updated_count,
+                    },
+                )
+            except Exception:
+                pass
         # Emit WebSocket event for live update
         try:
             from utils.websocket_events import emit_marks_update

@@ -665,6 +665,41 @@
         min-height: var(--m-touch);
     }
 
+    body.m-shell .cm-hero {
+        padding: 0.8rem 0.85rem !important;
+        margin-bottom: 0.65rem !important;
+    }
+
+    body.m-shell .cm-hero h1 {
+        font-size: 1.05rem !important;
+    }
+
+    body.m-shell .cm-hero-actions {
+        width: 100%;
+    }
+
+    body.m-shell .cm-hero-actions .btn {
+        flex: 1 1 auto;
+    }
+
+    body.m-shell .cm-course-card {
+        padding: 0.7rem 0.75rem;
+    }
+
+    body.m-shell .cm-course-title {
+        font-size: 0.92rem;
+    }
+
+    body.m-shell .cm-course-actions .btn,
+    body.m-shell .cm-course-actions a.btn {
+        min-height: var(--m-touch);
+        font-size: 0.78rem !important;
+    }
+
+    body.m-shell .cm-search {
+        margin-bottom: 0.65rem;
+    }
+
     /* Dashboard 2-column module grid */
     body.m-shell .dashboard-wrapper .row.g-3 > [class*="col-"],
     body.m-shell .dashboard-wrapper .row.g-4 > [class*="col-"] {
@@ -1923,6 +1958,43 @@
         padding: 0.45rem !important;
     }
 
+    body.m-shell .att-hero {
+        padding: 0.8rem 0.85rem;
+        margin-bottom: 0.65rem;
+        border-radius: 10px;
+    }
+
+    body.m-shell .att-hero h1 {
+        font-size: 1.05rem;
+    }
+
+    body.m-shell .att-chips {
+        margin-top: 0.55rem;
+    }
+
+    body.m-shell .att-card-list {
+        display: flex !important;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    body.m-shell .att-page:not(.show-sheet) .att-sheet-wrap {
+        display: none !important;
+    }
+
+    body.m-shell .att-page.show-sheet .att-card-list {
+        display: none !important;
+    }
+
+    body.m-shell .att-sheet-toggle {
+        display: inline-flex !important;
+    }
+
+    body.m-shell .att-student-card {
+        padding: 0.7rem 0.75rem;
+    }
+
     body.m-shell .m-table-scroll-sticky .attendance-table .student-name {
         min-width: 88px !important;
         max-width: 110px;
@@ -1932,46 +2004,124 @@
     }
 
     /* Assessment page */
+    body.m-shell .as-hero {
+        padding: 0.8rem 0.85rem;
+        margin-bottom: 0.65rem;
+    }
+
+    body.m-shell .as-hero h1 {
+        font-size: 1.05rem;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table {
+        min-width: 0 !important;
+        width: 100% !important;
+        display: block !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table thead {
+        display: none !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody {
+        display: block !important;
+        width: 100%;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row {
+        display: block !important;
+        background: #fff !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 10px !important;
+        padding: 0.7rem 0.75rem !important;
+        margin-bottom: 0.55rem !important;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        border: none !important;
+        padding: 0.4rem 0 !important;
+        text-align: left !important;
+        white-space: normal !important;
+        width: 100% !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td::before {
+        content: attr(data-label) !important;
+        display: block !important;
+        font-weight: 600;
+        font-size: 0.72rem;
+        color: #64748b;
+        text-align: left;
+        flex: 0 0 34%;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-id,
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-name {
+        display: block !important;
+        padding: 0 !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-id::before,
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-name::before {
+        content: none !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-name {
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: #0f172a;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-id {
+        font-size: 0.75rem;
+        color: #64748b;
+        margin-bottom: 0.3rem;
+    }
+
+    body.m-shell .assessment-page .assessment-input-field {
+        max-width: 88px !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky {
+        overflow: visible;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table td .d-flex {
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.45rem;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table td:nth-child(2),
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table th:nth-child(2) {
+        position: static !important;
+        left: auto;
+        box-shadow: none;
+        min-width: 0;
+        max-width: none;
+        font-size: inherit;
+    }
+
+    body.m-shell .as-save-bar {
+        position: sticky;
+        bottom: 0;
+        z-index: 8;
+        background: #fff;
+        padding: 0.6rem 0;
+        border-top: 1px solid #e2e8f0;
+    }
+
     body.m-shell .assessment-reveal-card .m-switch-grid {
         margin-bottom: 0;
     }
 
     body.m-shell .assessment-reveal-card .m-action-row {
         margin-top: 0.35rem;
-    }
-
-    body.m-shell .m-table-scroll-sticky table.assessment-marks-table {
-        min-width: 640px !important;
-    }
-
-    body.m-shell .m-table-scroll-sticky table.assessment-marks-table thead th {
-        font-size: 0.68rem;
-        padding: 0.4rem 0.25rem !important;
-        white-space: nowrap;
-    }
-
-    body.m-shell .m-table-scroll-sticky table.assessment-marks-table td:nth-child(2),
-    body.m-shell .m-table-scroll-sticky table.assessment-marks-table th:nth-child(2) {
-        position: sticky;
-        left: 72px;
-        z-index: 2;
-        background: #fff;
-        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06);
-        text-align: left !important;
-        min-width: 100px;
-        max-width: 130px;
-        white-space: normal !important;
-        font-size: 0.72rem;
-        line-height: 1.25;
-    }
-
-    body.m-shell .m-table-scroll-sticky table.assessment-marks-table thead th:nth-child(2) {
-        background: #f8f9fa;
-        z-index: 3;
-    }
-
-    body.m-shell .m-table-scroll-sticky table.assessment-marks-table tbody tr:nth-child(even) td:nth-child(2) {
-        background: #f8f9fa;
     }
 
     /* Routine maker timetable */

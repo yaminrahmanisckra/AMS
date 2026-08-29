@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Log{% endblock %}
+{% block mobile_title %}Audit Log{% endblock %}
+
+{% block extra_css %}
+<style>
+    .audit-page { max-width: 1280px; }
+    .audit-page .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.75rem 1rem; margin-bottom: 1rem; }
+    .audit-page h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+    .audit-page .sub { font-size: 0.8rem; color: #64748b; margin: 0.15rem 0 0; }
+    .audit-page .panel { background: #fff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 10px; overflow: hidden; }
+    .audit-page table { font-size: 0.8rem; margin: 0; }
+    .audit-page th { white-space: nowrap; background: #f8fafc; }
+    .audit-page pre { margin: 0; max-height: 9rem; overflow: auto; font-size: 0.7rem; background: #f8fafc; padding: 0.35rem 0.45rem; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }
+    .audit-page .action-pill { font-weight: 600; font-size: 0.72rem; }
+    .audit-page .muted { color: #64748b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 px-lg-4 py-3 audit-page">
+    <div class="page-head">
+        <div>
+            <h1>Audit Log</h1>
+            <p class="sub">Read-only. User and marks changes. Does not alter stored marks.</p>
+        </div>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-arrow-left me-1"></i>Admin Dashboard
+        </a>
+    </div>
+
+    {% if not table_ready %}
+    <div class="alert alert-warning">
+        The <code>audit_log</code> table is not installed yet. Run
+        <code>scripts/sql/add_audit_log.sql</code> in phpMyAdmin, then reload this page.
+        Until then, user and marks saves continue as usual.
+    </div>
+    {% else %}
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <label class="form-label mb-0 small text-muted" for="auditAction">Action</label>
+        <input id="auditAction" class="form-control form-control-sm" style="max-width: 22rem;" type="text" name="action" value="{{ action_filter }}" placeholder="e.g. user.update, result.marks.save">
+        <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+        {% if action_filter %}
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_audit_log') }}">Clear</a>
+        {% endif %}
+    </form>
+
+    <div class="panel table-responsive">
+        <table class="table table-sm align-top mb-0">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Who</th>
+                    <th>Action</th>
+                    <th>Entity</th>
+                    <th>Before</th>
+                    <th>After</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if entries %}
+                    {% for e in entries %}
+                    <tr>
+                        <td class="text-nowrap">{{ e.when or '—' }}</td>
+                        <td>
+                            {{ e.actor }}
+                            {% if e.role %}<div class="muted">{{ e.role }}</div>{% endif %}
+                            {% if e.ip %}<div class="muted">{{ e.ip }}</div>{% endif %}
+                        </td>
+                        <td>
+                            <span class="action-pill">{{ e.action }}</span>
+                            {% if e.path %}<div class="muted">{{ e.path }}</div>{% endif %}
+                        </td>
+                        <td>{{ e.entity }}</td>
+                        <td>{% if e.before %}<pre>{{ e.before }}</pre>{% else %}<span class="muted">—</span>{% endif %}</td>
+                        <td>
+                            {% if e.after %}<pre>{{ e.after }}</pre>{% else %}<span class="muted">—</span>{% endif %}
+                            {% if e.extra %}<pre class="mt-1">{{ e.extra }}</pre>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-4">No audit rows yet.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if pagination and pagination.pages > 1 %}
+    <nav class="mt-3" aria-label="Audit pages">
+        <ul class="pagination pagination-sm">
+            <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+                {% if pagination.has_prev %}
+                <a class="page-link" href="{{ url_for('admin_audit_log', page=pagination.prev_num, action=action_filter) }}">Prev</a>
+                {% else %}
+                <span class="page-link">Prev</span>
+                {% endif %}
+            </li>
+            <li class="page-item disabled"><span class="page-link">Page {{ pagination.page }} / {{ pagination.pages }}</span></li>
+            <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+                {% if pagination.has_next %}
+                <a class="page-link" href="{{ url_for('admin_audit_log', page=pagination.next_num, action=action_filter) }}">Next</a>
+                {% else %}
+                <span class="page-link">Next</span>
+                {% endif %}
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

@@ -11,13 +11,11 @@ from flask import Flask, render_template, redirect, url_for, flash, request, sen
 from flask_login import LoginManager, current_user, login_required
 from extensions import db, migrate, mail
 from user_models import User
+from utils.audit import AuditLog  # noqa: F401 — register table; writes via write_audit
 from error_handler import (
     register_error_handlers,
     setup_application_logging,
     setup_error_logging,
-    check_dependencies,
-    check_file_permissions,
-    get_system_info,
 )
 from role_utils import (
     ADMIN_ROLE,
@@ -557,21 +555,7 @@ def create_app():
         import traceback
         logging.warning('Noticeboard blueprint not loaded: %s', e)
         logging.warning(traceback.format_exc())
-    
-    @app.route('/debug-self-assessment')
-    def debug_self_assessment():
-        """Temporary: দেখুন Self Assessment ব্লুপ্রিন্ট কেন লোড হচ্ছে না। ব্যবহারের পর রুটটি মুছে ফেলুন।"""
-        try:
-            try:
-                from blueprints.self_assessment import self_assessment_bp
-            except ImportError:
-                from blueprints.self_assessment import self_assessment as self_assessment_bp
-            return '<h2>OK</h2><p>Blueprint imports successfully. If the card still shows setup message, restart the app and clear browser cache.</p>'
-        except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            return '<h2>Self Assessment load error</h2><pre style="white-space:pre-wrap;background:#f5f5f5;padding:1em;">' + str(e) + '\n\n' + tb + '</pre>'
-    
+
     # Service Worker route for PWA
     @app.route('/sw.js')
     def service_worker():
@@ -611,9 +595,9 @@ def create_app():
     
     @socketio.on('join_session', namespace='/')
     def handle_join_session(data):
-        """Join a session room for live updates — teaching staff / owners only (X01)."""
+        """Join a class session room — same access as view_attendance."""
         from flask_login import current_user
-        from role_utils import has_teacher_privileges, is_admin
+        from role_utils import is_admin, parse_roles
         from utils.ownership import user_owns_class_session
         if not current_user.is_authenticated:
             return False
@@ -627,7 +611,19 @@ def create_app():
             return False
         if not sess:
             return False
-        if not (is_admin(current_user) or user_owns_class_session(current_user, sess) or has_teacher_privileges(current_user)):
+        try:
+            user_roles = set(parse_roles(getattr(current_user, 'role', '')))
+            if getattr(current_user, 'active_role', None):
+                user_roles = set(parse_roles(current_user.active_role))
+            can_view = (
+                is_admin(current_user)
+                or 'head' in user_roles
+                or 'dean' in user_roles
+                or user_owns_class_session(current_user, sess)
+            )
+        except Exception:
+            return False
+        if not can_view:
             return False
         join_room(f'session_{session_id}')
         emit('joined_session', {'session_id': session_id})
@@ -644,23 +640,40 @@ def create_app():
     
     @socketio.on('join_result_session', namespace='/')
     def handle_join_result_session(data):
-        """Join a result session room for live updates"""
+        """Join a result session room — same access as add_marks."""
         from flask_login import current_user
-        if current_user.is_authenticated:
-            session_id = data.get('session_id')
-            if session_id:
-                join_room(f'result_session_{session_id}')
-                emit('joined_result_session', {'session_id': session_id})
-    
+        if not current_user.is_authenticated:
+            return False
+        session_id = (data or {}).get('session_id')
+        if not session_id:
+            return False
+        try:
+            from blueprints.result_management.models import RSession
+            result_sess = RSession.query.get(int(session_id))
+        except (TypeError, ValueError):
+            return False
+        if not result_sess:
+            return False
+        try:
+            from blueprints.result_management.routes import _can_access_session
+            if not _can_access_session(result_sess):
+                return False
+        except Exception:
+            return False
+        join_room(f'result_session_{session_id}')
+        emit('joined_result_session', {'session_id': session_id})
+
     @socketio.on('leave_result_session', namespace='/')
     def handle_leave_result_session(data):
         """Leave a result session room"""
         from flask_login import current_user
-        if current_user.is_authenticated:
-            session_id = data.get('session_id')
-            if session_id:
-                leave_room(f'result_session_{session_id}')
-                emit('left_result_session', {'session_id': session_id})
+        if not current_user.is_authenticated:
+            return False
+        session_id = (data or {}).get('session_id')
+        if not session_id:
+            return False
+        leave_room(f'result_session_{session_id}')
+        emit('left_result_session', {'session_id': session_id})
     
     # Store socketio in app context for access in routes
     app.socketio = socketio
@@ -972,25 +985,6 @@ def create_app():
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
         return response
-
-    @app.route('/test-form', methods=['GET', 'POST'])
-    def test_form():
-        test_result = None
-        if request.method == 'POST':
-            test_result = {
-                'name': request.form.get('test_name'),
-                'email': request.form.get('test_email'),
-                'timestamp': bd_now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-            flash('Test form submitted successfully!', 'success')
-        return render_template('test_form.html', test_result=test_result)
-
-    @app.route('/simple-test', methods=['GET', 'POST'])
-    def simple_test():
-        result = None
-        if request.method == 'POST':
-            result = f"Name: {request.form.get('test_name')}, Email: {request.form.get('test_email')}"
-        return render_template('simple_test.html', result=result)
 
     def _generate_teacher_short_name(base: str) -> str:
         base = (base or 'teacher').split(' ')[0]
@@ -3090,38 +3084,6 @@ def create_app():
 
         return redirect(url_for('class_management.my_invitations'))
 
-    @app.route('/test-simple-pdf')
-    def test_simple_pdf():
-        """Simple PDF test endpoint"""
-        try:
-            from flask import Response
-            from reportlab.lib.pagesizes import letter
-            from reportlab.platypus import SimpleDocTemplate, Paragraph
-            from reportlab.lib.styles import getSampleStyleSheet
-            from io import BytesIO
-            
-            buffer = BytesIO()
-            doc = SimpleDocTemplate(buffer, pagesize=letter)
-            styles = getSampleStyleSheet()
-            
-            elements = []
-            elements.append(Paragraph("Test PDF", styles['Title']))
-            elements.append(Paragraph(f"Generated at: {datetime.now()}", styles['Normal']))
-            
-            doc.build(elements)
-            buffer.seek(0)
-            
-            return Response(
-                buffer.getvalue(),
-                mimetype='application/pdf',
-                headers={
-                    'Content-Disposition': 'attachment; filename="test.pdf"',
-                    'Content-Length': str(len(buffer.getvalue()))
-                }
-            )
-        except Exception as e:
-            return f"Error: {str(e)}", 500
-
     @app.route('/admin')
     @login_required
     def admin_dashboard():
@@ -3257,6 +3219,61 @@ def create_app():
         response.headers['Expires'] = '0'
         return response
 
+    @app.route('/admin/audit-log')
+    @login_required
+    def admin_audit_log():
+        if not is_admin(current_user):
+            flash('You do not have permission to access this page.', 'danger')
+            return redirect(url_for('index'))
+        try:
+            page = max(1, int(request.args.get('page', 1)))
+        except (TypeError, ValueError):
+            page = 1
+        action_filter = (request.args.get('action') or '').strip()
+        table_ready = True
+        pagination = None
+        entries = []
+
+        def _pretty_json(raw):
+            if not raw:
+                return ''
+            try:
+                return json.dumps(json.loads(raw), indent=2, ensure_ascii=False)
+            except Exception:
+                return raw
+
+        try:
+            query = AuditLog.query.order_by(AuditLog.created_at.desc())
+            if action_filter:
+                query = query.filter(AuditLog.action == action_filter)
+            pagination = query.paginate(page=page, per_page=50, error_out=False)
+            for row in pagination.items:
+                entries.append({
+                    'id': row.id,
+                    'when': format_bd(row.created_at, '%d %b %Y, %I:%M %p', default='') if row.created_at else '',
+                    'actor': row.actor_username or '—',
+                    'role': row.actor_role or '',
+                    'action': row.action,
+                    'entity': f"{row.entity_type} #{row.entity_id}" if row.entity_id else row.entity_type,
+                    'before': _pretty_json(row.before_json),
+                    'after': _pretty_json(row.after_json),
+                    'extra': _pretty_json(row.extra_json),
+                    'ip': row.ip or '',
+                    'path': row.path or '',
+                })
+        except Exception:
+            db.session.rollback()
+            table_ready = False
+            pagination = None
+            entries = []
+        return render_template(
+            'admin_audit_log.html',
+            table_ready=table_ready,
+            pagination=pagination,
+            entries=entries,
+            action_filter=action_filter,
+        )
+
     @app.route('/admin/account', methods=['POST'])
     @login_required
     def admin_update_account():
@@ -3304,6 +3321,17 @@ def create_app():
             return redirect(url_for('admin_dashboard'))
 
         db.session.commit()
+        try:
+            from utils.audit import write_audit
+            write_audit(
+                'user.update',
+                'user',
+                current_user.id,
+                after={'changed': changed},
+                extra={'username': current_user.username},
+            )
+        except Exception:
+            pass
         flash('Administrator ' + ' and '.join(changed) + ' updated.', 'success')
         return redirect(url_for('admin_dashboard'))
 
@@ -12180,124 +12208,6 @@ def create_app():
             current_app.logger.error(f'Class Test student-count helper failed: {e}', exc_info=True)
             return jsonify({'success': False, 'message': str(e)}), 500
 
-    @app.route('/exam-committee-chief/debug-registrations', methods=['GET'])
-    @login_required
-    def exam_committee_chief_debug_registrations():
-        """One-shot diagnostic: dump every StudentCourseRegistration for a session
-        (optionally filtered by year/term), grouped by course, so we can see at a
-        glance exactly what is actually registered — theory AND sessional — and
-        under which code/year/term/status. Open in the browser, e.g.:
-            /exam-committee-chief/debug-registrations?academic_session=2024-25
-            /exam-committee-chief/debug-registrations?academic_session=2024-25&year=Third&term=Second
-        """
-        academic_session = request.args.get('academic_session')
-        year = request.args.get('year')
-        term = request.args.get('term')
-
-        if not academic_session:
-            return jsonify({'success': False, 'message': 'academic_session is required'}), 400
-
-        try:
-            from blueprints.course_management.models import StudentCourseRegistration
-            from blueprints.student_management.models import Student
-            from sqlalchemy import func
-
-            def normalize_label(label):
-                if not label:
-                    return ''
-                label = str(label).strip()
-                for suffix in [' Year', ' Term', 'Year', 'Term']:
-                    if label.lower().endswith(suffix.lower()):
-                        label = label[:-len(suffix)].strip()
-                return label
-
-            normalized_year = normalize_label(year) if year else None
-            normalized_term = normalize_label(term) if term else None
-
-            # Join Student so we can also see which batch each course's students
-            # belong to — this reveals whether a batch filter would wrongly drop
-            # legitimate registrations.
-            query = db.session.query(
-                StudentCourseRegistration.course_code,
-                StudentCourseRegistration.course_name,
-                StudentCourseRegistration.course_type,
-                StudentCourseRegistration.year,
-                StudentCourseRegistration.term,
-                StudentCourseRegistration.status,
-                Student.batch,
-                func.count(func.distinct(StudentCourseRegistration.student_id))
-            ).outerjoin(
-                Student, Student.id == StudentCourseRegistration.student_id
-            ).filter(StudentCourseRegistration.academic_session == academic_session)
-
-            if normalized_year:
-                query = query.filter(StudentCourseRegistration.year == normalized_year)
-            if normalized_term:
-                query = query.filter(StudentCourseRegistration.term == normalized_term)
-
-            rows = query.group_by(
-                StudentCourseRegistration.course_code,
-                StudentCourseRegistration.course_name,
-                StudentCourseRegistration.course_type,
-                StudentCourseRegistration.year,
-                StudentCourseRegistration.term,
-                StudentCourseRegistration.status,
-                Student.batch,
-            ).order_by(
-                StudentCourseRegistration.course_type,
-                StudentCourseRegistration.course_code,
-            ).all()
-
-            all_rows = [{
-                'course_code': r[0],
-                'course_name': r[1],
-                'course_type': r[2],
-                'year': r[3],
-                'term': r[4],
-                'status': r[5],
-                'batch': r[6],
-                'students': r[7],
-            } for r in rows]
-
-            # Roll up per course_code so we can see the total and the batch spread.
-            by_course = {}
-            for r in all_rows:
-                key = r['course_code']
-                if key not in by_course:
-                    by_course[key] = {
-                        'course_code': r['course_code'],
-                        'course_name': r['course_name'],
-                        'course_type': r['course_type'],
-                        'total_students': 0,
-                        'batches': {},
-                    }
-                by_course[key]['total_students'] += r['students']
-                bkey = str(r['batch'])
-                by_course[key]['batches'][bkey] = by_course[key]['batches'].get(bkey, 0) + r['students']
-
-            course_summary = list(by_course.values())
-            sessional_rows = [c for c in course_summary if 'sessional' in str(c['course_type'] or '').lower()]
-
-            # Distinct batches present across all these registrations.
-            all_batches = sorted({str(r['batch']) for r in all_rows})
-
-            return jsonify({
-                'success': True,
-                'inputs': {
-                    'academic_session': academic_session,
-                    'year_raw': year, 'term_raw': term,
-                    'normalized_year': normalized_year, 'normalized_term': normalized_term,
-                },
-                'total_courses': len(course_summary),
-                'all_batches_present': all_batches,
-                'sessional_only': sessional_rows,
-                'course_summary': course_summary,
-            })
-
-        except Exception as e:
-            current_app.logger.error(f'Error in debug-registrations: {str(e)}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
-
     @app.route('/api/get-teacher-info/<int:teacher_id>', methods=['GET'])
     @login_required
     def get_teacher_info(teacher_id):
@@ -18107,9 +18017,29 @@ def create_app():
         if is_admin(user_to_delete):
             flash('Admin users cannot be deleted.', 'danger')
             return redirect(url_for('admin_users'))
-        
+
+        deleted_snap = {}
+        deleted_username = user_to_delete.username
+        try:
+            from utils.audit import USER_AUDIT_FIELDS, snapshot_attrs
+            deleted_snap = snapshot_attrs(user_to_delete, USER_AUDIT_FIELDS)
+            deleted_snap['id'] = user_to_delete.id
+        except Exception:
+            deleted_snap = {'id': user_id}
+
         db.session.delete(user_to_delete)
         db.session.commit()
+        try:
+            from utils.audit import write_audit
+            write_audit(
+                'user.delete',
+                'user',
+                user_id,
+                before=deleted_snap,
+                extra={'username': deleted_username},
+            )
+        except Exception:
+            pass
         flash('User deleted successfully.', 'success')
         return redirect(url_for('admin_users'))
 
@@ -18126,6 +18056,12 @@ def create_app():
             return redirect(url_for('admin_users'))
 
         if request.method == 'POST':
+            before_user = {}
+            try:
+                from utils.audit import USER_AUDIT_FIELDS, dict_diff, snapshot_attrs, write_audit
+                before_user = snapshot_attrs(user_to_edit, USER_AUDIT_FIELDS)
+            except Exception:
+                before_user = {}
             old_full_name = user_to_edit.full_name
             user_to_edit.full_name = request.form['full_name']
             user_to_edit.email = request.form['email']
@@ -18187,6 +18123,21 @@ def create_app():
                 )
             
             db.session.commit()
+            try:
+                from utils.audit import USER_AUDIT_FIELDS, dict_diff, snapshot_attrs, write_audit
+                after_user = snapshot_attrs(user_to_edit, USER_AUDIT_FIELDS)
+                old_d, new_d = dict_diff(before_user, after_user)
+                if old_d or new_d:
+                    write_audit(
+                        'user.update',
+                        'user',
+                        user_to_edit.id,
+                        before=old_d,
+                        after=new_d,
+                        extra={'username': user_to_edit.username},
+                    )
+            except Exception:
+                pass
             flash('User updated successfully.', 'success')
             return redirect(url_for('admin_users'))
         
@@ -18302,6 +18253,17 @@ def create_app():
                 if hasattr(user, 'teacher_id'):
                     user.teacher_id = teacher.id
             db.session.commit()
+            try:
+                from utils.audit import USER_AUDIT_FIELDS, snapshot_attrs, write_audit
+                write_audit(
+                    'user.create',
+                    'user',
+                    user.id,
+                    after=snapshot_attrs(user, USER_AUDIT_FIELDS),
+                    extra={'username': user.username},
+                )
+            except Exception:
+                pass
             flash(f'User "{full_name}" ({username}) created successfully!', 'success')
         except Exception as e:
             db.session.rollback()
@@ -18334,35 +18296,32 @@ def create_app():
             user_to_reset.set_password(new_password)
             user_to_reset.must_change_password = False
             db.session.commit()
+            try:
+                from utils.audit import write_audit
+                write_audit(
+                    'user.password_reset',
+                    'user',
+                    user_to_reset.id,
+                    after={'password_changed': True},
+                    extra={'username': user_to_reset.username},
+                )
+            except Exception:
+                pass
             flash(f"Password for {user_to_reset.username} has been reset.", 'success')
             return redirect(url_for('admin_users'))
             
         return render_template('admin_reset_password.html', user=user_to_reset)
 
-    @app.route('/debug/system-info')
-    def debug_system_info():
-        """Debug endpoint to check system information"""
-        try:
-            deps = check_dependencies()
-            permissions = check_file_permissions()
-            system_info = get_system_info()
-            
-            return {
-                'dependencies': deps,
-                'permissions': permissions,
-                'system_info': system_info,
-                'status': 'ok'
-            }
-        except Exception as e:
-            return {
-                'error': str(e),
-                'status': 'error'
-            }
-    
     @app.route('/profile', methods=['GET', 'POST'])
     @login_required
     def profile():
         if request.method == 'POST':
+            before_profile = {}
+            try:
+                from utils.audit import USER_AUDIT_FIELDS, dict_diff, snapshot_attrs, write_audit
+                before_profile = snapshot_attrs(current_user, USER_AUDIT_FIELDS)
+            except Exception:
+                before_profile = {}
             full_name = request.form.get('full_name', '').strip()
             email = request.form.get('email', '').strip()
             current_password = request.form.get('current_password')
@@ -18562,16 +18521,34 @@ def create_app():
 
             # Commit all changes
             try:
+                password_changed = bool(new_password)
                 db.session.commit()
-                flash('Profile updated successfully!', 'success')
-                if name_changed:
-                    flash(f'Name updated from "{old_full_name}" to "{current_user.full_name}". All related data has been adapted.', 'info')
-                if email_changed:
-                    flash(f'Email updated from "{old_email}" to "{current_user.email}".', 'info')
             except Exception as e:
                 db.session.rollback()
                 current_app.logger.error(f'Error updating profile: {str(e)}')
                 flash('An error occurred while updating your profile. Please try again.', 'danger')
+                return redirect(url_for('profile'))
+            try:
+                after_profile = snapshot_attrs(current_user, USER_AUDIT_FIELDS)
+                old_d, new_d = dict_diff(before_profile, after_profile)
+                if password_changed:
+                    new_d['password_changed'] = True
+                if old_d or new_d:
+                    write_audit(
+                        'user.profile_update',
+                        'user',
+                        current_user.id,
+                        before=old_d or None,
+                        after=new_d or None,
+                        extra={'username': current_user.username},
+                    )
+            except Exception:
+                pass
+            flash('Profile updated successfully!', 'success')
+            if name_changed:
+                flash(f'Name updated from "{old_full_name}" to "{current_user.full_name}". All related data has been adapted.', 'info')
+            if email_changed:
+                flash(f'Email updated from "{old_email}" to "{current_user.email}".', 'info')
             
             return redirect(url_for('profile'))
         

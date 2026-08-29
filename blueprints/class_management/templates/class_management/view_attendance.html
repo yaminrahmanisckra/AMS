@@ -2,436 +2,541 @@
 
 {% block mobile_title %}Attendance{% endblock %}
 
+{% block extra_css %}
+<style>
+    .att-page { max-width: 1280px; }
+    .att-hero {
+        background: #fff;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 12px;
+        padding: 1rem 1.15rem;
+        margin-bottom: 0.85rem;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+    }
+    .att-hero-top {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem 1rem;
+    }
+    .att-hero h1 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.2rem;
+        color: #0f172a;
+    }
+    .att-hero .att-sub {
+        font-size: 0.8rem;
+        color: #64748b;
+        margin: 0;
+    }
+    .att-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+    .att-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+    .att-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.22rem 0.6rem;
+        border-radius: 999px;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #334155;
+    }
+    .att-chip code { font-size: 0.75rem; color: #1e3a8a; }
+    .att-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.6rem;
+        margin-bottom: 0.75rem;
+    }
+    .att-toolbar-main { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; }
+    .att-tools {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem 0.75rem;
+        margin-bottom: 0.85rem;
+    }
+    .att-search {
+        flex: 1 1 16rem;
+        min-width: 0;
+        position: relative;
+    }
+    .att-search i {
+        position: absolute;
+        left: 0.7rem;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94a3b8;
+        font-size: 0.8rem;
+    }
+    .att-search input {
+        padding-left: 2rem;
+        border-radius: 8px;
+    }
+    .att-legend {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.75rem;
+        color: #475569;
+    }
+    .att-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        font-weight: 600;
+    }
+    .att-swatch {
+        width: 0.7rem;
+        height: 0.7rem;
+        border-radius: 3px;
+        display: inline-block;
+    }
+    .att-swatch-p { background: #22c55e; }
+    .att-swatch-a { background: #ef4444; }
+    .att-swatch-s { background: #eab308; }
+    .att-swatch-n { background: #cbd5e1; }
+    .att-card-list { display: none; }
+    .att-sheet-toggle { display: none; }
+    .att-student-card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 0.75rem 0.85rem;
+    }
+    .att-card-top { display: flex; justify-content: space-between; gap: 0.75rem; }
+    .att-card-name { font-weight: 700; color: #0f172a; font-size: 0.95rem; line-height: 1.25; }
+    .att-card-id { font-size: 0.75rem; color: #64748b; margin-top: 0.1rem; }
+    .att-card-stats { text-align: right; flex: 0 0 auto; }
+    .att-card-pct { font-size: 1.15rem; font-weight: 800; color: #0f172a; line-height: 1.1; }
+    .att-card-marks-wrap { font-size: 0.72rem; color: #64748b; margin-top: 0.15rem; }
+    .att-card-marks { font-weight: 700; color: #334155; }
+    .att-card-meta { font-size: 0.75rem; color: #64748b; margin-top: 0.35rem; }
+    .att-dots { display: flex; flex-wrap: wrap; gap: 0.28rem; margin-top: 0.45rem; }
+    .att-dot {
+        width: 0.62rem;
+        height: 0.62rem;
+        border-radius: 50%;
+        background: #cbd5e1;
+    }
+    .att-dot-p { background: #22c55e; }
+    .att-dot-a { background: #ef4444; }
+    .att-dot-s { background: #eab308; }
+    .att-empty {
+        text-align: center;
+        padding: 2.5rem 1rem;
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+    }
+    .attendance-table {
+        border-collapse: collapse;
+        width: 100%;
+        background: #fff;
+        font-size: 14px;
+    }
+    .attendance-table th, .attendance-table td {
+        border: 1px solid #dee2e6;
+        padding: 0.5rem;
+        text-align: center;
+        vertical-align: middle;
+    }
+    .attendance-table thead th {
+        background-color: #343a40;
+        color: #fff;
+        position: sticky;
+        top: 0;
+        z-index: 1;
+    }
+    .attendance-table thead th.freeze-col-1,
+    .attendance-table thead th.freeze-col-2,
+    .attendance-table thead th.freeze-col-3 {
+        position: sticky;
+        z-index: 10;
+        background-color: #343a40 !important;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+    }
+    .attendance-table thead th.freeze-col-1 { left: 0; }
+    .attendance-table thead th.freeze-col-2 { left: 0; }
+    .attendance-table thead th.freeze-col-3 { left: 0; border-right: 2px solid #495057; }
+    .attendance-table tbody td.freeze-col-1,
+    .attendance-table tbody td.freeze-col-2,
+    .attendance-table tbody td.freeze-col-3 {
+        position: sticky;
+        z-index: 5;
+        background-color: #fff !important;
+        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+    }
+    .attendance-table tbody td.freeze-col-1 { left: 0; }
+    .attendance-table tbody td.freeze-col-2 { left: 0; background-color: #fff !important; }
+    .attendance-table tbody td.freeze-col-3 { left: 0; background-color: #fff !important; border-right: 2px solid #dee2e6; }
+    .attendance-table tbody tr:nth-child(even) td.freeze-col-1,
+    .attendance-table tbody tr:nth-child(even) td.freeze-col-2,
+    .attendance-table tbody tr:nth-child(even) td.freeze-col-3 {
+        background-color: #f8f9fa !important;
+    }
+    .attendance-table tbody tr:nth-child(even) { background-color: #f8f9fa; }
+    .attendance-table tbody tr:hover { background-color: #e9ecef; }
+    .attendance-table tbody tr:hover td.freeze-col-1,
+    .attendance-table tbody tr:hover td.freeze-col-2,
+    .attendance-table tbody tr:hover td.freeze-col-3 {
+        background-color: #e9ecef !important;
+    }
+    .student-name { text-align: left; min-width: 180px; }
+    .attendance-cell.editable { cursor: pointer; transition: background-color 0.2s ease; }
+    .attendance-cell.editable:hover { background-color: rgba(13, 110, 253, 0.1); }
+    .attendance-cell.editable.editing { box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.7); }
+    .manual-badge { cursor: pointer; transition: opacity 0.2s ease; }
+    .manual-badge:hover { opacity: 0.8; }
+    .status-skip { color: #9a6700 !important; }
+    .att-date-short { display: none; }
+    .att-date-full { display: inline; }
+    .attendance-cell.saving { opacity: 0.55; pointer-events: none; }
+    .attendance-cell:has(.text-success) { background: #ecfdf5; }
+    .attendance-cell:has(.text-danger) { background: #fef2f2; }
+    .attendance-cell:has(.status-skip) { background: #fffbeb; }
+
+    @media (max-width: 767.98px) {
+        .att-card-list { display: flex; flex-direction: column; gap: 0.55rem; }
+        .att-page:not(.show-sheet) .att-sheet-wrap { display: none !important; }
+        .att-page.show-sheet .att-card-list { display: none !important; }
+        .att-sheet-toggle { display: inline-flex; }
+        .att-hero { padding: 0.85rem; }
+        .att-hero h1 { font-size: 1.05rem; }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <div class="card shadow">
-        <div class="card-header bg-info text-white d-flex justify-content-between align-items-center m-page-header">
-            <h5 class="card-title mb-0">
-                <i class="fas fa-eye me-2"></i>Attendance Report - {{ session.course_name or session.term }}
-                {% if session.course_code %}
-                    <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
-                {% endif %}
-            </h5>
-            <div class="d-flex align-items-center flex-wrap gap-2 m-action-row att-report-actions">
-                <a href="{{ url_for('class_management.download_attendance_sheet_weasyprint', session_id=session.id) }}" class="btn btn-primary btn-sm" target="_blank" title="Download Attendance Sheet PDF (WeasyPrint)">
-                    <i class="fas fa-file-pdf"></i> PDF
-                </a>
-                <a href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" class="btn btn-light btn-sm" target="_blank" title="Download Summary PDF">
-                    <i class="fas fa-file-pdf"></i> Summary PDF
-                </a>
-                <a href="{{ url_for('class_management.download_attendance_excel', session_id=session.id) }}" class="btn btn-success btn-sm" title="Download as Excel">
-                    <i class="fas fa-file-excel"></i> Excel
-                </a>
-                <a href="{{ url_for('class_management.index') }}" class="btn btn-secondary btn-sm" title="Back to Dashboard">
-                    <i class="fas fa-arrow-left"></i> Back
-                </a>
+{% set has_report = (is_split_course and teacher_attendance_data) or student_report_data %}
+{% set student_count = (attendance_summary.per_student|default({})|length) if attendance_summary else 0 %}
+{% set total_classes = attendance_summary.total_classes if attendance_summary else 0 %}
+
+{% macro att_dots(attendance_row) -%}
+    <div class="att-dots" aria-hidden="true">
+        {% for cell in attendance_row[-8:] %}
+            {% set st = (cell.status or '-')|upper %}
+            <span class="att-dot {% if st == 'P' %}att-dot-p{% elif st == 'A' %}att-dot-a{% elif st == 'S' %}att-dot-s{% endif %}" title="{{ cell.date }} · {{ st }}"></span>
+        {% endfor %}
+    </div>
+{%- endmacro %}
+
+{% macro student_card(data) -%}
+    <article class="att-student-card" data-student-public-id="{{ data.info.student_id }}" data-search="{{ data.info.student_id }} {{ data.info.name }}">
+        <div class="att-card-top">
+            <div>
+                <div class="att-card-name">{{ data.info.name }}</div>
+                <div class="att-card-id">{{ data.info.student_id }}</div>
+            </div>
+            <div class="att-card-stats">
+                <div class="att-card-pct">{{ data.percentage }}</div>
+                <div class="att-card-marks-wrap">Marks <span class="att-card-marks">{{ data.marks }}</span></div>
             </div>
         </div>
-        <div class="card-body">
-            {% if split_meta %}
-            <div class="alert alert-info">
-                <div>
-                    <strong>Split Course ({{ split_meta.scope_label }})</strong>
-                    {% if split_meta.peers %}
-                        • Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
-                    {% endif %}
-                </div>
-                {% if split_meta and split_meta.class_totals %}
-                <ul class="mb-0 mt-2">
-                    {% for info in split_meta.class_totals %}
-                    <li {% if info.is_current %}class="fw-bold"{% endif %}>
-                        {{ info.teacher_name }} — {{ info.classes }} class(es)
-                    </li>
-                    {% endfor %}
-                </ul>
-                <small><strong>Note:</strong> Attendance tables are shown separately for each teacher. Marks are calculated from combined attendance (Total: {{ attendance_summary.total_classes }} classes).</small>
-                {% endif %}
-            </div>
-            {% endif %}
-             <div class="att-report-toolbar d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-                <div class="att-report-primary">
-                    <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
-                        <i class="fas fa-clipboard-check me-1"></i><span class="att-btn-full">Take or Update Attendance</span><span class="att-btn-short d-none">Take / Update</span>
-                    </a>
-                    <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteDateModal">
-                        <i class="fas fa-trash-alt me-1"></i><span class="att-btn-full">Delete by Date</span><span class="att-btn-short d-none">Delete</span>
-                    </button>
-                </div>
-                {% if student_report_data or (is_split_course and teacher_attendance_data) %}
-                <div class="edit-toggle mb-0">
-                    <div class="form-check form-switch mb-0">
-                        <input class="form-check-input" type="checkbox" id="editModeToggle">
-                        <label class="form-check-label" for="editModeToggle">Edit mode</label>
-                    </div>
-                    <small class="att-edit-hint text-muted d-none">Tap P / A / S to cycle</small>
-                </div>
-                {% endif %}
-            </div>
-            
-            {% if is_split_course and teacher_attendance_data %}
-                {# Split Course: Show separate tables for each teacher #}
-                <style>
-                    .attendance-table {
-                        border-collapse: collapse;
-                        width: 100%;
-                        background: #fff;
-                        font-size: 14px;
-                    }
-                    .attendance-table th, .attendance-table td {
-                        border: 1px solid #dee2e6;
-                        padding: 0.5rem;
-                        text-align: center;
-                        vertical-align: middle;
-                    }
-                    .attendance-table thead th {
-                        background-color: #343a40;
-                        color: #fff;
-                        position: sticky;
-                        top: 0;
-                        z-index: 1;
-                    }
-                    .attendance-table thead th.freeze-col-1,
-                    .attendance-table thead th.freeze-col-2,
-                    .attendance-table thead th.freeze-col-3 {
-                        position: sticky;
-                        z-index: 10;
-                        background-color: #343a40 !important;
-                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-                    }
-                    .attendance-table thead th.freeze-col-1 { left: 0; }
-                    .attendance-table thead th.freeze-col-2 { left: 0; }
-                    .attendance-table thead th.freeze-col-3 { left: 0; border-right: 2px solid #495057; }
-                    .attendance-table tbody td.freeze-col-1,
-                    .attendance-table tbody td.freeze-col-2,
-                    .attendance-table tbody td.freeze-col-3 {
-                        position: sticky;
-                        z-index: 5;
-                        background-color: #fff !important;
-                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-                    }
-                    .attendance-table tbody td.freeze-col-1 { left: 0; }
-                    .attendance-table tbody td.freeze-col-2 { left: 0; background-color: #fff !important; }
-                    .attendance-table tbody td.freeze-col-3 { left: 0; background-color: #fff !important; border-right: 2px solid #dee2e6; }
-                    .attendance-table tbody tr:nth-child(even) td.freeze-col-1,
-                    .attendance-table tbody tr:nth-child(even) td.freeze-col-2,
-                    .attendance-table tbody tr:nth-child(even) td.freeze-col-3 {
-                        background-color: #f8f9fa !important;
-                    }
-                    .attendance-table tbody tr:nth-child(even) { background-color: #f8f9fa; }
-                    .attendance-table tbody tr:hover { background-color: #e9ecef; }
-                    .attendance-table tbody tr:hover td.freeze-col-1,
-                    .attendance-table tbody tr:hover td.freeze-col-2,
-                    .attendance-table tbody tr:hover td.freeze-col-3 {
-                        background-color: #e9ecef !important;
-                    }
-                    .student-name {
-                        text-align: left;
-                        min-width: 180px;
-                    }
-                    .attendance-cell.editable {
-                        cursor: pointer;
-                        transition: background-color 0.2s ease;
-                    }
-                    .attendance-cell.editable:hover {
-                        background-color: rgba(13, 110, 253, 0.1);
-                    }
-                    .attendance-cell.editable.editing {
-                        box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.7);
-                    }
-                    .manual-badge {
-                        cursor: pointer;
-                        transition: opacity 0.2s ease;
-                    }
-                    .manual-badge:hover {
-                        opacity: 0.8;
-                    }
-                    .status-skip {
-                        color: #9a6700 !important;
-                    }
-                    .att-date-short { display: none; }
-                    .att-date-full { display: inline; }
-                    .attendance-cell.saving { opacity: 0.55; pointer-events: none; }
-                </style>
-                
-                {% for teacher_data in teacher_attendance_data %}
-                <div class="card shadow-sm mb-4 att-teacher-card">
-                    <div class="card-header {% if teacher_data.session.id == session.id %}bg-primary{% else %}bg-secondary{% endif %} text-white">
-                        <h5 class="mb-0">
-                            <i class="fas fa-chalkboard-teacher me-2"></i>
-                            {{ teacher_data.teacher_name }} ({{ teacher_data.teacher_short }}) — {{ teacher_data.scope_label }}
-                            {% if teacher_data.session.id == session.id %}
-                                <span class="badge bg-light text-dark ms-2">Current Session</span>
-                            {% endif %}
-                        </h5>
-                        <small class="d-block mt-1">
-                            Classes in this part: {{ teacher_data.part_total_classes }} | 
-                            Total classes for marks: {{ attendance_summary.total_classes }}
-                        </small>
-                    </div>
-                    <div class="card-body p-2 p-md-3">
-                        {% if teacher_data.student_report_data %}
-                            <div class="table-responsive m-table-scroll-sticky att-report-scroll">
-                                <table class="attendance-table m-keep-table att-report-table" data-session-id="{{ teacher_data.session.id }}">
-                                    <thead>
-                                        <tr>
-                                            <th rowspan="2" class="freeze-col-1 att-col-si">#</th>
-                                            <th rowspan="2" class="freeze-col-2 att-col-id">ID</th>
-                                            <th rowspan="2" class="student-name freeze-col-3 att-col-name">Name</th>
-                                            <th colspan="{{ teacher_data.headers_with_meta|length }}" class="att-col-group">Attendance ({{ teacher_data.scope_label }})</th>
-                                            <th rowspan="2" class="att-col-part">Part</th>
-                                            <th rowspan="2" class="att-col-total">Total</th>
-                                            <th rowspan="2" class="att-col-present">Present</th>
-                                            <th rowspan="2" class="att-col-pct">%</th>
-                                            <th rowspan="2" class="att-col-marks">Marks</th>
-                                        </tr>
-                                        <tr>
-                                            {% for header in teacher_data.headers_with_meta %}
-                                                <th class="att-date-th" data-date="{{ header.date }}" data-slot="{{ header.slot }}" title="{{ header.label }}">
-                                                    <span class="att-date-full">{{ header.label }}</span>
-                                                    <span class="att-date-short">{{ header.label.split(',')[0] }}</span>
-                                                </th>
-                                            {% endfor %}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for data in teacher_data.student_report_data %}
-                                        <tr data-student-db-id="{{ data.info.id }}" data-student-public-id="{{ data.info.student_id }}">
-                                            <td class="freeze-col-1 att-col-si">{{ loop.index }}</td>
-                                            <td class="freeze-col-2 att-col-id"><strong>{{ data.info.student_id }}</strong></td>
-                                            <td class="student-name freeze-col-3 att-col-name">{{ data.info.name }}</td>
-                                            {% for cell in data.attendance_row %}
-                                                <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
-                                                    {% if cell.status == 'P' %}
-                                                        <span class="status text-success fw-bold">P</span>
-                                                    {% elif cell.status == 'A' %}
-                                                        <span class="status text-danger fw-bold">A</span>
-                                                    {% elif cell.status == 'S' %}
-                                                        <span class="status fw-bold status-skip">S</span>
-                                                    {% else %}
-                                                        <span class="status text-muted">-</span>
-                                                    {% endif %}
-                                                </td>
-                                            {% endfor %}
-                                            <td class="att-col-part">{{ teacher_data.part_total_classes or 0 }}</td>
-                                            <td class="att-col-total total-classes-cell">{{ data.total_classes }}</td>
-                                            <td class="present-count att-col-present">{{ data.present_count }}</td>
-                                            <td class="percentage-cell att-col-pct">{{ data.percentage }}</td>
-                                            <td class="marks-cell att-col-marks" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
-                                                <div class="d-flex align-items-center gap-1 justify-content-center">
-                                                    <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit" 
-                                                           value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
-                                                           data-original-value="{{ data.marks }}">
-                                                    <span class="marks-display">{{ data.marks }}</span>
-                                                    {% if data.marks_manual %}
-                                                        <span class="badge bg-info badge-sm manual-badge">Manual</span>
-                                                    {% else %}
-                                                        <span class="badge bg-info badge-sm manual-badge" style="display: none;">Manual</span>
-                                                    {% endif %}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        {% else %}
-                            <div class="text-center py-3 text-muted">
-                                No attendance data for this teacher yet.
-                            </div>
-                        {% endif %}
-                    </div>
-                </div>
-                {% endfor %}
-            {% elif student_report_data %}
-                <style>
-                    .attendance-table {
-                        border-collapse: collapse;
-                        width: 100%;
-                        background: #fff;
-                        font-size: 14px;
-                    }
-                    .attendance-table th, .attendance-table td {
-                        border: 1px solid #dee2e6;
-                        padding: 0.5rem;
-                        text-align: center;
-                        vertical-align: middle;
-                    }
-                    .attendance-table thead th {
-                        background-color: #343a40;
-                        color: #fff;
-                        position: sticky;
-                        top: 0;
-                        z-index: 1;
-                    }
-                    /* Freeze first three columns (SI, Student ID, Name) */
-                    .attendance-table thead th.freeze-col-1,
-                    .attendance-table thead th.freeze-col-2,
-                    .attendance-table thead th.freeze-col-3 {
-                        position: sticky;
-                        z-index: 10;
-                        background-color: #343a40 !important;
-                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-                    }
-                    .attendance-table thead th.freeze-col-1 {
-                        left: 0;
-                    }
-                    .attendance-table thead th.freeze-col-2 {
-                        left: 0;
-                        margin-left: 0;
-                    }
-                    .attendance-table thead th.freeze-col-3 {
-                        left: 0;
-                        margin-left: 0;
-                        border-right: 2px solid #495057;
-                    }
-                    .attendance-table tbody td.freeze-col-1,
-                    .attendance-table tbody td.freeze-col-2,
-                    .attendance-table tbody td.freeze-col-3 {
-                        position: sticky;
-                        z-index: 5;
-                        background-color: #fff !important;
-                        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-                    }
-                    .attendance-table tbody td.freeze-col-1 {
-                        left: 0;
-                    }
-                    .attendance-table tbody td.freeze-col-2 {
-                        left: 0;
-                        margin-left: 0;
-                        background-color: #fff !important;
-                    }
-                    .attendance-table tbody td.freeze-col-3 {
-                        left: 0;
-                        margin-left: 0;
-                        background-color: #fff !important;
-                        border-right: 2px solid #dee2e6;
-                    }
-                    /* Ensure even rows maintain background */
-                    .attendance-table tbody tr:nth-child(even) td.freeze-col-1,
-                    .attendance-table tbody tr:nth-child(even) td.freeze-col-2,
-                    .attendance-table tbody tr:nth-child(even) td.freeze-col-3 {
-                        background-color: #f8f9fa !important;
-                    }
-                    .attendance-table tbody tr:nth-child(even) {
-                        background-color: #f8f9fa;
-                    }
-                    .attendance-table tbody tr:hover {
-                        background-color: #e9ecef;
-                    }
-                    .attendance-table tbody tr:hover td.freeze-col-1,
-                    .attendance-table tbody tr:hover td.freeze-col-2,
-                    .attendance-table tbody tr:hover td.freeze-col-3 {
-                        background-color: #e9ecef !important;
-                    }
-                    .student-name {
-                        text-align: left;
-                        min-width: 180px;
-                    }
-                    .attendance-cell.editable {
-                        cursor: pointer;
-                        transition: background-color 0.2s ease;
-                    }
-                    .attendance-cell.editable:hover {
-                        background-color: rgba(13, 110, 253, 0.1);
-                    }
-                    .attendance-cell.editable.editing {
-                        box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.7);
-                    }
-                    .manual-badge {
-                        cursor: pointer;
-                        transition: opacity 0.2s ease;
-                    }
-                    .manual-badge:hover {
-                        opacity: 0.8;
-                    }
-                    .status-skip {
-                        color: #9a6700 !important;
-                    }
-                    .att-date-short { display: none; }
-                    .att-date-full { display: inline; }
-                    .attendance-cell.saving { opacity: 0.55; pointer-events: none; }
-                </style>
+        <div class="att-card-meta">
+            Present <span class="att-card-present">{{ data.present_count }}</span>
+            · {{ data.total_classes }} classes
+        </div>
+        {{ att_dots(data.attendance_row) }}
+    </article>
+{%- endmacro %}
 
-                <div class="table-responsive m-table-scroll-sticky att-report-scroll">
-                    <table class="attendance-table m-keep-table att-report-table" data-session-id="{{ session.id }}">
-                        <thead>
-                            <tr>
-                                <th rowspan="2" class="freeze-col-1 att-col-si">#</th>
-                                <th rowspan="2" class="freeze-col-2 att-col-id">Student ID</th>
-                                <th rowspan="2" class="student-name freeze-col-3 att-col-name">Name</th>
-                                <th colspan="{{ headers_with_meta|length }}" class="att-col-group">Attendance</th>
-                                {% if session.course_scope in ['part_a', 'part_b'] %}
-                                <th rowspan="2" class="att-col-part">Classes (This Part)</th>
-                                {% endif %}
-                                <th rowspan="2" class="att-col-total">Total Classes</th>
-                                <th rowspan="2" class="att-col-present">Present Days</th>
-                                <th rowspan="2" class="att-col-pct">Percentage</th>
-                                <th rowspan="2" class="att-col-marks">Marks</th>
-                            </tr>
-                            <tr>
-                                {% for header in headers_with_meta %}
-                                    <th class="att-date-th" data-date="{{ header.date }}" data-slot="{{ header.slot }}" title="{{ header.label }}">
-                                        <span class="att-date-full">{{ header.label }}</span>
-                                        <span class="att-date-short">{{ header.label.split(',')[0] }}</span>
-                                    </th>
-                                {% endfor %}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for data in student_report_data %}
-                            <tr data-student-db-id="{{ data.info.id }}" data-student-public-id="{{ data.info.student_id }}">
-                                <td class="freeze-col-1 att-col-si">{{ loop.index }}</td>
-                                <td class="freeze-col-2 att-col-id"><strong>{{ data.info.student_id }}</strong></td>
-                                <td class="student-name freeze-col-3 att-col-name">{{ data.info.name }}</td>
-                                {% for cell in data.attendance_row %}
-                                    <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
-                                        {% if cell.status == 'P' %}
-                                            <span class="status text-success fw-bold">P</span>
-                                        {% elif cell.status == 'A' %}
-                                            <span class="status text-danger fw-bold">A</span>
-                                        {% elif cell.status == 'S' %}
-                                            <span class="status fw-bold status-skip">S</span>
-                                        {% else %}
-                                            <span class="status text-muted">-</span>
-                                        {% endif %}
-                                    </td>
-                                {% endfor %}
-                                {% if session.course_scope in ['part_a', 'part_b'] %}
-                                <td class="att-col-part">{{ part_total_classes or 0 }}</td>
-                                {% endif %}
-                                <td class="att-col-total total-classes-cell">{{ data.total_classes }}</td>
-                                <td class="present-count att-col-present">{{ data.present_count }}</td>
-                                <td class="percentage-cell att-col-pct">{{ data.percentage }}</td>
-                                <td class="marks-cell att-col-marks" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
-                                    <div class="d-flex align-items-center gap-1 justify-content-center">
-                                        <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit" 
-                                               value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
-                                               data-original-value="{{ data.marks }}">
-                                        <span class="marks-display">{{ data.marks }}</span>
-                                        {% if data.marks_manual %}
-                                            <span class="badge bg-info badge-sm manual-badge">Manual</span>
-                                        {% else %}
-                                            <span class="badge bg-info badge-sm manual-badge" style="display: none;">Manual</span>
-                                        {% endif %}
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+<div class="container mt-4 att-page">
+    <div class="att-hero">
+        <div class="att-hero-top">
+            <div>
+                <a href="{{ url_for('class_management.index') }}" class="small text-decoration-none text-muted">
+                    <i class="fas fa-arrow-left me-1"></i>Classes
+                </a>
+                <h1>{{ session.course_name or session.term or 'Attendance' }}</h1>
+                <p class="att-sub">
+                    {% if session.academic_session %}{{ session.academic_session }}{% endif %}
+                    {% if session.year %} · Year {{ session.year }}{% endif %}
+                    {% if session.term %} · Term {{ session.term }}{% endif %}
+                    {% if session.batch %} · Batch {{ session.batch }}{% endif %}
+                </p>
+            </div>
+            <div class="att-hero-actions att-report-actions">
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-download me-1"></i>Export
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('class_management.download_attendance_sheet_weasyprint', session_id=session.id) }}" target="_blank">
+                                <i class="fas fa-file-pdf me-2 text-danger"></i>Attendance sheet PDF
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('class_management.download_pdf_report', session_id=session.id) }}" target="_blank">
+                                <i class="fas fa-file-pdf me-2 text-secondary"></i>Summary PDF
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="{{ url_for('class_management.download_attendance_excel', session_id=session.id) }}">
+                                <i class="fas fa-file-excel me-2 text-success"></i>Excel
+                            </a>
+                        </li>
+                    </ul>
                 </div>
-            {% else %}
-                <div class="text-center py-5">
-                    <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
-                    <h5 class="text-muted">No attendance data found</h5>
-                    <p class="text-muted">Take attendance first to see the report.</p>
-                </div>
-            {% endif %}
+            </div>
+        </div>
+        <div class="att-chips">
+            {% if session.course_code %}<span class="att-chip"><code>{{ session.course_code }}</code></span>{% endif %}
+            <span class="att-chip"><i class="fas fa-user-graduate"></i> {{ student_count }} students</span>
+            <span class="att-chip"><i class="fas fa-calendar-check"></i> {{ total_classes }} classes</span>
         </div>
     </div>
+
+    {% if split_meta %}
+    <div class="alert alert-info">
+        <div>
+            <strong>Split Course ({{ split_meta.scope_label }})</strong>
+            {% if split_meta.peers %}
+                • Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
+            {% endif %}
+        </div>
+        {% if split_meta and split_meta.class_totals %}
+        <ul class="mb-0 mt-2">
+            {% for info in split_meta.class_totals %}
+            <li {% if info.is_current %}class="fw-bold"{% endif %}>
+                {{ info.teacher_name }} — {{ info.classes }} class(es)
+            </li>
+            {% endfor %}
+        </ul>
+        <small><strong>Note:</strong> Attendance tables are shown separately for each teacher. Marks are calculated from combined attendance (Total: {{ attendance_summary.total_classes }} classes).</small>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="att-toolbar att-report-toolbar">
+        <div class="att-toolbar-main att-report-primary">
+            <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success">
+                <i class="fas fa-clipboard-check me-1"></i><span class="att-btn-full">Take attendance</span><span class="att-btn-short d-none">Take</span>
+            </a>
+            {% if has_report %}
+            <div class="edit-toggle mb-0">
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="editModeToggle">
+                    <label class="form-check-label" for="editModeToggle">Edit mode</label>
+                </div>
+                <small class="att-edit-hint text-muted d-none">Tap P / A / S on the sheet</small>
+            </div>
+            {% endif %}
+        </div>
+        <button type="button" class="btn btn-link btn-sm text-danger px-1" data-bs-toggle="modal" data-bs-target="#deleteDateModal">
+            <i class="fas fa-trash-alt me-1"></i>Delete a date
+        </button>
+    </div>
+
+    {% if has_report %}
+    <div class="att-tools">
+        <div class="att-search">
+            <i class="fas fa-search"></i>
+            <input id="attStudentSearch" type="search" class="form-control form-control-sm" placeholder="Search name or ID" autocomplete="off">
+        </div>
+        <div class="att-legend">
+            <span class="att-legend-item"><span class="att-swatch att-swatch-p"></span> Present</span>
+            <span class="att-legend-item"><span class="att-swatch att-swatch-a"></span> Absent</span>
+            <span class="att-legend-item"><span class="att-swatch att-swatch-s"></span> Skip</span>
+            <span class="att-legend-item"><span class="att-swatch att-swatch-n"></span> Empty</span>
+        </div>
+        <button type="button" class="btn btn-outline-secondary btn-sm att-sheet-toggle" id="attSheetToggle">
+            <i class="fas fa-table me-1"></i><span class="att-sheet-toggle-label">Full sheet</span>
+        </button>
+    </div>
+    {% endif %}
+
+    {% if is_split_course and teacher_attendance_data %}
+        {% for teacher_data in teacher_attendance_data %}
+        <div class="card shadow-sm mb-4 att-teacher-card">
+            <div class="card-header {% if teacher_data.session.id == session.id %}bg-primary{% else %}bg-secondary{% endif %} text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-chalkboard-teacher me-2"></i>
+                    {{ teacher_data.teacher_name }} ({{ teacher_data.teacher_short }}) — {{ teacher_data.scope_label }}
+                    {% if teacher_data.session.id == session.id %}
+                        <span class="badge bg-light text-dark ms-2">Current Session</span>
+                    {% endif %}
+                </h5>
+                <small class="d-block mt-1">
+                    Classes in this part: {{ teacher_data.part_total_classes }} |
+                    Total classes for marks: {{ attendance_summary.total_classes }}
+                </small>
+            </div>
+            <div class="card-body p-2 p-md-3">
+                {% if teacher_data.student_report_data %}
+                    <div class="att-card-list">
+                        {% for data in teacher_data.student_report_data %}
+                            {{ student_card(data) }}
+                        {% endfor %}
+                    </div>
+                    <div class="table-responsive m-table-scroll-sticky att-report-scroll att-sheet-wrap">
+                        <table class="attendance-table m-keep-table att-report-table" data-session-id="{{ teacher_data.session.id }}">
+                            <thead>
+                                <tr>
+                                    <th rowspan="2" class="freeze-col-1 att-col-si">#</th>
+                                    <th rowspan="2" class="freeze-col-2 att-col-id">ID</th>
+                                    <th rowspan="2" class="student-name freeze-col-3 att-col-name">Name</th>
+                                    <th colspan="{{ teacher_data.headers_with_meta|length }}" class="att-col-group">Attendance ({{ teacher_data.scope_label }})</th>
+                                    <th rowspan="2" class="att-col-part">Part</th>
+                                    <th rowspan="2" class="att-col-total">Total</th>
+                                    <th rowspan="2" class="att-col-present">Present</th>
+                                    <th rowspan="2" class="att-col-pct">%</th>
+                                    <th rowspan="2" class="att-col-marks">Marks</th>
+                                </tr>
+                                <tr>
+                                    {% for header in teacher_data.headers_with_meta %}
+                                        <th class="att-date-th" data-date="{{ header.date }}" data-slot="{{ header.slot }}" title="{{ header.label }}">
+                                            <span class="att-date-full">{{ header.label }}</span>
+                                            <span class="att-date-short">{{ header.label.split(',')[0] }}</span>
+                                        </th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for data in teacher_data.student_report_data %}
+                                <tr data-student-db-id="{{ data.info.id }}" data-student-public-id="{{ data.info.student_id }}">
+                                    <td class="freeze-col-1 att-col-si">{{ loop.index }}</td>
+                                    <td class="freeze-col-2 att-col-id"><strong>{{ data.info.student_id }}</strong></td>
+                                    <td class="student-name freeze-col-3 att-col-name">{{ data.info.name }}</td>
+                                    {% for cell in data.attendance_row %}
+                                        <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
+                                            {% if cell.status == 'P' %}
+                                                <span class="status text-success fw-bold">P</span>
+                                            {% elif cell.status == 'A' %}
+                                                <span class="status text-danger fw-bold">A</span>
+                                            {% elif cell.status == 'S' %}
+                                                <span class="status fw-bold status-skip">S</span>
+                                            {% else %}
+                                                <span class="status text-muted">-</span>
+                                            {% endif %}
+                                        </td>
+                                    {% endfor %}
+                                    <td class="att-col-part">{{ teacher_data.part_total_classes or 0 }}</td>
+                                    <td class="att-col-total total-classes-cell">{{ data.total_classes }}</td>
+                                    <td class="present-count att-col-present">{{ data.present_count }}</td>
+                                    <td class="percentage-cell att-col-pct">{{ data.percentage }}</td>
+                                    <td class="marks-cell att-col-marks" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
+                                        <div class="d-flex align-items-center gap-1 justify-content-center">
+                                            <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit"
+                                                   value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
+                                                   data-original-value="{{ data.marks }}">
+                                            <span class="marks-display">{{ data.marks }}</span>
+                                            {% if data.marks_manual %}
+                                                <span class="badge bg-info badge-sm manual-badge">Manual</span>
+                                            {% else %}
+                                                <span class="badge bg-info badge-sm manual-badge" style="display: none;">Manual</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-3 text-muted">
+                        No attendance data for this teacher yet.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    {% elif student_report_data %}
+        <div class="att-card-list">
+            {% for data in student_report_data %}
+                {{ student_card(data) }}
+            {% endfor %}
+        </div>
+        <div class="table-responsive m-table-scroll-sticky att-report-scroll att-sheet-wrap">
+            <table class="attendance-table m-keep-table att-report-table" data-session-id="{{ session.id }}">
+                <thead>
+                    <tr>
+                        <th rowspan="2" class="freeze-col-1 att-col-si">#</th>
+                        <th rowspan="2" class="freeze-col-2 att-col-id">Student ID</th>
+                        <th rowspan="2" class="student-name freeze-col-3 att-col-name">Name</th>
+                        <th colspan="{{ headers_with_meta|length }}" class="att-col-group">Attendance</th>
+                        {% if session.course_scope in ['part_a', 'part_b'] %}
+                        <th rowspan="2" class="att-col-part">Classes (This Part)</th>
+                        {% endif %}
+                        <th rowspan="2" class="att-col-total">Total Classes</th>
+                        <th rowspan="2" class="att-col-present">Present Days</th>
+                        <th rowspan="2" class="att-col-pct">Percentage</th>
+                        <th rowspan="2" class="att-col-marks">Marks</th>
+                    </tr>
+                    <tr>
+                        {% for header in headers_with_meta %}
+                            <th class="att-date-th" data-date="{{ header.date }}" data-slot="{{ header.slot }}" title="{{ header.label }}">
+                                <span class="att-date-full">{{ header.label }}</span>
+                                <span class="att-date-short">{{ header.label.split(',')[0] }}</span>
+                            </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for data in student_report_data %}
+                    <tr data-student-db-id="{{ data.info.id }}" data-student-public-id="{{ data.info.student_id }}">
+                        <td class="freeze-col-1 att-col-si">{{ loop.index }}</td>
+                        <td class="freeze-col-2 att-col-id"><strong>{{ data.info.student_id }}</strong></td>
+                        <td class="student-name freeze-col-3 att-col-name">{{ data.info.name }}</td>
+                        {% for cell in data.attendance_row %}
+                            <td class="attendance-cell {% if cell.record_id %}has-record{% endif %}" data-student-id="{{ data.info.id }}" data-record-id="{{ cell.record_id or '' }}" data-date="{{ cell.date }}" data-slot="{{ cell.slot }}">
+                                {% if cell.status == 'P' %}
+                                    <span class="status text-success fw-bold">P</span>
+                                {% elif cell.status == 'A' %}
+                                    <span class="status text-danger fw-bold">A</span>
+                                {% elif cell.status == 'S' %}
+                                    <span class="status fw-bold status-skip">S</span>
+                                {% else %}
+                                    <span class="status text-muted">-</span>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                        {% if session.course_scope in ['part_a', 'part_b'] %}
+                        <td class="att-col-part">{{ part_total_classes or 0 }}</td>
+                        {% endif %}
+                        <td class="att-col-total total-classes-cell">{{ data.total_classes }}</td>
+                        <td class="present-count att-col-present">{{ data.present_count }}</td>
+                        <td class="percentage-cell att-col-pct">{{ data.percentage }}</td>
+                        <td class="marks-cell att-col-marks" data-student-id="{{ data.info.student_id }}" data-session-id="{{ session.id }}">
+                            <div class="d-flex align-items-center gap-1 justify-content-center">
+                                <input type="number" step="0.1" min="0" max="10" class="form-control form-control-sm marks-input-edit"
+                                       value="{{ data.marks }}" style="width: 60px; text-align: center; display: none;"
+                                       data-original-value="{{ data.marks }}">
+                                <span class="marks-display">{{ data.marks }}</span>
+                                {% if data.marks_manual %}
+                                    <span class="badge bg-info badge-sm manual-badge">Manual</span>
+                                {% else %}
+                                    <span class="badge bg-info badge-sm manual-badge" style="display: none;">Manual</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="att-empty">
+            <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted mb-2">No attendance yet</h5>
+            <p class="text-muted mb-3">Take the first class to start this report.</p>
+            <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success">
+                <i class="fas fa-clipboard-check me-1"></i>Take attendance
+            </a>
+        </div>
+    {% endif %}
 </div>
 
-{% if student_report_data or (is_split_course and teacher_attendance_data) %}
+{% if has_report %}
 <script>
 const editToggle = document.getElementById('editModeToggle');
 const toggleBaseUrl = "{{ url_for('class_management.toggle_attendance_record', record_id=0) }}".slice(0, -1);
@@ -494,6 +599,14 @@ function applyStudentStats(publicStudentId, data) {
                 if (manualBadge) manualBadge.style.display = 'none';
             }
         }
+    });
+    document.querySelectorAll(`.att-student-card[data-student-public-id="${publicStudentId}"]`).forEach(card => {
+        const present = card.querySelector('.att-card-present');
+        const pct = card.querySelector('.att-card-pct');
+        const marks = card.querySelector('.att-card-marks');
+        if (present && data.present_count !== undefined) present.textContent = data.present_count;
+        if (pct && data.percentage !== undefined) pct.textContent = data.percentage;
+        if (marks && data.marks !== undefined && !data.marks_manual) marks.textContent = data.marks;
     });
 }
 
@@ -577,6 +690,33 @@ function onAttendanceCellClick(event) {
 toggleEditableState(editToggle && editToggle.checked);
 
 document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('attStudentSearch');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const q = (this.value || '').trim().toLowerCase();
+            document.querySelectorAll('.att-report-table tbody tr[data-student-public-id]').forEach(function(row) {
+                const id = (row.dataset.studentPublicId || '').toLowerCase();
+                const name = ((row.querySelector('.att-col-name') || {}).textContent || '').toLowerCase();
+                row.style.display = (!q || id.indexOf(q) !== -1 || name.indexOf(q) !== -1) ? '' : 'none';
+            });
+            document.querySelectorAll('.att-student-card').forEach(function(card) {
+                const hay = (card.dataset.search || '').toLowerCase();
+                card.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
+            });
+        });
+    }
+
+    const sheetToggle = document.getElementById('attSheetToggle');
+    const page = document.querySelector('.att-page');
+    if (sheetToggle && page) {
+        sheetToggle.addEventListener('click', function() {
+            page.classList.toggle('show-sheet');
+            const on = page.classList.contains('show-sheet');
+            const label = sheetToggle.querySelector('.att-sheet-toggle-label');
+            if (label) label.textContent = on ? 'Student cards' : 'Full sheet';
+        });
+    }
+
     const marksCells = document.querySelectorAll('.marks-cell');
 
     marksCells.forEach(cell => {
@@ -650,6 +790,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (manualBadge) {
                             manualBadge.style.display = data.marks_manual ? 'inline-block' : 'none';
                         }
+                        document.querySelectorAll(`.att-student-card[data-student-public-id="${studentId}"] .att-card-marks`).forEach(function(el) {
+                            el.textContent = data.marks;
+                        });
                     } else {
                         alert(data.message || 'Failed to save marks');
                         inputField.value = originalValue;
@@ -788,7 +931,3 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 </div>
 {% endblock %}
-
- 
-
- 

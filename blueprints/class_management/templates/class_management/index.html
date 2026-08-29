@@ -86,19 +86,74 @@
     margin-top: 1.25rem;
 }
 
+.cm-hero {
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 12px;
+    padding: 1rem 1.15rem;
+    margin-bottom: 0.9rem;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+}
+.cm-hero h1 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0.15rem 0 0;
+    color: #0f172a;
+}
+.cm-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.cm-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+.cm-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #334155;
+}
+.cm-search { position: relative; margin-bottom: 0.85rem; }
+.cm-search i {
+    position: absolute;
+    left: 0.7rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 0.8rem;
+}
+.cm-search input { padding-left: 2rem; border-radius: 8px; }
+.cm-course-list { display: flex; flex-direction: column; gap: 0.65rem; }
+.cm-course-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 0.8rem 0.9rem;
+}
+.cm-course-card-top { display: flex; justify-content: space-between; gap: 0.75rem; align-items: flex-start; }
+.cm-course-title { font-weight: 700; color: #0f172a; font-size: 0.98rem; line-height: 1.3; margin: 0; }
+.cm-course-meta { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.45rem; }
+.cm-course-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+.cm-invite-card { background: #fff; border: 1px solid #fde68a; border-radius: 10px; padding: 0.7rem 0.8rem; margin-top: 0.5rem; }
+.cm-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.cm-section-head h2 { font-size: 1rem; font-weight: 700; margin: 0; color: #0f172a; }
+
 @media (max-width: 576px) {
     .module-wrapper {
         padding: 1rem 0 1.5rem;
     }
-    
-    .module-header {
-        padding: 1rem;
-        border-radius: 14px;
-    }
-    
-    .module-card {
-        border-radius: 14px;
-    }
+    .cm-hero { padding: 0.85rem; }
+    .cm-hero h1 { font-size: 1.05rem; }
+    .cm-course-card { padding: 0.75rem; }
 }
 </style>
 {% endblock %}
@@ -106,197 +161,186 @@
 {% block content %}
 <div class="module-wrapper">
 <div class="container">
-    <div class="module-header">
+    <div class="cm-hero module-header">
         <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
             <div>
+                <a href="{{ url_for('index') }}" class="small text-decoration-none text-muted">
+                    <i class="fas fa-arrow-left me-1"></i>Dashboard
+                </a>
                 {% if teacher %}
-                <h4 class="mb-0">
-                    <i class="fas fa-chalkboard-teacher me-2 text-primary"></i>
-                    Teacher: {{ teacher_display_name }}
-                </h4>
-                <div class="cm-credit-load" title="Total credits of active internal and external courses">
-                    <span class="cm-credit-load-label">Credit Load</span>
-                    <span class="cm-credit-load-value">{{ credit_load_display|default('0') }}</span>
-                </div>
+                <h1>{{ teacher_display_name }}</h1>
+                {% else %}
+                <h1>Class Management</h1>
                 {% endif %}
             </div>
-            <div class="m-action-row d-flex flex-column gap-2" style="margin-top: -12px;">
+            <div class="cm-hero-actions m-action-row">
                 <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#externalCourseModal">
-                    <i class="fas fa-plus me-1"></i>Add External Course
+                    <i class="fas fa-plus me-1"></i>Add external course
                 </button>
-                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
-                    <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                <a href="{{ url_for('class_management.archive') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-archive me-1"></i>Archive
                 </a>
             </div>
         </div>
+        <div class="cm-chips">
+            <span class="cm-chip cm-credit-load" title="Total credits of active internal and external courses">
+                <span class="cm-credit-load-label">Credit load</span>
+                <span class="cm-credit-load-value">{{ credit_load_display|default('0') }}</span>
+            </span>
+            <span class="cm-chip"><i class="fas fa-book"></i> {{ sessions|length }} active</span>
+            {% if external_sessions %}
+            <span class="cm-chip"><i class="fas fa-external-link-alt"></i> {{ external_sessions|length }} external</span>
+            {% endif %}
+        </div>
     
     {% if pending_split_invites %}
-    <div class="alert alert-warning mb-3">
-        <strong><i class="fas fa-exclamation-circle me-1"></i>Pending Course Invitations</strong>
-        <div class="mt-2">
-            {% for invite in pending_split_invites %}
-            {% set inviter_session = invite.inviter_session %}
-            <div class="border rounded p-2 mb-2 bg-white">
-                <div class="fw-semibold">{{ inviter_session.course_name if inviter_session else 'Course no longer available' }}</div>
-                <div class="text-muted small">{{ inviter_session.course_code if inviter_session else '' }}</div>
-                <small>Requested Part: {{ course_scope_labels.get(invite.invited_scope, 'Part') }}</small>
-                <div class="mt-2 d-flex gap-2">
-                    <form action="{{ url_for('class_management.accept_split_invite', invite_id=invite.id) }}" method="POST">
-                        <button type="submit" class="btn btn-sm btn-success">
-                            <i class="fas fa-check me-1"></i>Accept
-                        </button>
-                    </form>
-                    <form action="{{ url_for('class_management.decline_split_invite', invite_id=invite.id) }}" method="POST">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                            <i class="fas fa-times me-1"></i>Decline
-                        </button>
-                    </form>
-                </div>
+    <div class="alert alert-warning mb-0 mt-3">
+        <strong><i class="fas fa-exclamation-circle me-1"></i>Pending course invitations</strong>
+        {% for invite in pending_split_invites %}
+        {% set inviter_session = invite.inviter_session %}
+        <div class="cm-invite-card">
+            <div class="fw-semibold">{{ inviter_session.course_name if inviter_session else 'Course no longer available' }}</div>
+            <div class="text-muted small">{{ inviter_session.course_code if inviter_session else '' }}
+                · Requested: {{ course_scope_labels.get(invite.invited_scope, 'Part') }}
             </div>
-            {% endfor %}
+            <div class="mt-2 d-flex gap-2">
+                <form action="{{ url_for('class_management.accept_split_invite', invite_id=invite.id) }}" method="POST">
+                    <button type="submit" class="btn btn-sm btn-success">
+                        <i class="fas fa-check me-1"></i>Accept
+                    </button>
+                </form>
+                <form action="{{ url_for('class_management.decline_split_invite', invite_id=invite.id) }}" method="POST">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="fas fa-times me-1"></i>Decline
+                    </button>
+                </form>
+            </div>
         </div>
+        {% endfor %}
     </div>
     {% endif %}
     </div>
 
     <div class="module-card cm-active-courses-section">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center m-page-header" style="border-radius: 18px 18px 0 0;">
-            <h5 class="card-title mb-0">
-                <i class="fas fa-list me-2"></i>Active Courses
-            </h5>
-            <div class="m-action-row d-flex gap-2">
-                <a href="{{ url_for('class_management.archive') }}" class="btn btn-outline-secondary btn-sm m-action-full">
-                    <i class="fas fa-archive me-1"></i>Archived Courses
-                </a>
-            </div>
-        </div>
         <div class="card-body">
+            <div class="cm-section-head m-page-header">
+                <h2><i class="fas fa-list me-2 text-primary"></i>Active courses</h2>
+            </div>
             {% if sessions %}
-                <div class="table-responsive">
-                    <table class="table table-hover cm-sessions-table">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="width: 5%">#</th>
-                                <th style="width: 20%">Course Name</th>
-                                <th style="width: 12%">Course Code</th>
-                                <th style="width: 10%">Scope</th>
-                                <th style="width: 8%">Year</th>
-                                <th style="width: 8%">Term</th>
-                                <th style="width: 12%">Academic Session</th>
-                                <th style="width: 10%">Batch</th>
-                                <th style="width: 15%">Created At</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for session in sessions %}
-                            {% set assignment = assignment_map.get(session.id, {}) %}
-                            <tr class="session-row" data-session-id="{{ session.id }}" data-academic-session="{{ session.academic_session or '' }}" data-year="{{ session.year or '' }}" data-term="{{ session.term or '' }}">
-                                <td>{{ loop.index }}</td>
-                                <td>
-                                    <strong>{{ session.course_name or '-' }}</strong>
-                                    <i class="fas fa-chevron-down ms-2 course-chevron-{{ session.id }}" style="font-size: 0.8em; transition: transform 0.3s;"></i>
-                                </td>
-                                <td><span class="badge bg-warning">{{ session.course_code or '-' }}</span></td>
-                                <td>
-                                    <span class="badge bg-secondary">
-                                        {{ course_scope_labels.get(session.course_scope, 'Full') }}
-                                    </span>
-                                </td>
-                                <td><span class="badge bg-info">{{ session.year }}</span></td>
-                                <td><span class="badge bg-success">{{ session.term }}</span></td>
-                                <td>{{ assignment.get('academic_session') or session.academic_session or '-' }}</td>
-                                <td>{{ assignment.get('batch') or '-' }}</td>
-                                <td>{{ session.created_at|bd('%Y-%m-%d') }}</td>
-                            </tr>
-                            <tr class="course-actions-row" id="actions-{{ session.id }}" style="display: none;">
-                                <td colspan="9">
-                                    <div class="d-flex flex-wrap gap-2 justify-content-start py-2">
-                                        {% set split_meta = split_context_map.get(session.id) %}
-                                        {% if split_meta %}
-                                            <div class="alert alert-info py-1 px-2 mb-0 w-100">
-                                                <small>
-                                                    Split Course ({{ split_meta.scope_label }})
-                                                    {% if split_meta.peers %}
-                                                        • Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
-                                                    {% endif %}
-                                                </small>
-                                            </div>
-                                        {% endif %}
-                                        <div class="btn-group">
-                                        <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
-                                            <i class="fas fa-clipboard-check me-1"></i>Attendance
+                <div class="cm-search">
+                    <i class="fas fa-search"></i>
+                    <input id="cmCourseSearch" type="search" class="form-control form-control-sm" placeholder="Search course name or code" autocomplete="off">
+                </div>
+                <div class="cm-course-list">
+                    {% for session in sessions %}
+                    {% set assignment = assignment_map.get(session.id, {}) %}
+                    {% set split_meta = split_context_map.get(session.id) %}
+                    <article class="cm-course-card session-row"
+                             data-session-id="{{ session.id }}"
+                             data-academic-session="{{ session.academic_session or '' }}"
+                             data-year="{{ session.year or '' }}"
+                             data-term="{{ session.term or '' }}"
+                             data-search="{{ session.course_name or '' }} {{ session.course_code or '' }}">
+                        <div class="cm-course-card-top">
+                            <div>
+                                <h3 class="cm-course-title">{{ session.course_name or '-' }}</h3>
+                                <div class="cm-course-meta">
+                                    <span class="badge bg-warning text-dark">{{ session.course_code or '-' }}</span>
+                                    <span class="badge bg-secondary">{{ course_scope_labels.get(session.course_scope, 'Full') }}</span>
+                                    <span class="badge bg-info">{{ session.year }}</span>
+                                    <span class="badge bg-success">{{ session.term }}</span>
+                                    {% if assignment.get('academic_session') or session.academic_session %}
+                                    <span class="badge bg-light text-dark">{{ assignment.get('academic_session') or session.academic_session }}</span>
+                                    {% endif %}
+                                    {% if assignment.get('batch') %}
+                                    <span class="badge bg-light text-dark">Batch {{ assignment.get('batch') }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% if split_meta %}
+                        <div class="alert alert-info py-1 px-2 mb-0 mt-2">
+                            <small>
+                                Split ({{ split_meta.scope_label }})
+                                {% if split_meta.peers %}
+                                    · Partner: {{ split_meta.peers[0].teacher_name }} ({{ split_meta.peers[0].teacher_short }})
+                                {% endif %}
+                            </small>
+                        </div>
+                        {% endif %}
+                        <div class="cm-course-actions">
+                            <div class="btn-group">
+                                <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
+                                    <i class="fas fa-clipboard-check me-1"></i>Attendance
+                                </a>
+                                <button type="button" class="btn btn-success btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <span class="visually-hidden">Toggle Dropdown</span>
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('class_management.view_attendance', session_id=session.id) }}">
+                                            <i class="fas fa-eye me-2"></i>View Report
                                         </a>
-                                            <button type="button" class="btn btn-success btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-                                                <span class="visually-hidden">Toggle Dropdown</span>
-                                            </button>
-                                            <ul class="dropdown-menu">
-                                                <li>
-                                                    <a class="dropdown-item" href="{{ url_for('class_management.view_attendance', session_id=session.id) }}">
-                                                        <i class="fas fa-eye me-2"></i>View Report
-                                                    </a>
-                                                </li>
-                                            </ul>
-                                        </div>
-                                        <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
-                                            <i class="fas fa-chart-line me-1"></i>Assessment
+                                    </li>
+                                </ul>
+                            </div>
+                            <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
+                                <i class="fas fa-chart-line me-1"></i>Assessment
+                            </a>
+                            <a href="{{ url_for('academic_calendar.assessment_schedule', session_id=session.id) }}" class="btn btn-primary btn-sm">
+                                <i class="fas fa-calendar-alt me-1"></i>Schedule
+                            </a>
+                            <div class="btn-group">
+                                <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="fas fa-ellipsis-v me-1"></i>More
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('class_management.evaluation', session_id=session.id) }}">
+                                            <i class="fas fa-clipboard-list me-2"></i>Evaluation
                                         </a>
-                                        <a href="{{ url_for('academic_calendar.assessment_schedule', session_id=session.id) }}" class="btn btn-primary btn-sm">
-                                            <i class="fas fa-calendar-alt me-1"></i>Assessment Schedule
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('class_management.students_list', session_id=session.id) }}">
+                                            <i class="fas fa-users me-2"></i>Students
                                         </a>
-                                        <div class="btn-group">
-                                            <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                                                <i class="fas fa-ellipsis-v me-1"></i>More
-                                            </button>
-                                            <ul class="dropdown-menu">
-                                                <li>
-                                                    <a class="dropdown-item" href="{{ url_for('class_management.evaluation', session_id=session.id) }}">
-                                                        <i class="fas fa-clipboard-list me-2"></i>Evaluation
-                                                    </a>
-                                                </li>
-                                                <li>
-                                                    <a class="dropdown-item" href="{{ url_for('class_management.students_list', session_id=session.id) }}">
-                                                        <i class="fas fa-users me-2"></i>Students
-                                                    </a>
-                                                </li>
-                                                <li>
-                                                    <a class="dropdown-item" href="{{ url_for('class_management.course_file', session_id=session.id) }}">
-                                                        <i class="fas fa-folder me-2"></i>Course File
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{{ url_for('class_management.course_file', session_id=session.id) }}">
+                                            <i class="fas fa-folder me-2"></i>Course File
                                         </a>
-                                                </li>
-                                                <li>
-                                                    <a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('class_management.course_questions', session_id=session.id) }}">
-                                                        <span><i class="fas fa-comments me-2"></i>Questions</span>
-                                                        {% if qa_notification_map and qa_notification_map.get(session.id) %}
-                                                            <span class="badge bg-warning text-dark">{{ qa_notification_map.get(session.id) }}</span>
-                                                        {% endif %}
-                                                    </a>
-                                                </li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('class_management.course_questions', session_id=session.id) }}">
+                                            <span><i class="fas fa-comments me-2"></i>Questions</span>
+                                            {% if qa_notification_map and qa_notification_map.get(session.id) %}
+                                                <span class="badge bg-warning text-dark">{{ qa_notification_map.get(session.id) }}</span>
+                                            {% endif %}
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </article>
+                    {% endfor %}
                 </div>
             {% else %}
                 <div class="text-center py-5">
                     <i class="fas fa-book-open fa-3x text-muted mb-3"></i>
                     <h5 class="text-muted">No courses found</h5>
-                    <p class="text-muted">Create your first course to get started</p>
+                    <p class="text-muted mb-0">Courses appear here when they are assigned to you.</p>
                 </div>
             {% endif %}
         </div>
     </div>
 
     <div class="module-card mt-3 cm-external-section">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2" style="border-radius: 18px 18px 0 0;">
+        <div class="card-header bg-light d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
-                <h5 class="card-title mb-0 text-secondary">
-                    <i class="fas fa-external-link-alt me-2"></i>External Courses
-                </h5>
-                <small class="text-muted">অন্য ডিসিপ্লিনের কোর্স — নিজ ডিসিপ্লিনের curriculum/registration-এর সাথে সম্পর্কিত নয়</small>
+                <h2 class="cm-section-head mb-0" style="display:block;">
+                    <span class="h5 mb-0 text-secondary"><i class="fas fa-external-link-alt me-2"></i>External courses</span>
+                </h2>
+                <small class="text-muted">Other-discipline courses — not tied to this curriculum</small>
             </div>
             {% if external_archived_sessions %}
             <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#externalArchivedCourses" aria-expanded="false">
@@ -308,7 +352,7 @@
             {% if external_sessions %}
             <div class="cm-external-list">
                 {% for session in external_sessions %}
-                <div class="cm-external-entry">
+                <div class="cm-external-entry" data-search="{{ session.course_name or '' }} {{ session.course_code or '' }}">
                     <div class="cm-external-entry__info cm-external-entry__toggle"
                          role="button"
                          tabindex="0"
@@ -605,12 +649,11 @@
 {% endfor %}
 
 <style>
-.session-row {
-    cursor: pointer;
-    transition: background-color 0.2s ease;
+.cm-course-card.session-row {
+    cursor: default;
 }
-.session-row:hover {
-    background-color: rgba(13, 110, 253, 0.05);
+.cm-course-card:hover {
+    border-color: #cbd5e1;
 }
 </style>
 
@@ -619,6 +662,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const scopeOptions = document.querySelectorAll('.scope-option');
     const partnerWrapper = document.getElementById('split-partner-wrapper');
     const partnerSelect = document.getElementById('partner_teacher_id');
+
+    const courseSearch = document.getElementById('cmCourseSearch');
+    if (courseSearch) {
+        courseSearch.addEventListener('input', function() {
+            const q = (this.value || '').trim().toLowerCase();
+            document.querySelectorAll('.cm-course-card, .cm-external-entry').forEach(function(card) {
+                const hay = (card.getAttribute('data-search') || '').toLowerCase();
+                card.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
+            });
+        });
+    }
 
     const rows = document.querySelectorAll('.session-row');
 
@@ -1114,7 +1168,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let semester = activeSemesters.length ? activeSemesters[0] : null;
 
         if (!semester) {
-            const firstRow = document.querySelector('.session-row');
+            const firstRow = document.querySelector('.cm-course-card, .session-row');
             if (firstRow) {
                 semester = {
                     academic_session: firstRow.getAttribute('data-academic-session') || '',
