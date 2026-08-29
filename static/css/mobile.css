@@ -598,22 +598,22 @@
     }
 
     body.m-shell .module-header {
-        padding: 0.85rem !important;
-        margin-bottom: 0.75rem !important;
+        padding: 0.6rem 0.7rem !important;
+        margin-bottom: 0.55rem !important;
         border-radius: var(--m-card-radius) !important;
     }
 
     body.m-shell .cm-credit-load {
-        margin-top: 0.55rem;
-        padding: 0.3rem 0.75rem;
+        margin-top: 0;
+        padding: 0.12rem 0.5rem;
     }
 
     body.m-shell .cm-credit-load-label {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
     }
 
     body.m-shell .cm-credit-load-value {
-        font-size: 0.95rem;
+        font-size: 0.78rem;
     }
 
     body.m-shell .module-header h4 {
@@ -627,12 +627,12 @@
     }
 
     body.m-shell .module-header .btn {
-        min-height: var(--m-touch);
-        font-size: 0.82rem !important;
+        min-height: 34px;
+        font-size: 0.78rem !important;
     }
 
     body.m-shell .module-wrapper {
-        padding: 0.5rem 0 1rem !important;
+        padding: 0.4rem 0 0.85rem !important;
         min-height: auto !important;
     }
 
@@ -665,39 +665,117 @@
         min-height: var(--m-touch);
     }
 
-    body.m-shell .cm-hero {
-        padding: 0.8rem 0.85rem !important;
-        margin-bottom: 0.65rem !important;
+    body.m-shell .cm-hero.module-header {
+        padding: 0.55rem 0.65rem !important;
+        margin-bottom: 0.45rem !important;
+        background: #fff !important;
+        border: 1px solid #e2e8f0 !important;
+        color: #0f172a !important;
     }
 
-    body.m-shell .cm-hero h1 {
+    body.m-shell .cm-hero h1,
+    body.m-shell .cm-hero.module-header h1 {
         font-size: 1.05rem !important;
+        color: #0f172a !important;
     }
 
     body.m-shell .cm-hero-actions {
-        width: 100%;
+        width: auto;
+        gap: 0.3rem;
     }
 
     body.m-shell .cm-hero-actions .btn {
-        flex: 1 1 auto;
+        flex: 0 1 auto;
+        min-height: 30px;
+    }
+
+    body.m-shell .cm-chips {
+        margin-top: 0.4rem;
     }
 
     body.m-shell .cm-course-card {
-        padding: 0.7rem 0.75rem;
+        padding: 0.3rem 0.4rem 0.3rem 0.5rem;
+        gap: 0.25rem;
+        cursor: pointer;
+    }
+
+    body.m-shell .cm-course-card:nth-child(odd) {
+        background: #dbeafe !important;
+    }
+
+    body.m-shell .cm-course-card:nth-child(even) {
+        background: #c5ccd6 !important;
+    }
+
+    body.m-shell .cm-course-card .cm-course-actions {
+        display: none;
+    }
+
+    body.m-shell .cm-course-card.is-open .cm-course-actions {
+        display: flex !important;
+        justify-content: flex-start;
     }
 
     body.m-shell .cm-course-title {
-        font-size: 0.92rem;
+        font-size: 0.8rem;
     }
 
     body.m-shell .cm-course-actions .btn,
     body.m-shell .cm-course-actions a.btn {
-        min-height: var(--m-touch);
-        font-size: 0.78rem !important;
+        min-height: 34px;
+        font-size: 0.76rem !important;
+        font-weight: 700 !important;
+        padding: 0.36rem 0.65rem !important;
+        color: #fff !important;
+    }
+
+    body.m-shell .cm-course-actions .btn-success {
+        background: #22c55e !important;
+        border-color: #22c55e !important;
+    }
+
+    body.m-shell .cm-course-actions .btn-warning {
+        background: #f59e0b !important;
+        border-color: #f59e0b !important;
+    }
+
+    body.m-shell .cm-course-actions .btn-primary {
+        background: #3b82f6 !important;
+        border-color: #3b82f6 !important;
+    }
+
+    body.m-shell .cm-course-actions .btn-secondary {
+        background: #a855f7 !important;
+        border-color: #a855f7 !important;
     }
 
     body.m-shell .cm-search {
-        margin-bottom: 0.65rem;
+        max-width: none;
+        width: 100%;
+        margin-bottom: 0;
+        position: relative;
+    }
+
+    body.m-shell .cm-search input,
+    body.m-shell .att-search input {
+        padding-left: 2.25rem !important;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    body.m-shell .cm-active-courses-section .card-body {
+        padding: 0.4rem 0.45rem 0.5rem !important;
+    }
+
+    body.m-shell .cm-section-head {
+        margin-bottom: 0.3rem;
+        padding: 0 !important;
+        flex-direction: row;
+        align-items: center !important;
+    }
+
+    body.m-shell .cm-external-section {
+        margin-top: 0.6rem !important;
     }
 
     /* Dashboard 2-column module grid */
@@ -2005,12 +2083,20 @@
 
     /* Assessment page */
     body.m-shell .as-hero {
-        padding: 0.8rem 0.85rem;
-        margin-bottom: 0.65rem;
+        padding: 0.55rem 0.65rem;
+        margin-bottom: 0.45rem;
     }
 
     body.m-shell .as-hero h1 {
-        font-size: 1.05rem;
+        font-size: 1rem;
+    }
+
+    body.m-shell .as-search input {
+        padding-left: 2.25rem !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky {
+        overflow: visible;
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table {
@@ -2029,72 +2115,108 @@
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row {
-        display: block !important;
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.35rem;
         background: #fff !important;
         border: 1px solid #e2e8f0 !important;
         border-radius: 10px !important;
-        padding: 0.7rem 0.75rem !important;
-        margin-bottom: 0.55rem !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        padding: 0.5rem 0.55rem !important;
+        margin-bottom: 0.4rem !important;
+        box-shadow: none;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row:nth-child(even) {
+        background: #f1f5f9 !important;
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td {
         display: flex !important;
-        justify-content: space-between !important;
-        align-items: center !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important;
+        align-items: stretch !important;
         border: none !important;
-        padding: 0.4rem 0 !important;
+        padding: 0 !important;
         text-align: left !important;
         white-space: normal !important;
-        width: 100% !important;
+        width: auto !important;
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td::before {
-        content: attr(data-label) !important;
-        display: block !important;
-        font-weight: 600;
-        font-size: 0.72rem;
-        color: #64748b;
-        text-align: left;
-        flex: 0 0 34%;
-    }
-
-    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-id,
-    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-name {
-        display: block !important;
-        padding: 0 !important;
-    }
-
-    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-id::before,
-    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-name::before {
         content: none !important;
+        display: none !important;
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-name {
+        grid-column: 1;
+        grid-row: 1;
         font-weight: 700;
-        font-size: 0.95rem;
+        font-size: 0.86rem;
         color: #0f172a;
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-id {
-        font-size: 0.75rem;
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
+        align-items: flex-end !important;
+        font-size: 0.7rem;
         color: #64748b;
-        margin-bottom: 0.3rem;
+        margin-bottom: 0;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-mark {
+        background: #fff;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px;
+        padding: 0.3rem 0.35rem 0.35rem !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-mark::before {
+        content: attr(data-label) !important;
+        display: block !important;
+        font-weight: 700;
+        font-size: 0.62rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #64748b;
+        flex: none;
+        margin-bottom: 0.2rem;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-total {
+        grid-column: 1 / -1;
+        flex-direction: row !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        padding: 0.28rem 0.15rem 0 !important;
+        border-top: 1px solid #e2e8f0 !important;
+    }
+
+    body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table tbody tr.as-student-row td.as-col-total::before {
+        content: attr(data-label) !important;
+        display: block !important;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #334155;
+        flex: none;
     }
 
     body.m-shell .assessment-page .assessment-input-field {
-        max-width: 88px !important;
-    }
-
-    body.m-shell .assessment-page .m-table-scroll-sticky {
-        overflow: visible;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        min-height: 42px !important;
+        font-size: 16px !important;
+        padding: 0.35rem 0.4rem !important;
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table td .d-flex {
         flex-direction: row;
         align-items: center;
-        justify-content: flex-end;
-        gap: 0.45rem;
+        justify-content: space-between;
+        gap: 0.3rem;
+        width: 100%;
     }
 
     body.m-shell .assessment-page .m-table-scroll-sticky table.assessment-marks-table td:nth-child(2),
@@ -2108,12 +2230,19 @@
     }
 
     body.m-shell .as-save-bar {
-        position: sticky;
+        position: fixed;
+        left: 0;
+        right: 0;
         bottom: 0;
-        z-index: 8;
+        z-index: 20;
         background: #fff;
-        padding: 0.6rem 0;
+        padding: 0.55rem 0.75rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
         border-top: 1px solid #e2e8f0;
+    }
+
+    body.m-shell .as-save-bar .btn {
+        width: 100%;
+        min-height: 42px;
     }
 
     body.m-shell .assessment-reveal-card .m-switch-grid {

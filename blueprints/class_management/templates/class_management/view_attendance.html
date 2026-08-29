@@ -77,9 +77,38 @@
         font-size: 0.8rem;
     }
     .att-search input {
-        padding-left: 2rem;
+        -webkit-appearance: none;
+        appearance: none;
+        padding-left: 2.25rem !important;
         border-radius: 8px;
     }
+    .att-search i { pointer-events: none; z-index: 1; }
+    .att-card-days {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-top: 0.5rem;
+    }
+    .att-day-chip {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-width: 2.35rem;
+        padding: 0.18rem 0.28rem;
+        border-radius: 6px;
+        border: 1px solid #e2e8f0;
+        background: #f8fafc;
+        line-height: 1.15;
+    }
+    .att-day-chip .att-day-label {
+        font-size: 0.58rem;
+        color: #64748b;
+        font-weight: 600;
+    }
+    .att-day-chip .status { font-size: 0.78rem; }
+    body.att-edit-on .att-day-chip.editable { cursor: pointer; box-shadow: inset 0 0 0 1px #3b82f6; }
+    body.att-edit-on .att-day-chip.editable:hover { background: #eff6ff; }
     .att-legend {
         display: flex;
         flex-wrap: wrap;
@@ -220,17 +249,8 @@
 {% set student_count = (attendance_summary.per_student|default({})|length) if attendance_summary else 0 %}
 {% set total_classes = attendance_summary.total_classes if attendance_summary else 0 %}
 
-{% macro att_dots(attendance_row) -%}
-    <div class="att-dots" aria-hidden="true">
-        {% for cell in attendance_row[-8:] %}
-            {% set st = (cell.status or '-')|upper %}
-            <span class="att-dot {% if st == 'P' %}att-dot-p{% elif st == 'A' %}att-dot-a{% elif st == 'S' %}att-dot-s{% endif %}" title="{{ cell.date }} · {{ st }}"></span>
-        {% endfor %}
-    </div>
-{%- endmacro %}
-
-{% macro student_card(data) -%}
-    <article class="att-student-card" data-student-public-id="{{ data.info.student_id }}" data-search="{{ data.info.student_id }} {{ data.info.name }}">
+{% macro student_card(data, course_session_id) -%}
+    <article class="att-student-card" data-student-public-id="{{ data.info.student_id }}" data-student-db-id="{{ data.info.id }}" data-session-id="{{ course_session_id }}" data-search="{{ data.info.student_id }} {{ data.info.name }}">
         <div class="att-card-top">
             <div>
                 <div class="att-card-name">{{ data.info.name }}</div>
@@ -245,7 +265,28 @@
             Present <span class="att-card-present">{{ data.present_count }}</span>
             · {{ data.total_classes }} classes
         </div>
-        {{ att_dots(data.attendance_row) }}
+        <div class="att-card-days">
+            {% for cell in data.attendance_row %}
+            {% set st = (cell.status or '-')|upper %}
+            <div class="att-day-chip attendance-cell {% if cell.record_id %}has-record{% endif %}"
+                 data-student-id="{{ data.info.id }}"
+                 data-record-id="{{ cell.record_id or '' }}"
+                 data-date="{{ cell.date }}"
+                 data-slot="{{ cell.slot }}"
+                 title="{{ cell.date }} · {{ st }}">
+                <span class="att-day-label">{{ cell.date[5:] if cell.date else '' }}</span>
+                {% if st == 'P' %}
+                    <span class="status text-success fw-bold">P</span>
+                {% elif st == 'A' %}
+                    <span class="status text-danger fw-bold">A</span>
+                {% elif st == 'S' %}
+                    <span class="status fw-bold status-skip">S</span>
+                {% else %}
+                    <span class="status text-muted">-</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
     </article>
 {%- endmacro %}
 
@@ -328,7 +369,7 @@
                     <input class="form-check-input" type="checkbox" id="editModeToggle">
                     <label class="form-check-label" for="editModeToggle">Edit mode</label>
                 </div>
-                <small class="att-edit-hint text-muted d-none">Tap P / A / S on the sheet</small>
+                <small class="att-edit-hint text-muted d-none">Tap a date on the card</small>
             </div>
             {% endif %}
         </div>
@@ -375,7 +416,7 @@
                 {% if teacher_data.student_report_data %}
                     <div class="att-card-list">
                         {% for data in teacher_data.student_report_data %}
-                            {{ student_card(data) }}
+                            {{ student_card(data, teacher_data.session.id) }}
                         {% endfor %}
                     </div>
                     <div class="table-responsive m-table-scroll-sticky att-report-scroll att-sheet-wrap">
@@ -453,7 +494,7 @@
     {% elif student_report_data %}
         <div class="att-card-list">
             {% for data in student_report_data %}
-                {{ student_card(data) }}
+                {{ student_card(data, session.id) }}
             {% endfor %}
         </div>
         <div class="table-responsive m-table-scroll-sticky att-report-scroll att-sheet-wrap">
@@ -618,8 +659,14 @@ function onAttendanceCellClick(event) {
     const date = cell.dataset.date;
     const slot = parseInt(cell.dataset.slot || '0', 10);
     const row = cell.closest('tr');
-    const classStudentId = row ? (row.dataset.studentDbId || cell.dataset.studentId) : null;
-    const publicStudentId = row ? row.dataset.studentPublicId : null;
+    const card = cell.closest('.att-student-card');
+    const classStudentId = (row && (row.dataset.studentDbId || cell.dataset.studentId))
+        || (card && (card.dataset.studentDbId || cell.dataset.studentId))
+        || cell.dataset.studentId
+        || null;
+    const publicStudentId = (row && row.dataset.studentPublicId)
+        || (card && card.dataset.studentPublicId)
+        || null;
 
     cell.classList.add('editing');
     setTimeout(() => cell.classList.remove('editing'), 200);
@@ -638,6 +685,24 @@ function onAttendanceCellClick(event) {
         statusSpan.className = statusClassMap[normalizedStatus] || statusClassMap['-'];
         if (data.record_id) cell.classList.add('has-record');
         else cell.classList.remove('has-record');
+        document.querySelectorAll('.attendance-cell').forEach(function(other) {
+            if (other === cell) return;
+            if (other.dataset.date !== date || String(other.dataset.slot || '') !== String(slot)) return;
+            const otherWrap = other.closest('[data-student-public-id]');
+            if (!publicStudentId || !otherWrap || otherWrap.dataset.studentPublicId !== publicStudentId) return;
+            const otherStatus = other.querySelector('.status');
+            if (otherStatus) {
+                otherStatus.textContent = normalizedStatus;
+                otherStatus.className = statusClassMap[normalizedStatus] || statusClassMap['-'];
+            }
+            if (data.record_id) {
+                other.dataset.recordId = String(data.record_id);
+                other.classList.add('has-record');
+            } else {
+                other.dataset.recordId = '';
+                other.classList.remove('has-record');
+            }
+        });
         applyStudentStats(publicStudentId, data);
     }
 
@@ -665,7 +730,9 @@ function onAttendanceCellClick(event) {
             return;
         }
         const table = cell.closest('table');
-        const sessionIdForCreate = table && table.dataset.sessionId ? table.dataset.sessionId : sessionId;
+        const sessionIdForCreate = (table && table.dataset.sessionId)
+            || (card && card.dataset.sessionId)
+            || sessionId;
         const createUrl = createAttendanceBaseUrl + '/' + sessionIdForCreate;
         fetch(createUrl, {
             method: 'POST',
