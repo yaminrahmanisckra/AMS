@@ -3576,6 +3576,14 @@ def upload_students(session_id):
 
     return _student_upload_redirect(session_id, return_to=return_to)
 
+def _attendance_offline_wants_json():
+    """True when the offline attendance client asked for a JSON save reply."""
+    if request.headers.get('X-Requested-With') == 'AMSAttendanceOffline':
+        return True
+    accept = request.headers.get('Accept') or ''
+    return 'application/json' in accept
+
+
 @class_management_bp.route('/take_attendance/<int:session_id>', methods=['GET', 'POST'])
 @login_required
 def take_attendance(session_id):
@@ -3584,10 +3592,13 @@ def take_attendance(session_id):
     students = _class_students_for_session(session_id)
 
     if not user_owns_class_session(current_user, session):
+        if request.method == 'POST' and _attendance_offline_wants_json():
+            return jsonify({'ok': False, 'error': 'unauthorized'}), 403
         flash('You are not authorized to manage attendance for this session.', 'danger')
         return redirect(url_for('class_management.index'))
 
     if request.method == 'POST':
+        wants_json = _attendance_offline_wants_json()
         try:
             date_val = datetime.strptime(request.form.get('date'), '%Y-%m-%d').date()
             double_class = request.form.get('double_class') == '1'
@@ -3622,11 +3633,18 @@ def take_attendance(session_id):
             except Exception as e:
                 current_app.logger.warning(f'Failed to emit attendance update event: {e}')
             flash('Attendance saved successfully!', 'success')
+            if wants_json:
+                return jsonify({
+                    'ok': True,
+                    'redirect': url_for('class_management.view_attendance', session_id=session_id),
+                })
             return redirect(url_for('class_management.view_attendance', session_id=session_id))
             
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error saving attendance for session {session_id}: {e}")
+            if wants_json:
+                return jsonify({'ok': False, 'error': str(e)}), 400
             flash(f'Error saving attendance: {str(e)}', 'error')
             return redirect(url_for('class_management.take_attendance', session_id=session_id, date=request.form.get('date')))
 
@@ -3669,6 +3687,42 @@ def take_attendance(session_id):
         current_app.logger.error(f"Error loading attendance page for session {session_id}: {e}")
         flash(f'Error loading attendance page: {str(e)}', 'error')
         return redirect(url_for('class_management.index'))
+
+
+@class_management_bp.route('/take_attendance/<int:session_id>/roster.json')
+@login_required
+def take_attendance_roster(session_id):
+    """Roster snapshot for offline take-attendance (same ownership as the take page)."""
+    session = get_or_404_for_window(Session, session_id)
+    if not user_owns_class_session(current_user, session):
+        return jsonify({'success': False, 'error': 'unauthorized'}), 403
+
+    students = _class_students_for_session(session_id)
+    split_meta = _build_split_context(session)
+    split_note = None
+    if split_meta:
+        split_note = (
+            f"Split Course ({split_meta.get('scope_label')}). "
+            "Attendance marks will use total classes from all linked parts."
+        )
+
+    return jsonify({
+        'success': True,
+        'session_id': session.id,
+        'course_name': session.course_name or session.term or '',
+        'course_code': session.course_code or '',
+        'split_note': split_note,
+        'fetched_at': bd_now().isoformat(),
+        'students': [
+            {
+                'id': student.id,
+                'student_id': student.student_id,
+                'name': student.name,
+            }
+            for student in students
+        ],
+    })
+
 
 @class_management_bp.route('/view_attendance/<int:session_id>')
 @login_required

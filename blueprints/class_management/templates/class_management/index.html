@@ -1360,6 +1360,17 @@ document.addEventListener('DOMContentLoaded', function() {
             dropdownEl.classList.remove('dropup');
         });
     });
+
+    if (navigator.onLine && window.AMSAttendanceOffline) {
+        var prefetchIds = {};
+        document.querySelectorAll('a[href*="/class-management/take_attendance/"]').forEach(function(link) {
+            var match = (link.getAttribute('href') || '').match(/take_attendance\/(\d+)/);
+            if (match) prefetchIds[match[1]] = true;
+        });
+        Object.keys(prefetchIds).forEach(function(id) {
+            window.AMSAttendanceOffline.prefetchSession(id);
+        });
+    }
 });
 </script>
 {% endblock %}

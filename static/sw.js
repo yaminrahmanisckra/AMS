@@ -1,12 +1,24 @@
 // Service Worker for Academic Management System PWA
-const CACHE_NAME = 'ams-ku-v5';
+const CACHE_NAME = 'ams-ku-v6';
 const urlsToCache = [
-  // Removed '/' - HTML pages should NEVER be cached
+  // Removed '/' - HTML pages should NEVER be cached globally
   '/static/css/style.css',
   '/static/js/script.js',
   '/static/js/debug.js',
+  '/static/js/attendance_offline.js',
   '/static/images/KU_logo_2.png'
 ];
+
+importScripts('/static/js/attendance_offline.js');
+
+function isTakeAttendanceUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return /\/class-management\/take_attendance\/\d+(\/roster\.json)?$/.test(parsed.pathname);
+  } catch (_) {
+    return false;
+  }
+}
 
 // Install event - cache resources
 self.addEventListener('install', (event) => {
@@ -40,9 +52,22 @@ self.addEventListener('activate', (event) => {
   return self.clients.claim();
 });
 
+// Background Sync: replay queued take-attendance POSTs when the network returns.
+// Does not intercept live POSTs. iPhone Safari support is limited; page replay still runs.
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'ams-attendance-sync') {
+    return;
+  }
+  event.waitUntil(
+    self.AMSAttendanceOffline
+      ? self.AMSAttendanceOffline.replayQueue()
+      : Promise.resolve()
+  );
+});
+
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
+  // Skip non-GET requests (attendance POSTs are never intercepted)
   if (event.request.method !== 'GET') {
     return;
   }
@@ -57,6 +82,24 @@ self.addEventListener('fetch', (event) => {
       event.request.url.includes('/download') ||
       event.request.url.includes('/admission-exam/') ||
       event.request.url.includes('.ics')) {
+    return;
+  }
+
+  // Opt-in: take-attendance HTML + roster.json — network first, cache for offline reopen
+  if (isTakeAttendanceUrl(event.request.url)) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (response && response.ok) {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME)
+            .then((cache) => cache.put(event.request, responseToCache))
+            .catch((error) => {
+              console.debug('Take-attendance cache put failed (non-critical):', error);
+            });
+        }
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
     return;
   }
 

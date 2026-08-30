@@ -380,6 +380,9 @@
                                 </ul>
                             </li>
                             {% endif %}
+                            <button type="button" id="ams-att-sync-badge" class="btn btn-sm btn-warning d-none me-2" title="Attendance waiting to sync">
+                                <i class="fas fa-cloud-upload-alt me-1"></i><span id="ams-att-sync-count">0</span>
+                            </button>
                             <a class="navbar-text me-2 me-lg-3 text-decoration-none text-white d-flex align-items-center" href="{{ url_for('profile') }}" style="white-space: nowrap; font-size: 0.9rem;">
                                 <i class="fas fa-user me-1"></i><span><span class="d-none d-sm-inline">Welcome,&nbsp;</span>{{ current_user.full_name or current_user.username }}</span>
                             </a>
@@ -408,6 +411,10 @@
         <span class="m-topbar-title">{% block mobile_title %}{% endblock %}</span>
         <div class="m-topbar-actions">
             {% if current_user.is_authenticated %}
+            <button type="button" id="ams-att-sync-badge-mobile" class="m-topbar-btn d-none" title="Attendance waiting to sync">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <span class="badge-dot" id="ams-att-sync-count-mobile">0</span>
+            </button>
             {% if current_operational_window %}
             {% if show_window_switcher and active_operational_windows %}
             <div class="dropdown">
@@ -551,6 +558,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- CSRF header injection for fetch()/$.ajax() -->
     <script src="{{ url_for('static', filename='js/csrf_fetch.js') }}?v=csrf2"></script>
+    <script src="{{ url_for('static', filename='js/attendance_offline.js') }}?v=att1"></script>
     <!-- Socket.IO Client for WebSocket connections -->
     <script>
         // Initialize Socket.IO connection
@@ -696,5 +704,53 @@
             });
         }
     </script>
+    {% if current_user.is_authenticated %}
+    <script>
+    (function () {
+        var api = window.AMSAttendanceOffline;
+        if (!api) return;
+
+        function refreshBadge() {
+            api.queueCount().then(function (n) {
+                var desktop = document.getElementById('ams-att-sync-badge');
+                var mobile = document.getElementById('ams-att-sync-badge-mobile');
+                if (desktop) desktop.classList.toggle('d-none', n < 1);
+                if (mobile) mobile.classList.toggle('d-none', n < 1);
+                var mobileCount = document.getElementById('ams-att-sync-count-mobile');
+                if (mobileCount) mobileCount.textContent = String(n);
+                var desktopCount = document.getElementById('ams-att-sync-count');
+                if (desktopCount) desktopCount.textContent = String(n);
+            }).catch(function () {});
+        }
+
+        function tryReplay() {
+            refreshBadge();
+            if (!navigator.onLine) return;
+            api.replayQueue().then(refreshBadge).catch(refreshBadge);
+            api.requestBackgroundSync();
+        }
+
+        function onBadgeClick() {
+            tryReplay();
+        }
+
+        var desktopBadge = document.getElementById('ams-att-sync-badge');
+        var mobileBadge = document.getElementById('ams-att-sync-badge-mobile');
+        if (desktopBadge) desktopBadge.addEventListener('click', onBadgeClick);
+        if (mobileBadge) mobileBadge.addEventListener('click', onBadgeClick);
+
+        window.addEventListener('online', tryReplay);
+        window.addEventListener('ams:attendance-queue-changed', refreshBadge);
+        if (navigator.serviceWorker) {
+            navigator.serviceWorker.addEventListener('message', function (event) {
+                if (event.data && event.data.type === 'ams-attendance-queue-changed') {
+                    refreshBadge();
+                }
+            });
+        }
+        tryReplay();
+    })();
+    </script>
+    {% endif %}
 </body>
 </html> 

@@ -33,19 +33,49 @@
     color: #b30000;
     font-size: 1.1rem;
   }
+  .att-offline-banner {
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+  }
+  .att-offline-banner.is-phone {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+  }
+  .att-offline-banner.is-warn {
+    background: #e0f2fe;
+    border: 1px solid #38bdf8;
+    color: #075985;
+  }
+  .att-offline-banner.is-sync {
+    background: #dbeafe;
+    border: 1px solid #3b82f6;
+    color: #1e3a8a;
+  }
+  .att-offline-banner.is-ok {
+    background: #dcfce7;
+    border: 1px solid #22c55e;
+    color: #166534;
+  }
 </style>
 
 <div class="container mt-4">
     <div class="card shadow">
         <div class="card-header bg-success text-white m-page-header">
-            <h5 class="card-title mb-0">
-                <i class="fas fa-clipboard-check me-2"></i>Take Attendance - {{ session.course_name or session.term }}
-                {% if session.course_code %}
-                    <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
-                {% endif %}
+            <h5 class="card-title mb-0 d-flex flex-wrap align-items-center gap-2">
+                <span>
+                    <i class="fas fa-clipboard-check me-2"></i>Take Attendance - {{ session.course_name or session.term }}
+                    {% if session.course_code %}
+                        <span class="badge bg-warning text-dark ms-2">{{ session.course_code }}</span>
+                    {% endif %}
+                </span>
+                <span id="att-offline-status" class="badge bg-light text-dark">অনলাইন</span>
             </h5>
         </div>
         <div class="card-body">
+            <div id="att-offline-banner" class="att-offline-banner" hidden></div>
             {% if split_meta %}
             <div class="alert alert-info">
                 <small>
@@ -54,18 +84,22 @@
             </div>
             {% endif %}
             <!-- Date picker GET form -->
-            <form method="GET" action="{{ url_for('class_management.take_attendance', session_id=session.id) }}">
+            <form method="GET" action="{{ url_for('class_management.take_attendance', session_id=session.id) }}" id="att-date-form">
                 <div class="mb-3">
                     <label for="date" class="form-label">
                         <i class="fas fa-calendar me-2"></i>Date
                     </label>
-                    <input type="date" class="form-control" id="date" name="date" required value="{{ today }}" onchange="this.form.submit();">
+                    <input type="date" class="form-control" id="date" name="date" required value="{{ today }}">
                 </div>
             </form>
 
             <!-- Attendance POST form -->
-            <form action="{{ url_for('class_management.take_attendance', session_id=session.id) }}" method="POST" id="attendance-form">
-                <input type="hidden" name="date" value="{{ today }}">
+            <form action="{{ url_for('class_management.take_attendance', session_id=session.id) }}" method="POST" id="attendance-form"
+                  data-session-id="{{ session.id }}"
+                  data-post-url="{{ url_for('class_management.take_attendance', session_id=session.id) }}"
+                  data-roster-url="{{ url_for('class_management.take_attendance_roster', session_id=session.id) }}"
+                  data-view-url="{{ url_for('class_management.view_attendance', session_id=session.id) }}">
+                <input type="hidden" name="date" id="att-post-date" value="{{ today }}">
                 <div class="double-class-box mb-3">
                     <div class="form-check m-0">
                         <input class="form-check-input" type="checkbox" name="double_class" id="double_class" value="1" {% if is_double_class %}checked{% endif %}>
@@ -75,7 +109,7 @@
                     </div>
                 </div>
                 
-                {% if students %}
+                <div id="att-student-wrap" {% if not students %}hidden{% endif %}>
                     <div class="table-responsive m-table-scroll-sticky">
                         <table class="attendance-table m-keep-table">
                             <thead>
@@ -86,7 +120,7 @@
                                     <th>Attendance</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="att-student-tbody">
                                 {% for student in students %}
                                 <tr>
                                     <td>{{ loop.index }}</td>
@@ -106,20 +140,19 @@
                             </tbody>
                         </table>
                     </div>
-                {% else %}
-                    <div class="text-center py-5">
-                        <i class="fas fa-user-graduate fa-3x text-muted mb-3"></i>
-                        <h5 class="text-muted">No students found</h5>
-                        <p class="text-muted">Add students to this course first</p>
-                        <a href="{{ url_for('class_management.students_list', session_id=session.id) }}" class="btn btn-primary">
-                            <i class="fas fa-plus me-1"></i>Add Students
-                        </a>
-                    </div>
-                {% endif %}
+                </div>
+                <div id="att-student-empty" class="text-center py-5" {% if students %}hidden{% endif %}>
+                    <i class="fas fa-user-graduate fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">No students found</h5>
+                    <p class="text-muted">Add students to this course first</p>
+                    <a href="{{ url_for('class_management.students_list', session_id=session.id) }}" class="btn btn-primary">
+                        <i class="fas fa-plus me-1"></i>Add Students
+                    </a>
+                </div>
                 
-                {% if students %}
-                    <div class="d-flex justify-content-between align-items-center mt-3">
-                        <div class="d-flex gap-2">
+                <div id="att-form-actions" class="d-flex justify-content-between align-items-center mt-3" {% if not students %}hidden{% endif %}>
+                    <div class="d-flex flex-column gap-2">
+                        <div class="d-flex flex-wrap gap-2">
                             <button type="submit" class="btn btn-success" id="save-attendance-btn">
                                 <i class="fas fa-save me-1"></i>Save Attendance
                             </button>
@@ -130,13 +163,295 @@
                                 <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
                             </a>
                         </div>
+                        <small class="text-muted">Saving this date replaces any Skip (S) already marked on View Attendance for this date.</small>
                     </div>
-                {% endif %}
+                </div>
             </form>
         </div>
     </div>
 </div>
 {% endblock %}
 
+{% block scripts %}
+<script>
+(function () {
+    var form = document.getElementById('attendance-form');
+    var dateForm = document.getElementById('att-date-form');
+    var dateInput = document.getElementById('date');
+    var postDate = document.getElementById('att-post-date');
+    var statusEl = document.getElementById('att-offline-status');
+    var bannerEl = document.getElementById('att-offline-banner');
+    var api = window.AMSAttendanceOffline;
+    if (!form || !api) return;
 
+    var sessionId = form.getAttribute('data-session-id');
+    var postUrl = form.getAttribute('data-post-url');
+    var rosterUrl = form.getAttribute('data-roster-url');
+    var viewUrl = form.getAttribute('data-view-url');
+    var persistTimer = null;
 
+    function currentDate() {
+        return (dateInput && dateInput.value) || (postDate && postDate.value) || '';
+    }
+
+    function setStatus(kind, label) {
+        if (!statusEl) return;
+        statusEl.textContent = label;
+        statusEl.className = 'badge';
+        if (kind === 'online') statusEl.classList.add('bg-light', 'text-dark');
+        else if (kind === 'offline') statusEl.classList.add('bg-secondary');
+        else if (kind === 'phone') statusEl.classList.add('bg-warning', 'text-dark');
+        else if (kind === 'syncing') statusEl.classList.add('bg-primary');
+        else if (kind === 'synced') statusEl.classList.add('bg-success');
+        else statusEl.classList.add('bg-light', 'text-dark');
+    }
+
+    function setBanner(kind, html) {
+        if (!bannerEl) return;
+        if (!html) {
+            bannerEl.hidden = true;
+            bannerEl.innerHTML = '';
+            bannerEl.className = 'att-offline-banner';
+            return;
+        }
+        bannerEl.hidden = false;
+        bannerEl.className = 'att-offline-banner is-' + kind;
+        bannerEl.innerHTML = html;
+    }
+
+    function refreshStatus() {
+        var dateStr = currentDate();
+        return api.getQueueItem(sessionId, dateStr).then(function (queued) {
+            if (queued) {
+                setStatus('phone', 'ফোনে সেভ');
+                setBanner('phone', 'ফোনে সেভ, নেট এলে যাবে। সাইট ডেটা ক্লিয়ার বা প্রাইভেট উইন্ডো বন্ধ করলে কিউ মুছে যাবে।');
+                return;
+            }
+            if (!navigator.onLine) {
+                setStatus('offline', 'অফলাইন');
+                return;
+            }
+            setStatus('online', 'অনলাইন');
+        }).catch(function () {
+            setStatus(navigator.onLine ? 'online' : 'offline', navigator.onLine ? 'অনলাইন' : 'অফলাইন');
+        });
+    }
+
+    function persistDraft() {
+        var dateStr = currentDate();
+        if (!dateStr) return Promise.resolve();
+        if (postDate) postDate.value = dateStr;
+        return api.saveDraft(sessionId, dateStr, api.collectFormBody(form));
+    }
+
+    function scheduleDraft() {
+        if (persistTimer) clearTimeout(persistTimer);
+        persistTimer = setTimeout(function () { persistDraft(); }, 200);
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+        });
+    }
+
+    function renderStudents(students, presentByDefault) {
+        var tbody = document.getElementById('att-student-tbody');
+        var wrap = document.getElementById('att-student-wrap');
+        var empty = document.getElementById('att-student-empty');
+        var actions = document.getElementById('att-form-actions');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        (students || []).forEach(function (student, index) {
+            var id = Number(student.id);
+            if (!id) return;
+            var checked = presentByDefault ? ' checked' : '';
+            tbody.insertAdjacentHTML('beforeend',
+                '<tr>' +
+                    '<td>' + (index + 1) + '</td>' +
+                    '<td><strong>' + escapeHtml(student.student_id || '') + '</strong></td>' +
+                    '<td>' + escapeHtml(student.name || '') + '</td>' +
+                    '<td><div class="form-check">' +
+                        '<input class="form-check-input" type="checkbox" name="student_' + id + '" value="present" id="student_' + id + '"' + checked + '>' +
+                        '<label class="form-check-label" for="student_' + id + '">' +
+                            '<i class="fas fa-check text-success me-1"></i>Present' +
+                        '</label>' +
+                    '</div></td>' +
+                '</tr>'
+            );
+        });
+        var hasStudents = students && students.length;
+        if (wrap) wrap.hidden = !hasStudents;
+        if (empty) empty.hidden = !!hasStudents;
+        if (actions) actions.hidden = !hasStudents;
+    }
+
+    function applyLocalSheet(body, fallbackPresent) {
+        if (body) {
+            api.applyBodyToForm(form, body);
+            return;
+        }
+        var boxes = form.querySelectorAll('input[type="checkbox"][name^="student_"]');
+        for (var i = 0; i < boxes.length; i++) {
+            boxes[i].checked = !!fallbackPresent;
+        }
+        var dc = document.getElementById('double_class');
+        if (dc && !body) dc.checked = false;
+    }
+
+    function loadLocalForDate(dateStr, options) {
+        options = options || {};
+        if (postDate) postDate.value = dateStr;
+        return Promise.all([
+            api.getQueueItem(sessionId, dateStr),
+            api.getDraft(sessionId, dateStr),
+            api.getRoster(sessionId),
+        ]).then(function (parts) {
+            var queued = parts[0];
+            var draft = parts[1];
+            var roster = parts[2];
+            var tbody = document.getElementById('att-student-tbody');
+            var hasRows = tbody && tbody.querySelector('input[name^="student_"]');
+            if (!hasRows && roster && roster.students && roster.students.length) {
+                renderStudents(roster.students, !(queued || draft));
+            }
+            var body = (queued && queued.body) || (draft && draft.body) || null;
+            if (body) {
+                applyLocalSheet(body, true);
+            } else if (options.resetToPresent) {
+                applyLocalSheet(null, true);
+            }
+            if (roster && api.isRosterStale(roster)) {
+                setBanner('warn', 'স্টুডেন্ট তালিকা পুরনো হতে পারে। নতুন স্টুডেন্ট অনলাইন হলেই দেখাবে।');
+            }
+            return refreshStatus();
+        });
+    }
+
+    function refreshRosterSnapshot() {
+        if (!navigator.onLine) return Promise.resolve(null);
+        return fetch(rosterUrl, {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json' },
+        }).then(function (res) {
+            if (!res.ok) return null;
+            return res.json();
+        }).then(function (data) {
+            if (data && data.success) return api.saveRoster(sessionId, data);
+            return null;
+        }).catch(function () { return null; });
+    }
+
+    function saveNow(event) {
+        if (event) event.preventDefault();
+        var dateStr = currentDate();
+        if (postDate) postDate.value = dateStr;
+        var body = api.collectFormBody(form);
+        var btn = document.getElementById('save-attendance-btn');
+        if (btn) btn.disabled = true;
+        setStatus('syncing', 'সিঙ্ক হচ্ছে');
+        setBanner('sync', 'সেভ পাঠানো হচ্ছে…');
+        return persistDraft().then(function () {
+            return api.postAttendance(postUrl, body);
+        }).then(function (result) {
+            return Promise.all([
+                api.removeQueueItem(api.queueKey(sessionId, dateStr)),
+                api.deleteDraft(sessionId, dateStr),
+            ]).then(function () {
+                setStatus('synced', 'সিঙ্ক হয়েছে');
+                setBanner('ok', 'সিঙ্ক হয়েছে');
+                window.location = (result && result.redirect) || viewUrl;
+            });
+        }).catch(function (err) {
+            if (err && err.code === 'auth') {
+                window.location = '/login';
+                return;
+            }
+            return api.enqueue(sessionId, dateStr, postUrl, body).then(function () {
+                return api.requestBackgroundSync();
+            }).then(function () {
+                setStatus('phone', 'ফোনে সেভ');
+                setBanner('phone', 'ফোনে সেভ, নেট এলে যাবে। সাইট ডেটা ক্লিয়ার বা প্রাইভেট উইন্ডো বন্ধ করলে কিউ মুছে যাবে।');
+            }).catch(function () {
+                setBanner('warn', 'ফোনে সেভ করা যায়নি। আবার চেষ্টা করুন।');
+            });
+        }).then(function () {
+            if (btn) btn.disabled = false;
+        });
+    }
+
+    form.addEventListener('submit', saveNow);
+    form.addEventListener('change', scheduleDraft);
+    form.addEventListener('input', scheduleDraft);
+
+    dateForm.addEventListener('submit', function (event) {
+        if (!navigator.onLine) {
+            event.preventDefault();
+            loadLocalForDate(currentDate(), { resetToPresent: true });
+        }
+    });
+    dateInput.addEventListener('change', function () {
+        if (postDate) postDate.value = dateInput.value;
+        if (!navigator.onLine) {
+            dateForm.dispatchEvent(new Event('submit', { cancelable: true }));
+            return;
+        }
+        dateForm.submit();
+    });
+
+    window.addEventListener('online', function () {
+        refreshStatus();
+        api.replayQueue().then(function (result) {
+            if (result && result.sent) {
+                setStatus('synced', 'সিঙ্ক হয়েছে');
+                setBanner('ok', 'ফোনের সেভ সিঙ্ক হয়েছে।');
+            } else {
+                refreshStatus();
+            }
+        });
+    });
+    window.addEventListener('offline', function () {
+        refreshStatus();
+    });
+
+    function bootPage() {
+        var dateStr = currentDate();
+        if (postDate) postDate.value = dateStr;
+        var boot = navigator.onLine ? refreshRosterSnapshot() : Promise.resolve();
+        boot.then(function () {
+            return Promise.all([
+                api.getQueueItem(sessionId, dateStr),
+                api.getDraft(sessionId, dateStr),
+                api.getRoster(sessionId),
+            ]);
+        }).then(function (parts) {
+            var queued = parts[0];
+            var draft = parts[1];
+            var roster = parts[2];
+            var tbody = document.getElementById('att-student-tbody');
+            var hasRows = tbody && tbody.querySelector('input[name^="student_"]');
+            if (!hasRows && roster && roster.students && roster.students.length) {
+                renderStudents(roster.students, !(queued || draft));
+            }
+            if (queued || draft) {
+                applyLocalSheet((queued && queued.body) || (draft && draft.body), true);
+            } else if (!navigator.onLine) {
+                applyLocalSheet(null, true);
+            }
+            if (!navigator.onLine && roster && api.isRosterStale(roster) && !(queued || draft)) {
+                setBanner('warn', 'স্টুডেন্ট তালিকা পুরনো হতে পারে। নতুন স্টুডেন্ট অনলাইন হলেই দেখাবে।');
+            }
+            return refreshStatus();
+        }).catch(function () {
+            refreshStatus();
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootPage);
+    } else {
+        bootPage();
+    }
+})();
+</script>
+{% endblock %}
