@@ -2627,13 +2627,21 @@ def create_app():
             
             action = request.form.get('action_type', 'save')
             payload = request.form.get('marks_payload')
+            wants_json = (
+                request.headers.get('X-Requested-With') in ('AMSAttendanceOffline', 'AMSOfflineSync')
+                or 'application/json' in (request.headers.get('Accept') or '')
+            )
             if not payload:
+                if wants_json:
+                    return jsonify({'ok': False, 'success': False, 'error': 'No marks data received.'}), 400
                 flash('No marks data received.', 'warning')
                 return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
 
             try:
                 data = json.loads(payload)
             except json.JSONDecodeError:
+                if wants_json:
+                    return jsonify({'ok': False, 'success': False, 'error': 'Failed to process marks data (invalid format).'}), 400
                 flash('Failed to process marks data (invalid format).', 'danger')
                 return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
 
@@ -2691,17 +2699,27 @@ def create_app():
             student_id_duplicates = _find_duplicate_mark_field_values(rows, 'student_id')
             duplicate_error = _format_duplicate_marks_error(code_duplicates, student_id_duplicates)
             if duplicate_error:
+                if wants_json:
+                    return jsonify({'ok': False, 'success': False, 'error': duplicate_error}), 400
                 flash(duplicate_error, 'error')
                 return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
 
             allocated_error = _format_allocated_marks_error(_find_allocated_marks_violations(data))
             if allocated_error:
+                if wants_json:
+                    return jsonify({'ok': False, 'success': False, 'error': allocated_error}), 400
                 flash(allocated_error, 'error')
                 return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
 
             entry.marks_data = json.dumps(data)
             db.session.commit()
             flash(f"Marks entry saved for {len(rows)} students.", 'success')
+            if wants_json:
+                return jsonify({
+                    'ok': True,
+                    'success': True,
+                    'redirect': url_for('exam_marks_entry', entry_id=entry_id, role=role),
+                })
             return redirect(url_for('exam_marks_entry', entry_id=entry_id, role=role))
 
         initial_data = {}

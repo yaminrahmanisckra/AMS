@@ -3578,7 +3578,7 @@ def upload_students(session_id):
 
 def _attendance_offline_wants_json():
     """True when the offline attendance client asked for a JSON save reply."""
-    if request.headers.get('X-Requested-With') == 'AMSAttendanceOffline':
+    if request.headers.get('X-Requested-With') in ('AMSAttendanceOffline', 'AMSOfflineSync'):
         return True
     accept = request.headers.get('Accept') or ''
     return 'application/json' in accept
@@ -8103,6 +8103,8 @@ def assessment(session_id):
         session = get_or_404_for_window(Session, session_id)
 
         if not user_owns_class_session(current_user, session):
+            if request.method == 'POST' and _attendance_offline_wants_json():
+                return jsonify({'ok': False, 'success': False, 'error': 'unauthorized'}), 403
             flash('You are not authorized to manage assessment for this session.', 'danger')
             return redirect(url_for('class_management.index'))
 
@@ -8240,10 +8242,18 @@ def assessment(session_id):
                 except Exception:
                     pass
                 flash('Assessment marks saved successfully!', 'success')
+                if _attendance_offline_wants_json():
+                    return jsonify({
+                        'ok': True,
+                        'success': True,
+                        'redirect': url_for('class_management.assessment', session_id=session_id),
+                    })
                 return redirect(url_for('class_management.assessment', session_id=session_id))
                 
             except Exception as e:
                 db.session.rollback()
+                if _attendance_offline_wants_json():
+                    return jsonify({'ok': False, 'success': False, 'error': str(e)}), 400
                 flash(f'Error saving assessment: {str(e)}', 'error')
                 return redirect(url_for('class_management.assessment', session_id=session_id))
         

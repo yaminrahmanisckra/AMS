@@ -1,26 +1,29 @@
 /**
- * Offline take-attendance: IndexedDB roster snapshots, drafts, and a
- * deduped POST queue keyed by (session_id, date). Works in the page and
- * in the service worker (Background Sync).
- *
- * Does not change the server save contract: date, optional double_class=1,
- * student_<class_student_pk>=present.
+ * Device-first offline queue for attendance, assessment, and exam marks.
+ * IndexedDB persists after the browser closes. Replay retries on reconnect,
+ * visibility, and a short interval — not only a single `online` event.
  */
 (function (root) {
     'use strict';
 
     var DB_NAME = 'ams-attendance-offline';
-    var DB_VERSION = 1;
+    var DB_VERSION = 2;
     var STORE_ROSTERS = 'rosters';
     var STORE_DRAFTS = 'drafts';
     var STORE_QUEUE = 'queue';
     var SYNC_TAG = 'ams-attendance-sync';
     var STALE_MS = 7 * 24 * 60 * 60 * 1000;
-    var HEADER_VALUE = 'AMSAttendanceOffline';
+    var HEADER_VALUE = 'AMSOfflineSync';
+    var WATCH_MS = 8000;
 
     var replaying = false;
+    var watchdogStarted = false;
 
     function queueKey(sessionId, dateStr) {
+        return 'attendance|' + String(sessionId) + '|' + String(dateStr);
+    }
+
+    function legacyAttendanceKey(sessionId, dateStr) {
         return String(sessionId) + '|' + String(dateStr);
     }
 
@@ -96,17 +99,17 @@
         });
     }
 
-    function notifyChanged() {
+    function notifyChanged(detail) {
         try {
             if (typeof window !== 'undefined' && window.dispatchEvent) {
-                window.dispatchEvent(new CustomEvent('ams:attendance-queue-changed'));
+                window.dispatchEvent(new CustomEvent('ams:attendance-queue-changed', { detail: detail || {} }));
             }
         } catch (e) { /* ignore */ }
         try {
             if (typeof self !== 'undefined' && self.clients && self.clients.matchAll) {
                 self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then(function (clients) {
                     clients.forEach(function (client) {
-                        client.postMessage({ type: 'ams-attendance-queue-changed' });
+                        client.postMessage({ type: 'ams-attendance-queue-changed', detail: detail || {} });
                     });
                 });
             }
@@ -114,9 +117,8 @@
     }
 
     function saveRoster(sessionId, roster) {
-        var sid = Number(sessionId);
         var record = {
-            sessionId: sid,
+            sessionId: Number(sessionId),
             courseName: roster.course_name || roster.courseName || '',
             courseCode: roster.course_code || roster.courseCode || '',
             splitNote: roster.split_note || roster.splitNote || null,
@@ -131,50 +133,97 @@
     }
 
     function saveDraft(sessionId, dateStr, body) {
-        var record = {
+        return idbPut(STORE_DRAFTS, {
             key: queueKey(sessionId, dateStr),
             sessionId: Number(sessionId),
             date: String(dateStr),
             body: body,
             savedAt: new Date().toISOString(),
-        };
-        return idbPut(STORE_DRAFTS, record);
+        });
     }
 
     function getDraft(sessionId, dateStr) {
-        return idbGet(STORE_DRAFTS, queueKey(sessionId, dateStr));
+        return idbGet(STORE_DRAFTS, queueKey(sessionId, dateStr)).then(function (row) {
+            return row || idbGet(STORE_DRAFTS, legacyAttendanceKey(sessionId, dateStr));
+        });
     }
 
     function deleteDraft(sessionId, dateStr) {
-        return idbDelete(STORE_DRAFTS, queueKey(sessionId, dateStr));
+        return idbDelete(STORE_DRAFTS, queueKey(sessionId, dateStr)).then(function () {
+            return idbDelete(STORE_DRAFTS, legacyAttendanceKey(sessionId, dateStr));
+        });
     }
 
-    function enqueue(sessionId, dateStr, url, body) {
-        var record = {
-            key: queueKey(sessionId, dateStr),
-            sessionId: Number(sessionId),
-            date: String(dateStr),
-            url: url,
-            body: body,
+    function normalizeItem(item) {
+        if (!item) return item;
+        if (!item.kind) item.kind = 'attendance';
+        if (!item.contentType) {
+            item.contentType = 'application/x-www-form-urlencoded;charset=UTF-8';
+        }
+        if (!item.label) {
+            if (item.kind === 'assessment') item.label = 'Assessment';
+            else if (item.kind === 'exam_marks') item.label = 'Exam marks';
+            else item.label = item.date ? ('Attendance · ' + item.date) : 'Attendance';
+        }
+        return item;
+    }
+
+    function enqueueItem(item, options) {
+        options = options || {};
+        if (!item || !item.key || !item.url) {
+            return Promise.reject(new Error('invalid queue item'));
+        }
+        var record = normalizeItem({
+            key: item.key,
+            kind: item.kind || 'attendance',
+            sessionId: item.sessionId || null,
+            date: item.date || '',
+            url: item.url,
+            method: 'POST',
+            contentType: item.contentType,
+            body: item.body || '',
+            label: item.label || '',
             savedAt: new Date().toISOString(),
-        };
+        });
         return idbPut(STORE_QUEUE, record).then(function (saved) {
-            notifyChanged();
+            if (!options.quiet) notifyChanged({ reason: 'enqueue', key: saved.key });
             return saved;
         });
     }
 
+    function enqueue(sessionId, dateStr, url, body) {
+        return enqueueItem({
+            key: queueKey(sessionId, dateStr),
+            kind: 'attendance',
+            sessionId: Number(sessionId),
+            date: String(dateStr),
+            url: url,
+            body: body,
+            label: 'Attendance · ' + dateStr,
+        });
+    }
+
     function getQueue() {
-        return idbGetAll(STORE_QUEUE);
+        return idbGetAll(STORE_QUEUE).then(function (items) {
+            return (items || []).map(normalizeItem);
+        });
     }
 
     function getQueueItem(sessionId, dateStr) {
-        return idbGet(STORE_QUEUE, queueKey(sessionId, dateStr));
+        return idbGet(STORE_QUEUE, queueKey(sessionId, dateStr)).then(function (row) {
+            if (row) return normalizeItem(row);
+            return idbGet(STORE_QUEUE, legacyAttendanceKey(sessionId, dateStr)).then(normalizeItem);
+        });
     }
 
-    function removeQueueItem(key) {
+    function getItem(key) {
+        return idbGet(STORE_QUEUE, key).then(normalizeItem);
+    }
+
+    function removeQueueItem(key, options) {
+        options = options || {};
         return idbDelete(STORE_QUEUE, key).then(function () {
-            notifyChanged();
+            if (!options.quiet) notifyChanged({ reason: 'remove', key: key });
         });
     }
 
@@ -188,6 +237,22 @@
         fd.forEach(function (value, name) {
             params.append(name, value);
         });
+        return params.toString();
+    }
+
+    function collectAttendanceBody(form) {
+        var params = new URLSearchParams();
+        if (!form) return params.toString();
+        var dateEl = form.querySelector('input[name="date"]');
+        if (dateEl && dateEl.value) params.set('date', dateEl.value);
+        var doubleEl = form.querySelector('#double_class, input[name="double_class"]');
+        if (doubleEl && doubleEl.checked) params.set('double_class', '1');
+        var boxes = form.querySelectorAll('input[type="checkbox"][name^="student_"]');
+        for (var i = 0; i < boxes.length; i++) {
+            params.set(boxes[i].name, boxes[i].checked ? 'present' : 'absent');
+        }
+        var csrf = form.querySelector('input[name="csrf_token"]');
+        if (csrf && csrf.value) params.set('csrf_token', csrf.value);
         return params.toString();
     }
 
@@ -208,68 +273,103 @@
         }
     }
 
-    function isAuthFailure(res, locationHref) {
-        if (!res) return false;
-        if (res.status === 401 || res.status === 403) return true;
-        var loc = locationHref || '';
-        return loc.indexOf('/login') !== -1 || loc.indexOf('/auth/login') !== -1;
+    function authError() {
+        var err = new Error('auth');
+        err.code = 'auth';
+        return err;
     }
 
-    function postAttendance(url, body) {
-        return fetch(url, {
+    function looksLikeLogin(url) {
+        return /\/login(?:\?|$)/i.test(url || '') || /\/auth\/login/i.test(url || '');
+    }
+
+    function postItem(item) {
+        item = normalizeItem(item);
+        var headers = {
+            'Accept': 'application/json',
+            'X-Requested-With': HEADER_VALUE,
+        };
+        if (item.contentType) {
+            headers['Content-Type'] = item.contentType;
+        }
+        return fetch(item.url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                'Accept': 'application/json',
-                'X-Requested-With': HEADER_VALUE,
-            },
-            body: body,
+            headers: headers,
+            body: item.body,
             credentials: 'same-origin',
-            redirect: 'manual',
+            redirect: 'follow',
         }).then(function (res) {
-            var loc = '';
-            try { loc = res.headers.get('Location') || ''; } catch (e) { loc = ''; }
-
-            if (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400)) {
-                if (isAuthFailure(res, loc)) {
-                    var authErr = new Error('auth');
-                    authErr.code = 'auth';
-                    throw authErr;
-                }
-                return { ok: true, redirected: true, redirect: loc };
+            var finalUrl = '';
+            try { finalUrl = res.url || ''; } catch (e) { finalUrl = ''; }
+            if (looksLikeLogin(finalUrl) || res.status === 401) {
+                throw authError();
             }
 
-            if (isAuthFailure(res, loc)) {
-                var err = new Error('auth');
-                err.code = 'auth';
-                throw err;
-            }
-
-            var ct = (res.headers.get('content-type') || '');
-            if (ct.indexOf('application/json') !== -1) {
+            var ct = (res.headers.get('content-type') || '').toLowerCase();
+            if (ct.indexOf('json') !== -1) {
                 return res.json().then(function (data) {
-                    if (data && data.ok) return data;
-                    var fail = new Error((data && data.error) || 'save-failed');
+                    if (data && (data.ok === true || data.success === true)) {
+                        return data;
+                    }
+                    var fail = new Error((data && (data.error || data.message)) || 'save-failed');
                     fail.status = res.status;
+                    if (res.status === 401 || res.status === 403) {
+                        fail.code = res.status === 401 ? 'auth' : 'forbidden';
+                    }
                     throw fail;
                 });
             }
 
-            if (res.ok) return { ok: true };
             var fail = new Error('save-failed');
             fail.status = res.status;
+            fail.code = 'not-json';
             throw fail;
+        });
+    }
+
+    function postAttendance(url, body) {
+        return postItem({
+            url: url,
+            body: body,
+            contentType: 'application/x-www-form-urlencoded;charset=UTF-8',
+            kind: 'attendance',
+        });
+    }
+
+    function clearRelatedDraft(item) {
+        if (item && item.kind === 'attendance' && item.sessionId && item.date) {
+            return deleteDraft(item.sessionId, item.date);
+        }
+        return Promise.resolve();
+    }
+
+    function withLatestAttendanceBody(item) {
+        if (!item || item.kind !== 'attendance' || !item.sessionId || !item.date) {
+            return Promise.resolve(item);
+        }
+        return getDraft(item.sessionId, item.date).then(function (draft) {
+            if (draft && draft.body && draft.savedAt && (!item.savedAt || draft.savedAt >= item.savedAt)) {
+                item.body = draft.body;
+            }
+            return item;
         });
     }
 
     function replayItems(items, index, acc) {
         if (index >= items.length) return Promise.resolve(acc);
         var item = items[index];
-        return postAttendance(item.url, item.body).then(function () {
-            return removeQueueItem(item.key).then(function () {
-                return deleteDraft(item.sessionId, item.date).then(function () {
+        return withLatestAttendanceBody(item).then(function (ready) {
+            item = ready;
+            return postItem(item);
+        }).then(function (result) {
+            return removeQueueItem(item.key, { quiet: true }).then(function () {
+                return clearRelatedDraft(item).then(function () {
                     acc.sent += 1;
                     acc.remaining -= 1;
+                    acc.lastKind = item.kind;
+                    acc.lastSessionId = item.sessionId;
+                    acc.lastDate = item.date;
+                    acc.lastBody = item.body;
                     return replayItems(items, index + 1, acc);
                 });
             });
@@ -279,18 +379,14 @@
                 return acc;
             }
             acc.error = err;
-            return acc;
+            return replayItems(items, index + 1, acc);
         });
-    }
-
-    function isOffline() {
-        return typeof navigator !== 'undefined' && navigator.onLine === false;
     }
 
     function replayQueue() {
         if (replaying) return Promise.resolve({ skipped: true });
-        if (isOffline()) return Promise.resolve({ offline: true });
         replaying = true;
+        notifyChanged({ reason: 'syncing' });
         return getQueue().then(function (items) {
             if (!items.length) {
                 return { sent: 0, remaining: 0 };
@@ -298,11 +394,52 @@
             return replayItems(items, 0, { sent: 0, remaining: items.length, authFailed: false });
         }).then(function (result) {
             replaying = false;
-            notifyChanged();
+            notifyChanged({
+                reason: result && result.sent ? 'synced' : 'idle',
+                sent: result && result.sent,
+                remaining: result && result.remaining,
+                authFailed: result && result.authFailed,
+                kind: result && result.lastKind,
+                sessionId: result && result.lastSessionId,
+                date: result && result.lastDate,
+                body: result && result.lastBody,
+            });
             return result;
         }, function (err) {
             replaying = false;
+            notifyChanged({ reason: 'idle' });
             throw err;
+        });
+    }
+
+    function flushItem(item) {
+        return enqueueItem(item, { quiet: true }).then(function () {
+            return withLatestAttendanceBody(item).then(function (ready) {
+                item = ready;
+                return postItem(item);
+            }).then(function (result) {
+                return removeQueueItem(item.key, { quiet: true }).then(function () {
+                    return clearRelatedDraft(item).then(function () {
+                        notifyChanged({
+                            reason: 'synced',
+                            sent: 1,
+                            remaining: 0,
+                            kind: item.kind,
+                            sessionId: item.sessionId,
+                            date: item.date,
+                            body: item.body,
+                        });
+                        return { synced: true, result: result };
+                    });
+                });
+            }).catch(function (err) {
+                notifyChanged({ reason: 'enqueue', key: item.key });
+                requestBackgroundSync();
+                if (err && err.code === 'auth') {
+                    return { synced: false, queued: true, authFailed: true };
+                }
+                return { synced: false, queued: true, error: err };
+            });
         });
     }
 
@@ -318,10 +455,18 @@
         }).catch(function () { return false; });
     }
 
+    function prefetchUrl(url) {
+        return fetch(url, {
+            credentials: 'same-origin',
+            headers: { 'Accept': 'text/html' },
+        }).catch(function () { return null; });
+    }
+
     function prefetchSession(sessionId) {
         var sid = String(sessionId);
         var rosterUrl = '/class-management/take_attendance/' + sid + '/roster.json';
         var pageUrl = '/class-management/take_attendance/' + sid;
+        var assessmentUrl = '/class-management/assessment/' + sid;
         return fetch(rosterUrl, {
             credentials: 'same-origin',
             headers: { 'Accept': 'application/json' },
@@ -334,10 +479,7 @@
             }
             return null;
         }).then(function () {
-            return fetch(pageUrl, {
-                credentials: 'same-origin',
-                headers: { 'Accept': 'text/html' },
-            });
+            return Promise.all([prefetchUrl(pageUrl), prefetchUrl(assessmentUrl)]);
         }).catch(function () { return null; });
     }
 
@@ -348,6 +490,39 @@
         return ((nowMs || Date.now()) - then) > STALE_MS;
     }
 
+    function kickReplay() {
+        replayQueue().catch(function () {});
+    }
+
+    function startWatchdog() {
+        if (watchdogStarted || typeof document === 'undefined') return;
+        watchdogStarted = true;
+        var delayed = function (ms) {
+            return function () { setTimeout(kickReplay, ms); };
+        };
+        if (typeof window !== 'undefined') {
+            window.addEventListener('online', function () {
+                kickReplay();
+                setTimeout(kickReplay, 800);
+                setTimeout(kickReplay, 2500);
+                setTimeout(kickReplay, 8000);
+            });
+            window.addEventListener('pageshow', kickReplay);
+            window.addEventListener('focus', delayed(300));
+        }
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') kickReplay();
+        });
+        setInterval(function () {
+            if (document.hidden) return;
+            getQueue().then(function (items) {
+                if (items.length) kickReplay();
+            }).catch(function () {});
+        }, WATCH_MS);
+        requestBackgroundSync();
+        kickReplay();
+    }
+
     var api = {
         queueKey: queueKey,
         saveRoster: saveRoster,
@@ -356,20 +531,28 @@
         getDraft: getDraft,
         deleteDraft: deleteDraft,
         enqueue: enqueue,
+        enqueueItem: enqueueItem,
+        flushItem: flushItem,
         getQueue: getQueue,
         getQueueItem: getQueueItem,
+        getItem: getItem,
         removeQueueItem: removeQueueItem,
         queueCount: queueCount,
         collectFormBody: collectFormBody,
+        collectAttendanceBody: collectAttendanceBody,
         applyBodyToForm: applyBodyToForm,
         postAttendance: postAttendance,
+        postItem: postItem,
         replayQueue: replayQueue,
         requestBackgroundSync: requestBackgroundSync,
         prefetchSession: prefetchSession,
+        prefetchUrl: prefetchUrl,
         isRosterStale: isRosterStale,
+        startWatchdog: startWatchdog,
         STALE_MS: STALE_MS,
         SYNC_TAG: SYNC_TAG,
     };
 
+    root.AMSOfflineSync = api;
     root.AMSAttendanceOffline = api;
 })(typeof self !== 'undefined' ? self : this);

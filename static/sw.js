@@ -1,5 +1,5 @@
 // Service Worker for Academic Management System PWA
-const CACHE_NAME = 'ams-ku-v6';
+const CACHE_NAME = 'ams-ku-v8';
 const urlsToCache = [
   // Removed '/' - HTML pages should NEVER be cached globally
   '/static/css/style.css',
@@ -11,10 +11,14 @@ const urlsToCache = [
 
 importScripts('/static/js/attendance_offline.js');
 
-function isTakeAttendanceUrl(url) {
+function isOfflineEntryUrl(url) {
   try {
     const parsed = new URL(url);
-    return /\/class-management\/take_attendance\/\d+(\/roster\.json)?$/.test(parsed.pathname);
+    return (
+      /\/class-management\/take_attendance\/\d+(\/roster\.json)?$/.test(parsed.pathname) ||
+      /\/class-management\/assessment\/\d+$/.test(parsed.pathname) ||
+      /\/exam-evaluation\/\d+\/marks$/.test(parsed.pathname)
+    );
   } catch (_) {
     return false;
   }
@@ -59,8 +63,8 @@ self.addEventListener('sync', (event) => {
     return;
   }
   event.waitUntil(
-    self.AMSAttendanceOffline
-      ? self.AMSAttendanceOffline.replayQueue()
+    (self.AMSOfflineSync || self.AMSAttendanceOffline)
+      ? (self.AMSOfflineSync || self.AMSAttendanceOffline).replayQueue()
       : Promise.resolve()
   );
 });
@@ -85,8 +89,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Opt-in: take-attendance HTML + roster.json — network first, cache for offline reopen
-  if (isTakeAttendanceUrl(event.request.url)) {
+  // Opt-in: attendance / assessment / exam-marks GET — network first, cache for offline reopen
+  if (isOfflineEntryUrl(event.request.url)) {
     event.respondWith(
       fetch(event.request).then((response) => {
         if (response && response.ok) {

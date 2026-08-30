@@ -706,6 +706,12 @@ document.addEventListener('DOMContentLoaded', function() {
             dropdownEl.classList.remove('dropup');
         });
     });
+
+    if (navigator.onLine && window.AMSOfflineSync) {
+        document.querySelectorAll('a[href*="/exam-evaluation/"][href*="/marks"]').forEach(function(link) {
+            window.AMSOfflineSync.prefetchUrl(link.getAttribute('href'));
+        });
+    }
 });
 </script>
 {% endblock %}

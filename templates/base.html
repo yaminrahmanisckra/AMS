@@ -124,6 +124,37 @@
         body:has(.impersonation-banner) .navbar-desktop {
             top: 0;
         }
+        .ams-offline-dock {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+            z-index: 1080;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+            padding: 10px 12px;
+            display: none;
+        }
+        .ams-offline-dock.is-visible { display: block; }
+        .ams-offline-dock.is-pending { background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; }
+        .ams-offline-dock.is-syncing { background: #dbeafe; border: 1px solid #3b82f6; color: #1e3a8a; }
+        .ams-offline-dock.is-ok { background: #dcfce7; border: 1px solid #22c55e; color: #166534; }
+        .ams-offline-dock-inner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .ams-offline-dock-text { flex: 1 1 auto; font-weight: 600; font-size: 0.95rem; }
+        .ams-offline-dock-sync {
+            border: 0;
+            background: #0f172a;
+            color: #fff;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 0.85rem;
+        }
+        body.ams-offline-dock-open { padding-bottom: 72px; }
     </style>
     {% block force_scrolling_css %}{% endblock %}
 </head>
@@ -380,9 +411,6 @@
                                 </ul>
                             </li>
                             {% endif %}
-                            <button type="button" id="ams-att-sync-badge" class="btn btn-sm btn-warning d-none me-2" title="Attendance waiting to sync">
-                                <i class="fas fa-cloud-upload-alt me-1"></i><span id="ams-att-sync-count">0</span>
-                            </button>
                             <a class="navbar-text me-2 me-lg-3 text-decoration-none text-white d-flex align-items-center" href="{{ url_for('profile') }}" style="white-space: nowrap; font-size: 0.9rem;">
                                 <i class="fas fa-user me-1"></i><span><span class="d-none d-sm-inline">Welcome,&nbsp;</span>{{ current_user.full_name or current_user.username }}</span>
                             </a>
@@ -411,10 +439,6 @@
         <span class="m-topbar-title">{% block mobile_title %}{% endblock %}</span>
         <div class="m-topbar-actions">
             {% if current_user.is_authenticated %}
-            <button type="button" id="ams-att-sync-badge-mobile" class="m-topbar-btn d-none" title="Attendance waiting to sync">
-                <i class="fas fa-cloud-upload-alt"></i>
-                <span class="badge-dot" id="ams-att-sync-count-mobile">0</span>
-            </button>
             {% if current_operational_window %}
             {% if show_window_switcher and active_operational_windows %}
             <div class="dropdown">
@@ -504,6 +528,14 @@
 
         {% block content %}{% endblock %}
     </main>
+    {% if current_user.is_authenticated %}
+    <div id="ams-offline-dock" class="ams-offline-dock" role="status" aria-live="polite">
+        <div class="ams-offline-dock-inner">
+            <span id="ams-offline-dock-text" class="ams-offline-dock-text"></span>
+            <button type="button" id="ams-offline-dock-sync" class="ams-offline-dock-sync">এখন সিঙ্ক করুন</button>
+        </div>
+    </div>
+    {% endif %}
 
     <footer class="footer mt-auto py-3 bg-dark text-white">
         <div class="container d-flex flex-column flex-md-row justify-content-between align-items-center text-center text-md-start gap-2">
@@ -558,7 +590,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- CSRF header injection for fetch()/$.ajax() -->
     <script src="{{ url_for('static', filename='js/csrf_fetch.js') }}?v=csrf2"></script>
-    <script src="{{ url_for('static', filename='js/attendance_offline.js') }}?v=att1"></script>
+    <script src="{{ url_for('static', filename='js/attendance_offline.js') }}?v=att3"></script>
     <!-- Socket.IO Client for WebSocket connections -->
     <script>
         // Initialize Socket.IO connection
@@ -707,48 +739,84 @@
     {% if current_user.is_authenticated %}
     <script>
     (function () {
-        var api = window.AMSAttendanceOffline;
+        var api = window.AMSOfflineSync || window.AMSAttendanceOffline;
         if (!api) return;
 
-        function refreshBadge() {
-            api.queueCount().then(function (n) {
-                var desktop = document.getElementById('ams-att-sync-badge');
-                var mobile = document.getElementById('ams-att-sync-badge-mobile');
-                if (desktop) desktop.classList.toggle('d-none', n < 1);
-                if (mobile) mobile.classList.toggle('d-none', n < 1);
-                var mobileCount = document.getElementById('ams-att-sync-count-mobile');
-                if (mobileCount) mobileCount.textContent = String(n);
-                var desktopCount = document.getElementById('ams-att-sync-count');
-                if (desktopCount) desktopCount.textContent = String(n);
+        var dock = document.getElementById('ams-offline-dock');
+        var textEl = document.getElementById('ams-offline-dock-text');
+        var syncBtn = document.getElementById('ams-offline-dock-sync');
+        var hideTimer = null;
+
+        function setDock(state, message, showButton) {
+            if (!dock) return;
+            dock.className = 'ams-offline-dock is-visible is-' + state;
+            if (textEl) textEl.textContent = message;
+            if (syncBtn) syncBtn.style.display = showButton ? '' : 'none';
+            document.body.classList.add('ams-offline-dock-open');
+        }
+
+        function hideDock() {
+            if (!dock) return;
+            dock.className = 'ams-offline-dock';
+            document.body.classList.remove('ams-offline-dock-open');
+        }
+
+        function refreshDock(detail) {
+            detail = detail || {};
+            return api.getQueue().then(function (items) {
+                var n = items.length;
+                if (detail.reason === 'syncing' && n) {
+                    setDock('syncing', 'সিঙ্ক হচ্ছে… সার্ভারে পাঠানো হচ্ছে।', false);
+                    return;
+                }
+                if (n) {
+                    var first = items[0].label || 'সেভ';
+                    var msg = n === 1
+                        ? (first + ' ডিভাইসে সেভ আছে — সার্ভারে এখনও যায়নি।')
+                        : (n + 'টি সেভ ডিভাইসে আছে — সার্ভারে এখনও যায়নি।');
+                    if (detail.authFailed) {
+                        msg = 'লগইন করে সিঙ্ক করুন। ' + msg;
+                    }
+                    setDock('pending', msg, true);
+                    return;
+                }
+                if (detail.reason === 'synced' && detail.sent) {
+                    setDock('ok', 'সার্ভারে সেভ হয়েছে।', false);
+                    if (hideTimer) clearTimeout(hideTimer);
+                    hideTimer = setTimeout(hideDock, 4000);
+                    return;
+                }
+                hideDock();
             }).catch(function () {});
         }
 
-        function tryReplay() {
-            refreshBadge();
-            if (!navigator.onLine) return;
-            api.replayQueue().then(refreshBadge).catch(refreshBadge);
-            api.requestBackgroundSync();
+        if (syncBtn) {
+            syncBtn.addEventListener('click', function () {
+                setDock('syncing', 'সিঙ্ক হচ্ছে… সার্ভারে পাঠানো হচ্ছে।', false);
+                api.replayQueue().then(function (result) {
+                    refreshDock({
+                        reason: result && result.sent ? 'synced' : 'idle',
+                        sent: result && result.sent,
+                        authFailed: result && result.authFailed,
+                    });
+                }).catch(function () {
+                    refreshDock({ reason: 'idle' });
+                });
+            });
         }
 
-        function onBadgeClick() {
-            tryReplay();
-        }
-
-        var desktopBadge = document.getElementById('ams-att-sync-badge');
-        var mobileBadge = document.getElementById('ams-att-sync-badge-mobile');
-        if (desktopBadge) desktopBadge.addEventListener('click', onBadgeClick);
-        if (mobileBadge) mobileBadge.addEventListener('click', onBadgeClick);
-
-        window.addEventListener('online', tryReplay);
-        window.addEventListener('ams:attendance-queue-changed', refreshBadge);
+        window.addEventListener('ams:attendance-queue-changed', function (event) {
+            refreshDock((event && event.detail) || {});
+        });
         if (navigator.serviceWorker) {
             navigator.serviceWorker.addEventListener('message', function (event) {
                 if (event.data && event.data.type === 'ams-attendance-queue-changed') {
-                    refreshBadge();
+                    refreshDock(event.data.detail || {});
                 }
             });
         }
-        tryReplay();
+        api.startWatchdog();
+        refreshDock({});
     })();
     </script>
     {% endif %}

@@ -1385,7 +1385,7 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
         if (saveSpinner) saveSpinner.style.display = isSaving ? 'inline-block' : 'none';
         if (saveMessage) {
             saveMessage.textContent = message;
-            saveMessage.className = isSaving ? 'text-info' : (message.includes('saved') ? 'text-success' : 'text-danger');
+            saveMessage.className = isSaving ? 'text-info' : (message.includes('saved') || message.indexOf('ডিভাইসে') !== -1 ? 'text-success' : 'text-danger');
         }
         if (!isSaving && message.includes('saved')) {
             setTimeout(() => {
@@ -1425,32 +1425,48 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
         const data = collectAssessmentAutosavePayload(form);
         saveInFlight = true;
         showSaveStatus('Saving...', true);
-        
-        fetch(`/class-management/assessment/${sessionId}/auto-save`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify(data)
-        })
-        .then(async (response) => {
-            let result = {};
-            try {
-                result = await response.json();
-            } catch (err) {
-                throw new Error('Invalid server response');
+
+        const offline = window.AMSOfflineSync;
+        const item = {
+            key: 'assessment|' + sessionId,
+            kind: 'assessment',
+            sessionId: sessionId,
+            url: `/class-management/assessment/${sessionId}/auto-save`,
+            contentType: 'application/json',
+            body: JSON.stringify(data),
+            label: 'Assessment',
+        };
+
+        const send = offline
+            ? offline.flushItem(item)
+            : fetch(item.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                body: item.body,
+            }).then(async (response) => {
+                let result = {};
+                try { result = await response.json(); } catch (err) { throw new Error('Invalid server response'); }
+                if (!response.ok || !result.success) throw new Error(result.message || 'Save failed');
+                return { synced: true, result: result };
+            });
+
+        send.then((outcome) => {
+            if (outcome && outcome.authFailed) {
+                showSaveStatus('✗ Login required', false);
+                return;
             }
-            if (!response.ok || !result.success) {
-                throw new Error(result.message || 'Save failed');
+            if (outcome && outcome.synced) {
+                showSaveStatus('✓ Saved automatically', false);
+                return;
             }
-            showSaveStatus('✓ Saved automatically', false);
-        })
-        .catch((error) => {
+            showSaveStatus('ডিভাইসে সেভ আছে', false);
+        }).catch((error) => {
             console.error('Auto-save error:', error);
             showSaveStatus('✗ Save failed', false);
-        })
-        .finally(() => {
+        }).finally(() => {
             saveInFlight = false;
             if (saveQueued) {
                 saveQueued = false;
@@ -1475,6 +1491,36 @@ document.querySelectorAll('.pg-absent-checkbox').forEach(chk => {
     document.querySelectorAll('.absent-checkbox, .sessional-absent-checkbox, .pg-absent-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', debounceAutoSave);
     });
+
+    const marksForm = document.getElementById('assessmentMarksForm');
+    if (marksForm && window.AMSOfflineSync) {
+        marksForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const body = window.AMSOfflineSync.collectFormBody(marksForm);
+            showSaveStatus('Saving...', true);
+            window.AMSOfflineSync.flushItem({
+                key: 'assessment|' + sessionId,
+                kind: 'assessment',
+                sessionId: sessionId,
+                url: marksForm.getAttribute('action') || (window.location.pathname + window.location.search),
+                body: body,
+                label: 'Assessment',
+            }).then(function (outcome) {
+                if (outcome && outcome.authFailed) {
+                    window.location = '/login';
+                    return;
+                }
+                if (outcome && outcome.synced) {
+                    showSaveStatus('✓ Saved automatically', false);
+                    window.location.reload();
+                    return;
+                }
+                showSaveStatus('ডিভাইসে সেভ আছে', false);
+            }).catch(function () {
+                showSaveStatus('✗ Save failed', false);
+            });
+        });
+    }
 })();
 </script>
 <!-- Assessment Reveal Controls JavaScript -->

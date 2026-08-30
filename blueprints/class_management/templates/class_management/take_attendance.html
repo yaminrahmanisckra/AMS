@@ -223,8 +223,8 @@
         var dateStr = currentDate();
         return api.getQueueItem(sessionId, dateStr).then(function (queued) {
             if (queued) {
-                setStatus('phone', 'ফোনে সেভ');
-                setBanner('phone', 'ফোনে সেভ, নেট এলে যাবে। সাইট ডেটা ক্লিয়ার বা প্রাইভেট উইন্ডো বন্ধ করলে কিউ মুছে যাবে।');
+                setStatus('phone', 'ডিভাইসে সেভ');
+                setBanner('phone', 'ডিভাইসে সেভ আছে — সার্ভারে এখনও যায়নি। নেট এলে নিজেই সিঙ্ক হবে।');
                 return;
             }
             if (!navigator.onLine) {
@@ -237,16 +237,40 @@
         });
     }
 
+    function sheetBody() {
+        return api.collectAttendanceBody ? api.collectAttendanceBody(form) : api.collectFormBody(form);
+    }
+
     function persistDraft() {
         var dateStr = currentDate();
         if (!dateStr) return Promise.resolve();
         if (postDate) postDate.value = dateStr;
-        return api.saveDraft(sessionId, dateStr, api.collectFormBody(form));
+        return api.saveDraft(sessionId, dateStr, sheetBody());
     }
 
-    function scheduleDraft() {
+    function persistSheet(userInitiated) {
+        var dateStr = currentDate();
+        if (!dateStr) return Promise.resolve();
+        if (postDate) postDate.value = dateStr;
+        var body = sheetBody();
+        var draftWrite = api.saveDraft(sessionId, dateStr, body);
+        if (!userInitiated) return draftWrite;
+        return draftWrite.then(function () {
+            return api.enqueueItem({
+                key: api.queueKey(sessionId, dateStr),
+                kind: 'attendance',
+                sessionId: Number(sessionId),
+                date: dateStr,
+                url: postUrl,
+                body: body,
+                label: 'Attendance · ' + dateStr,
+            });
+        });
+    }
+
+    function scheduleDraft(userInitiated) {
         if (persistTimer) clearTimeout(persistTimer);
-        persistTimer = setTimeout(function () { persistDraft(); }, 200);
+        persistTimer = setTimeout(function () { persistSheet(userInitiated); }, userInitiated ? 0 : 200);
     }
 
     function escapeHtml(value) {
@@ -346,43 +370,50 @@
         if (event) event.preventDefault();
         var dateStr = currentDate();
         if (postDate) postDate.value = dateStr;
-        var body = api.collectFormBody(form);
+        var body = sheetBody();
         var btn = document.getElementById('save-attendance-btn');
         if (btn) btn.disabled = true;
         setStatus('syncing', 'সিঙ্ক হচ্ছে');
         setBanner('sync', 'সেভ পাঠানো হচ্ছে…');
         return persistDraft().then(function () {
-            return api.postAttendance(postUrl, body);
-        }).then(function (result) {
-            return Promise.all([
-                api.removeQueueItem(api.queueKey(sessionId, dateStr)),
-                api.deleteDraft(sessionId, dateStr),
-            ]).then(function () {
-                setStatus('synced', 'সিঙ্ক হয়েছে');
-                setBanner('ok', 'সিঙ্ক হয়েছে');
-                window.location = (result && result.redirect) || viewUrl;
+            return api.flushItem({
+                key: api.queueKey(sessionId, dateStr),
+                kind: 'attendance',
+                sessionId: Number(sessionId),
+                date: dateStr,
+                url: postUrl,
+                body: body,
+                label: 'Attendance · ' + dateStr,
             });
-        }).catch(function (err) {
-            if (err && err.code === 'auth') {
+        }).then(function (outcome) {
+            if (outcome && outcome.authFailed) {
                 window.location = '/login';
                 return;
             }
-            return api.enqueue(sessionId, dateStr, postUrl, body).then(function () {
-                return api.requestBackgroundSync();
-            }).then(function () {
-                setStatus('phone', 'ফোনে সেভ');
-                setBanner('phone', 'ফোনে সেভ, নেট এলে যাবে। সাইট ডেটা ক্লিয়ার বা প্রাইভেট উইন্ডো বন্ধ করলে কিউ মুছে যাবে।');
-            }).catch(function () {
-                setBanner('warn', 'ফোনে সেভ করা যায়নি। আবার চেষ্টা করুন।');
-            });
+            if (outcome && outcome.synced) {
+                setStatus('synced', 'সার্ভারে সেভ');
+                setBanner('ok', 'সার্ভারে সেভ হয়েছে।');
+                window.location = (outcome.result && outcome.result.redirect) || viewUrl;
+                return;
+            }
+            setStatus('phone', 'ডিভাইসে সেভ');
+            setBanner('phone', 'ডিভাইসে সেভ আছে — সার্ভারে এখনও যায়নি। নেট এলে নিজেই সিঙ্ক হবে।');
+        }).catch(function () {
+            setBanner('warn', 'ডিভাইসে সেভ করা যায়নি। আবার চেষ্টা করুন।');
         }).then(function () {
             if (btn) btn.disabled = false;
         });
     }
 
     form.addEventListener('submit', saveNow);
-    form.addEventListener('change', scheduleDraft);
-    form.addEventListener('input', scheduleDraft);
+    form.addEventListener('change', function (event) {
+        if (!event.isTrusted) return;
+        scheduleDraft(true);
+    });
+    form.addEventListener('input', function (event) {
+        if (!event.isTrusted) return;
+        scheduleDraft(true);
+    });
 
     dateForm.addEventListener('submit', function (event) {
         if (!navigator.onLine) {
@@ -399,16 +430,21 @@
         dateForm.submit();
     });
 
+    window.addEventListener('ams:attendance-queue-changed', function (event) {
+        var detail = (event && event.detail) || {};
+        if (detail.reason === 'synced') {
+            if (detail.body && String(detail.sessionId) === String(sessionId) && (!detail.date || detail.date === currentDate())) {
+                applyLocalSheet(detail.body, false);
+            }
+            setStatus('synced', 'সার্ভারে সেভ');
+            setBanner('ok', 'সার্ভারে সেভ হয়েছে।');
+            setTimeout(refreshStatus, 4000);
+            return;
+        }
+        refreshStatus();
+    });
     window.addEventListener('online', function () {
         refreshStatus();
-        api.replayQueue().then(function (result) {
-            if (result && result.sent) {
-                setStatus('synced', 'সিঙ্ক হয়েছে');
-                setBanner('ok', 'ফোনের সেভ সিঙ্ক হয়েছে।');
-            } else {
-                refreshStatus();
-            }
-        });
     });
     window.addEventListener('offline', function () {
         refreshStatus();
