@@ -376,19 +376,120 @@
         font-size: 1.25rem !important;
     }
 
-    body.m-shell .dashboard-card {
-        min-height: 100px;
-        padding: 0.75rem 0.5rem !important;
+    body.m-shell a:has(> .dashboard-card),
+    body.m-shell a:has(> .course-card) {
+        display: block;
+    }
+
+    body.m-shell .dashboard-card,
+    body.m-shell .dashboard-card.h-100 {
+        aspect-ratio: 1 / 1 !important;
+        width: 100%;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        margin-bottom: 0;
+        padding: 0.7rem 0.45rem !important;
+        display: flex !important;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        border-radius: 16px !important;
+        overflow: hidden;
+        box-sizing: border-box;
     }
 
     body.m-shell .dashboard-card .icon-circle {
-        width: 36px;
-        height: 36px;
-        margin-bottom: 0.5rem;
+        width: 44px;
+        height: 44px;
+        margin: 0 0 0.15rem !important;
+        flex-shrink: 0;
+        border-radius: 12px;
     }
 
+    body.m-shell .dashboard-card .icon-circle i {
+        font-size: 1.05rem;
+    }
+
+    body.m-shell .dashboard-card h5,
     body.m-shell .dashboard-card .card-label {
-        font-size: 0.75rem !important;
+        font-size: 0.78rem !important;
+        line-height: 1.25 !important;
+        margin: 0 !important;
+        max-width: 100%;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    body.m-shell .dashboard-card p {
+        display: none !important;
+    }
+
+    body.m-shell .student-dash-page .course-card,
+    body.m-shell .student-dash-page .course-card.h-100 {
+        aspect-ratio: 1 / 1 !important;
+        height: auto !important;
+        min-height: 0 !important;
+        margin-bottom: 0;
+        border-radius: 16px !important;
+        overflow: hidden;
+    }
+
+    body.m-shell .student-dash-page .course-card .card-body {
+        height: 100%;
+        padding: 0.7rem 0.45rem !important;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+    }
+
+    body.m-shell .student-dash-page .course-card .icon-circle {
+        width: 44px;
+        height: 44px;
+        margin: 0 !important;
+        flex-shrink: 0;
+    }
+
+    body.m-shell .student-dash-page .course-card .card-title {
+        font-size: 0.78rem !important;
+        line-height: 1.25 !important;
+        margin: 0 !important;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    body.m-shell .student-dash-page .sd-card-desc {
+        display: none !important;
+    }
+
+    body.m-shell .admin-dash .admin-sort-card:not(.admin-sort-card-wide) .quick-link {
+        aspect-ratio: 1 / 1;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        gap: 0.45rem;
+        padding: 0.7rem 0.5rem 0.7rem 0.5rem !important;
+        border-radius: 16px;
+    }
+
+    body.m-shell .admin-dash .admin-sort-card:not(.admin-sort-card-wide) .quick-link .qi {
+        width: 2.15rem;
+        height: 2.15rem;
+        border-radius: 12px;
+        font-size: 0.9rem;
+    }
+
+    body.m-shell .admin-dash .admin-sort-card:not(.admin-sort-card-wide) .card-drag-handle {
+        top: 6px;
+        right: 4px;
     }
 
     /* Class management session feed */
@@ -2265,7 +2366,7 @@
         width: 100%;
     }
 
-    body.m-shell .assessment-page .form-check {
+    body.m-shell .assessment-page .assessment-marks-table .form-check {
         min-height: auto;
         margin: 0;
         padding-left: 0;
@@ -2275,20 +2376,20 @@
         gap: 0.2rem;
     }
 
-    body.m-shell .assessment-page .form-check-input {
+    body.m-shell .assessment-page .assessment-marks-table .form-check-input {
         width: 0.95rem;
         height: 0.95rem;
         margin: 0;
         float: none;
     }
 
-    body.m-shell .assessment-page .form-check-label {
+    body.m-shell .assessment-page .assessment-marks-table .form-check-label {
         font-size: 0 !important;
         padding: 0;
         margin: 0;
     }
 
-    body.m-shell .assessment-page .form-check-label::after {
+    body.m-shell .assessment-page .assessment-marks-table .form-check-label::after {
         content: "Ab";
         font-size: 0.62rem;
         font-weight: 700;
