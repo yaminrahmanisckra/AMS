@@ -836,7 +836,7 @@ body.fullscreen-active .routine-table {
 }
 
 
-.modal {
+.modal-overlay .modal {
     background: var(--bg-card);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
@@ -860,7 +860,7 @@ body.fullscreen-active .routine-table {
     }
 }
 
-.modal-header {
+.modal-overlay .modal-header {
     padding: 20px 24px;
     border-bottom: 1px solid var(--border);
     display: flex;
@@ -868,13 +868,13 @@ body.fullscreen-active .routine-table {
     justify-content: space-between;
     }
     
-.modal-title {
+.modal-overlay .modal-title {
     font-size: 20px;
         font-weight: 600;
     color: var(--text);
 }
 
-.modal-close {
+.modal-overlay .modal-close {
     background: none;
     border: none;
     color: var(--text-muted);
@@ -890,18 +890,18 @@ body.fullscreen-active .routine-table {
     transition: var(--transition);
 }
 
-.modal-close:hover {
+.modal-overlay .modal-close:hover {
     background: var(--bg);
     color: var(--text);
 }
 
-.modal-body {
+.modal-overlay .modal-body {
     padding: 24px;
     overflow-y: auto;
     flex: 1;
 }
 
-.modal-footer {
+.modal-overlay .modal-footer {
     padding: 16px 24px;
     border-top: 1px solid var(--border);
         display: flex;
@@ -1299,6 +1299,10 @@ body.fullscreen-active .routine-table {
     display: none !important;
 }
 
+.routine-rotate-gate {
+    display: none;
+}
+
 .loading {
     opacity: 0.6;
     pointer-events: none;
@@ -1334,6 +1338,40 @@ body.fullscreen-active .routine-table {
 
 </style>
 
+<div class="routine-rotate-gate" id="routine-rotate-gate" role="dialog" aria-modal="true" aria-labelledby="routine-rotate-title">
+    <div class="routine-rotate-card">
+        <div class="routine-rotate-phone" aria-hidden="true">
+            <i class="fas fa-mobile-alt"></i>
+        </div>
+        <h2 id="routine-rotate-title">ফোনটি আড়াআড়ি ঘুরান</h2>
+        <p>রুটিন পোট্রেট মোডে দেখা যায় না। ফোনটি ল্যান্ডস্কেপে ঘুরিয়ে নিন।</p>
+        <p class="routine-rotate-en">Rotate your phone to landscape to view the routine.</p>
+    </div>
+</div>
+<script>
+(function () {
+    function isPhonePortrait() {
+        if (!window.matchMedia) return false;
+        var phone = window.matchMedia('(max-width: 991.98px) and (hover: none) and (pointer: coarse)').matches;
+        var portrait = window.matchMedia('(orientation: portrait)').matches || (window.innerHeight > window.innerWidth);
+        return phone && portrait;
+    }
+    function syncRoutinePhonePortrait() {
+        if (!document.body) return;
+        document.body.classList.toggle('routine-phone-portrait', isPhonePortrait());
+    }
+    syncRoutinePhonePortrait();
+    window.addEventListener('orientationchange', function () { setTimeout(syncRoutinePhonePortrait, 80); });
+    window.addEventListener('resize', syncRoutinePhonePortrait);
+    if (window.matchMedia) {
+        ['(orientation: portrait)', '(max-width: 991.98px)', '(hover: none)', '(pointer: coarse)'].forEach(function (query) {
+            var mq = window.matchMedia(query);
+            if (mq.addEventListener) mq.addEventListener('change', syncRoutinePhonePortrait);
+            else if (mq.addListener) mq.addListener(syncRoutinePhonePortrait);
+        });
+    }
+})();
+</script>
 <div class="routine-app">
     <!-- Toolbar -->
     <header class="r-toolbar m-page-header">
@@ -1691,6 +1729,7 @@ const RoutineManager = {
         teachers: {{ teachers | tojson }},
         viewerType: {{ (viewer_type if viewer_type is defined else 'other') | tojson }},
         myCourseCodes: {{ (my_course_codes if my_course_codes is defined else []) | tojson }},
+        myAssignedParts: {{ (my_assigned_parts if my_assigned_parts is defined else []) | tojson }},
         myCoursesLabel: {{ (my_courses_label if my_courses_label is defined else 'My courses') | tojson }},
         myTeacherId: {{ (my_teacher_id if my_teacher_id is defined else none) | tojson }},
         myTeacherShorts: {{ (my_teacher_shorts if my_teacher_shorts is defined else []) | tojson }}
@@ -1714,6 +1753,7 @@ const RoutineManager = {
         isFullscreen: false,
         allCourseCodes: [],        // [{code, year, term, isCustom}]
         courseFilterCodes: null,   // Set of selected course codes (view-only); null = no filter / all
+        courseFilterMineOnly: false, // Hide split-course partner slots (My assigned courses)
         courseFilterDraft: null,   // Set while modal is open
         courseFilterYear: '',
         courseFilterTerm: '',
@@ -2188,6 +2228,9 @@ const RoutineManager = {
                 if (!code) return;
                 if (cb.checked) this.state.courseFilterDraft.add(code);
                 else this.state.courseFilterDraft.delete(code);
+                if (cb.checked && !this._isMyCourseCode(code)) {
+                    this.state.courseFilterMineOnly = false;
+                }
             });
         }
         
@@ -3358,13 +3401,16 @@ const RoutineManager = {
 
     _isCourseFilterActive: function() {
         if (!(this.state.courseFilterCodes instanceof Set)) return false;
+        if (!this.state.courseFilterCodes.size) return false;
+        if (this.state.courseFilterMineOnly && this._canFilterToMySlots()) return true;
         const total = (this.state.allCourseCodes || []).length;
         if (!total) return false;
-        return this.state.courseFilterCodes.size > 0 && this.state.courseFilterCodes.size < total;
+        return this.state.courseFilterCodes.size < total;
     },
 
     showAllCoursesFilter: function() {
         this.state.courseFilterCodes = null;
+        this.state.courseFilterMineOnly = false;
         this.state.courseFilterDraft = new Set((this.state.allCourseCodes || []).map(c => c.code));
         try {
             sessionStorage.removeItem(this._courseFilterStorageKey());
@@ -3399,12 +3445,61 @@ const RoutineManager = {
         return false;
     },
 
+    _canFilterToMySlots: function() {
+        return this.config.viewerType === 'teacher' && !!(
+            this.config.myTeacherId || (this.config.myTeacherShorts || []).length
+        );
+    },
+
+    _courseHasOnlyPartnerSlots: function(routineCode) {
+        const target = this._normalizeCourseCode(routineCode);
+        if (!target || !this._canFilterToMySlots()) return false;
+        let seen = false;
+        let taughtByMe = false;
+        Object.values(this.state.routine || {}).forEach(item => {
+            if (!item) return;
+            if (this._normalizeCourseCode(item.courseCode) !== target) return;
+            seen = true;
+            if (this._itemTaughtByMe(item)) taughtByMe = true;
+        });
+        return seen && !taughtByMe;
+    },
+
+    _slotHasTeacherIdentity: function(item) {
+        if (!item) return false;
+        if (item.teacherId) return true;
+        if (String(item.teacherShort || '').trim()) return true;
+        return Array.isArray(item.teachers) && item.teachers.length > 0;
+    },
+
+    _itemMatchesMyAssignedPart: function(item) {
+        const parts = this.config.myAssignedParts || [];
+        if (!parts.length || !item) return false;
+        const itemPart = String(item.part || '').trim();
+        const isShared = !!item.isSharedSlot || itemPart === 'Shared';
+        return parts.some(p => {
+            if (!this._courseCodesMatch(item.courseCode, p.code)) return false;
+            const assignedPart = String(p.part || 'Full').trim() || 'Full';
+            if (isShared) return true;
+            if (assignedPart === 'Full' || assignedPart === 'Shared') return !itemPart || itemPart === 'Full' || itemPart === 'Shared';
+            if (!itemPart || itemPart === 'Full') return false;
+            return assignedPart === itemPart;
+        });
+    },
+
+    _itemPassesMineOnlyFilter: function(item) {
+        if (!this.state.courseFilterMineOnly || !this._canFilterToMySlots()) return true;
+        if (this._itemTaughtByMe(item)) return true;
+        if (this._slotHasTeacherIdentity(item)) return false;
+        return this._itemMatchesMyAssignedPart(item);
+    },
+
     _isMyCourseCode: function(routineCode) {
+        if (this._courseHasOnlyPartnerSlots(routineCode)) return false;
         const mine = this.config.myCourseCodes || [];
         if (mine.some(code => this._courseCodesMatch(routineCode, code))) {
             return true;
         }
-        // Fallback: courses this teacher teaches in the loaded routine grid
         return this._routineCodeTaughtByMe(routineCode);
     },
 
@@ -3589,6 +3684,7 @@ const RoutineManager = {
         if (!(this.state.courseFilterDraft instanceof Set)) {
             this.state.courseFilterDraft = new Set(this.state.courseFilterCodes || []);
         }
+        this.state.courseFilterMineOnly = false;
 
         const mode = scope || 'visible';
         if (mode === 'all' && !checked) {
@@ -3631,6 +3727,8 @@ const RoutineManager = {
         } else {
             this.state.courseFilterDraft.clear();
         }
+
+        this.state.courseFilterMineOnly = this._canFilterToMySlots();
 
         let matched = 0;
         (this.state.allCourseCodes || []).forEach(course => {
@@ -3680,8 +3778,8 @@ const RoutineManager = {
             return;
         }
 
-        // Selecting everything = no filter (full routine)
-        if (total > 0 && selected.size >= total) {
+        // Selecting everything = no filter, unless hiding split-course partner slots
+        if (total > 0 && selected.size >= total && !this.state.courseFilterMineOnly) {
             this.showAllCoursesFilter();
             return;
         }
@@ -3716,7 +3814,7 @@ const RoutineManager = {
                 return;
             }
             const code = String(item.courseCode || '').trim();
-            const visible = this.state.courseFilterCodes.has(code);
+            const visible = this.state.courseFilterCodes.has(code) && this._itemPassesMineOnlyFilter(item);
             cell.classList.toggle('is-filtered-out', !visible);
         });
     },
@@ -4825,6 +4923,9 @@ const RoutineManager = {
                 if (selectedCodes && !selectedCodes.has(code)) {
                     return;
                 }
+                if (!this._itemPassesMineOnlyFilter(item)) {
+                    return;
+                }
                 routineData.push({
                     day: cell.dataset.day,
                     slot: cell.dataset.slot,
@@ -5474,6 +5575,14 @@ setTimeout(function() {
             console.log('RoutineManager state:', window.RoutineManager.state);
             console.log('isFullscreen:', window.RoutineManager.state?.isFullscreen);
         }
+
+        // Mobile shell: portrait lock + landscape layout are CSS-only. Do not inject inline styles.
+        if (document.body.classList.contains('m-shell')) {
+            if (!isLandscape && window.RoutineManager && window.RoutineManager.toggleFullscreen && window.RoutineManager.state && window.RoutineManager.state.isFullscreen) {
+                window.RoutineManager.toggleFullscreen();
+            }
+            return;
+        }
         
         // Auto enable fullscreen in landscape mode only when NOT editing (no savedRoutineId)
         if (isLandscape && window.RoutineManager && window.RoutineManager.config && !window.RoutineManager.config.savedRoutineId) {
@@ -5571,7 +5680,8 @@ setTimeout(function() {
             console.warn('Failed to enable auto fullscreen after multiple retries');
             return;
         }
-        
+        if (document.body.classList.contains('m-shell')) return;
+
         const isMobile = window.innerWidth <= 768;
         const isLandscape = window.innerWidth > window.innerHeight;
         
@@ -5747,58 +5857,6 @@ document.getElementById('new-time-slot-input')?.addEventListener('keypress', fun
         document.getElementById('add-time-slot-btn').click();
     }
 });
-
-{% if is_student %}
-// Landscape orientation request for students on mobile
-(function() {
-    function checkOrientation() {
-        const isMobile = window.innerWidth <= 768;
-        const isPortrait = window.innerHeight > window.innerWidth;
-        
-        if (isMobile && isPortrait) {
-            // Show landscape request
-            const existingModal = document.getElementById('landscape-request-modal');
-            if (!existingModal) {
-                const modal = document.createElement('div');
-                modal.id = 'landscape-request-modal';
-                modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center;';
-                modal.innerHTML = `
-                    <div style="background: white; padding: 30px; border-radius: 12px; text-align: center; max-width: 300px; margin: 20px;">
-                        <div style="font-size: 48px; margin-bottom: 20px;">📱</div>
-                        <h3 style="margin: 0 0 15px 0; color: #333;">Please Rotate Your Device</h3>
-                        <p style="margin: 0 0 20px 0; color: #666; font-size: 14px;">For better viewing experience, please rotate your phone to landscape mode.</p>
-                        <button onclick="this.closest('#landscape-request-modal').style.display='none'" style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; font-weight: 600;">OK, I Understand</button>
-                    </div>
-                `;
-                document.body.appendChild(modal);
-            } else {
-                existingModal.style.display = 'flex';
-            }
-        } else {
-            // Hide modal if in landscape
-            const modal = document.getElementById('landscape-request-modal');
-            if (modal) {
-                modal.style.display = 'none';
-            }
-        }
-    }
-    
-    // Check on load
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', checkOrientation);
-    } else {
-        checkOrientation();
-    }
-    
-    // Check on orientation change
-    window.addEventListener('orientationchange', function() {
-        setTimeout(checkOrientation, 100);
-    });
-    
-    // Check on resize
-    window.addEventListener('resize', checkOrientation);
-})();
-{% endif %}
 </script>
 
 {% endblock %}

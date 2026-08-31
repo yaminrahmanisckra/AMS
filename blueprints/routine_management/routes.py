@@ -1283,53 +1283,79 @@ def _resolve_current_teacher():
     return teacher
 
 
+def _split_teacher_short_tokens(value):
+    text = str(value or '').replace(',', '/')
+    return {part.strip().lower() for part in text.split('/') if part.strip()}
+
+
 def _collect_teacher_assigned_course_codes(teacher):
-    """Course codes assigned to a teacher (curriculum + routine maker tables + placed routine cells)."""
+    """Course codes assigned to this teacher only (not split-course partners)."""
+    codes, _parts = _collect_teacher_assignment_filter(teacher)
+    return codes
+
+
+def _collect_teacher_assignment_filter(teacher):
+    """Codes and parts this teacher owns. Split partners' parts are excluded."""
     from blueprints.course_management.models import CourseSessionAssignment
 
     codes = set()
+    parts = []
+    seen_parts = set()
     if not teacher:
-        return codes
+        return codes, parts
 
-    # Primary source used by routine maker course palette
+    def _add(code, part='Full'):
+        code = str(code or '').strip()
+        if not code:
+            return
+        codes.add(code)
+        part_label = str(part or 'Full').strip() or 'Full'
+        key = (code, part_label)
+        if key in seen_parts:
+            return
+        seen_parts.add(key)
+        parts.append({'code': code, 'part': part_label})
+
     for assignment in _query_for_routine_window(CourseSessionAssignment).filter_by(
         teacher_id=teacher.id
     ).all():
         course = getattr(assignment, 'course', None)
-        code = str(getattr(course, 'course_code', '') or '').strip()
-        if code:
-            codes.add(code)
+        _add(getattr(course, 'course_code', ''), _assignment_part_label(assignment.section))
 
-    # Legacy / alternate assignment table
     for assignment in _query_for_routine_window(AssignedCourse).filter_by(
         teacher_id=teacher.id
     ).all():
         course = getattr(assignment, 'course', None)
-        code = str(getattr(course, 'course_code', '') or '').strip()
-        if code:
-            codes.add(code)
+        _add(getattr(course, 'course_code', ''), getattr(assignment, 'part', None) or 'Full')
 
-    # Codes already placed on routines for this teacher in the current window
     short_names = {
         str(getattr(teacher, 'call_sign', '') or '').strip(),
         str(getattr(teacher, 'short_name', '') or '').strip(),
     }
     short_names = {s for s in short_names if s}
+    mine_tokens = {s.lower() for s in short_names}
 
     routine_filters = [Routine.teacher_id == teacher.id]
-    if short_names:
-        routine_filters.append(Routine.teacher_short_name.in_(list(short_names)))
-        # Shared teachers may be stored as "AB/CD"
-        for short in short_names:
-            routine_filters.append(Routine.teacher_short_name.ilike(f'%{short}%'))
+    for short in short_names:
+        routine_filters.append(Routine.teacher_short_name == short)
+        # Shared slots are stored as "AB/CD" — match tokens, not substrings
+        routine_filters.append(Routine.teacher_short_name.ilike(short + '/%'))
+        routine_filters.append(Routine.teacher_short_name.ilike('%/' + short))
+        routine_filters.append(Routine.teacher_short_name.ilike('%/' + short + '/%'))
 
     routine_rows = _query_for_routine_window(Routine).filter(or_(*routine_filters)).all()
     for row in routine_rows:
-        code = str(getattr(row, 'course_code', '') or '').strip()
-        if code:
-            codes.add(code)
+        row_tokens = _split_teacher_short_tokens(getattr(row, 'teacher_short_name', ''))
+        taught_by_id = getattr(row, 'teacher_id', None) == teacher.id
+        taught_by_short = bool(mine_tokens and (row_tokens & mine_tokens))
+        if not taught_by_id and not taught_by_short:
+            continue
+        row_part = getattr(row, 'part', None) or 'Full'
+        if getattr(row, 'is_shared', False) or str(row_part).strip() == 'Shared':
+            row_part = 'Shared'
+        _add(getattr(row, 'course_code', ''), row_part)
 
-    return codes
+    return codes, parts
 
 
 def _get_viewer_course_filter_context():
@@ -1363,6 +1389,7 @@ def _get_viewer_course_filter_context():
         return {
             'viewer_type': 'student',
             'my_course_codes': codes,
+            'my_assigned_parts': [],
             'my_courses_label': 'My registered courses',
             'my_teacher_id': None,
             'my_teacher_shorts': [],
@@ -1370,7 +1397,7 @@ def _get_viewer_course_filter_context():
 
     if has_teacher_privileges(current_user):
         teacher = _resolve_current_teacher()
-        codes = sorted(_collect_teacher_assigned_course_codes(teacher)) if teacher else []
+        codes, parts = _collect_teacher_assignment_filter(teacher) if teacher else (set(), [])
         shorts = []
         teacher_id = None
         if teacher:
@@ -1384,7 +1411,8 @@ def _get_viewer_course_filter_context():
                     shorts.append(text_value)
         return {
             'viewer_type': 'teacher',
-            'my_course_codes': codes,
+            'my_course_codes': sorted(codes),
+            'my_assigned_parts': parts,
             'my_courses_label': 'My assigned courses',
             'my_teacher_id': teacher_id,
             'my_teacher_shorts': shorts,
@@ -1393,6 +1421,7 @@ def _get_viewer_course_filter_context():
     return {
         'viewer_type': 'other',
         'my_course_codes': [],
+        'my_assigned_parts': [],
         'my_courses_label': 'My courses',
         'my_teacher_id': None,
         'my_teacher_shorts': [],
@@ -1568,6 +1597,7 @@ def view_routine():
                            break_time_label=break_time_label,
                            viewer_type=viewer_filter.get('viewer_type', 'other'),
                            my_course_codes=viewer_filter.get('my_course_codes', []),
+                           my_assigned_parts=viewer_filter.get('my_assigned_parts', []),
                            my_courses_label=viewer_filter.get('my_courses_label', 'My courses'),
                            my_teacher_id=viewer_filter.get('my_teacher_id'),
                            my_teacher_shorts=viewer_filter.get('my_teacher_shorts', []))
@@ -1654,6 +1684,7 @@ def generate_routine():
                            break_time_label=break_time_label,
                            viewer_type=viewer_filter.get('viewer_type', 'other'),
                            my_course_codes=viewer_filter.get('my_course_codes', []),
+                           my_assigned_parts=viewer_filter.get('my_assigned_parts', []),
                            my_courses_label=viewer_filter.get('my_courses_label', 'My courses'),
                            my_teacher_id=viewer_filter.get('my_teacher_id'),
                            my_teacher_shorts=viewer_filter.get('my_teacher_shorts', []))

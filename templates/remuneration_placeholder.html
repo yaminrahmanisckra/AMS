@@ -699,6 +699,12 @@
         margin-left: 1rem;
         vertical-align: top;
     }
+    .gt-title-short,
+    .gt-hint-short,
+    .gt-totals,
+    .gt-card-list {
+        display: none;
+    }
     @media print {
         .print-hide {
             display: none !important;
@@ -797,25 +803,19 @@
 {% endblock %}
 {% block content %}
 <div class="container my-4 rem-wrapper">
-    <div class="d-flex justify-content-between align-items-center mb-3 print-hide">
+    <div class="d-flex justify-content-between align-items-center mb-3 print-hide rem-page-head">
         <div>
             <h2 class="h4 mb-0">পরীক্ষা পারিতোষিক বিল ফরম</h2>
         </div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 rem-actions">
             <a href="{{ url_for('index') }}" class="btn btn-outline-secondary print-btn">
-                <i class="fas fa-arrow-left me-2"></i>Back to Dashboard
-            </a>
-            <button class="btn btn-outline-info print-btn" onclick="saveFormData()" id="saveBtn">
-                <i class="fas fa-save me-2"></i>Save Progress
-            </button>
-            <a href="{{ url_for('remuneration_list') }}" class="btn btn-outline-info print-btn">
-                <i class="fas fa-list me-2"></i>View All Forms
+                <i class="fas fa-arrow-left me-2"></i>Back<span class="rem-wide-label"> to Dashboard</span>
             </a>
             <button class="btn btn-danger print-btn" onclick="exportToPdf()">
-                <i class="fas fa-file-pdf me-2"></i>Download PDF
+                <i class="fas fa-file-pdf me-2"></i><span class="rem-wide-label">Download </span>PDF
             </button>
             <button class="btn btn-success print-btn" onclick="openBulkDownloadModal()">
-                <i class="fas fa-download me-2"></i>Bulk Download
+                <i class="fas fa-download me-2"></i>Bulk<span class="rem-wide-label"> Download</span>
             </button>
             <button type="button" class="btn btn-primary print-btn" data-bs-toggle="modal" data-bs-target="#teacherGrandTotalModal">
                 <i class="fas fa-calculator me-2"></i>মোট পারিতোষিক
@@ -1459,18 +1459,21 @@
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="teacherGrandTotalModalLabel">
-                    <i class="fas fa-calculator me-2"></i>শিক্ষকের মোট পারিতোষিক (সব সেশন)
+                    <i class="fas fa-calculator me-2"></i>
+                    <span class="gt-title-full">শিক্ষকের মোট পারিতোষিক (সব সেশন)</span>
+                    <span class="gt-title-short">মোট পারিতোষিক</span>
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p class="small text-muted">
+                <p class="small text-muted gt-hint-full">
                     বর্তমান Window-এর <strong>সক্রিয় Exam Committee</strong>গুলোর
                     Statement of Remuneration থেকে এই শিক্ষকের নামে থাকা কাজের যোগফল।
                     কারিকুলামে নেই এমন সেশন বা অরফান ফর্ম থেকে কিছু আমদানি হয় না।
                     মোট থেকে <strong>২০% VAT</strong> কেটে নীট পাওনা দেখানো হয়।
                 </p>
-                <div class="mb-3">
+                <p class="gt-hint-short">সক্রিয় কমিটির স্টেটমেন্ট থেকে যোগফল · ২০% VAT বাদ</p>
+                <div class="gt-toolbar mb-3">
                     <label for="grandTotalTeacher" class="form-label">শিক্ষক <span class="text-danger">*</span></label>
                     <select class="form-select" id="grandTotalTeacher">
                         <option value="">শিক্ষক সিলেক্ট করুন</option>
@@ -1478,18 +1481,36 @@
                         <option value="{{ teacher.name }}">{{ teacher.name }}</option>
                         {% endfor %}
                     </select>
+                    <div class="gt-toolbar-actions d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-primary" id="grandTotalCalcBtn" onclick="loadTeacherGrandTotal()">
+                            <i class="fas fa-search me-1"></i>হিসাব দেখুন
+                        </button>
+                        <button type="button" class="btn btn-outline-success" id="grandTotalPdfBtn" onclick="downloadTeacherGrandTotalPdf()" disabled>
+                            <i class="fas fa-file-pdf me-1"></i>PDF ডাউনলোড
+                        </button>
+                    </div>
                 </div>
-                <div class="d-flex gap-2 mb-3 flex-wrap">
-                    <button type="button" class="btn btn-primary" id="grandTotalCalcBtn" onclick="loadTeacherGrandTotal()">
-                        <i class="fas fa-search me-1"></i>হিসাব দেখুন
-                    </button>
-                    <button type="button" class="btn btn-outline-success" id="grandTotalPdfBtn" onclick="downloadTeacherGrandTotalPdf()" disabled>
-                        <i class="fas fa-file-pdf me-1"></i>PDF ডাউনলোড
-                    </button>
+                <div id="grandTotalStatus" class="alert alert-light border small mb-3 gt-status">শিক্ষক সিলেক্ট করে হিসাব দেখুন।</div>
+                <div class="gt-totals" aria-live="polite">
+                    <div class="gt-chip">
+                        <span>গ্রস</span>
+                        <strong data-gt="gross">—</strong>
+                        <small data-gt="jobs">— কাজ</small>
+                    </div>
+                    <div class="gt-chip gt-chip-vat">
+                        <span>VAT ২০%</span>
+                        <strong data-gt="vat">—</strong>
+                    </div>
+                    <div class="gt-chip gt-chip-net">
+                        <span>নীট পাওনা</span>
+                        <strong data-gt="net">—</strong>
+                    </div>
                 </div>
-                <div id="grandTotalStatus" class="alert alert-light border small mb-3">শিক্ষক সিলেক্ট করে হিসাব দেখুন।</div>
-                <div class="table-responsive">
-                    <table class="table table-sm table-bordered align-middle mb-2" id="grandTotalBreakdownTable">
+                <div class="gt-card-list" id="grandTotalCardList" aria-live="polite">
+                    <div class="gt-card gt-card-empty">এখনো কোনো ফলাফল নেই</div>
+                </div>
+                <div class="table-responsive gt-table-wrap">
+                    <table class="table table-sm table-bordered align-middle mb-2 m-keep-table" id="grandTotalBreakdownTable">
                         <thead class="table-light">
                             <tr>
                                 <th>শিক্ষাবর্ষ</th>
@@ -1500,7 +1521,7 @@
                             </tr>
                         </thead>
                         <tbody id="grandTotalBreakdownBody">
-                            <tr>
+                            <tr class="gt-empty-row">
                                 <td colspan="5" class="text-muted text-center">এখনো কোনো ফলাফল নেই</td>
                             </tr>
                         </tbody>
@@ -6551,6 +6572,64 @@ function setGrandTotalPdfEnabled(enabled) {
     if (pdfBtn) pdfBtn.disabled = !enabled;
 }
 
+function setGrandTotalChips(jobs, gross, vat, net) {
+    const chips = document.querySelectorAll('#teacherGrandTotalModal [data-gt]');
+    chips.forEach(function(el) {
+        const key = el.getAttribute('data-gt');
+        if (key === 'jobs') {
+            el.textContent = (jobs == null || jobs === '—') ? '— কাজ' : (String(jobs) + ' কাজ');
+        } else if (key === 'gross') {
+            el.textContent = gross;
+        } else if (key === 'vat') {
+            el.textContent = vat;
+        } else if (key === 'net') {
+            el.textContent = net;
+        }
+    });
+}
+
+function setGrandTotalCards(html) {
+    const list = document.getElementById('grandTotalCardList');
+    if (list) list.innerHTML = html;
+}
+
+function grandTotalEmptyCard(message, danger) {
+    return '<div class="gt-card gt-card-empty' + (danger ? ' gt-card-error' : '') + '">' + message + '</div>';
+}
+
+function renderGrandTotalCards(rows) {
+    if (!rows || !rows.length) {
+        return grandTotalEmptyCard('কোনো বিল পাওয়া যায়নি');
+    }
+    return rows.map(function(row) {
+        const jobs = row.jobs || [];
+        const jobsHtml = jobs.length
+            ? ('<ul class="gt-job-list">' + jobs.map(function(j) {
+                const courseBit = j.courses ? (' · ' + j.courses) : '';
+                return '<li class="gt-job-item"><span class="gt-job-name">' + (j.description || 'কাজ') + courseBit +
+                    '</span><span class="gt-job-amt">' + formatRemunerationTaka(j.amount) + '</span></li>';
+            }).join('') + '</ul>')
+            : '';
+        const year = row.year || '—';
+        const term = row.term || '—';
+        const count = row.job_count || 0;
+        return (
+            '<article class="gt-card">' +
+                '<div class="gt-card-top">' +
+                    '<div class="gt-card-session">' + (row.academic_session || '—') + '</div>' +
+                    '<div class="gt-card-amount">' + formatRemunerationTaka(row.total_amount) + '</div>' +
+                '</div>' +
+                '<div class="gt-card-meta">' +
+                    '<span>' + year + '</span>' +
+                    '<span>' + term + '</span>' +
+                    '<span>' + count + ' কাজ</span>' +
+                '</div>' +
+                jobsHtml +
+            '</article>'
+        );
+    }).join('');
+}
+
 async function downloadTeacherGrandTotalPdf() {
     const teacher = (document.getElementById('grandTotalTeacher')?.value || lastGrandTotalTeacher || '').trim();
     const statusEl = document.getElementById('grandTotalStatus');
@@ -6651,6 +6730,8 @@ async function loadTeacherGrandTotal() {
         if (statusEl) statusEl.textContent = 'আগে শিক্ষক সিলেক্ট করুন।';
         setGrandTotalPdfEnabled(false);
         lastGrandTotalTeacher = '';
+        setGrandTotalChips('—', '—', '—', '—');
+        setGrandTotalCards(grandTotalEmptyCard('আগে শিক্ষক সিলেক্ট করুন।'));
         return;
     }
 
@@ -6661,8 +6742,9 @@ async function loadTeacherGrandTotal() {
     setGrandTotalPdfEnabled(false);
     if (statusEl) statusEl.textContent = 'বর্তমান Window-এর সব Statement স্ক্যান করা হচ্ছে…';
     if (bodyEl) {
-        bodyEl.innerHTML = '<tr><td colspan="5" class="text-muted text-center">লোড হচ্ছে…</td></tr>';
+        bodyEl.innerHTML = '<tr class="gt-empty-row"><td colspan="5" class="text-muted text-center">লোড হচ্ছে…</td></tr>';
     }
+    setGrandTotalCards(grandTotalEmptyCard('লোড হচ্ছে…'));
 
     try {
         const url = `/remuneration/api/teacher-grand-total?teacher_name=${encodeURIComponent(teacher)}`;
@@ -6671,12 +6753,14 @@ async function loadTeacherGrandTotal() {
         if (!data.success) {
             if (statusEl) statusEl.textContent = data.message || 'হিসাব করা যায়নি';
             if (bodyEl) {
-                bodyEl.innerHTML = '<tr><td colspan="5" class="text-danger text-center">ফলাফল পাওয়া যায়নি</td></tr>';
+                bodyEl.innerHTML = '<tr class="gt-empty-row"><td colspan="5" class="text-danger text-center">ফলাফল পাওয়া যায়নি</td></tr>';
             }
+            setGrandTotalCards(grandTotalEmptyCard('ফলাফল পাওয়া যায়নি', true));
             if (jobsCell) jobsCell.textContent = '—';
             if (amountCell) amountCell.textContent = '—';
             if (vatCell) vatCell.textContent = '—';
             if (netCell) netCell.textContent = '—';
+            setGrandTotalChips('—', '—', '—', '—');
             lastGrandTotalTeacher = '';
             return;
         }
@@ -6687,8 +6771,9 @@ async function loadTeacherGrandTotal() {
         const rows = data.breakdown || [];
         if (!rows.length) {
             if (bodyEl) {
-                bodyEl.innerHTML = '<tr><td colspan="5" class="text-muted text-center">কোনো বিল পাওয়া যায়নি</td></tr>';
+                bodyEl.innerHTML = '<tr class="gt-empty-row"><td colspan="5" class="text-muted text-center">কোনো বিল পাওয়া যায়নি</td></tr>';
             }
+            setGrandTotalCards(grandTotalEmptyCard('কোনো বিল পাওয়া যায়নি'));
         } else if (bodyEl) {
             bodyEl.innerHTML = rows.map(function(row) {
                 const jobs = row.jobs || [];
@@ -6709,12 +6794,19 @@ async function loadTeacherGrandTotal() {
                     '</tr>'
                 );
             }).join('');
+            setGrandTotalCards(renderGrandTotalCards(rows));
         }
 
         if (jobsCell) jobsCell.textContent = String(data.total_jobs || 0);
         if (amountCell) amountCell.textContent = formatRemunerationTaka(data.grand_total || 0);
         if (vatCell) vatCell.textContent = '− ' + formatRemunerationTaka(data.vat_amount || 0);
         if (netCell) netCell.textContent = formatRemunerationTaka(data.net_payable || 0);
+        setGrandTotalChips(
+            data.total_jobs || 0,
+            formatRemunerationTaka(data.grand_total || 0),
+            '− ' + formatRemunerationTaka(data.vat_amount || 0),
+            formatRemunerationTaka(data.net_payable || 0)
+        );
         if (statusEl) {
             const winLabel = data.window_name
                 ? ('Window: ' + data.window_name)
@@ -6725,10 +6817,12 @@ async function loadTeacherGrandTotal() {
         console.error('Grand total error:', err);
         if (statusEl) statusEl.textContent = 'নেটওয়ার্ক ত্রুটি';
         if (bodyEl) {
-            bodyEl.innerHTML = '<tr><td colspan="5" class="text-danger text-center">ত্রুটি</td></tr>';
+            bodyEl.innerHTML = '<tr class="gt-empty-row"><td colspan="5" class="text-danger text-center">ত্রুটি</td></tr>';
         }
+        setGrandTotalCards(grandTotalEmptyCard('নেটওয়ার্ক ত্রুটি', true));
         lastGrandTotalTeacher = '';
         setGrandTotalPdfEnabled(false);
+        setGrandTotalChips('—', '—', '—', '—');
     } finally {
         if (btn) {
             btn.disabled = false;

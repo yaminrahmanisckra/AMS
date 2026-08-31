@@ -379,43 +379,44 @@
     body.m-shell a:has(> .dashboard-card),
     body.m-shell a:has(> .course-card) {
         display: block;
+        height: 100%;
     }
 
     body.m-shell .dashboard-card,
     body.m-shell .dashboard-card.h-100 {
-        aspect-ratio: 1 / 1 !important;
+        aspect-ratio: auto !important;
         width: 100%;
-        height: auto !important;
+        height: 100% !important;
         min-height: 0 !important;
         max-height: none !important;
         margin-bottom: 0;
-        padding: 0.7rem 0.45rem !important;
+        padding: 0.5rem 0.4rem 0.45rem !important;
         display: flex !important;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 0.35rem;
-        border-radius: 16px !important;
+        justify-content: flex-start;
+        gap: 0.2rem;
+        border-radius: 12px !important;
         overflow: hidden;
         box-sizing: border-box;
     }
 
     body.m-shell .dashboard-card .icon-circle {
-        width: 44px;
-        height: 44px;
-        margin: 0 0 0.15rem !important;
+        width: 30px;
+        height: 30px;
+        margin: 0 0 0.1rem !important;
         flex-shrink: 0;
-        border-radius: 12px;
+        border-radius: 8px;
     }
 
     body.m-shell .dashboard-card .icon-circle i {
-        font-size: 1.05rem;
+        font-size: 0.8rem;
     }
 
     body.m-shell .dashboard-card h5,
     body.m-shell .dashboard-card .card-label {
-        font-size: 0.78rem !important;
-        line-height: 1.25 !important;
+        font-size: 0.72rem !important;
+        line-height: 1.2 !important;
         margin: 0 !important;
         max-width: 100%;
         display: -webkit-box;
@@ -425,39 +426,47 @@
     }
 
     body.m-shell .dashboard-card p {
-        display: none !important;
+        display: -webkit-box !important;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        font-size: 0.6rem !important;
+        line-height: 1.25 !important;
+        margin: 0 !important;
+        color: #6b7280 !important;
+        max-width: 100%;
     }
 
     body.m-shell .student-dash-page .course-card,
     body.m-shell .student-dash-page .course-card.h-100 {
-        aspect-ratio: 1 / 1 !important;
-        height: auto !important;
+        aspect-ratio: auto !important;
+        height: 100% !important;
         min-height: 0 !important;
         margin-bottom: 0;
-        border-radius: 16px !important;
+        border-radius: 12px !important;
         overflow: hidden;
     }
 
     body.m-shell .student-dash-page .course-card .card-body {
         height: 100%;
-        padding: 0.7rem 0.45rem !important;
+        padding: 0.5rem 0.4rem 0.45rem !important;
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
-        gap: 0.35rem;
+        justify-content: flex-start;
+        gap: 0.2rem;
     }
 
     body.m-shell .student-dash-page .course-card .icon-circle {
-        width: 44px;
-        height: 44px;
+        width: 30px;
+        height: 30px;
         margin: 0 !important;
         flex-shrink: 0;
     }
 
     body.m-shell .student-dash-page .course-card .card-title {
-        font-size: 0.78rem !important;
-        line-height: 1.25 !important;
+        font-size: 0.72rem !important;
+        line-height: 1.2 !important;
         margin: 0 !important;
         display: -webkit-box;
         -webkit-line-clamp: 2;
@@ -466,7 +475,13 @@
     }
 
     body.m-shell .student-dash-page .sd-card-desc {
-        display: none !important;
+        display: -webkit-box !important;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        font-size: 0.6rem !important;
+        line-height: 1.25 !important;
+        margin: 0 !important;
     }
 
     body.m-shell .admin-dash .admin-sort-card:not(.admin-sort-card-wide) .quick-link {
@@ -879,11 +894,90 @@
         margin-top: 0.6rem !important;
     }
 
-    /* Dashboard 2-column module grid */
+    /* Dashboard 2-column module grid (portrait) */
     body.m-shell .dashboard-wrapper .row.g-3 > [class*="col-"],
-    body.m-shell .dashboard-wrapper .row.g-4 > [class*="col-"] {
+    body.m-shell .dashboard-wrapper .row.g-4 > [class*="col-"],
+    body.m-shell .row:has(.dashboard-card) > [class*="col-"],
+    body.m-shell .sd-card-grid > [class*="col-"] {
         flex: 0 0 50%;
         max-width: 50%;
+    }
+
+    @media (orientation: landscape) {
+        body.m-shell .dashboard-wrapper .row.g-3 > [class*="col-"],
+        body.m-shell .dashboard-wrapper .row.g-4 > [class*="col-"],
+        body.m-shell .row:has(.dashboard-card) > [class*="col-"],
+        body.m-shell .sd-card-grid > [class*="col-"] {
+            flex: 0 0 33.3333%;
+            max-width: 33.3333%;
+        }
+
+        body.m-shell .dashboard-wrapper {
+            padding-top: 0.35rem !important;
+        }
+
+        body.m-shell .dashboard-header {
+            padding: 0.35rem 0 0.25rem;
+            margin-bottom: 0.4rem;
+        }
+
+        body.m-shell .dashboard-header h1 {
+            font-size: 1.05rem !important;
+        }
+
+        body.m-shell .cal-actions {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+
+        body.m-shell .dashboard-header p {
+            font-size: 0.75rem;
+            margin-bottom: 0;
+        }
+
+        body.m-shell .dashboard-card,
+        body.m-shell .dashboard-card.h-100 {
+            padding: 0.45rem 0.35rem 0.4rem !important;
+            gap: 0.15rem;
+            border-radius: 10px !important;
+        }
+
+        body.m-shell .dashboard-card .icon-circle {
+            width: 26px;
+            height: 26px;
+        }
+
+        body.m-shell .dashboard-card .icon-circle i {
+            font-size: 0.72rem;
+        }
+
+        body.m-shell .dashboard-card h5,
+        body.m-shell .dashboard-card .card-label {
+            font-size: 0.68rem !important;
+        }
+
+        body.m-shell .dashboard-card p {
+            display: -webkit-box !important;
+            -webkit-line-clamp: 2;
+            font-size: 0.55rem !important;
+        }
+
+        body.m-shell .student-dash-page .course-card .card-body {
+            padding: 0.45rem 0.35rem 0.4rem !important;
+        }
+
+        body.m-shell .student-dash-page .course-card .icon-circle {
+            width: 26px;
+            height: 26px;
+        }
+
+        body.m-shell .student-dash-page .course-card .card-title {
+            font-size: 0.68rem !important;
+        }
+
+        body.m-shell .student-dash-page .sd-card-desc {
+            display: -webkit-box !important;
+            font-size: 0.55rem !important;
+        }
     }
 
     body.m-shell .sidebar-wrapper {
@@ -922,7 +1016,7 @@
     }
 
     body.m-shell .card-header .btn,
-    body.m-shell .container > .d-flex.justify-content-between .btn {
+    body.m-shell .container > .d-flex.justify-content-between:not(.cal-page-head):not(.rem-page-head) .btn {
         width: 100%;
     }
 
@@ -1417,7 +1511,175 @@
         min-width: 56px;
     }
 
-    /* Academic calendar */
+    /* Academic calendar — compact action chips */
+    body.m-shell .cal-wide-label {
+        display: none;
+    }
+
+    body.m-shell .cal-page-head {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0.45rem !important;
+        margin-bottom: 0.6rem !important;
+    }
+
+    body.m-shell .cal-page-head h2 {
+        display: none;
+    }
+
+    body.m-shell .cal-actions {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.4rem !important;
+        width: 100%;
+    }
+
+    body.m-shell .cal-actions > a.btn,
+    body.m-shell .cal-actions > .btn,
+    body.m-shell .cal-actions > .btn-group {
+        width: 100%;
+        min-width: 0;
+        margin: 0;
+    }
+
+    body.m-shell .container > .cal-page-head .btn,
+    body.m-shell .cal-actions .btn,
+    body.m-shell .cal-actions > a.btn {
+        width: auto !important;
+        min-height: 34px;
+        padding: 0.28rem 0.5rem !important;
+        font-size: 0.76rem !important;
+        font-weight: 600;
+        line-height: 1.2;
+        border-radius: 8px !important;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    body.m-shell .cal-actions > a.btn,
+    body.m-shell .cal-actions > .btn {
+        width: 100% !important;
+    }
+
+    body.m-shell .cal-actions > .btn-group {
+        display: flex;
+        overflow: visible;
+        border-radius: 8px;
+        position: relative;
+        z-index: 1;
+    }
+
+    body.m-shell .cal-actions > .btn-group:has(.show) {
+        z-index: 40;
+    }
+
+    body.m-shell .cal-actions > .btn-group .btn {
+        flex: 1 1 0;
+        min-width: 0;
+        width: auto !important;
+        padding: 0.28rem 0.4rem !important;
+        border-radius: 0 !important;
+    }
+
+    body.m-shell .cal-actions > .btn-group > .btn:first-child {
+        border-top-left-radius: 8px !important;
+        border-bottom-left-radius: 8px !important;
+    }
+
+    body.m-shell .cal-actions > .btn-group > .dropdown-toggle-split {
+        border-top-right-radius: 8px !important;
+        border-bottom-right-radius: 8px !important;
+    }
+
+    body.m-shell .cal-actions .btn i,
+    body.m-shell .cal-actions .btn .me-1,
+    body.m-shell .cal-actions .btn .me-2 {
+        margin-right: 0.28rem !important;
+        font-size: 0.72rem;
+    }
+
+    body.m-shell .cal-actions .dropdown-toggle-split {
+        flex: 0 0 2.15rem !important;
+        min-width: 2.15rem !important;
+        padding-left: 0.35rem !important;
+        padding-right: 0.35rem !important;
+        z-index: 2;
+    }
+
+    body.m-shell .cal-actions .dropdown-menu {
+        z-index: 1080;
+        min-width: 13.5rem;
+        margin-top: 0.25rem !important;
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+        padding: 0.35rem;
+        right: 0;
+        left: auto;
+    }
+
+    body.m-shell .cal-actions .dropdown-item {
+        font-size: 0.82rem;
+        font-weight: 600;
+        border-radius: 8px;
+        padding: 0.5rem 0.65rem;
+    }
+
+    body.m-shell .calendar-header {
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 0.4rem;
+        margin-bottom: 0.65rem !important;
+        padding-bottom: 0.55rem !important;
+    }
+
+    body.m-shell .calendar-nav {
+        flex: 1;
+        min-width: 0;
+        justify-content: flex-start;
+        gap: 0.3rem;
+    }
+
+    body.m-shell .calendar-nav .btn {
+        width: 34px !important;
+        min-width: 34px;
+        min-height: 34px;
+        padding: 0 !important;
+        border-radius: 8px !important;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    body.m-shell .calendar-month-year {
+        font-size: 0.95rem !important;
+        flex: 1;
+        text-align: center;
+        min-width: 0;
+    }
+
+    body.m-shell .calendar-header > div:last-child {
+        flex-shrink: 0;
+    }
+
+    body.m-shell .calendar-header > div:last-child .btn {
+        min-height: 32px;
+        padding: 0.22rem 0.65rem !important;
+        font-size: 0.74rem !important;
+        border-radius: 8px !important;
+        width: auto !important;
+        font-weight: 600;
+    }
+
+    body.m-shell .event-item-actions .btn {
+        width: auto !important;
+        min-height: 30px;
+        padding: 0.15rem 0.45rem !important;
+        font-size: 0.7rem !important;
+        border-radius: 6px !important;
+    }
+
     body.m-shell .calendar-toolbar,
     body.m-shell .fc-toolbar {
         flex-wrap: wrap;
@@ -1439,52 +1701,500 @@
         display: none !important;
     }
 
-    /* Remuneration (991px alignment) */
+    /* Remuneration — readable mobile bill form */
+    body.m-shell .rem-wide-label {
+        display: none;
+    }
+
+    body.m-shell .container.rem-wrapper,
     body.m-shell .rem-wrapper {
-        padding: var(--m-gutter) !important;
+        padding: 0 !important;
+        margin-top: 0.35rem !important;
+        max-width: 100%;
+    }
+
+    body.m-shell .rem-page-head {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 0.4rem !important;
+        margin-bottom: 0.55rem !important;
+    }
+
+    body.m-shell .rem-page-head h2 {
+        display: none;
+    }
+
+    body.m-shell .rem-actions {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.4rem !important;
+        width: 100%;
+    }
+
+    body.m-shell .rem-actions .btn {
+        width: 100% !important;
+        min-height: 36px;
+        padding: 0.3rem 0.5rem !important;
+        font-size: 0.76rem !important;
+        font-weight: 600;
+        border-radius: 8px !important;
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        position: static;
+    }
+
+    body.m-shell .rem-actions .btn i {
+        margin-right: 0.28rem !important;
+        font-size: 0.72rem;
     }
 
     body.m-shell .rem-sheet {
-        padding: 0.75rem !important;
+        padding: 0.7rem 0.7rem 1rem !important;
+        border: none !important;
+        border-radius: 12px !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
+        background: #fff;
     }
 
     body.m-shell .rem-heading {
-        flex-direction: column;
-        text-align: center;
-        gap: 0.5rem;
+        flex-direction: row;
+        align-items: center;
+        justify-content: flex-start;
+        text-align: left;
+        gap: 0.55rem;
+        margin-bottom: 0.65rem;
+        padding-bottom: 0.55rem;
+        border-bottom: 1px solid #eef2f7;
+    }
+
+    body.m-shell .rem-heading-logo img {
+        height: 36px !important;
+        max-height: 36px !important;
+    }
+
+    body.m-shell .rem-heading-content .text-muted,
+    body.m-shell .rem-heading-content small {
+        display: none;
+    }
+
+    body.m-shell .rem-heading h4 {
+        font-size: 0.82rem !important;
+        margin: 0 !important;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    body.m-shell .rem-heading-content > div {
+        font-size: 0.78rem !important;
+        font-weight: 600;
+        color: #475569;
+        margin: 0 !important;
+    }
+
+    body.m-shell .meta-grid,
+    body.m-shell .meta-grid tbody {
+        display: block;
+        width: 100%;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent;
+    }
+
+    body.m-shell .meta-grid tr {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.15rem 0.5rem;
+        margin-bottom: 0.15rem;
+    }
+
+    body.m-shell .meta-grid td {
+        display: block;
+        width: 100% !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0.2rem 0 !important;
+        font-size: 0.82rem !important;
+    }
+
+    body.m-shell .meta-grid .meta-label {
+        width: auto !important;
+        background: none !important;
+        color: #64748b;
+        font-size: 0.68rem !important;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        padding: 0.45rem 0 0.1rem !important;
+    }
+
+    body.m-shell .meta-grid td:not(.meta-label) {
+        background: #f8fafc;
+        border: 1px solid #e8edf3 !important;
+        border-radius: 8px;
+        padding: 0.15rem 0.45rem !important;
+    }
+
+    body.m-shell .meta-grid input,
+    body.m-shell .meta-grid select,
+    body.m-shell .meta-grid .form-select {
+        font-size: 16px !important;
+        min-height: 40px;
+        width: 100% !important;
+        background: transparent !important;
+        padding: 0.25rem 0.15rem !important;
+    }
+
+    body.m-shell .section-title {
+        font-size: 0.82rem !important;
+        font-weight: 700;
+        margin: 0.85rem 0 0.5rem !important;
+        color: #0f172a;
+        letter-spacing: 0.01em;
+    }
+
+    body.m-shell .rem-table {
+        table-layout: auto !important;
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        margin: 0.35rem 0 0.75rem !important;
+        font-size: 0.85rem;
+        display: block;
+        width: 100%;
     }
 
     body.m-shell .rem-table thead {
         display: none;
     }
 
+    body.m-shell .rem-table tbody {
+        display: block;
+    }
+
     body.m-shell .rem-table tbody tr {
         display: block;
-        border: 1px solid #e4e6eb;
-        border-radius: var(--m-card-radius);
-        margin-bottom: var(--m-gutter);
-        padding: 0.65rem;
+        border: 1px solid #e8edf3 !important;
+        border-radius: 12px;
+        margin-bottom: 0.55rem;
+        padding: 0.7rem 0.75rem 0.55rem;
         background: #fff;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+
+    body.m-shell .rem-table tbody tr:nth-child(even),
+    body.m-shell .rem-table tbody tr:hover {
+        background: #fff !important;
     }
 
     body.m-shell .rem-table tbody td {
-        display: block;
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
         border: none !important;
-        padding: 0.35rem 0 !important;
-        position: relative;
-        padding-left: 42% !important;
+        padding: 0.4rem 0 0.15rem !important;
         text-align: left !important;
-        min-height: 36px;
+        position: relative;
+        min-height: 0;
+        font-size: 0.85rem;
+        font-weight: 500;
     }
 
-    body.m-shell .rem-table tbody td::before {
-        content: attr(data-label);
-        position: absolute;
-        left: 0;
-        width: 40%;
+    body.m-shell .rem-table tbody td:nth-child(1) {
+        display: inline-block !important;
+        width: auto !important;
+        padding: 0 0.35rem 0.35rem 0 !important;
+        font-weight: 800;
+        color: #4f46e5;
+        font-size: 0.8rem;
+        min-width: 1.4rem;
+    }
+
+    body.m-shell .rem-table tbody td:nth-child(1):empty {
+        display: none !important;
+    }
+
+    body.m-shell .rem-table tbody td:nth-child(2) {
+        display: inline !important;
+        width: auto !important;
+        padding: 0 0 0.4rem !important;
+        font-weight: 700;
+        font-size: 0.88rem;
+        color: #0f172a;
+        line-height: 1.3;
+    }
+
+    body.m-shell .rem-table tbody td:nth-child(n+3)::before {
+        display: block;
+        margin-bottom: 0.22rem;
+        font-weight: 700;
+        font-size: 0.65rem;
+        color: #64748b;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+
+    body.m-shell .rem-table tbody td:nth-child(3)::before { content: "কোর্স"; }
+    body.m-shell .rem-table tbody td:nth-child(4)::before { content: "সংখ্যা"; }
+    body.m-shell .rem-table tbody td:nth-child(5)::before { content: "অর্ধ / পূর্ণপত্র"; }
+    body.m-shell .rem-table tbody td:nth-child(6)::before { content: "হার"; }
+    body.m-shell .rem-table tbody td:nth-child(7)::before { content: "মোট টাকা"; }
+
+    body.m-shell .rem-table tbody td:nth-child(3):not(:has(select)):not(:has(input)):not(:has(.course-section-container)) {
+        display: none !important;
+        padding: 0 !important;
+    }
+
+    body.m-shell .rem-table tbody td:has(> div[style*="visibility: hidden"]),
+    body.m-shell .rem-table tbody td:has(> input[style*="visibility: hidden"]) {
+        display: none !important;
+    }
+
+    body.m-shell .rem-table tbody td:nth-child(7) {
+        margin-top: 0.25rem;
+        padding-top: 0.45rem !important;
+        border-top: 1px dashed #e2e8f0 !important;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    body.m-shell .rem-table tbody td > input,
+    body.m-shell .rem-table tbody td > select,
+    body.m-shell .rem-table .course-select,
+    body.m-shell .rem-table .rate-select,
+    body.m-shell .rem-table .section-select,
+    body.m-shell .rem-table input[name^="quantity_"],
+    body.m-shell .rem-table input[name^="paper_type_"],
+    body.m-shell .rem-table input[name^="amount_"],
+    body.m-shell .rem-table input[name^="rate_custom_"],
+    body.m-shell .rem-table input[name^="course_custom_"] {
+        width: 100% !important;
+        max-width: 100%;
+        min-height: 40px;
+        font-size: 16px !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        padding: 0.35rem 0.55rem !important;
+        background: #fff !important;
+        box-sizing: border-box;
+    }
+
+    body.m-shell .rem-table input[name^="amount_"] {
+        font-weight: 700;
+        background: #f8fafc !important;
+        color: #0f172a;
+        text-align: right !important;
+    }
+
+    body.m-shell .course-section-item .d-flex {
+        flex-wrap: wrap;
+        gap: 0.35rem !important;
+    }
+
+    body.m-shell .course-select {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    body.m-shell .section-select {
+        width: 4.5rem !important;
+        flex: 0 0 4.5rem;
+        min-height: 40px;
+    }
+
+    body.m-shell .add-course-btn {
+        min-width: 40px;
+        min-height: 40px;
+        border-radius: 8px !important;
+    }
+
+    body.m-shell .row4-calculation-item,
+    body.m-shell #row3_calculations,
+    body.m-shell #row4_calculations {
+        justify-content: flex-start !important;
+    }
+
+    body.m-shell .row4-calculation-item input,
+    body.m-shell #row3_calculations input {
+        width: auto !important;
+        min-width: 2.6rem;
+        min-height: 34px !important;
+        font-size: 0.85rem !important;
+    }
+
+    body.m-shell .rem-table tfoot,
+    body.m-shell .rem-table tfoot tr {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+
+    body.m-shell .rem-table tfoot {
+        display: flex;
+        width: 100%;
+        background: #0f172a;
+        color: #fff;
+        border-radius: 12px;
+        padding: 0.7rem 0.9rem;
+        margin: 0.35rem 0 0.75rem;
+        box-sizing: border-box;
+    }
+
+    body.m-shell .rem-table tfoot th {
+        display: block;
+        width: auto !important;
+        background: transparent !important;
+        color: #fff !important;
+        border: none !important;
+        padding: 0 !important;
+        text-align: left !important;
+        font-size: 0.78rem;
         font-weight: 600;
-        font-size: 0.72rem;
-        color: #65676b;
+    }
+
+    body.m-shell .rem-table tfoot th input,
+    body.m-shell .rem-table tfoot #total_amount {
+        background: transparent !important;
+        border: none !important;
+        color: #fff !important;
+        font-size: 1.15rem !important;
+        font-weight: 800;
+        text-align: right !important;
+        min-height: 0;
+        padding: 0 !important;
+        width: 8rem !important;
+    }
+
+    body.m-shell .foot-table,
+    body.m-shell .foot-table tbody,
+    body.m-shell .foot-table tr {
+        display: block;
+        width: 100%;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    body.m-shell .foot-table td {
+        display: block;
+        width: 100% !important;
+        border: none !important;
+        padding: 0.2rem 0 !important;
+        background: none !important;
+        font-size: 0.78rem;
+    }
+
+    body.m-shell .foot-table input {
+        min-height: 40px;
+        font-size: 16px !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 8px !important;
+        background: #f8fafc !important;
+        padding: 0.35rem 0.55rem !important;
+        margin-top: 0.2rem;
+    }
+
+    body.m-shell .bank-declaration {
+        font-size: 0.78rem;
+        line-height: 1.45;
+        padding: 0.7rem;
+        border-radius: 10px;
+        border-color: #e2e8f0;
+        background: #f8fafc;
+    }
+
+    body.m-shell .bank-declaration input {
+        display: inline-block;
+        min-width: 8rem;
+        min-height: 36px;
+        font-size: 16px !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 6px;
+        padding: 0.2rem 0.4rem;
+        background: #fff;
+    }
+
+    body.m-shell .revenue-ticket {
+        display: none;
+    }
+
+    body.m-shell .signature-section,
+    body.m-shell .controller-signature-section,
+    body.m-shell .finance-signature-section,
+    body.m-shell .audit-approval-section {
+        display: grid !important;
+        grid-template-columns: 1fr;
+        gap: 0.4rem !important;
+        margin-top: 0.5rem;
+        margin-bottom: 0.65rem;
+    }
+
+    body.m-shell .signature-box,
+    body.m-shell .controller-signature-box,
+    body.m-shell .finance-signature-box,
+    body.m-shell .audit-signature-box-single {
+        min-height: 0 !important;
+        padding: 0.55rem 0.65rem !important;
+        border-radius: 10px;
+        border-color: #e2e8f0 !important;
+        background: #fafbfc;
+        font-size: 0.78rem;
+    }
+
+    body.m-shell .signature-box span {
+        margin-top: 0.35rem;
+        padding-top: 0.3rem;
+        font-size: 0.7rem;
+        color: #64748b;
+        border-top-color: #e2e8f0;
+    }
+
+    body.m-shell .info-note,
+    body.m-shell .finance-release-note,
+    body.m-shell .audit-approval-text {
+        font-size: 0.75rem;
+        line-height: 1.4;
+        color: #475569;
+    }
+
+    body.m-shell .controller-sign-input,
+    body.m-shell .finance-sign-input,
+    body.m-shell .audit-sign-input,
+    body.m-shell .finance-amount-input,
+    body.m-shell .finance-amount-words-input,
+    body.m-shell .audit-amount-input {
+        min-height: 36px;
+        font-size: 16px !important;
+        border: 1px solid #e2e8f0 !important;
+        border-radius: 6px !important;
+        background: #fff !important;
+        width: 100%;
+        max-width: 100%;
+    }
+
+    body.m-shell .forms-container {
+        padding: 0.4rem 0 1rem !important;
+        max-width: 100%;
+    }
+
+    body.m-shell .forms-container .page-header h1 {
+        display: none;
+    }
+
+    body.m-shell .filter-tabs {
+        gap: 0.25rem;
+        margin-bottom: 0.75rem;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-bottom: 1px solid #e8edf3;
+    }
+
+    body.m-shell .filter-tab {
+        padding: 0.45rem 0.7rem;
+        font-size: 0.8rem;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
 
     body.m-shell .forms-table thead {
@@ -1493,34 +2203,467 @@
 
     body.m-shell .forms-table tbody tr {
         display: block;
-        border: 1px solid #e4e6eb;
-        border-radius: var(--m-card-radius);
-        margin-bottom: var(--m-gutter);
-        padding: 0.65rem;
+        border: 1px solid #e8edf3;
+        border-radius: 12px;
+        margin-bottom: 0.55rem;
+        padding: 0.7rem 0.8rem;
         background: #fff;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
 
     body.m-shell .forms-table tbody td {
-        display: block;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.5rem;
         border: none !important;
-        padding: 0.35rem 0 0.35rem 42% !important;
-        position: relative;
+        padding: 0.22rem 0 !important;
         text-align: left !important;
+        font-size: 0.82rem;
     }
 
     body.m-shell .forms-table tbody td::before {
         content: attr(data-label);
-        position: absolute;
-        left: 0;
-        width: 40%;
-        font-weight: 600;
-        font-size: 0.72rem;
-        color: #65676b;
+        font-weight: 700;
+        font-size: 0.68rem;
+        color: #64748b;
+        flex: 0 0 5.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        padding-top: 0.15rem;
     }
 
-    body.m-shell .forms-table .action-buttons,
-    body.m-shell .forms-table .btn-action {
+    body.m-shell .forms-table tbody td[data-label="Actions"] {
+        display: block;
+        padding-top: 0.5rem !important;
+        border-top: 1px dashed #e2e8f0 !important;
+        margin-top: 0.35rem;
+    }
+
+    body.m-shell .forms-table tbody td[data-label="Actions"]::before {
+        display: none;
+    }
+
+    body.m-shell .forms-table .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
         width: 100%;
+    }
+
+    body.m-shell .forms-table .btn-action {
+        flex: 1 1 calc(50% - 0.35rem);
+        min-height: 36px;
+        text-align: center;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    body.m-shell .forms-container .page-header .btn {
+        min-height: 36px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        border-radius: 8px;
+    }
+
+    @media (orientation: landscape) {
+        body.m-shell .rem-wrapper .rem-actions {
+            grid-template-columns: repeat(4, 1fr);
+        }
+
+        body.m-shell .meta-grid tr {
+            grid-template-columns: auto 1fr auto 1fr;
+            align-items: center;
+            gap: 0.25rem 0.55rem;
+            margin-bottom: 0.35rem;
+        }
+
+        body.m-shell .meta-grid .meta-label {
+            padding: 0.15rem 0 !important;
+            white-space: nowrap;
+        }
+
+        body.m-shell .rem-table tbody {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+        }
+
+        body.m-shell .rem-table tbody tr {
+            margin-bottom: 0;
+        }
+
+        body.m-shell .signature-section,
+        body.m-shell .controller-signature-section,
+        body.m-shell .finance-signature-section,
+        body.m-shell .audit-approval-section {
+            grid-template-columns: 1fr 1fr !important;
+        }
+
+        body.m-shell .forms-table .action-buttons {
+            flex-wrap: nowrap;
+        }
+    }
+
+    /* মোট পারিতোষিক modal — mobile sheet */
+    body.m-shell #teacherGrandTotalModal .modal-dialog {
+        margin: 0;
+        max-width: 100%;
+        height: 100%;
+        min-height: 100%;
+        align-items: flex-end;
+    }
+
+    body.m-shell #teacherGrandTotalModal .modal-content {
+        border: none;
+        border-radius: 18px 18px 0 0;
+        max-height: 94dvh;
+        min-height: min(88dvh, 940px);
+        display: flex;
+        flex-direction: column;
+        background: #f4f6f9;
+    }
+
+    body.m-shell #teacherGrandTotalModal .modal-header {
+        padding: 0.7rem 0.9rem;
+        border: none;
+        background: var(--theme-gradient, linear-gradient(135deg, #4f46e5, #1d4ed8)) !important;
+        border-radius: 18px 18px 0 0;
+        align-items: center;
+    }
+
+    body.m-shell #teacherGrandTotalModal .modal-title {
+        font-size: 1rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-title-full {
+        display: none;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-title-short {
+        display: inline;
+    }
+
+    body.m-shell #teacherGrandTotalModal .modal-body {
+        padding: 0.75rem 0.8rem calc(1rem + env(safe-area-inset-bottom, 0px));
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        flex: 1;
+    }
+
+    body.m-shell #teacherGrandTotalModal .modal-footer {
+        display: none;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-hint-full {
+        display: none;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-hint-short {
+        display: block;
+        margin: 0 0 0.7rem;
+        font-size: 0.72rem;
+        color: #64748b;
+        line-height: 1.35;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-toolbar {
+        background: #fff;
+        border: 1px solid #e8edf3;
+        border-radius: 14px;
+        padding: 0.7rem 0.75rem 0.75rem;
+        margin-bottom: 0.65rem !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-toolbar .form-label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #64748b;
+        margin-bottom: 0.3rem;
+        letter-spacing: 0.02em;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-toolbar .form-select {
+        font-size: 16px !important;
+        min-height: 44px;
+        border-radius: 10px;
+        border-color: #e2e8f0;
+        margin-bottom: 0.55rem;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-toolbar-actions {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.4rem !important;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-toolbar-actions .btn {
+        width: 100%;
+        min-height: 40px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        border-radius: 10px;
+        padding: 0.4rem 0.5rem;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-status {
+        border: none !important;
+        background: #eef2ff !important;
+        color: #3730a3;
+        border-radius: 10px;
+        padding: 0.5rem 0.7rem;
+        font-size: 0.75rem;
+        margin-bottom: 0.65rem !important;
+        line-height: 1.35;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-totals {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1.15fr;
+        gap: 0.4rem;
+        margin-bottom: 0.7rem;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-chip {
+        background: #fff;
+        border: 1px solid #e8edf3;
+        border-radius: 12px;
+        padding: 0.5rem 0.45rem 0.55rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.12rem;
+        min-width: 0;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-chip span {
+        font-size: 0.62rem;
+        font-weight: 700;
+        color: #64748b;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-chip strong {
+        font-size: 0.72rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.25;
+        word-break: break-word;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-chip small {
+        font-size: 0.65rem;
+        color: #64748b;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-chip-vat strong {
+        color: #b91c1c;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-chip-net {
+        background: #ecfdf5;
+        border-color: #a7f3d0;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-chip-net span,
+    body.m-shell #teacherGrandTotalModal .gt-chip-net strong {
+        color: #047857;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-table-wrap,
+    body.m-shell #teacherGrandTotalModal #grandTotalBreakdownTable {
+        display: none !important;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card {
+        background: #fff;
+        border: 1px solid #e8edf3;
+        border-radius: 12px;
+        padding: 0.75rem 0.8rem 0.65rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        min-width: 0;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-empty {
+        text-align: center;
+        color: #64748b;
+        font-size: 0.85rem;
+        padding: 1.1rem 0.75rem;
+        font-weight: 500;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-error {
+        color: #b91c1c;
+        background: #fef2f2;
+        border-color: #fecaca;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-session {
+        font-size: 1rem;
+        font-weight: 800;
+        color: #0f172a;
+        line-height: 1.3;
+        min-width: 0;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-amount {
+        font-size: 0.95rem;
+        font-weight: 800;
+        color: #0f172a;
+        white-space: nowrap;
+        line-height: 1.3;
+        flex-shrink: 0;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+        margin-top: 0.35rem;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-card-meta span {
+        display: inline-block;
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #4338ca;
+        background: #eef2ff;
+        border-radius: 999px;
+        padding: 0.12rem 0.5rem;
+        line-height: 1.4;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-job-list {
+        list-style: none;
+        margin: 0.55rem 0 0;
+        padding: 0.5rem 0 0;
+        border-top: 1px dashed #e2e8f0;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-job-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.65rem;
+        padding: 0.28rem 0;
+        font-size: 0.78rem;
+        line-height: 1.35;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-job-name {
+        color: #334155;
+        min-width: 0;
+        font-weight: 500;
+    }
+
+    body.m-shell #teacherGrandTotalModal .gt-job-amt {
+        color: #0f172a;
+        font-weight: 700;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    @media (orientation: landscape) {
+        body.m-shell #teacherGrandTotalModal .modal-dialog {
+            margin: 0.35rem auto;
+            max-width: min(860px, calc(100% - 0.7rem));
+            height: auto;
+            min-height: 0;
+            align-items: center;
+        }
+
+        body.m-shell #teacherGrandTotalModal .modal-content {
+            border-radius: 14px;
+            max-height: calc(100dvh - 0.7rem);
+            min-height: 0;
+        }
+
+        body.m-shell #teacherGrandTotalModal .modal-header {
+            border-radius: 14px 14px 0 0;
+            padding: 0.5rem 0.8rem;
+        }
+
+        body.m-shell #teacherGrandTotalModal .modal-body {
+            padding: 0.55rem 0.7rem 0.7rem;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1.4fr) auto;
+            grid-template-areas:
+                "label actions"
+                "select actions";
+            gap: 0.2rem 0.6rem;
+            align-items: end;
+            padding: 0.5rem 0.6rem;
+            margin-bottom: 0.5rem !important;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-toolbar .form-label {
+            grid-area: label;
+            margin: 0;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-toolbar .form-select {
+            grid-area: select;
+            margin: 0;
+            min-height: 38px;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-toolbar-actions {
+            grid-area: actions;
+            grid-template-columns: auto auto;
+            align-self: stretch;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-toolbar-actions .btn {
+            min-height: 38px;
+            white-space: nowrap;
+            width: auto;
+            padding: 0.3rem 0.7rem;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-totals {
+            grid-template-columns: 1fr 1fr 1.2fr;
+            gap: 0.45rem;
+            margin-bottom: 0.5rem;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-card-list {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.45rem;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-card-empty,
+        body.m-shell #teacherGrandTotalModal .gt-card-error {
+            grid-column: 1 / -1;
+        }
+
+        body.m-shell #teacherGrandTotalModal .gt-status {
+            margin-bottom: 0.5rem !important;
+            padding: 0.4rem 0.6rem;
+        }
     }
 
     /* Admin / student list generic ops tables */
@@ -1583,6 +2726,275 @@
     body.m-shell .leave-form .btn {
         width: 100%;
         margin-bottom: 0.35rem;
+    }
+
+    /* Leave Application dashboard — square equal cards, 2×2 / 3-col */
+    body.m-shell .la-dash {
+        margin-top: 0.4rem !important;
+    }
+
+    body.m-shell .la-dash .la-crumb,
+    body.m-shell .la-dash .breadcrumb,
+    body.m-shell .la-dash-title {
+        display: none;
+    }
+
+    body.m-shell .la-dash-lead {
+        font-size: 0.74rem;
+        line-height: 1.35;
+        margin-bottom: 0.5rem !important;
+        color: #64748b !important;
+    }
+
+    body.m-shell .la-dash .la-card-grid,
+    body.m-shell .la-dash > .row.g-3 {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.35rem;
+        --bs-gutter-x: 0;
+        --bs-gutter-y: 0;
+    }
+
+    body.m-shell .la-dash .la-card-grid > [class*="col-"],
+    body.m-shell .la-dash > .row.g-3 > [class*="col-"] {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: none !important;
+        padding: 0 !important;
+        min-width: 0;
+    }
+
+    body.m-shell .la-dash a {
+        display: block;
+        height: 100%;
+        color: inherit;
+    }
+
+    body.m-shell .la-dash .la-card,
+    body.m-shell .la-dash .card.h-100 {
+        aspect-ratio: 1 / 0.82;
+        height: auto !important;
+        margin-bottom: 0 !important;
+        border-radius: 12px !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.07) !important;
+        overflow: hidden;
+        background: #fff;
+    }
+
+    body.m-shell .la-dash .card-body {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.18rem;
+        padding: 0.4rem 0.35rem !important;
+        text-align: center;
+    }
+
+    body.m-shell .la-dash .la-card-icon {
+        margin-bottom: 0 !important;
+        flex-shrink: 0;
+    }
+
+    body.m-shell .la-dash .la-card-icon i,
+    body.m-shell .la-dash .la-card-icon .fa-2x {
+        font-size: 1.05rem !important;
+    }
+
+    body.m-shell .la-dash .card-title {
+        font-size: 0.7rem !important;
+        font-weight: 700;
+        line-height: 1.2;
+        margin: 0 !important;
+        color: #0f172a;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    body.m-shell .la-dash .card-text {
+        display: -webkit-box !important;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        font-size: 0.6rem !important;
+        line-height: 1.25;
+        color: #64748b !important;
+        margin: 0 !important;
+    }
+
+    /* Leave application forms */
+    body.m-shell .la-page {
+        margin-top: 0.35rem !important;
+        padding-bottom: 4.5rem;
+    }
+
+    body.m-shell .la-page .breadcrumb {
+        display: none;
+    }
+
+    body.m-shell .la-page > h2 {
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0.35rem !important;
+        line-height: 1.3;
+    }
+
+    body.m-shell .la-page > .text-muted {
+        font-size: 0.75rem;
+        line-height: 1.4;
+        margin-bottom: 0.75rem !important;
+    }
+
+    body.m-shell .la-page .leave-form {
+        background: #fff;
+        border: 1px solid #e8edf3;
+        border-radius: 14px;
+        padding: 0.85rem 0.8rem 0.9rem;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    }
+
+    body.m-shell .la-page .form-label {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #334155;
+        margin-bottom: 0.28rem;
+    }
+
+    body.m-shell .la-page .form-control,
+    body.m-shell .la-page .form-select,
+    body.m-shell .la-page textarea.form-control {
+        border-radius: 10px;
+        border-color: #e2e8f0;
+        font-size: 16px !important;
+        min-height: 44px;
+    }
+
+    body.m-shell .la-page textarea.form-control {
+        min-height: 72px;
+    }
+
+    body.m-shell .la-page .mb-3 {
+        margin-bottom: 0.7rem !important;
+    }
+
+    body.m-shell .la-page .row {
+        --bs-gutter-x: 0.5rem;
+        --bs-gutter-y: 0;
+    }
+
+    body.m-shell .la-page .row:has(input[type="date"]) {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+    }
+
+    body.m-shell .la-page .row:has(input[type="date"]) > [class*="col-"] {
+        width: 100%;
+        max-width: 100%;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    body.m-shell .la-page .row:has(input[type="date"]) > [class*="col-"]:not(:has(input[type="date"])) {
+        grid-column: 1 / -1;
+    }
+
+    body.m-shell .la-form-actions {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: 1.4fr 1fr;
+        gap: 0.45rem;
+        margin: 0.35rem -0.8rem -0.9rem;
+        padding: 0.65rem 0.8rem calc(0.65rem + env(safe-area-inset-bottom, 0px));
+        background: #fff;
+        border-top: 1px solid #e8edf3;
+        border-radius: 0 0 14px 14px;
+    }
+
+    body.m-shell .la-form-actions .btn {
+        width: 100%;
+        margin: 0 !important;
+        min-height: 44px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    @media (orientation: landscape) {
+        body.m-shell .la-dash .la-card-grid,
+        body.m-shell .la-dash > .row.g-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 0.35rem;
+        }
+
+        body.m-shell .la-dash .la-card,
+        body.m-shell .la-dash .card.h-100 {
+            aspect-ratio: 1 / 0.78;
+        }
+
+        body.m-shell .la-dash .card-body {
+            padding: 0.32rem 0.3rem !important;
+            gap: 0.12rem;
+        }
+
+        body.m-shell .la-dash .card-title {
+            font-size: 0.66rem !important;
+            -webkit-line-clamp: 2;
+        }
+
+        body.m-shell .la-dash .card-text {
+            font-size: 0.56rem !important;
+        }
+
+        body.m-shell .la-dash .la-card-icon i,
+        body.m-shell .la-dash .la-card-icon .fa-2x {
+            font-size: 0.95rem !important;
+        }
+
+        body.m-shell .la-page {
+            padding-bottom: 1rem;
+        }
+
+        body.m-shell .la-page > h2 {
+            font-size: 0.98rem;
+        }
+
+        body.m-shell .la-page .leave-form .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.45rem 0.6rem;
+        }
+
+        body.m-shell .la-page .leave-form .row > [class*="col-"] {
+            width: 100%;
+            max-width: 100%;
+            padding: 0;
+        }
+
+        body.m-shell .la-form-actions {
+            position: static;
+            margin: 0.5rem 0 0;
+            padding: 0.55rem 0 0;
+            border-top: 1px solid #e8edf3;
+            border-radius: 0;
+            grid-template-columns: auto auto;
+            justify-content: end;
+        }
+
+        body.m-shell .la-form-actions .btn {
+            width: auto;
+            min-width: 9.5rem;
+            min-height: 40px;
+        }
     }
 
     /* Filter bars stack */
@@ -2421,6 +3833,10 @@
     }
 
     /* Routine maker timetable */
+    body.m-shell .routine-rotate-gate {
+        display: none;
+    }
+
     body.m-shell .routine-topbar,
     body.m-shell .r-toolbar {
         padding: 6px 8px !important;
@@ -2487,29 +3903,25 @@
     }
 
     body.m-shell .routine-table th.day-col,
-    body.m-shell .routine-table td.day-col,
-    body.m-shell .routine-table th:first-child,
-    body.m-shell .routine-table td:first-child {
+    body.m-shell .routine-table td.day-col {
         position: sticky;
         left: 0;
-        z-index: 3;
+        z-index: 5;
         background: #fff;
-        min-width: 56px;
-        max-width: 64px;
-        width: 56px;
+        min-width: 48px;
+        max-width: 48px;
+        width: 48px;
         font-size: 10px;
     }
 
     body.m-shell .routine-table th.room-col,
-    body.m-shell .routine-table td.room-col,
-    body.m-shell .routine-table th:nth-child(2),
-    body.m-shell .routine-table td:nth-child(2) {
+    body.m-shell .routine-table td.room-col {
         position: sticky;
-        left: 56px;
-        z-index: 3;
+        left: 48px;
+        z-index: 4;
         background: #fff;
         min-width: 56px;
-        max-width: 72px;
+        max-width: 56px;
         width: 56px;
         box-shadow: 2px 0 4px rgba(0, 0, 0, 0.06);
         font-size: 10px;
@@ -2518,12 +3930,11 @@
     body.m-shell .routine-table thead th.day-col {
         background: var(--primary, #2563eb) !important;
         color: #fff !important;
-        z-index: 5;
+        z-index: 7;
     }
 
-    body.m-shell .routine-table thead th.room-col,
-    body.m-shell .routine-table thead th:nth-child(2) {
-        z-index: 4;
+    body.m-shell .routine-table thead th.room-col {
+        z-index: 6;
         background: #f1f3f5 !important;
     }
 
@@ -2568,6 +3979,292 @@
         padding-left: 0 !important;
         padding-right: 0 !important;
         max-width: 100% !important;
+    }
+
+    /* Phone portrait lock — JS sets .routine-phone-portrait only on real phones.
+       Never use hover/pointer media alone; that flashes on computers at first paint. */
+    body.routine-phone-portrait .routine-rotate-gate {
+        display: flex !important;
+        position: fixed;
+        inset: 0;
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+        padding: calc(var(--m-topbar-height) + env(safe-area-inset-top, 0px) + 1.5rem) 1.25rem 1.5rem;
+        background: #f0f2f5;
+    }
+
+    body.routine-phone-portrait .routine-rotate-card {
+        width: min(22rem, 100%);
+        text-align: center;
+        background: #fff;
+        border-radius: 20px;
+        padding: 1.75rem 1.35rem 1.5rem;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+    }
+
+    body.routine-phone-portrait .routine-rotate-phone {
+        width: 4.5rem;
+        height: 4.5rem;
+        margin: 0 auto 1rem;
+        border-radius: 1.15rem;
+        background: #eff6ff;
+        color: #2563eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        animation: routine-rotate-hint 1.6s ease-in-out infinite;
+    }
+
+    body.routine-phone-portrait .routine-rotate-card h2 {
+        font-size: 1.15rem;
+        font-weight: 800;
+        color: #0f172a;
+        margin: 0 0 0.5rem;
+        line-height: 1.3;
+    }
+
+    body.routine-phone-portrait .routine-rotate-card p {
+        margin: 0;
+        color: #475569;
+        font-size: 0.95rem;
+        line-height: 1.45;
+    }
+
+    body.routine-phone-portrait .routine-rotate-en {
+        margin-top: 0.65rem !important;
+        font-size: 0.8rem !important;
+        color: #64748b !important;
+    }
+
+    body.routine-phone-portrait {
+        overflow: hidden !important;
+    }
+
+    body.routine-phone-portrait .routine-app .r-toolbar,
+    body.routine-phone-portrait .routine-app .r-body,
+    body.routine-phone-portrait .r-fixed-courses,
+    body.routine-phone-portrait .course-panel-toggle,
+    body.routine-phone-portrait .fullscreen-exit-btn {
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+
+    @keyframes routine-rotate-hint {
+        0%, 18% { transform: rotate(0deg); }
+        45%, 70% { transform: rotate(90deg); }
+        100% { transform: rotate(0deg); }
+    }
+
+    /* Phone landscape: immersive, sticky-pane timetable */
+    @media (orientation: landscape) {
+        body.m-shell:has(.routine-app) {
+            padding-top: env(safe-area-inset-top, 0px) !important;
+            overflow: hidden !important;
+            --routine-content-top: env(safe-area-inset-top, 0px);
+        }
+
+        body.m-shell:has(.routine-app) .m-topbar {
+            display: none !important;
+        }
+
+        body.m-shell .routine-rotate-gate {
+            display: none !important;
+        }
+
+        body.m-shell .container:has(.routine-app),
+        body.m-shell main.m-main > .container:has(.routine-app),
+        body.m-shell .container.my-4:has(.routine-app) {
+            padding: 0 !important;
+            margin: 0 !important;
+            max-width: 100% !important;
+            height: 100dvh !important;
+            overflow: hidden !important;
+        }
+
+        body.m-shell .routine-app {
+            height: 100dvh !important;
+            max-height: 100dvh !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+        }
+
+        body.m-shell .r-toolbar,
+        body.m-shell .r-toolbar.m-page-header {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            padding: 4px 8px 4px max(8px, env(safe-area-inset-left, 0px)) !important;
+            min-height: 40px;
+            height: 40px !important;
+            gap: 0.4rem;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            padding-right: max(8px, env(safe-area-inset-right, 0px)) !important;
+        }
+
+        body.m-shell .r-toolbar-left,
+        body.m-shell .r-toolbar-right,
+        body.m-shell .r-toolbar .m-action-row {
+            flex-wrap: nowrap !important;
+            width: auto !important;
+            min-width: 0;
+            align-items: center !important;
+        }
+
+        body.m-shell .r-toolbar-left {
+            flex: 0 0 auto;
+            gap: 0.35rem;
+        }
+
+        body.m-shell .r-toolbar-right,
+        body.m-shell .r-toolbar .m-action-row {
+            flex: 1 1 auto;
+            justify-content: flex-end;
+            display: flex !important;
+        }
+
+        body.m-shell .r-title,
+        body.m-shell .r-date,
+        body.m-shell .r-progress,
+        body.m-shell .r-logo {
+            display: none !important;
+        }
+
+        body.m-shell .r-toolbar .m-action-row > .r-btn,
+        body.m-shell .r-toolbar .m-action-row > a.r-btn,
+        body.m-shell .r-toolbar .r-btn {
+            flex: 0 0 auto !important;
+            font-size: 12px !important;
+            gap: 4px;
+            min-height: 32px;
+            height: 32px;
+            padding: 0 10px !important;
+            flex-shrink: 0;
+            width: auto !important;
+        }
+
+        body.m-shell .r-toolbar .r-btn i,
+        body.m-shell .r-toolbar .r-btn .r-filter-count {
+            font-size: 12px !important;
+        }
+
+        body.m-shell .r-toolbar .r-btn .r-filter-count {
+            margin-left: 4px;
+        }
+
+        body.m-shell .r-body,
+        body.m-shell .routine-main,
+        body.m-shell .r-table-wrap,
+        body.m-shell .routine-table-area {
+            min-height: 0 !important;
+            height: auto !important;
+            flex: 1 1 auto !important;
+            overflow: hidden !important;
+        }
+
+        body.m-shell .routine-table-wrapper,
+        body.m-shell .routine-table-container {
+            overflow: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            touch-action: pan-x pan-y !important;
+            padding: 0 !important;
+            height: 100% !important;
+            max-height: none !important;
+        }
+
+        body.m-shell .routine-table {
+            font-size: 10px;
+            width: max-content;
+            min-width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+
+        body.m-shell .routine-table thead th {
+            position: sticky;
+            top: 0;
+            z-index: 6;
+            background: #1e40af !important;
+            color: #fff !important;
+            box-shadow: 0 1px 0 #1e3a8a;
+        }
+
+        body.m-shell .routine-table th.time-col {
+            min-width: 96px;
+            max-width: 120px;
+            width: 96px;
+            font-size: 9px !important;
+            line-height: 1.15;
+            white-space: normal !important;
+            padding: 5px 4px !important;
+            font-weight: 700;
+        }
+
+        body.m-shell .routine-table tbody td.slot-cell {
+            min-width: 96px;
+            width: 96px;
+            height: auto !important;
+            min-height: 46px;
+            vertical-align: top;
+            padding: 3px 4px !important;
+        }
+
+        body.m-shell .slot-course-code {
+            font-size: 10px;
+            white-space: normal;
+            word-break: break-word;
+        }
+
+        body.m-shell .slot-teacher {
+            font-size: 9px;
+        }
+
+        body.m-shell .routine-table th.day-col,
+        body.m-shell .routine-table td.day-col {
+            min-width: 48px;
+            max-width: 48px;
+            width: 48px;
+            left: 0;
+            z-index: 5;
+        }
+
+        body.m-shell .routine-table th.room-col,
+        body.m-shell .routine-table td.room-col {
+            left: 48px !important;
+            min-width: 56px;
+            max-width: 56px;
+            width: 56px;
+            z-index: 4;
+        }
+
+        body.m-shell .routine-table thead th.day-col {
+            z-index: 8;
+            left: 0;
+        }
+
+        body.m-shell .routine-table thead th.room-col {
+            z-index: 7;
+            left: 48px !important;
+            background: #1e3a8a !important;
+            color: #fff !important;
+        }
+
+        body.m-shell .course-panel-toggle,
+        body.m-shell .r-fixed-courses {
+            top: calc(env(safe-area-inset-top, 0px) + 40px) !important;
+            left: max(8px, env(safe-area-inset-left, 0px)) !important;
+            min-width: 34px;
+            min-height: 34px;
+        }
+
+        body.m-shell .course-panel,
+        body.m-shell .r-courses {
+            top: 40px !important;
+            height: calc(100dvh - 40px) !important;
+        }
     }
 
     /* ---- Student dashboard surfaces ---- */

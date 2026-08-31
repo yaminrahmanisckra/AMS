@@ -407,32 +407,32 @@
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div class="container mt-4 cal-page">
+    <div class="cal-page-head d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
         <h2 class="mb-0"><i class="fas fa-calendar-alt me-2"></i>Academic Calendar</h2>
-        <div class="d-flex gap-2 align-items-center flex-wrap">
+        <div class="cal-actions d-flex gap-2 align-items-center flex-wrap">
             <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
-                <i class="fas fa-arrow-left me-1"></i>Back to Dashboard
+                <i class="fas fa-arrow-left me-1"></i>Back<span class="cal-wide-label"> to Dashboard</span>
             </a>
             <div class="btn-group" role="group">
                 <a href="{{ url_for('academic_calendar.index', view='month', year=year, month=month) }}" 
                    class="btn {% if view_type == 'month' %}btn-primary{% else %}btn-outline-primary{% endif %}">
-                    <i class="fas fa-calendar-week me-1"></i>Month View
+                    <i class="fas fa-calendar-week me-1"></i>Month<span class="cal-wide-label"> View</span>
                 </a>
                 <a href="{{ url_for('academic_calendar.index', view='year', year=year) }}" 
                    class="btn {% if view_type == 'year' %}btn-primary{% else %}btn-outline-primary{% endif %}">
-                    <i class="fas fa-calendar-alt me-1"></i>Year View
+                    <i class="fas fa-calendar-alt me-1"></i>Year<span class="cal-wide-label"> View</span>
                 </a>
             </div>
-            <div class="btn-group" role="group">
+            <div class="btn-group">
                 <button type="button" class="btn btn-success" title="Download events for Google Calendar or Apple Calendar"
                         data-bs-toggle="modal" data-bs-target="#exportIcsModal">
-                    <i class="fas fa-download me-2"></i>Export Calendar
+                    <i class="fas fa-download me-2"></i>Export<span class="cal-wide-label"> Calendar</span>
                 </button>
-                <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
                     <span class="visually-hidden">Toggle dropdown</span>
                 </button>
-                <ul class="dropdown-menu">
+                <ul class="dropdown-menu dropdown-menu-end">
                     <li>
                         <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#exportIcsModal">
                             <i class="fas fa-download me-2"></i>Download .ics File
@@ -450,11 +450,11 @@
             {% endif %}
             {% if has_teacher_privileges(current_user) %}
             <a href="{{ url_for('academic_calendar.batch_events_index') }}" class="btn btn-info">
-                <i class="fas fa-calendar-alt me-2"></i>Assessment Schedules
+                <i class="fas fa-calendar-alt me-2"></i><span class="cal-wide-label">Assessment </span>Schedules
             </a>
             {% elif 'student' in parse_roles(current_user.role) %}
             <a href="{{ url_for('academic_calendar.batch_events_index') }}" class="btn btn-info">
-                <i class="fas fa-calendar-check me-2"></i>My Assessment Schedules
+                <i class="fas fa-calendar-check me-2"></i>My<span class="cal-wide-label"> Assessment</span> Schedules
             </a>
             {% endif %}
         </div>
@@ -823,7 +823,7 @@
                                    class="btn btn-sm btn-outline-success" 
                                    title="Add to Google Calendar or Apple Calendar"
                                    onclick="event.stopPropagation();">
-                                    <i class="fas fa-calendar-plus"></i> Add to Calendar
+                                    <i class="fas fa-calendar-plus"></i> Add<span class="cal-wide-label"> to Calendar</span>
                                 </a>
                                 {% endif %}
                                 {% if can_edit and not (event is mapping and event.get('is_weekly')) and not (event is mapping and event.get('is_batch_event')) and not (event is mapping and event.get('is_grouped_semester')) %}
