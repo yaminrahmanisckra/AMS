@@ -20,8 +20,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
-    <link href="{{ url_for('static', filename='css/mobile.css') }}" rel="stylesheet">
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <link href="{{ url_for('static', filename='css/mobile.css') }}?v=as-m3" rel="stylesheet">
     {% block extra_css %}{% endblock %}
     <style>
         :root {
@@ -591,6 +590,7 @@
     <!-- CSRF header injection for fetch()/$.ajax() -->
     <script src="{{ url_for('static', filename='js/csrf_fetch.js') }}?v=csrf2"></script>
     <script src="{{ url_for('static', filename='js/attendance_offline.js') }}?v=att3"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <!-- Socket.IO Client for WebSocket connections -->
     <script>
         // Initialize Socket.IO connection
@@ -598,25 +598,37 @@
         let socketConnected = false;
         
         {% if current_user.is_authenticated %}
-        // Only connect if user is authenticated
-        socket = io({
-            transports: ['websocket', 'polling'],
-            reconnection: true,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            reconnectionAttempts: Infinity
-        });
-        
-        socket.on('connect', function() {
-            console.log('WebSocket connected');
-            socketConnected = true;
-            // Update connection status if indicator exists
-            const statusIndicator = document.getElementById('ws-status');
-            if (statusIndicator) {
-                statusIndicator.className = 'badge bg-success';
-                statusIndicator.textContent = 'Live';
+        var pendingSessionRooms = [];
+        var pendingResultRooms = [];
+
+        function amsConnectSocket() {
+            if (socket || typeof io !== 'function') {
+                return;
             }
-        });
+            socket = io({
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 2000,
+                reconnectionDelayMax: 15000,
+                reconnectionAttempts: 8,
+                timeout: 10000,
+                autoConnect: true
+            });
+
+            socket.on('connect', function() {
+                socketConnected = true;
+                const statusIndicator = document.getElementById('ws-status');
+                if (statusIndicator) {
+                    statusIndicator.className = 'badge bg-success';
+                    statusIndicator.textContent = 'Live';
+                }
+                pendingSessionRooms.forEach(function (sessionId) {
+                    socket.emit('join_session', { session_id: sessionId });
+                });
+                pendingResultRooms.forEach(function (sessionId) {
+                    socket.emit('join_result_session', { session_id: sessionId });
+                });
+            });
         
         socket.on('disconnect', function() {
             // Only log disconnect if it was previously connected (reduce console noise)
@@ -682,35 +694,60 @@
             window.dispatchEvent(new CustomEvent('ws:course_updated', { detail: data }));
         });
         
-        socket.on('student_updated', function(data) {
-            console.log('Student updated:', data);
-            window.dispatchEvent(new CustomEvent('ws:student_updated', { detail: data }));
-        });
-        
-        // Helper functions for joining/leaving rooms
+            socket.on('student_updated', function(data) {
+                console.log('Student updated:', data);
+                window.dispatchEvent(new CustomEvent('ws:student_updated', { detail: data }));
+            });
+        }
+
         window.joinSessionRoom = function(sessionId) {
+            if (!sessionId) return;
+            if (pendingSessionRooms.indexOf(sessionId) === -1) {
+                pendingSessionRooms.push(sessionId);
+            }
             if (socket && socketConnected) {
                 socket.emit('join_session', { session_id: sessionId });
             }
         };
-        
+
         window.leaveSessionRoom = function(sessionId) {
+            pendingSessionRooms = pendingSessionRooms.filter(function (id) { return id !== sessionId; });
             if (socket && socketConnected) {
                 socket.emit('leave_session', { session_id: sessionId });
             }
         };
-        
+
         window.joinResultSessionRoom = function(sessionId) {
+            if (!sessionId) return;
+            if (pendingResultRooms.indexOf(sessionId) === -1) {
+                pendingResultRooms.push(sessionId);
+            }
             if (socket && socketConnected) {
                 socket.emit('join_result_session', { session_id: sessionId });
             }
         };
-        
+
         window.leaveResultSessionRoom = function(sessionId) {
+            pendingResultRooms = pendingResultRooms.filter(function (id) { return id !== sessionId; });
             if (socket && socketConnected) {
                 socket.emit('leave_result_session', { session_id: sessionId });
             }
         };
+
+        window.addEventListener('load', function () {
+            var tries = 0;
+            function attempt() {
+                if (typeof io === 'function') {
+                    amsConnectSocket();
+                    return;
+                }
+                tries += 1;
+                if (tries < 10) {
+                    setTimeout(attempt, 400);
+                }
+            }
+            setTimeout(attempt, 400);
+        });
         {% endif %}
     </script>
     <!-- Debug Script for Form Monitoring -->
@@ -726,7 +763,7 @@
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js')
+                navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
                     .then((registration) => {
                         console.log('Service Worker registered successfully:', registration.scope);
                     })
@@ -812,6 +849,15 @@
             navigator.serviceWorker.addEventListener('message', function (event) {
                 if (event.data && event.data.type === 'ams-attendance-queue-changed') {
                     refreshDock(event.data.detail || {});
+                }
+                if (event.data && event.data.type === 'ams-attendance-sync-please' && api.replayQueue) {
+                    api.replayQueue().then(function (result) {
+                        refreshDock({
+                            reason: result && result.sent ? 'synced' : 'idle',
+                            sent: result && result.sent,
+                            authFailed: result && result.authFailed,
+                        });
+                    }).catch(function () {});
                 }
             });
         }

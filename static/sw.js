@@ -1,15 +1,10 @@
 // Service Worker for Academic Management System PWA
-const CACHE_NAME = 'ams-ku-v8';
+const CACHE_NAME = 'ams-ku-v9';
 const urlsToCache = [
-  // Removed '/' - HTML pages should NEVER be cached globally
   '/static/css/style.css',
   '/static/js/script.js',
-  '/static/js/debug.js',
-  '/static/js/attendance_offline.js',
   '/static/images/KU_logo_2.png'
 ];
-
-importScripts('/static/js/attendance_offline.js');
 
 function isOfflineEntryUrl(url) {
   try {
@@ -24,14 +19,49 @@ function isOfflineEntryUrl(url) {
   }
 }
 
-// Install event - cache resources
+function shouldIgnore(request) {
+  if (request.method !== 'GET') {
+    return true;
+  }
+  const url = request.url;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return true;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.pathname.indexOf('/socket.io') === 0) {
+      return true;
+    }
+  } catch (_) {
+    return true;
+  }
+  if (
+    url.indexOf('/api/') !== -1 ||
+    url.indexOf('/download') !== -1 ||
+    url.indexOf('/admission-exam/') !== -1 ||
+    url.indexOf('.ics') !== -1
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isSameOriginStatic(request) {
+  try {
+    const parsed = new URL(request.url);
+    if (parsed.origin !== self.location.origin) {
+      return false;
+    }
+    return /\.(css|js|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot|ico)$/i.test(parsed.pathname);
+  } catch (_) {
+    return false;
+  }
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
-      })
+      .then((cache) => cache.addAll(urlsToCache))
       .catch((error) => {
         console.error('Cache installation failed:', error);
       })
@@ -39,57 +69,41 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate event - clean up old caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
-            console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  return self.clients.claim();
 });
 
-// Background Sync: replay queued take-attendance POSTs when the network returns.
-// Does not intercept live POSTs. iPhone Safari support is limited; page replay still runs.
+// Page watchdog already replays the offline queue. Keep this listener so
+// browsers that support Background Sync still try, without importScripts.
 self.addEventListener('sync', (event) => {
   if (event.tag !== 'ams-attendance-sync') {
     return;
   }
   event.waitUntil(
-    (self.AMSOfflineSync || self.AMSAttendanceOffline)
-      ? (self.AMSOfflineSync || self.AMSAttendanceOffline).replayQueue()
-      : Promise.resolve()
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((client) => {
+        client.postMessage({ type: 'ams-attendance-sync-please' });
+      });
+    })
   );
 });
 
-// Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests (attendance POSTs are never intercepted)
-  if (event.request.method !== 'GET') {
+  if (shouldIgnore(event.request)) {
     return;
   }
 
-  // Skip non-HTTP/HTTPS requests (chrome-extension://, file://, etc.)
-  if (!event.request.url.startsWith('http://') && !event.request.url.startsWith('https://')) {
-    return;
-  }
-
-  // Skip API requests and dynamic content (including admission candidate pages)
-  if (event.request.url.includes('/api/') || 
-      event.request.url.includes('/download') ||
-      event.request.url.includes('/admission-exam/') ||
-      event.request.url.includes('.ics')) {
-    return;
-  }
-
-  // Opt-in: attendance / assessment / exam-marks GET — network first, cache for offline reopen
+  // Opt-in classroom pages: network first, cache only for offline reopen.
   if (isOfflineEntryUrl(event.request.url)) {
     event.respondWith(
       fetch(event.request).then((response) => {
@@ -97,9 +111,7 @@ self.addEventListener('fetch', (event) => {
           const responseToCache = response.clone();
           caches.open(CACHE_NAME)
             .then((cache) => cache.put(event.request, responseToCache))
-            .catch((error) => {
-              console.debug('Take-attendance cache put failed (non-critical):', error);
-            });
+            .catch(() => {});
         }
         return response;
       }).catch(() => caches.match(event.request))
@@ -107,64 +119,27 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // NEVER cache HTML pages (login, dashboard, etc.) - always fetch from network
-  const isHTMLRequest = event.request.destination === 'document' || 
-                        event.request.headers.get('accept')?.includes('text/html') ||
-                        event.request.url.match(/\.(html|htm)$/i) ||
-                        !event.request.url.match(/\.(css|js|png|jpg|jpeg|gif|svg|woff|woff2|ttf|eot|ico|json)$/i);
-  
-  if (isHTMLRequest) {
-    // For HTML pages, always fetch from network, never cache
-    event.respondWith(
-      fetch(event.request).then((response) => {
-        return response;
-      }).catch(() => {
-        // Only fallback to cache if network fails completely
-        return caches.match(event.request);
-      })
-    );
+  // Do not proxy HTML, Flask routes, or CDN. Browser default is faster and
+  // avoids hanging navigations when the worker or Socket.IO is busy.
+  if (!isSameOriginStatic(event.request)) {
     return;
   }
 
-  // For static assets (CSS, JS, images), use cache-first strategy
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        return response || fetch(event.request).then((response) => {
-          // Don't cache if not a valid response
-          if (!response || response.status !== 200 || response.type !== 'basic') {
-            return response;
-          }
-
-          // Clone the response
-          const responseToCache = response.clone();
-
-          // Only cache if URL is http/https (skip chrome-extension://, file://, etc.)
-          let url;
-          try {
-            url = new URL(event.request.url);
-          } catch (_) {
-            url = null;
-          }
-          const isCacheableScheme = url && (url.protocol === 'http:' || url.protocol === 'https:');
-          if (isCacheableScheme) {
-            caches.open(CACHE_NAME)
-              .then((cache) => cache.put(event.request, responseToCache))
-              .catch((error) => {
-                // Silently fail if caching fails (e.g. unsupported scheme in some contexts)
-                console.debug('Cache put failed (non-critical):', error);
-              });
-          }
-
+    caches.match(event.request).then((cached) => {
+      if (cached) {
+        return cached;
+      }
+      return fetch(event.request).then((response) => {
+        if (!response || response.status !== 200 || response.type !== 'basic') {
           return response;
-        });
-      })
-      .catch(() => {
-        // If both cache and network fail, return offline page if available
-        if (event.request.destination === 'document') {
-          return caches.match('/');
         }
-      })
+        const responseToCache = response.clone();
+        caches.open(CACHE_NAME)
+          .then((cache) => cache.put(event.request, responseToCache))
+          .catch(() => {});
+        return response;
+      });
+    })
   );
 });

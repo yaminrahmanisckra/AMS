@@ -38,116 +38,211 @@
         display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
         margin-top: 0.85rem; padding-top: 0.75rem;
     }
+    @media (min-width: 992px) {
+        .assessment-page .assessment-marks-table { min-width: 700px; font-size: 0.95em; }
+    }
     @media (max-width: 991.98px) {
-        .assessment-page { padding-bottom: 4.5rem; }
-        .as-hero { padding: 0.6rem 0.7rem; margin-bottom: 0.5rem; }
-        .as-hero h1 { font-size: 1rem; }
-        .as-chips { margin-top: 0.4rem; }
-        .as-search { margin-bottom: 0.5rem; }
-        .as-reveal { margin-bottom: 0.55rem; }
-        .as-reveal > summary { padding: 0.5rem 0.7rem; font-size: 0.82rem; }
-        .atc-card { margin-bottom: 0.55rem; }
+        .assessment-page { padding-bottom: 4.75rem; overflow-x: hidden; }
+        .as-hero { padding: 0.5rem 0.65rem; margin-bottom: 0.45rem; }
+        .as-hero h1 { font-size: 0.95rem; }
+        .as-chips { margin-top: 0.35rem; gap: 0.25rem; }
+        .as-chip { font-size: 0.68rem; padding: 0.12rem 0.45rem; }
+        .as-search { margin-bottom: 0.45rem; }
+        .as-reveal { margin-bottom: 0.45rem; }
+        .as-reveal > summary { padding: 0.4rem 0.6rem; font-size: 0.78rem; }
+        .atc-card { margin-bottom: 0.45rem; }
         .assessment-page .card.shadow { box-shadow: none !important; border: 0; background: transparent; }
         .assessment-page .card-body { padding: 0 !important; }
-        .assessment-page .assessment-marks-table { min-width: 0 !important; }
-        .assessment-page .assessment-marks-table thead { display: none; }
-        .assessment-page .assessment-marks-table,
-        .assessment-page .assessment-marks-table tbody { display: block; width: 100%; }
+        #assessmentMarksForm .as-marks-wrap,
+        .assessment-page .as-marks-wrap {
+            overflow: hidden !important;
+            max-width: 100% !important;
+            background: transparent !important;
+            background-image: none !important;
+            margin-bottom: 0;
+        }
+        #assessmentMarksForm table.assessment-marks-table,
+        .assessment-page table.assessment-marks-table {
+            min-width: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            table-layout: auto !important;
+            display: block !important;
+        }
+        #assessmentMarksForm table.assessment-marks-table thead,
+        #assessmentMarksForm table.assessment-marks-table thead tr,
+        #assessmentMarksForm table.assessment-marks-table thead th,
+        .assessment-page .assessment-marks-table thead,
+        .assessment-page .assessment-marks-table thead tr,
+        .assessment-page .assessment-marks-table thead th { display: none !important; }
+        #assessmentMarksForm table.assessment-marks-table > tbody,
+        .assessment-page .assessment-marks-table tbody { display: block !important; width: 100%; max-width: 100%; }
+        #assessmentMarksForm table.assessment-marks-table > tbody > tr.as-student-row,
         .assessment-page .assessment-marks-table tbody tr.as-student-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.35rem;
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 10px;
-            padding: 0.5rem 0.55rem;
-            margin-bottom: 0.4rem;
+            display: grid !important;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+            grid-auto-flow: row !important;
+            align-items: center !important;
+            gap: 0.28rem;
+            width: 100% !important;
+            max-width: 100% !important;
+            background: #fff !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 10px !important;
+            padding: 0.4rem 0.45rem 0.45rem !important;
+            margin: 0 0 0.4rem !important;
+            box-sizing: border-box !important;
         }
-        .assessment-page .assessment-marks-table tbody tr.as-student-row:nth-child(even) { background: #f1f5f9; }
-        .assessment-page .assessment-marks-table tbody tr.as-student-row td {
-            display: flex;
-            flex-direction: column;
-            align-items: stretch;
-            border: none;
-            padding: 0;
-            text-align: left;
-            width: auto;
+        .assessment-page .assessment-marks-table tbody tr.as-student-row:nth-child(even) { background: #f8fafc !important; }
+        #assessmentMarksForm table.assessment-marks-table > tbody > tr.as-student-row > td,
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td,
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td:first-child,
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td:nth-child(2) {
+            display: block !important;
+            float: none !important;
+            border: none !important;
+            padding: 0 !important;
+            text-align: left !important;
+            height: auto !important;
+            width: auto !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            white-space: nowrap !important;
+            word-break: keep-all !important;
+            overflow-wrap: normal !important;
+            position: static !important;
+            left: auto !important;
+            box-shadow: none !important;
+            background: transparent !important;
+            box-sizing: border-box !important;
         }
-        .assessment-page .assessment-marks-table tbody tr.as-student-row td::before { content: none; }
+        #assessmentMarksForm table.assessment-marks-table > tbody > tr.as-student-row > td::before,
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td::before { content: none !important; display: none !important; }
+        #assessmentMarksForm table.assessment-marks-table td.as-col-name,
         .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-name {
-            grid-column: 1;
-            grid-row: 1;
+            grid-column: 1 / -1 !important;
+            grid-row: 1 !important;
+            width: auto !important;
+            min-width: 0 !important;
             font-weight: 700;
-            font-size: 0.86rem;
+            font-size: 0.82rem;
             color: #0f172a;
-            line-height: 1.25;
+            overflow: hidden !important;
+            text-overflow: ellipsis;
         }
+        #assessmentMarksForm table.assessment-marks-table td.as-col-id,
         .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-id {
-            grid-column: 2;
-            grid-row: 1;
-            justify-self: end;
-            font-size: 0.7rem;
-            color: #64748b;
-            align-items: flex-end;
+            grid-column: 1 / 2 !important;
+            grid-row: 2 !important;
+            justify-self: start;
+            width: auto !important;
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #475569;
+            background: #e2e8f0 !important;
+            border-radius: 999px !important;
+            padding: 0.12rem 0.4rem !important;
         }
+        #assessmentMarksForm table.assessment-marks-table td.as-col-total,
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-total {
+            grid-column: 2 / 3 !important;
+            grid-row: 2 !important;
+            justify-self: end;
+            align-self: center;
+            width: auto !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            min-width: 2.25rem;
+            background: #dbeafe !important;
+            border-radius: 8px !important;
+            padding: 0.2rem 0.5rem !important;
+        }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-total::before { content: none !important; }
+        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-total > span {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: #1e3a8a;
+            line-height: 1;
+        }
+        #assessmentMarksForm table.assessment-marks-table td.as-col-mark,
         .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-mark {
-            background: #fff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 0.3rem 0.35rem 0.35rem;
+            grid-column: auto !important;
+            width: auto !important;
+            max-width: none !important;
+            background: #fff !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 8px !important;
+            padding: 0.28rem 0.3rem 0.3rem !important;
         }
         .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-mark::before {
-            content: attr(data-label);
-            display: block;
+            content: attr(data-label) !important;
+            display: block !important;
             font-weight: 700;
-            font-size: 0.62rem;
+            font-size: 0.6rem;
             letter-spacing: 0.04em;
             text-transform: uppercase;
             color: #64748b;
-            margin-bottom: 0.2rem;
+            margin-bottom: 0.12rem;
         }
-        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-total {
-            grid-column: 1 / -1;
-            flex-direction: row;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.28rem 0.15rem 0;
-            border-top: 1px solid #e2e8f0;
-            margin-top: 0.05rem;
-        }
-        .assessment-page .assessment-marks-table tbody tr.as-student-row td.as-col-total::before {
-            content: attr(data-label);
-            font-size: 0.72rem;
-            font-weight: 700;
-            color: #334155;
-        }
+        #assessmentMarksForm table.assessment-marks-table td .d-flex,
         .assessment-page .assessment-marks-table td .d-flex {
-            flex-direction: row;
-            align-items: center;
-            justify-content: space-between;
-            gap: 0.3rem;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 0.25rem !important;
             width: 100%;
         }
         .assessment-page .assessment-input-field {
-            width: 100% !important;
+            width: auto !important;
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
             max-width: none !important;
-            min-height: 42px;
+            min-height: 36px !important;
+            height: 36px !important;
             font-size: 16px !important;
-            padding: 0.35rem 0.4rem !important;
+            padding: 0.15rem 0.3rem !important;
+            text-align: center !important;
         }
-        .assessment-page .form-check { min-height: auto; margin: 0; padding-left: 1.35rem; }
-        .assessment-page .form-check-label { font-size: 0.68rem !important; white-space: nowrap; }
+        .assessment-page .form-check {
+            min-height: auto;
+            margin: 0;
+            padding-left: 0;
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center;
+            gap: 0.15rem;
+            flex: 0 0 auto;
+        }
+        .assessment-page .form-check-input {
+            width: 0.95rem;
+            height: 0.95rem;
+            margin: 0;
+            float: none;
+        }
+        .assessment-page .form-check-label {
+            font-size: 0 !important;
+            padding: 0;
+            margin: 0;
+        }
+        .assessment-page .form-check-label::after {
+            content: "Ab";
+            font-size: 0.62rem;
+            font-weight: 700;
+            color: #64748b;
+        }
         .as-save-bar {
             position: fixed;
             left: 0; right: 0; bottom: 0;
             z-index: 20;
             background: #fff;
-            padding: 0.55rem 0.75rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
+            padding: 0.45rem 0.65rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
             margin: 0;
             border-top: 1px solid #e2e8f0;
             box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
         }
-        .as-save-bar .btn { width: 100%; }
+        .as-save-bar .btn { width: 100%; min-height: 40px; }
     }
 </style>
 {% endblock %}
@@ -492,8 +587,8 @@
                     <i class="fas fa-search"></i>
                     <input id="asStudentSearch" type="search" class="form-control form-control-sm" placeholder="Search name or ID" autocomplete="off">
                 </div>
-                <div class="table-responsive m-table-scroll-sticky">
-                    <table class="table table-bordered align-middle table-sm assessment-marks-table m-keep-table" style="min-width: 700px; font-size: 0.95em;">
+                <div class="table-responsive as-marks-wrap">
+                    <table class="table table-bordered align-middle table-sm assessment-marks-table">
                         {% if uses_assessment_mode_picker %}
                         {% set ext_mark_max = academic_rules.assessment.part_a_b_each if external_assessment_mode == 'part_a_b_15' else academic_rules.assessment.slot_max %}
                         <thead class="table-light">
