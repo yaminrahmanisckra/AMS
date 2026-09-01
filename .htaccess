@@ -1,58 +1,19 @@
 # DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
-PassengerAppRoot "/home/gronthon/kulawams.xyz"
+PassengerAppRoot "/home/kulawams/public_html/ams"
 PassengerBaseURI "/"
-PassengerPython "/home/gronthon/virtualenv/kulawams.xyz/3.12/bin/python"
+PassengerPython "/home/kulawams/virtualenv/public_html/ams/3.12/bin/python"
 # DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
-# Passenger Configuration
-PassengerEnabled On
-PassengerAppRoot "/home/gronthon/kulawams.xyz"
-PassengerAppType wsgi
-PassengerStartupFile passenger_wsgi.py
-PassengerPython "/home/gronthon/virtualenv/kulawams.xyz/3.12/bin/python"
-# SetEnv causes 500 on this host now - set in .env or cPanel env vars if needed
-# SetEnv CPANEL 1
-# SetEnv FLASK_ENV production
-# SetEnv DOMAIN kulawams.xyz
-# Security Headers
-<IfModule mod_headers.c>
-    Header set X-Content-Type-Options "nosniff"
-    Header set X-Frame-Options "SAMEORIGIN"
-    Header set X-XSS-Protection "1; mode=block"
-    Header set Referrer-Policy "strict-origin-when-cross-origin"
-</IfModule>
-Options -Indexes
-AddDefaultCharset UTF-8
-# Protect sensitive files (Phase 2 — deploy separately from MAIL/SetEnv changes)
-<FilesMatch "(?i)^(\.env|\.git|.*\.py|.*\.pyc|.*\.sql|.*\.log|.*\.db|.*\.sqlite3?|.*\.bak|.*\.zip|requirements\.txt|passenger_wsgi\.py|.*\.md|.*\.sh)$">
-    Require all denied
-</FilesMatch>
-<IfModule mod_authz_core.c>
-    <DirectoryMatch "(?i)/(logs|instance|migrations|\.git|venv|scripts/sql)(/|$)">
-        Require all denied
-    </DirectoryMatch>
-</IfModule>
-# Fallback for older Apache authz
-<FilesMatch "(?i)\.(py|pyc|sql|log|db|sqlite|sqlite3|bak|env)$">
-    Order allow,deny
-    Deny from all
-</FilesMatch>
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION BEGIN
-# Dual mailbox — set in cPanel Python App Environment (do not commit passwords):
-# Hosting Bangladesh recommended SMTP:
-#   MAIL_SERVER / NOTIFICATION_MAIL_SERVER = server.hostingbangladesh.com
-#   MAIL_PORT / NOTIFICATION_MAIL_PORT = 465
-#   MAIL_USE_SSL / NOTIFICATION_MAIL_USE_SSL = True
-#   MAIL_USE_TLS / NOTIFICATION_MAIL_USE_TLS = False
-#   Username and From/Sender must be the same full mailbox address
-#   MAIL_*              → recovery@kulawams.xyz
-#   NOTIFICATION_MAIL_* → noreply@kulawams.xyz
 <IfModule Litespeed>
-# SetEnv values belong in cPanel Application Manager, not here.
+SetEnv SESSION_COOKIE_SECURE True
 </IfModule>
 # DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION END
-
+# HSTS only on HTTPS requests (env=HTTPS). Do not send this over plain HTTP.
+<IfModule mod_headers.c>
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+</IfModule>
 # php -- BEGIN cPanel-generated handler, do not edit
-# Set the "ea-php80" package as the default "PHP" programming language.
+# Set the “ea-php80” package as the default “PHP” programming language.
 <IfModule mime_module>
   AddHandler application/x-httpd-ea-php80 .php .php8 .phtml
 </IfModule>

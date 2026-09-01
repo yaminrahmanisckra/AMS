@@ -1694,7 +1694,6 @@ def restrict_to_teaching_roles():
         'class_management.delete_course_question_thread',
         'class_management.delete_course_question_message',
         'class_management.question_bank',
-        'class_management.upload_question_bank_file',
         'class_management.download_question_bank_file',
         'class_management.download_question_bank_folder',
         'class_management.download_question_bank_zip',
@@ -3034,17 +3033,17 @@ def index():
     ).order_by(Session.created_at.desc()).all()
 
     active_semester_json = '{}'
-    active_semesters_json = '[]'
+    active_semesters = []
     try:
         from utils.semester_utils import get_active_semesters_for_user
-        active_semesters = get_active_semesters_for_user(admin_override=is_admin(current_user))
-        if active_semesters:
+        active_semester_rows = get_active_semesters_for_user(admin_override=is_admin(current_user))
+        if active_semester_rows:
             semester_rows = [{
                 'academic_session': sem.academic_session or '',
                 'year': sem.year or '',
                 'term': sem.term or '',
-            } for sem in active_semesters]
-            active_semesters_json = json.dumps(semester_rows)
+            } for sem in active_semester_rows]
+            active_semesters = semester_rows
             active_semester_json = json.dumps(semester_rows[0])
     except Exception:
         pass
@@ -3063,7 +3062,7 @@ def index():
         credit_load=credit_load,
         credit_load_display=_format_credit_hours(credit_load),
         active_semester_json=active_semester_json,
-        active_semesters_json=active_semesters_json,
+        active_semesters=active_semesters,
         teacher=teacher,
         teacher_display_name=(getattr(current_user, 'full_name', '') or teacher.name or current_user.username),
         teachers=teachers,
@@ -5180,7 +5179,8 @@ def download_course_file(file_id):
             flash('File not found.', 'error')
             return redirect(url_for('class_management.course_file', session_id=uploaded_file.session_id))
         
-        return send_file(
+        from utils.safe_files import send_confined_file
+        return send_confined_file(
             uploaded_file.file_path,
             as_attachment=True,
             download_name=uploaded_file.file_name
@@ -9527,7 +9527,8 @@ def download_course_question_attachment(attachment_id):
             flash('File not found.', 'error')
             return redirect(url_for('index'))
 
-        return send_file(
+        from utils.safe_files import send_confined_file
+        return send_confined_file(
             attachment.file_path,
             as_attachment=True,
             download_name=attachment.file_name
@@ -12199,7 +12200,8 @@ def student_download_uploaded_file(file_id):
             return redirect(url_for('class_management.student_course_files'))
         
         # Send file for download
-        return send_file(
+        from utils.safe_files import send_confined_file
+        return send_confined_file(
             file_path,
             as_attachment=True,
             download_name=uploaded_file.file_name
@@ -12234,8 +12236,8 @@ def question_bank():
         QuestionBankFile.created_at.desc()
     ).all()
     folders = QuestionBankFolder.query.order_by(QuestionBankFolder.name.asc()).all()
-    can_upload = current_user.is_authenticated
-    can_manage = has_teacher_privileges(current_user) or is_admin(current_user)
+    can_upload = _qb_is_staff()
+    can_manage = can_upload
     files = [f for f in files if (getattr(f, 'file_kind', None) or 'question') != 'answer_guideline']
     grouped_files = {}
     folder_options = []
@@ -12680,7 +12682,10 @@ def move_question_bank_folders():
 @class_management_bp.route('/question-bank/upload', methods=['POST'])
 @login_required
 def upload_question_bank_file():
-    """Upload one or multiple question PDFs (any logged-in user)."""
+    """Upload one or multiple question PDFs (teaching staff / admin only)."""
+    if not _qb_is_staff():
+        flash('Only teaching staff can upload question papers.', 'error')
+        return redirect(url_for('class_management.question_bank'))
 
     folder_name = (request.form.get('folder_name') or '').strip()
     question_year = (request.form.get('question_year') or '').strip()
@@ -12691,7 +12696,7 @@ def upload_question_bank_file():
         flash('Folder name and year are required.', 'error')
         return redirect(url_for('class_management.question_bank'))
 
-    # Upload allowed only inside existing folders (for all users).
+    # Upload allowed only inside existing folders.
     existing_folder = QuestionBankFolder.query.filter(
         func.lower(QuestionBankFolder.name) == folder_name.lower()
     ).first()
@@ -12774,7 +12779,8 @@ def download_question_bank_file(file_id):
     if not qb_file.file_path or not os.path.exists(qb_file.file_path):
         flash('File not found.', 'error')
         return redirect(url_for('class_management.question_bank'))
-    return send_file(
+    from utils.safe_files import send_confined_file
+    return send_confined_file(
         qb_file.file_path,
         as_attachment=True,
         download_name=f"{qb_file.title}.pdf" if not qb_file.title.lower().endswith('.pdf') else qb_file.title
@@ -12803,6 +12809,7 @@ def download_question_bank_folder():
             flash('No files found in this folder.', 'warning')
             return redirect(url_for('class_management.question_bank'))
 
+        from utils.safe_files import confined_existing_file
         import zipfile
         zip_buffer = io.BytesIO()
         added = 0
@@ -12812,7 +12819,8 @@ def download_question_bank_folder():
         try:
             with zipfile.ZipFile(zip_buffer, mode='w', compression=compression_method) as zipf:
                 for f in files:
-                    if not f.file_path or not os.path.exists(f.file_path):
+                    safe_path = confined_existing_file(f.file_path)
+                    if not safe_path:
                         continue
                     base_title = (f.title or f"question_{f.id}").strip()
                     safe_base = secure_filename(base_title) or f"question_{f.id}"
@@ -12820,14 +12828,15 @@ def download_question_bank_folder():
                     arcname = f"{year_part}_{safe_base}.pdf" if year_part else f"{safe_base}.pdf"
                     if arcname in zipf.namelist():
                         arcname = f"{os.path.splitext(arcname)[0]}_{f.id}.pdf"
-                    zipf.write(f.file_path, arcname=arcname)
+                    zipf.write(safe_path, arcname=arcname)
                     added += 1
         except Exception:
             zip_buffer = io.BytesIO()
             added = 0
             with zipfile.ZipFile(zip_buffer, mode='w', compression=zipfile.ZIP_STORED) as zipf:
                 for f in files:
-                    if not f.file_path or not os.path.exists(f.file_path):
+                    safe_path = confined_existing_file(f.file_path)
+                    if not safe_path:
                         continue
                     base_title = (f.title or f"question_{f.id}").strip()
                     safe_base = secure_filename(base_title) or f"question_{f.id}"
@@ -12835,7 +12844,7 @@ def download_question_bank_folder():
                     arcname = f"{year_part}_{safe_base}.pdf" if year_part else f"{safe_base}.pdf"
                     if arcname in zipf.namelist():
                         arcname = f"{os.path.splitext(arcname)[0]}_{f.id}.pdf"
-                    zipf.write(f.file_path, arcname=arcname)
+                    zipf.write(safe_path, arcname=arcname)
                     added += 1
 
         if added == 0:

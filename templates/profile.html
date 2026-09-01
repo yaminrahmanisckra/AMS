@@ -4,178 +4,574 @@
 
 {% block mobile_title %}Profile{% endblock %}
 
+{% block extra_css %}
+<style>
+.profile-page {
+    --pf-radius: 16px;
+    --pf-border: rgba(15, 23, 42, 0.08);
+    --pf-muted: #64748b;
+    --pf-text: #0f172a;
+    --pf-surface: #ffffff;
+    --pf-bg: #f1f5f9;
+    max-width: 880px;
+    margin: 1.5rem auto 2.5rem;
+    padding: 0 1rem;
+}
+.profile-page .profile-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+.profile-hero,
+.profile-card {
+    background: var(--pf-surface);
+    border: 1px solid var(--pf-border);
+    border-radius: var(--pf-radius);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+}
+.profile-hero {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 1.5rem 1.6rem;
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.92)),
+        var(--theme-gradient);
+    background-size: auto, 100% 118px;
+    background-repeat: no-repeat;
+}
+.profile-avatar-ring {
+    position: relative;
+    flex-shrink: 0;
+    width: 148px;
+    height: 148px;
+    padding: 4px;
+    border-radius: 50%;
+    background: var(--theme-gradient);
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+}
+.profile-avatar {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #e2e8f0;
+    border: 3px solid #fff;
+    aspect-ratio: 1 / 1;
+}
+.profile-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+}
+.profile-avatar-ph {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    background: linear-gradient(180deg, #f8fafc, #e2e8f0);
+    font-size: 3rem;
+}
+.profile-avatar-cam {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #0f172a;
+    color: #fff;
+    border: 2px solid #fff;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+.profile-avatar-cam:hover,
+.profile-avatar-cam:focus {
+    background: #1e293b;
+    transform: scale(1.06);
+    color: #fff;
+}
+.profile-identity {
+    min-width: 0;
+    flex: 1;
+    padding-top: 0.35rem;
+}
+.profile-identity h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--pf-text);
+    margin: 0 0 0.2rem;
+    line-height: 1.25;
+}
+.profile-identity .profile-email {
+    color: var(--pf-muted);
+    font-size: 0.95rem;
+    margin: 0 0 0.7rem;
+    word-break: break-word;
+}
+.profile-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+.profile-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.22rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.82);
+    border: 1px solid var(--pf-border);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #334155;
+}
+.profile-photo-meta {
+    margin-top: 0.75rem;
+    font-size: 0.78rem;
+    color: var(--pf-muted);
+}
+.profile-file-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.55rem;
+    padding: 0.42rem 0.85rem;
+    border-radius: 999px;
+    background: #fff;
+    border: 1px solid var(--pf-border);
+    color: #0f172a;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+.profile-file-btn:hover {
+    border-color: #cbd5e1;
+    background: #f8fafc;
+}
+.profile-card {
+    padding: 1.15rem 1.25rem 1.25rem;
+}
+.profile-card h2 {
+    font-size: 0.92rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    margin: 0 0 0.25rem;
+    color: var(--pf-text);
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+.profile-card h2 i {
+    color: #6366f1;
+    width: 1.1rem;
+    text-align: center;
+}
+.profile-card .profile-hint {
+    font-size: 0.8rem;
+    color: var(--pf-muted);
+    margin: 0 0 1rem;
+    line-height: 1.45;
+}
+.profile-card .form-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 0.3rem;
+}
+.profile-card .form-control,
+.profile-card .form-select {
+    border-radius: 10px;
+    border-color: #e2e8f0;
+    padding: 0.55rem 0.8rem;
+}
+.profile-card .form-control:focus,
+.profile-card .form-select:focus {
+    border-color: #818cf8;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+.profile-card .form-control[readonly] {
+    background: #f8fafc;
+    color: #475569;
+}
+.profile-lock-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--pf-muted);
+    margin-top: 0.35rem;
+}
+.profile-lock-note i {
+    margin-top: 0.15rem;
+    color: #94a3b8;
+}
+.profile-sig-frame {
+    width: 100%;
+    max-width: 420px;
+    height: 108px;
+    border-radius: 12px;
+    border: 1px dashed #cbd5e1;
+    background: repeating-linear-gradient(
+        0deg,
+        #fff,
+        #fff 23px,
+        #f1f5f9 23px,
+        #f1f5f9 24px
+    );
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+}
+.profile-sig-frame img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    padding: 0.5rem 0.75rem;
+    display: block;
+}
+.profile-sig-empty {
+    color: #94a3b8;
+    font-size: 0.82rem;
+}
+.profile-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 0.55rem;
+}
+.profile-theme-swatch {
+    appearance: none;
+    border: 1px solid var(--pf-border);
+    background: #fff;
+    border-radius: 12px;
+    padding: 0.55rem 0.45rem 0.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    color: #334155;
+    font-size: 0.72rem;
+    font-weight: 600;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.profile-theme-swatch:hover {
+    transform: translateY(-1px);
+    border-color: #c7d2fe;
+}
+.profile-theme-swatch.is-active {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+    color: #1e1b4b;
+}
+.profile-theme-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.55);
+}
+.profile-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.15rem 0 0.5rem;
+}
+.profile-actions .btn-primary {
+    min-width: 200px;
+    border-radius: 12px;
+    padding: 0.7rem 1.2rem;
+    font-weight: 600;
+    box-shadow: 0 8px 18px rgba(79, 70, 229, 0.22);
+}
+@media (max-width: 640px) {
+    .profile-hero {
+        flex-direction: column;
+        text-align: center;
+        align-items: center;
+        background-size: auto, 100% 92px;
+        padding: 1.25rem 1rem 1.15rem;
+    }
+    .profile-pills {
+        justify-content: center;
+    }
+    .profile-actions .btn-primary {
+        width: 100%;
+        min-width: 0;
+    }
+}
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-md-6">
-            <div class="card shadow">
-                <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0"><i class="fas fa-user me-2"></i>Update Profile</h4>
-                </div>
-                <div class="card-body">
-                    <form method="POST" enctype="multipart/form-data">
-                        <div class="mb-3 text-center">
-                            <label class="form-label d-block">Profile Photo</label>
-                            {% if current_user.photo %}
-                                <img src="{{ current_user.photo }}" alt="Profile Photo" class="img-thumbnail mb-2" style="max-width: 150px; max-height: 150px; object-fit: cover; border-radius: 50%;">
-                            {% else %}
-                                <div class="bg-light d-inline-flex align-items-center justify-content-center mb-2" style="width: 150px; height: 150px; border-radius: 50%; border: 2px dashed #ccc;">
-                                    <i class="fas fa-user fa-3x text-muted"></i>
-                                </div>
-                            {% endif %}
-                            <input type="file" class="form-control" id="photo" name="photo" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
-                            <small class="text-muted">Max size: 16MB. Allowed: PNG, JPG, JPEG, GIF, WEBP</small>
-                        </div>
-                        {% set profile_user_roles = parse_roles(current_user.role) %}
-                        {% set name_locked = (not is_admin(current_user)) and (current_user.teacher_id or ('teacher' in profile_user_roles or 'head' in profile_user_roles or 'dean' in profile_user_roles)) %}
-                        <div class="mb-3">
-                            <label for="full_name" class="form-label">Full Name</label>
-                            <input type="text" class="form-control" id="full_name" name="full_name" value="{{ current_user.full_name }}" {% if name_locked %}readonly{% endif %} required>
-                            {% if name_locked %}
-                            <small class="text-muted">Your name is managed by the institution. Contact an administrator to request a change.</small>
-                            {% endif %}
-                        </div>
-                        <div class="mb-3">
-                            <label for="email" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="email" name="email" value="{{ current_user.email }}" required>
-                        </div>
-                        
-                        {% set user_roles = parse_roles(current_user.role) %}
-                        {% if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles or is_admin(current_user) %}
-                        <hr>
-                        <h5>Digital Signature</h5>
-                        <p class="small text-muted mb-2">
-                            Used on remuneration bills, admission forms (Scrutinizer), and other official PDFs.
-                            Prefer a clear scan or photo of your handwritten signature on a white background (JPG/PNG, max 1&nbsp;MB).
-                        </p>
-                        <div class="mb-3 text-center">
-                            {% if current_user.signature_path %}
-                                <img src="{{ signature_preview_url or ('/' + current_user.signature_path.lstrip('/')) }}"
-                                     alt="Your signature"
-                                     class="img-thumbnail mb-2 bg-white"
-                                     style="max-width: 280px; max-height: 90px; object-fit: contain;">
-                                <div class="form-check mb-2 d-inline-block text-start">
-                                    <input class="form-check-input" type="checkbox" value="1" id="remove_signature" name="remove_signature">
-                                    <label class="form-check-label" for="remove_signature">Remove current signature</label>
-                                </div>
-                            {% else %}
-                                <div class="bg-light d-inline-flex align-items-center justify-content-center mb-2 px-4"
-                                     style="min-width: 220px; height: 70px; border: 2px dashed #ccc;">
-                                    <span class="text-muted small">No signature uploaded</span>
-                                </div>
-                            {% endif %}
-                            <input type="file" class="form-control" id="signature" name="signature"
-                                   accept="image/png,image/jpeg,image/jpg">
-                            <small class="text-muted">JPG or PNG only. Max 1&nbsp;MB.</small>
-                        </div>
-                        {% endif %}
+{% set profile_user_roles = parse_roles(current_user.role) %}
+{% set name_locked = (not is_admin(current_user)) and (current_user.teacher_id or ('teacher' in profile_user_roles or 'head' in profile_user_roles or 'dean' in profile_user_roles)) %}
+{% set user_roles = profile_user_roles %}
+{% set theme_options = [
+    ('default', 'Default', 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)'),
+    ('blue', 'Blue', 'linear-gradient(135deg, #3b82f6 0%, #1e40af 50%, #1e3a8a 100%)'),
+    ('sky', 'Sky', 'linear-gradient(135deg, #38bdf8 0%, #0284c7 50%, #0369a1 100%)'),
+    ('cyan', 'Cyan', 'linear-gradient(135deg, #22d3ee 0%, #0891b2 50%, #0e7490 100%)'),
+    ('navy', 'Navy', 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #172554 100%)'),
+    ('indigo', 'Indigo', 'linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%)'),
+    ('violet', 'Violet', 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #5b21b6 100%)'),
+    ('green', 'Green', 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)'),
+    ('emerald', 'Emerald', 'linear-gradient(135deg, #34d399 0%, #059669 50%, #064e3b 100%)'),
+    ('lime', 'Lime', 'linear-gradient(135deg, #84cc16 0%, #65a30d 50%, #4d7c0f 100%)'),
+    ('teal', 'Teal', 'linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #0f766e 100%)'),
+    ('red', 'Red', 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)'),
+    ('rose', 'Rose', 'linear-gradient(135deg, #fb7185 0%, #e11d48 50%, #be123c 100%)'),
+    ('pink', 'Pink', 'linear-gradient(135deg, #ec4899 0%, #db2777 50%, #be185d 100%)'),
+    ('orange', 'Orange', 'linear-gradient(135deg, #f97316 0%, #ea580c 50%, #c2410c 100%)'),
+    ('amber', 'Amber', 'linear-gradient(135deg, #fbbf24 0%, #d97706 50%, #b45309 100%)'),
+    ('brown', 'Brown', 'linear-gradient(135deg, #a16207 0%, #854d0e 50%, #713f12 100%)'),
+    ('slate', 'Slate', 'linear-gradient(135deg, #64748b 0%, #475569 50%, #334155 100%)')
+] %}
+{% set current_theme = current_user.theme if current_user.theme else 'default' %}
 
-                        {% if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles %}
-                        <hr>
-                        <h5>Teacher Information</h5>
-                        <div class="mb-3">
-                            <label for="call_sign" class="form-label">Call Sign</label>
-                            <input type="text" class="form-control" id="call_sign" name="call_sign" value="{% if teacher_record and teacher_record.call_sign %}{{ teacher_record.call_sign }}{% endif %}" placeholder="Enter your call sign">
-                            <small class="text-muted">Your call sign for routine and other purposes</small>
-                        </div>
-                        <div class="mb-3">
-                            <label for="bank_account_no" class="form-label">Bank Account No</label>
-                            <input type="text" class="form-control" id="bank_account_no" name="bank_account_no" value="{% if teacher_record and teacher_record.bank_account_no %}{{ teacher_record.bank_account_no }}{% endif %}" placeholder="Enter your bank account number">
-                            <small class="text-muted">Bank account number for remuneration purposes</small>
-                        </div>
-                        <div class="mb-3">
-                            <label for="tin_number" class="form-label">TIN Number</label>
-                            <input type="text" class="form-control" id="tin_number" name="tin_number" value="{% if teacher_record and teacher_record.tin_number %}{{ teacher_record.tin_number }}{% endif %}" placeholder="Enter your TIN number">
-                            <small class="text-muted">Taxpayer Identification Number (TIN)</small>
-                        </div>
-                        {% endif %}
-                        
-                        <hr>
-                        <h5>Color Theme</h5>
-                        <div class="mb-3">
-                            <label for="theme" class="form-label">Choose Your Theme</label>
-                            <select class="form-select" id="theme" name="theme">
-                                <option value="default" {% if not current_user.theme or current_user.theme == 'default' %}selected{% endif %}>Default (Purple Gradient)</option>
-                                <option value="blue" {% if current_user.theme == 'blue' %}selected{% endif %}>Blue</option>
-                                <option value="sky" {% if current_user.theme == 'sky' %}selected{% endif %}>Sky Blue</option>
-                                <option value="cyan" {% if current_user.theme == 'cyan' %}selected{% endif %}>Cyan</option>
-                                <option value="navy" {% if current_user.theme == 'navy' %}selected{% endif %}>Navy</option>
-                                <option value="indigo" {% if current_user.theme == 'indigo' %}selected{% endif %}>Indigo</option>
-                                <option value="violet" {% if current_user.theme == 'violet' %}selected{% endif %}>Violet</option>
-                                <option value="green" {% if current_user.theme == 'green' %}selected{% endif %}>Green</option>
-                                <option value="emerald" {% if current_user.theme == 'emerald' %}selected{% endif %}>Emerald</option>
-                                <option value="lime" {% if current_user.theme == 'lime' %}selected{% endif %}>Lime</option>
-                                <option value="teal" {% if current_user.theme == 'teal' %}selected{% endif %}>Teal</option>
-                                <option value="red" {% if current_user.theme == 'red' %}selected{% endif %}>Red</option>
-                                <option value="rose" {% if current_user.theme == 'rose' %}selected{% endif %}>Rose</option>
-                                <option value="pink" {% if current_user.theme == 'pink' %}selected{% endif %}>Pink</option>
-                                <option value="orange" {% if current_user.theme == 'orange' %}selected{% endif %}>Orange</option>
-                                <option value="amber" {% if current_user.theme == 'amber' %}selected{% endif %}>Amber</option>
-                                <option value="brown" {% if current_user.theme == 'brown' %}selected{% endif %}>Brown</option>
-                                <option value="slate" {% if current_user.theme == 'slate' %}selected{% endif %}>Slate</option>
-                            </select>
-                            <small class="text-muted">Select your preferred color theme for the application</small>
-                        </div>
-                        
-                        <hr>
-                        <h5>Change Password</h5>
-                        <div class="mb-3">
-                            <label for="current_password" class="form-label">Current Password</label>
-                            <input type="password" class="form-control" id="current_password" name="current_password" placeholder="Enter current password">
-                        </div>
-                        <div class="mb-3">
-                            <label for="new_password" class="form-label">New Password</label>
-                            <input type="password" class="form-control" id="new_password" name="new_password" placeholder="Enter new password">
-                        </div>
-                        <div class="mb-3">
-                            <label for="confirm_password" class="form-label">Confirm New Password</label>
-                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder="Confirm new password">
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">Update Profile</button>
-                    </form>
+<div class="profile-page">
+    <form method="POST" enctype="multipart/form-data" class="profile-form" id="profile-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <section class="profile-hero">
+            <div class="profile-avatar-ring">
+                <div class="profile-avatar" id="profile-avatar">
+                    {% if current_user.photo %}
+                    <img src="{{ current_user.photo }}" alt="Profile photo" class="profile-avatar-img" id="profile-avatar-img">
+                    {% else %}
+                    <div class="profile-avatar-ph" id="profile-avatar-ph">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    {% endif %}
                 </div>
+                <label for="photo" class="profile-avatar-cam" title="Change photo">
+                    <i class="fas fa-camera"></i>
+                    <span class="visually-hidden">Change profile photo</span>
+                </label>
             </div>
-        </div>
-    </div>
-</div>
+            <div class="profile-identity">
+                <h1>{{ current_user.full_name }}</h1>
+                <p class="profile-email">{{ current_user.email }}</p>
+                <div class="profile-pills">
+                    <span class="profile-pill"><i class="fas fa-user-tag"></i> {{ current_user.username }}</span>
+                    {% for role in user_roles %}
+                    <span class="profile-pill">{{ ROLE_LABELS.get(role, role) }}</span>
+                    {% endfor %}
+                </div>
+                <label for="photo" class="profile-file-btn">
+                    <i class="fas fa-image"></i> Choose photo
+                </label>
+                <div class="profile-photo-meta">PNG, JPG, JPEG, GIF, or WEBP. Max 16 MB. The photo is cropped to a circle — it will not be stretched.</div>
+                <input type="file" class="visually-hidden" id="photo" name="photo" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp">
+            </div>
+        </section>
 
+        <section class="profile-card">
+            <h2><i class="fas fa-id-card"></i> Account</h2>
+            <p class="profile-hint">Update the details used across the academic system.</p>
+            <div class="mb-3">
+                <label for="full_name" class="form-label">Full Name</label>
+                <input type="text" class="form-control" id="full_name" name="full_name" value="{{ current_user.full_name }}" {% if name_locked %}readonly{% endif %} required>
+                {% if name_locked %}
+                <div class="profile-lock-note">
+                    <i class="fas fa-lock"></i>
+                    <span>Your name is managed by the institution. Contact an administrator to request a change.</span>
+                </div>
+                {% endif %}
+            </div>
+            <div class="mb-0">
+                <label for="email" class="form-label">Email</label>
+                <input type="email" class="form-control" id="email" name="email" value="{{ current_user.email }}" required>
+            </div>
+        </section>
+
+        {% if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles or is_admin(current_user) %}
+        <section class="profile-card">
+            <h2><i class="fas fa-signature"></i> Digital Signature</h2>
+            <p class="profile-hint">Used on remuneration bills, admission forms (Scrutinizer), and other official PDFs. Prefer a clear scan or photo of your handwritten signature on a white background (JPG/PNG, max 1&nbsp;MB).</p>
+            <div class="profile-sig-frame" id="profile-sig-frame">
+                {% if current_user.signature_path %}
+                <img src="{{ signature_preview_url or ('/' + current_user.signature_path.lstrip('/')) }}"
+                     alt="Your signature"
+                     id="profile-sig-img">
+                {% else %}
+                <span class="profile-sig-empty" id="profile-sig-empty">No signature uploaded</span>
+                {% endif %}
+            </div>
+            {% if current_user.signature_path %}
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" value="1" id="remove_signature" name="remove_signature">
+                <label class="form-check-label" for="remove_signature">Remove current signature</label>
+            </div>
+            {% endif %}
+            <label for="signature" class="profile-file-btn mb-2">
+                <i class="fas fa-upload"></i> Upload signature
+            </label>
+            <input type="file" class="visually-hidden" id="signature" name="signature" accept="image/png,image/jpeg,image/jpg">
+            <div class="profile-photo-meta mt-1">JPG or PNG only. Max 1&nbsp;MB. The signature stays in its original proportions.</div>
+        </section>
+        {% endif %}
+
+        {% if 'teacher' in user_roles or 'dean' in user_roles or 'head' in user_roles %}
+        <section class="profile-card">
+            <h2><i class="fas fa-chalkboard-teacher"></i> Teacher Information</h2>
+            <p class="profile-hint">These details appear on routines and remuneration documents.</p>
+            <div class="mb-3">
+                <label for="call_sign" class="form-label">Call Sign</label>
+                <input type="text" class="form-control" id="call_sign" name="call_sign" value="{% if teacher_record and teacher_record.call_sign %}{{ teacher_record.call_sign }}{% endif %}" placeholder="Enter your call sign">
+                <small class="text-muted">Your call sign for routine and other purposes</small>
+            </div>
+            <div class="mb-3">
+                <label for="bank_account_no" class="form-label">Bank Account No</label>
+                <input type="text" class="form-control" id="bank_account_no" name="bank_account_no" value="{% if teacher_record and teacher_record.bank_account_no %}{{ teacher_record.bank_account_no }}{% endif %}" placeholder="Enter your bank account number">
+                <small class="text-muted">Bank account number for remuneration purposes</small>
+            </div>
+            <div class="mb-0">
+                <label for="tin_number" class="form-label">TIN Number</label>
+                <input type="text" class="form-control" id="tin_number" name="tin_number" value="{% if teacher_record and teacher_record.tin_number %}{{ teacher_record.tin_number }}{% endif %}" placeholder="Enter your TIN number">
+                <small class="text-muted">Taxpayer Identification Number (TIN)</small>
+            </div>
+        </section>
+        {% endif %}
+
+        <section class="profile-card">
+            <h2><i class="fas fa-palette"></i> Color Theme</h2>
+            <p class="profile-hint">Pick a theme. The preview applies immediately; save the profile to keep it.</p>
+            <select class="visually-hidden" id="theme" name="theme" aria-label="Color theme">
+                {% for value, label, _gradient in theme_options %}
+                <option value="{{ value }}" {% if current_theme == value or (value == 'default' and not current_user.theme) %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <div class="profile-theme-grid" role="listbox" aria-label="Theme colors">
+                {% for value, label, gradient in theme_options %}
+                <button type="button"
+                        class="profile-theme-swatch{% if current_theme == value or (value == 'default' and not current_user.theme) %} is-active{% endif %}"
+                        data-theme="{{ value }}"
+                        data-gradient="{{ gradient }}"
+                        aria-pressed="{{ 'true' if current_theme == value or (value == 'default' and not current_user.theme) else 'false' }}">
+                    <span class="profile-theme-dot" style="background: {{ gradient }};"></span>
+                    {{ label }}
+                </button>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="profile-card">
+            <h2><i class="fas fa-key"></i> Change Password</h2>
+            <p class="profile-hint">Leave these blank if you only want to update other profile details.</p>
+            <div class="mb-3">
+                <label for="current_password" class="form-label">Current Password</label>
+                <input type="password" class="form-control" id="current_password" name="current_password" placeholder="Enter current password" autocomplete="current-password">
+            </div>
+            <div class="mb-3">
+                <label for="new_password" class="form-label">New Password</label>
+                <input type="password" class="form-control" id="new_password" name="new_password" placeholder="Enter new password" autocomplete="new-password">
+            </div>
+            <div class="mb-0">
+                <label for="confirm_password" class="form-label">Confirm New Password</label>
+                <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder="Confirm new password" autocomplete="new-password">
+            </div>
+        </section>
+
+        <div class="profile-actions">
+            <button type="submit" class="btn btn-primary" id="profile-save">
+                <i class="fas fa-check me-1"></i> Save profile
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Theme gradient mapping - matches base.html gradients
-    const themeGradients = {
-        'default': 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
-        'blue': 'linear-gradient(135deg, #3b82f6 0%, #1e40af 50%, #1e3a8a 100%)',
-        'sky': 'linear-gradient(135deg, #38bdf8 0%, #0284c7 50%, #0369a1 100%)',
-        'cyan': 'linear-gradient(135deg, #22d3ee 0%, #0891b2 50%, #0e7490 100%)',
-        'navy': 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #172554 100%)',
-        'indigo': 'linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #4338ca 100%)',
-        'violet': 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #5b21b6 100%)',
-        'green': 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
-        'emerald': 'linear-gradient(135deg, #34d399 0%, #059669 50%, #064e3b 100%)',
-        'lime': 'linear-gradient(135deg, #84cc16 0%, #65a30d 50%, #4d7c0f 100%)',
-        'teal': 'linear-gradient(135deg, #14b8a6 0%, #0d9488 50%, #0f766e 100%)',
-        'red': 'linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%)',
-        'rose': 'linear-gradient(135deg, #fb7185 0%, #e11d48 50%, #be123c 100%)',
-        'pink': 'linear-gradient(135deg, #ec4899 0%, #db2777 50%, #be185d 100%)',
-        'orange': 'linear-gradient(135deg, #f97316 0%, #ea580c 50%, #c2410c 100%)',
-        'amber': 'linear-gradient(135deg, #fbbf24 0%, #d97706 50%, #b45309 100%)',
-        'brown': 'linear-gradient(135deg, #a16207 0%, #854d0e 50%, #713f12 100%)',
-        'slate': 'linear-gradient(135deg, #64748b 0%, #475569 50%, #334155 100%)'
-    };
-    
-    // Get theme dropdown element
     const themeSelect = document.getElementById('theme');
-    
+    const swatches = document.querySelectorAll('.profile-theme-swatch');
+    const photoInput = document.getElementById('photo');
+    const avatar = document.getElementById('profile-avatar');
+    const sigInput = document.getElementById('signature');
+    const sigFrame = document.getElementById('profile-sig-frame');
+
+    function applyTheme(value, gradient) {
+        if (themeSelect) themeSelect.value = value;
+        if (gradient) document.documentElement.style.setProperty('--theme-gradient', gradient);
+        swatches.forEach(function(btn) {
+            const on = btn.getAttribute('data-theme') === value;
+            btn.classList.toggle('is-active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    swatches.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            applyTheme(btn.getAttribute('data-theme'), btn.getAttribute('data-gradient'));
+        });
+    });
+
     if (themeSelect) {
-        // Add event listener for theme change
         themeSelect.addEventListener('change', function() {
-            const selectedTheme = this.value;
-            const gradient = themeGradients[selectedTheme] || themeGradients['default'];
-            
-            // Update CSS variable for live preview
-            document.documentElement.style.setProperty('--theme-gradient', gradient);
+            const selected = Array.prototype.find.call(swatches, function(btn) {
+                return btn.getAttribute('data-theme') === themeSelect.value;
+            });
+            applyTheme(themeSelect.value, selected ? selected.getAttribute('data-gradient') : '');
+        });
+    }
+
+    function previewFile(input, onUrl) {
+        const file = input && input.files && input.files[0];
+        if (!file || !file.type.startsWith('image/')) return;
+        const reader = new FileReader();
+        reader.onload = function(ev) { onUrl(ev.target.result); };
+        reader.readAsDataURL(file);
+    }
+
+    if (photoInput && avatar) {
+        photoInput.addEventListener('change', function() {
+            previewFile(photoInput, function(url) {
+                let img = document.getElementById('profile-avatar-img');
+                const ph = document.getElementById('profile-avatar-ph');
+                if (!img) {
+                    img = document.createElement('img');
+                    img.id = 'profile-avatar-img';
+                    img.className = 'profile-avatar-img';
+                    img.alt = 'Profile photo';
+                    avatar.innerHTML = '';
+                    avatar.appendChild(img);
+                }
+                if (ph) ph.remove();
+                img.src = url;
+            });
+        });
+    }
+
+    if (sigInput && sigFrame) {
+        sigInput.addEventListener('change', function() {
+            previewFile(sigInput, function(url) {
+                let img = document.getElementById('profile-sig-img');
+                const empty = document.getElementById('profile-sig-empty');
+                if (!img) {
+                    img = document.createElement('img');
+                    img.id = 'profile-sig-img';
+                    img.alt = 'Your signature';
+                    sigFrame.innerHTML = '';
+                    sigFrame.appendChild(img);
+                }
+                if (empty) empty.remove();
+                img.src = url;
+            });
         });
     }
 });
 </script>
-{% endblock %} 
+{% endblock %}

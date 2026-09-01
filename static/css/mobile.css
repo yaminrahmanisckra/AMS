@@ -507,6 +507,48 @@
         right: 4px;
     }
 
+    body.m-shell:has(.admin-dash) {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    body.m-shell:has(.admin-dash) main.m-main {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding-bottom: 0;
+    }
+
+    body.m-shell:has(.admin-dash) .footer {
+        margin-top: auto !important;
+        flex-shrink: 0;
+        padding: 0.65rem var(--m-gutter) !important;
+        padding-bottom: calc(0.65rem + env(safe-area-inset-bottom, 0px)) !important;
+        font-size: 0.7rem;
+        line-height: 1.35;
+        background-color: #0f172a !important;
+    }
+
+    body.m-shell:has(.admin-dash) .footer .container {
+        gap: 0.2rem;
+    }
+
+    body.m-shell .admin-dash .admin-card-board {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.45rem;
+    }
+
+    @media (orientation: landscape) {
+        body.m-shell .admin-dash .admin-card-board {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        body.m-shell .admin-dash .admin-sort-card:not(.admin-sort-card-wide) .quick-link {
+            aspect-ratio: 1 / 0.82;
+        }
+    }
+
     /* Class management session feed */
     body.m-shell .session-card,
     body.m-shell .class-session-item {
@@ -1693,12 +1735,285 @@
     }
 
     /* Question bank */
+    body.m-shell .qb-page {
+        max-width: 100% !important;
+        margin: 0.25rem auto 1.1rem !important;
+        padding: 0 0.1rem 0.4rem !important;
+    }
+
+    body.m-shell .qb-page > .m-page-header,
+    body.m-shell .qb-intro,
+    body.m-shell .qb-papers-head,
+    body.m-shell .qb-back-btn {
+        display: none !important;
+    }
+
+    body.m-shell .qb-create-card {
+        margin-bottom: 0.65rem !important;
+        border-radius: 12px !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06) !important;
+    }
+
+    body.m-shell .qb-create-card .card-header {
+        padding: 0.65rem 0.8rem !important;
+        font-size: 0.88rem;
+    }
+
+    body.m-shell .qb-papers-card {
+        border: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+    }
+
+    body.m-shell .qb-papers-card > .card-body {
+        padding: 0 !important;
+    }
+
+    body.m-shell .qb-shell {
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+    }
+
     body.m-shell .qb-folder-tree {
         font-size: 0.85rem;
     }
 
-    body.m-shell .qb-folder-meta.qb-hide-mobile {
+    body.m-shell .qb-folder-meta.qb-hide-mobile,
+    body.m-shell .qb-hide-mobile {
         display: none !important;
+    }
+
+    body.m-shell .qb-filter-bar {
+        padding: 0.65rem 0.7rem !important;
+        background: #fff;
+        border-radius: 12px 12px 0 0;
+    }
+
+    body.m-shell .qb-filter-row {
+        display: grid !important;
+        grid-template-columns: 1fr auto;
+        gap: 0.4rem !important;
+        margin: 0 !important;
+    }
+
+    body.m-shell .qb-filter-row > [class*="col-"] {
+        width: auto;
+        max-width: none;
+        flex: unset;
+        padding: 0 !important;
+    }
+
+    body.m-shell .qb-filter-folder {
+        grid-column: 1 / -1;
+    }
+
+    body.m-shell .qb-filter-year {
+        grid-column: 1;
+    }
+
+    body.m-shell .qb-filter-go {
+        grid-column: 2;
+    }
+
+    body.m-shell .qb-filter-reset {
+        grid-column: 1 / -1;
+    }
+
+    body.m-shell .qb-filter-row .btn,
+    body.m-shell .qb-filter-row .form-control,
+    body.m-shell .qb-filter-row .input-group,
+    body.m-shell .qb-filter-row .input-group-text {
+        min-height: 42px;
+        font-size: 16px;
+    }
+
+    body.m-shell .qb-toolbar {
+        padding: 0.5rem 0.65rem;
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 0.45rem;
+    }
+
+    body.m-shell .qb-toolbar-left,
+    body.m-shell .qb-toolbar-right {
+        width: 100%;
+    }
+
+    body.m-shell .qb-toolbar-left {
+        display: flex;
+        gap: 0.35rem;
+    }
+
+    body.m-shell .qb-toolbar-left .btn {
+        min-width: 42px;
+        min-height: 42px;
+    }
+
+    body.m-shell .qb-breadcrumb {
+        width: 100%;
+        margin: 0;
+        font-size: 0.78rem;
+        white-space: nowrap;
+    }
+
+    body.m-shell .qb-folder-dropzone.accordion-button {
+        min-height: 48px;
+        padding: 0.55rem 2.35rem 0.55rem 0.7rem !important;
+        font-size: 0.9rem;
+    }
+
+    body.m-shell .qb-folder-label {
+        max-width: none;
+        font-size: 0.9rem;
+    }
+
+    body.m-shell .qb-folder-actions {
+        display: grid;
+        grid-template-columns: auto 1fr 1fr;
+        gap: 0.35rem;
+        padding: 0.5rem 0.65rem;
+    }
+
+    body.m-shell .qb-folder-actions .btn {
+        min-height: 40px;
+        width: 100%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3rem;
+        font-weight: 600;
+        font-size: 0.78rem;
+    }
+
+    body.m-shell .qb-select-all {
+        margin-right: 0;
+        min-height: 40px;
+    }
+
+    body.m-shell .qb-upload-wrap {
+        padding: 0.65rem !important;
+    }
+
+    body.m-shell .qb-upload-toggle {
+        width: 100%;
+        min-height: 42px;
+    }
+
+    body.m-shell .qb-file {
+        grid-template-columns: 24px 30px minmax(0, 1fr);
+        grid-template-areas:
+            "check icon body"
+            "actions actions actions";
+        gap: 0.45rem 0.55rem;
+        padding: 0.75rem 0.7rem;
+        align-items: start;
+    }
+
+    body.m-shell .qb-file-check-wrap { grid-area: check; padding-top: 0.35rem; }
+    body.m-shell .qb-file-icon { grid-area: icon; }
+    body.m-shell .qb-file-body { grid-area: body; }
+    body.m-shell .qb-file-actions {
+        grid-area: actions;
+        width: 100%;
+        justify-content: stretch;
+    }
+
+    body.m-shell .qb-file-actions .dropdown {
+        flex: 0 0 auto;
+    }
+
+    body.m-shell .qb-dl {
+        flex: 1 1 auto;
+        justify-content: center;
+        min-height: 42px;
+        font-weight: 600;
+    }
+
+    body.m-shell .qb-file-title {
+        font-size: 0.92rem;
+    }
+
+    body.m-shell .qb-children {
+        padding: 0.35rem 0.35rem 0.55rem 0.15rem !important;
+        margin: 0 !important;
+    }
+
+    body.m-shell .qb-children > .accordion {
+        margin-left: 0.35rem !important;
+        padding-left: 0.4rem !important;
+    }
+
+    body.m-shell .qb-move-bar > [class*="col-"] {
+        width: 100%;
+        max-width: 100%;
+        flex: 0 0 100%;
+    }
+
+    body.m-shell .qb-move-bar .d-grid .btn {
+        width: 100%;
+        min-height: var(--m-touch);
+    }
+
+    body.m-shell .qb-tip {
+        display: none;
+    }
+
+    /* Landscape phones: keep a compact two-pane browser feel */
+    @media (orientation: landscape) {
+        body.m-shell .qb-toolbar {
+            flex-direction: row;
+            align-items: center !important;
+            flex-wrap: nowrap;
+        }
+
+        body.m-shell .qb-toolbar-left {
+            width: auto;
+            flex: 0 0 auto;
+        }
+
+        body.m-shell .qb-toolbar-right {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        body.m-shell .qb-filter-row {
+            grid-template-columns: minmax(0, 1.6fr) 7rem auto auto;
+        }
+
+        body.m-shell .qb-filter-folder,
+        body.m-shell .qb-filter-year,
+        body.m-shell .qb-filter-go,
+        body.m-shell .qb-filter-reset {
+            grid-column: auto;
+        }
+
+        body.m-shell .qb-file {
+            grid-template-columns: 24px 30px minmax(0, 1fr) auto;
+            grid-template-areas: "check icon body actions";
+            align-items: center;
+            padding: 0.5rem 0.7rem;
+        }
+
+        body.m-shell .qb-dl {
+            min-height: 36px;
+            flex: 0 0 auto;
+            padding: 0.3rem 0.7rem;
+        }
+
+        body.m-shell .qb-dl-label {
+            display: none;
+        }
+
+        body.m-shell .qb-folder-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        body.m-shell .qb-folder-actions .btn {
+            width: auto;
+            min-height: 36px;
+            padding: 0.25rem 0.65rem;
+        }
     }
 
     /* Remuneration — readable mobile bill form */
@@ -3098,67 +3413,6 @@
         min-width: 250px !important;
     }
 
-    /* Question bank compact toolbar */
-    body.m-shell .qb-folder-label {
-        max-width: min(160px, 42vw);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    body.m-shell .qb-toolbar {
-        padding: 8px;
-        flex-direction: column;
-        align-items: stretch !important;
-        gap: 0.5rem;
-    }
-
-    body.m-shell .qb-toolbar-left,
-    body.m-shell .qb-toolbar-right {
-        width: 100%;
-        flex-wrap: wrap;
-    }
-
-    body.m-shell .qb-breadcrumb {
-        width: 100%;
-        margin-top: 4px;
-        font-size: 0.78rem;
-        word-break: break-word;
-    }
-
-    body.m-shell .qb-hide-mobile {
-        display: none !important;
-    }
-
-    body.m-shell .qb-shell .row.g-2.align-items-center > [class*="col-"],
-    body.m-shell .qb-filter-row > [class*="col-"],
-    body.m-shell .qb-move-bar > [class*="col-"] {
-        width: 100%;
-        max-width: 100%;
-        flex: 0 0 100%;
-    }
-
-    body.m-shell .qb-shell .row.g-2.align-items-center .col-8,
-    body.m-shell .qb-shell .row.g-2.align-items-center .col-4,
-    body.m-shell .qb-filter-row .col-8,
-    body.m-shell .qb-filter-row .col-4 {
-        width: 50%;
-        max-width: 50%;
-        flex: 0 0 50%;
-    }
-
-    body.m-shell .qb-move-bar .d-grid .btn {
-        width: 100%;
-        min-height: var(--m-touch);
-    }
-
-    body.m-shell .qb-filter-row .btn,
-    body.m-shell .qb-filter-row .form-control,
-    body.m-shell .qb-filter-row .input-group {
-        min-height: var(--m-touch);
-        font-size: 16px;
-    }
-
     body.m-shell .module-header .m-action-row {
         flex-direction: column;
     }
@@ -3169,19 +3423,8 @@
         width: 100%;
     }
 
-    body.m-shell .qb-folder-item .accordion-button {
-        padding: 0.65rem 0.75rem;
-        font-size: 0.85rem;
-        flex-wrap: wrap;
-        gap: 0.25rem;
-    }
-
     body.m-shell .qb-folder-item .accordion-button .badge {
         font-size: 0.68rem;
-    }
-
-    body.m-shell .qb-folder-item .dropdown {
-        margin-left: auto;
     }
 
     body.m-shell .qb-tip {
@@ -4363,24 +4606,6 @@
         padding: 0.1rem 0.2rem !important;
     }
 
-    body.m-shell .qb-shell {
-        border-radius: 12px;
-    }
-
-    body.m-shell .qb-toolbar {
-        flex-direction: column;
-        align-items: stretch !important;
-    }
-
-    body.m-shell .qb-toolbar-left,
-    body.m-shell .qb-toolbar-right {
-        width: 100%;
-    }
-
-    body.m-shell .qb-filter-row .btn {
-        min-height: 36px;
-    }
-
     body.m-shell #btn-course-filter {
         min-height: 36px;
     }
@@ -4433,6 +4658,101 @@
         position: sticky;
         bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
         z-index: 5;
+    }
+
+    /* Profile */
+    body.m-shell .profile-page {
+        max-width: 100% !important;
+        margin: 0.35rem auto 1.25rem !important;
+        padding: 0 0.15rem 0.5rem !important;
+    }
+
+    body.m-shell .profile-form {
+        gap: 0.75rem !important;
+    }
+
+    body.m-shell .profile-hero,
+    body.m-shell .profile-card {
+        border-radius: 12px !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06) !important;
+    }
+
+    body.m-shell .profile-hero {
+        flex-direction: column;
+        text-align: center;
+        align-items: center;
+        gap: 0.85rem;
+        padding: 1rem 0.85rem 1rem !important;
+        background-size: auto, 100% 78px;
+    }
+
+    body.m-shell .profile-avatar-ring {
+        width: 112px !important;
+        height: 112px !important;
+        padding: 3px !important;
+    }
+
+    body.m-shell .profile-avatar-cam {
+        width: 32px;
+        height: 32px;
+        right: 2px;
+        bottom: 2px;
+        font-size: 0.78rem;
+    }
+
+    body.m-shell .profile-identity h1 {
+        font-size: 1.15rem;
+    }
+
+    body.m-shell .profile-identity .profile-email {
+        font-size: 0.85rem;
+        margin-bottom: 0.55rem;
+    }
+
+    body.m-shell .profile-pills {
+        justify-content: center;
+    }
+
+    body.m-shell .profile-card {
+        padding: 0.9rem 0.85rem 1rem !important;
+    }
+
+    body.m-shell .profile-card h2 {
+        font-size: 0.88rem;
+    }
+
+    body.m-shell .profile-theme-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0.4rem;
+    }
+
+    body.m-shell .profile-theme-swatch {
+        min-height: 44px;
+        padding: 0.45rem 0.25rem 0.4rem;
+        font-size: 0.68rem;
+    }
+
+    body.m-shell .profile-sig-frame {
+        height: 92px;
+        max-width: 100%;
+    }
+
+    body.m-shell .profile-file-btn {
+        min-height: 40px;
+    }
+
+    body.m-shell .profile-actions {
+        position: sticky;
+        bottom: calc(0.45rem + env(safe-area-inset-bottom, 0px));
+        z-index: 5;
+        padding: 0;
+        margin-top: 0.15rem;
+    }
+
+    body.m-shell .profile-actions .btn-primary {
+        width: 100%;
+        min-height: 48px;
+        border-radius: 12px;
     }
 }
 

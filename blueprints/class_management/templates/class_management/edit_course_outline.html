@@ -1484,7 +1484,7 @@ const curriculumContentsB = {{ course_contents_b|tojson }};
 const curriculumContentsB = [];
 {% endif %}
 // Saved Classes per row (from course_content_classes): { section_a: [1,2,...], section_b: [1,1,...] }
-const existingClasses = {{ existing_classes|tojson|safe }};
+const existingClasses = {{ existing_classes|tojson }};
 
 function importCLOsFromCourse() {
     if (!courseCLOs || courseCLOs.length === 0) {

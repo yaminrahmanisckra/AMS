@@ -96,8 +96,9 @@ def _write_self_assessment_pdf(html_content):
 
 
 def _client_ip():
-    """Client IP for one-per-IP check (supports proxy X-Forwarded-For)."""
-    return (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip() or request.remote_addr or ''
+    """Client IP for one-per-IP check (ProxyFix-aware; ignores spoofed X-Forwarded-For)."""
+    from utils.request_ip import client_ip
+    return client_ip()
 
 
 def _current_teacher():

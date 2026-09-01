@@ -20,25 +20,9 @@ SIGNATURE_MAX_DIMENSIONS = (800, 300)
 
 
 def resolve_upload_path(relative_path):
-    """Resolve a stored relative path to an absolute file (cPanel-safe)."""
-    if not relative_path:
-        return None
-    relative_path = str(relative_path).replace('\\', '/').lstrip('/')
-    under_static = relative_path[7:] if relative_path.startswith('static/') else relative_path
-    candidates = [
-        os.path.join(current_app.root_path, relative_path),
-        os.path.join(current_app.static_folder or '', under_static),
-        os.path.join(os.path.dirname(current_app.root_path), relative_path),
-        os.path.join(os.getcwd(), relative_path),
-        os.path.join(os.getcwd(), 'static', under_static)
-        if not under_static.startswith('static') else None,
-    ]
-    if os.path.isabs(relative_path) or (len(relative_path) > 2 and relative_path[1] == ':'):
-        candidates.insert(0, relative_path)
-    for path in candidates:
-        if path and os.path.isfile(path):
-            return path
-    return None
+    """Resolve a stored path only if it stays under the app upload roots."""
+    from utils.safe_files import confined_existing_file
+    return confined_existing_file(relative_path)
 
 
 def user_signature_abs_path(user):

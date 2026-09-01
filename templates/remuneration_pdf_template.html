@@ -691,7 +691,7 @@
                     <td class="text-center">{{ job_data.serial }}</td>
                     <td>{{ job_data.description }}</td>
                     <td class="english-text{% if job_data.courses and job_data.courses|upper == 'ALL' %} rem-text-normal{% endif %}">{{ job_data.courses }}</td>
-                    <td class="english-text{% if job_data.quantity and job_data.quantity|upper == 'ALL' %} rem-qty-cell rem-text-normal{% else %} rem-qty-cell{% endif %}">{% if job_data.quantity %}{{ job_data.quantity|safe }}{% endif %}</td>
+                    <td class="english-text{% if job_data.quantity and job_data.quantity|upper == 'ALL' %} rem-qty-cell rem-text-normal{% else %} rem-qty-cell{% endif %}">{% if job_data.quantity %}{{ job_data.quantity }}{% endif %}</td>
                     <td class="english-text">{{ job_data.paper_type }}</td>
                     <td class="english-text rem-rate-cell">{{ job_data.rate }}</td>
                     <td class="text-right english-text rem-amount-cell">{{ job_data.amount }}</td>

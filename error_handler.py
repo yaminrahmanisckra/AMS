@@ -106,9 +106,13 @@ def _request_context_dict():
         'path': getattr(request, 'path', None),
         'method': getattr(request, 'method', None),
         'endpoint': getattr(request, 'endpoint', None),
-        'remote_addr': request.headers.get('X-Forwarded-For', request.remote_addr)
-        if request else None,
+        'remote_addr': None,
     }
+    try:
+        from utils.request_ip import client_ip
+        ctx['remote_addr'] = client_ip() or getattr(request, 'remote_addr', None)
+    except Exception:
+        ctx['remote_addr'] = getattr(request, 'remote_addr', None)
     try:
         from flask_login import current_user
         if current_user and getattr(current_user, 'is_authenticated', False):

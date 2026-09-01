@@ -26,12 +26,15 @@ def create_app():
     from utils.timezone import register_template_filters
     register_template_filters(app)
 
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a_very_secret_default_key')
+    from utils.security_config import apply_proxy_fix, resolve_secret_key, session_lifetime_seconds
+    apply_proxy_fix(app)
+    app.config['SECRET_KEY'] = resolve_secret_key()
     app.config['TEMPLATES_AUTO_RELOAD'] = False
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
-    app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
+    app.config['PERMANENT_SESSION_LIFETIME'] = session_lifetime_seconds()
+    app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 
     # Database
     database_url = os.getenv('DATABASE_URL')

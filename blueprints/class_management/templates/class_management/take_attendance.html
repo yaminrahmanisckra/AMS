@@ -188,7 +188,6 @@
     var postUrl = form.getAttribute('data-post-url');
     var rosterUrl = form.getAttribute('data-roster-url');
     var viewUrl = form.getAttribute('data-view-url');
-    var persistTimer = null;
 
     function currentDate() {
         return (dateInput && dateInput.value) || (postDate && postDate.value) || '';
@@ -248,31 +247,6 @@
         return api.saveDraft(sessionId, dateStr, sheetBody());
     }
 
-    function persistSheet(userInitiated) {
-        var dateStr = currentDate();
-        if (!dateStr) return Promise.resolve();
-        if (postDate) postDate.value = dateStr;
-        var body = sheetBody();
-        var draftWrite = api.saveDraft(sessionId, dateStr, body);
-        if (!userInitiated) return draftWrite;
-        return draftWrite.then(function () {
-            return api.enqueueItem({
-                key: api.queueKey(sessionId, dateStr),
-                kind: 'attendance',
-                sessionId: Number(sessionId),
-                date: dateStr,
-                url: postUrl,
-                body: body,
-                label: 'Attendance · ' + dateStr,
-            });
-        });
-    }
-
-    function scheduleDraft(userInitiated) {
-        if (persistTimer) clearTimeout(persistTimer);
-        persistTimer = setTimeout(function () { persistSheet(userInitiated); }, userInitiated ? 0 : 200);
-    }
-
     function escapeHtml(value) {
         return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
             return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
@@ -328,18 +302,16 @@
         if (postDate) postDate.value = dateStr;
         return Promise.all([
             api.getQueueItem(sessionId, dateStr),
-            api.getDraft(sessionId, dateStr),
             api.getRoster(sessionId),
         ]).then(function (parts) {
             var queued = parts[0];
-            var draft = parts[1];
-            var roster = parts[2];
+            var roster = parts[1];
             var tbody = document.getElementById('att-student-tbody');
             var hasRows = tbody && tbody.querySelector('input[name^="student_"]');
             if (!hasRows && roster && roster.students && roster.students.length) {
-                renderStudents(roster.students, !(queued || draft));
+                renderStudents(roster.students, !queued);
             }
-            var body = (queued && queued.body) || (draft && draft.body) || null;
+            var body = (queued && queued.body) || null;
             if (body) {
                 applyLocalSheet(body, true);
             } else if (options.resetToPresent) {
@@ -406,14 +378,6 @@
     }
 
     form.addEventListener('submit', saveNow);
-    form.addEventListener('change', function (event) {
-        if (!event.isTrusted) return;
-        scheduleDraft(true);
-    });
-    form.addEventListener('input', function (event) {
-        if (!event.isTrusted) return;
-        scheduleDraft(true);
-    });
 
     dateForm.addEventListener('submit', function (event) {
         if (!navigator.onLine) {
@@ -457,24 +421,22 @@
         boot.then(function () {
             return Promise.all([
                 api.getQueueItem(sessionId, dateStr),
-                api.getDraft(sessionId, dateStr),
                 api.getRoster(sessionId),
             ]);
         }).then(function (parts) {
             var queued = parts[0];
-            var draft = parts[1];
-            var roster = parts[2];
+            var roster = parts[1];
             var tbody = document.getElementById('att-student-tbody');
             var hasRows = tbody && tbody.querySelector('input[name^="student_"]');
             if (!hasRows && roster && roster.students && roster.students.length) {
-                renderStudents(roster.students, !(queued || draft));
+                renderStudents(roster.students, !queued);
             }
-            if (queued || draft) {
-                applyLocalSheet((queued && queued.body) || (draft && draft.body), true);
+            if (queued) {
+                applyLocalSheet(queued.body, true);
             } else if (!navigator.onLine) {
                 applyLocalSheet(null, true);
             }
-            if (!navigator.onLine && roster && api.isRosterStale(roster) && !(queued || draft)) {
+            if (!navigator.onLine && roster && api.isRosterStale(roster) && !queued) {
                 setBanner('warn', 'স্টুডেন্ট তালিকা পুরনো হতে পারে। নতুন স্টুডেন্ট অনলাইন হলেই দেখাবে।');
             }
             return refreshStatus();

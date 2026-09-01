@@ -430,40 +430,13 @@ def _payment_accounts_map(cycle):
 
 
 def _bank_slip_abs_path(candidate):
-    path = _resolve_upload_path(getattr(candidate, 'bank_slip_path', None))
-    if path:
-        return path
-    raw = (getattr(candidate, 'bank_slip_path', None) or '').strip()
-    if not raw:
-        return None
-    for base in (current_app.root_path, os.getcwd(), os.path.dirname(current_app.root_path)):
-        trial = os.path.join(base, raw.lstrip('/'))
-        if os.path.isfile(trial):
-            return trial
-    return None
+    return _resolve_upload_path(getattr(candidate, 'bank_slip_path', None))
 
 
 def _resolve_upload_path(relative_path):
-    """Resolve a relative upload path against common app roots (cPanel-safe)."""
-    if not relative_path:
-        return None
-    relative_path = relative_path.replace('\\', '/').lstrip('/')
-    # Strip a leading "static/" when joining onto static_folder
-    under_static = relative_path[7:] if relative_path.startswith('static/') else relative_path
-    candidates = [
-        os.path.join(current_app.root_path, relative_path),
-        os.path.join(current_app.static_folder or '', under_static),
-        os.path.join(os.path.dirname(current_app.root_path), relative_path),
-        os.path.join(os.getcwd(), relative_path),
-        # cPanel PassengerAppRoot is often the same as root_path; also try cwd/static
-        os.path.join(os.getcwd(), 'static', under_static) if not under_static.startswith('static') else None,
-    ]
-    if os.path.isabs(relative_path) or (len(relative_path) > 2 and relative_path[1] == ':'):
-        candidates.insert(0, relative_path)
-    for path in candidates:
-        if path and os.path.isfile(path):
-            return path
-    return None
+    """Resolve a stored upload path only if it stays under the app upload roots."""
+    from utils.safe_files import confined_existing_file
+    return confined_existing_file(relative_path)
 
 
 def _candidate_signature_abs_path(candidate):
@@ -906,13 +879,7 @@ def _photo_abs_path(candidate):
     path = _resolve_upload_path(candidate.photo_path)
     if path:
         return path
-    # Also try photo_path as stored (in case it already includes odd prefixes)
-    raw = (candidate.photo_path or '').strip()
-    if raw:
-        for base in (current_app.root_path, os.getcwd(), os.path.dirname(current_app.root_path)):
-            trial = os.path.join(base, raw.lstrip('/'))
-            if os.path.isfile(trial):
-                return trial
+    from utils.safe_files import confined_existing_file
     # Fallback: scan uploads/admission_exam/cycle_<id>/ for this application_id
     try:
         cycle_id = candidate.cycle_id
@@ -942,7 +909,7 @@ def _photo_abs_path(candidate):
                     reverse=True,
                 )
             if matches:
-                return os.path.join(folder, matches[0])
+                return confined_existing_file(os.path.join(folder, matches[0]))
     except Exception as e:
         current_app.logger.warning('Photo folder scan failed: %s', e)
     return None
@@ -1483,9 +1450,11 @@ def _bangla_font_face_css(font_filename=None):
     """
     path = _kalpurush_font_path()
     if not path and font_filename:
-        cached = os.path.join(_admit_pdf_cache_dir(), font_filename)
-        if os.path.isfile(cached):
-            path = cached
+        safe_name = os.path.basename(str(font_filename))
+        if re.fullmatch(r'[\w.-]+\.ttf', safe_name, flags=re.I):
+            cached = os.path.join(_admit_pdf_cache_dir(), safe_name)
+            if os.path.isfile(cached):
+                path = cached
     if not path:
         current_app.logger.error(
             'No Bangla font for WeasyPrint (@font-face). '
@@ -3378,6 +3347,7 @@ def apply_form(token):
             ))
         db.session.commit()
 
+        session.permanent = True
         session[CANDIDATE_SESSION_KEY] = candidate.id
         return render_template('admission_exam/confirmation.html', cycle=cycle,
                                candidate=candidate, pin=pin,
@@ -3400,6 +3370,7 @@ def candidate_login(token):
         pin = (request.form.get('pin') or '').strip()
         candidate = AdmissionCandidate.query.filter_by(application_id=application_id).first()
         if candidate and candidate.cycle_id == cycle.id and candidate.check_pin(pin):
+            session.permanent = True
             session[CANDIDATE_SESSION_KEY] = candidate.id
             return redirect(url_for('admission_exam.candidate_dashboard', token=token))
         flash('Invalid Application ID or PIN.', 'danger')

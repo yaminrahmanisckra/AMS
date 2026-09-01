@@ -585,7 +585,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const rawConfigs = {{ curriculum_configs_json|safe if curriculum_configs_json else '{}' }};
+        const rawConfigs = {{ curriculum_configs|tojson }};
         const configRows = [];
         Object.keys(rawConfigs || {}).forEach(curriculumId => {
             const configs = Array.isArray(rawConfigs[curriculumId]) ? rawConfigs[curriculumId] : [];

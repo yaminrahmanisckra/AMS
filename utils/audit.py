@@ -97,7 +97,8 @@ def write_audit(action, entity_type, entity_id=None, before=None, after=None, ex
             except Exception:
                 pass
             try:
-                ip = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip() or request.remote_addr
+                from utils.request_ip import client_ip
+                ip = client_ip() or request.remote_addr
                 path = (request.path or '')[:255]
             except Exception:
                 pass

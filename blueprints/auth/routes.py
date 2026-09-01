@@ -11,6 +11,7 @@ import traceback
 import sys
 from utils.tenant import current_tenant
 from utils.login_throttle import is_locked, record_failure, clear as clear_login_throttle
+from utils.request_ip import client_ip
 from role_utils import (
     ADMIN_ROLE,
     ROLE_CHOICES,
@@ -27,8 +28,8 @@ auth_bp = Blueprint('auth', __name__, template_folder='templates')
 
 
 def _client_ip():
-    """Client IP for throttle keying (supports proxy X-Forwarded-For)."""
-    return (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip() or request.remote_addr or ''
+    """Client IP for throttle keying (ProxyFix-aware; ignores spoofed X-Forwarded-For)."""
+    return client_ip()
 
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
@@ -41,7 +42,7 @@ def login():
         # Clear any existing session before processing new login
         # This prevents session cookie reuse issues (especially with ngrok)
         if current_user.is_authenticated:
-            current_app.logger.info(f"Logging out existing user: {current_user.username}")
+            current_app.logger.debug("Clearing existing session before login")
             logout_user()
         session.clear()
         
@@ -49,7 +50,7 @@ def login():
         password = request.form.get('password')
         selected_role = request.form.get('active_role') or default_login_role
         
-        current_app.logger.info(f"Login attempt for username: {username}, role: {selected_role}")
+        current_app.logger.debug("Login attempt, role: %s", selected_role)
         
         def render_form():
             return render_template(
@@ -99,7 +100,7 @@ def login():
         session['active_role'] = selected_role
         clear_login_throttle(username, client_ip)
         
-        current_app.logger.info(f"Successfully logged in user: {user.username} (ID: {user.id}) with role: {selected_role}")
+        current_app.logger.info("Successfully logged in user id=%s role=%s", user.id, selected_role)
         flash('Login successful!', 'success')
         
         from utils.window_utils import resolve_window_after_login
@@ -109,10 +110,8 @@ def login():
         else:
             target = url_for('index')
         
-        # Create response and ensure session cookie is properly set
         response = redirect(target)
-        # Force session to be saved
-        session.permanent = False
+        session.permanent = True
         
         # Add cache-control headers to prevent browser caching
         response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private'
@@ -248,6 +247,7 @@ def login_as(user_id):
 
     logout_user()
     login_user(target, remember=False)
+    session.permanent = True
     session['active_role'] = active_role
     session.pop('active_window_id', None)
 
@@ -283,6 +283,7 @@ def stop_login_as():
 
     logout_user()
     login_user(admin_user, remember=False)
+    session.permanent = True
     session['active_role'] = impersonator_role
     if impersonator_window is not None:
         session['active_window_id'] = impersonator_window

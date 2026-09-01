@@ -1,5 +1,5 @@
 // Service Worker for Academic Management System PWA
-const CACHE_NAME = 'ams-ku-v9';
+const CACHE_NAME = 'ams-ku-v10';
 const urlsToCache = [
   '/static/css/style.css',
   '/static/js/script.js',

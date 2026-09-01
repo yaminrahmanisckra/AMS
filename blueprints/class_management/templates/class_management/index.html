@@ -1247,7 +1247,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const extAcademicSessionInput = document.getElementById('ext_academic_session');
     const extYearInput = document.getElementById('ext_year');
     const extTermInput = document.getElementById('ext_term');
-    const activeSemesters = {{ active_semesters_json|safe }};
+    const activeSemesters = {{ active_semesters|tojson }};
 
     function normalizeExtValue(value) {
         return String(value || '').trim();

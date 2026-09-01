@@ -401,6 +401,33 @@
             grid-template-columns: repeat(2, 1fr);
         }
     }
+
+    /* Pin the site footer to the bottom of the viewport on this short dashboard. */
+    body:has(.admin-dash) {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+    }
+    body:has(.admin-dash) main.m-main {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding-bottom: 0;
+    }
+    body:has(.admin-dash) .footer {
+        margin-top: auto !important;
+        flex-shrink: 0;
+        width: 100%;
+        padding: 0.65rem 1rem !important;
+        padding-bottom: max(0.65rem, env(safe-area-inset-bottom, 0px)) !important;
+        font-size: 0.8rem;
+        letter-spacing: 0.01em;
+        background-color: #0f172a !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    body:has(.admin-dash) .footer .container {
+        max-width: 1280px;
+    }
 </style>
 {% endblock %}
 

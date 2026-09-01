@@ -50,6 +50,7 @@ from blueprints.remuneration_management.models import RemunerationForm
 from utils.window_utils import query_for_window, stamp_window_id, ensure_record_in_window, get_effective_window_id, filter_by_active_window, get_for_window, get_or_404_for_window, filter_offered_courses
 from utils.timezone import format_bd, bd_now
 from utils.tenant import current_tenant, init_tenant, public_app_url, year_is_postgraduate, course_year_digit_is_pg
+from utils.security_config import apply_proxy_fix, resolve_secret_key, session_lifetime_seconds, socketio_cors_origins
 
 try:
     from openpyxl import Workbook
@@ -204,6 +205,7 @@ if platform.system() == 'Darwin':  # macOS
 
 def create_app():
     app = Flask(__name__)
+    apply_proxy_fix(app)
     init_tenant(app)
 
     @app.template_filter('date')
@@ -216,7 +218,7 @@ def create_app():
     from utils.timezone import register_template_filters
     register_template_filters(app)
 
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'a_very_secret_default_key')
+    app.config['SECRET_KEY'] = resolve_secret_key()
     # Dedicated secret for AI key Fernet; set before rotating SECRET_KEY (see utils/ai/encryption.py)
     app.config['AI_KEY_ENCRYPTION_SECRET'] = os.getenv('AI_KEY_ENCRYPTION_SECRET', '').strip() or None
     app.config['TEMPLATES_AUTO_RELOAD'] = False
@@ -233,7 +235,8 @@ def create_app():
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'false').lower() in ('1', 'true', 'yes')
-    app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
+    app.config['PERMANENT_SESSION_LIFETIME'] = session_lifetime_seconds()
+    app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 
     # Database configuration - Check environment variable first, fallback to SQLite
     basedir = os.path.abspath(os.path.dirname(__file__))
@@ -574,7 +577,13 @@ def create_app():
     
     # Initialize SocketIO for WebSocket support
     from utils.websocket_events import init_socketio
-    socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=False, engineio_logger=False)
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins=socketio_cors_origins(),
+        async_mode='threading',
+        logger=False,
+        engineio_logger=False,
+    )
     init_socketio(socketio)
     
     # WebSocket connection handlers
@@ -1815,7 +1824,6 @@ def create_app():
         curricula = []
         curriculum_configs = {}
         available_sessions = set()
-        curriculum_configs_json = '{}'
         try:
             from blueprints.course_management.models import Curriculum, CurriculumYearTerm
             from utils.semester_utils import get_active_semesters_for_user
@@ -1826,7 +1834,6 @@ def create_app():
             if not active_semesters:
                 # No active semester - return empty curricula
                 curricula = []
-                curriculum_configs_json = '{}'
                 available_sessions = []
             else:
                 # Load all curricula
@@ -1866,12 +1873,10 @@ def create_app():
                     if configs:
                         curricula.append(curriculum)
                         curriculum_configs[curriculum.id] = configs
-                
-                curriculum_configs_json = json.dumps(curriculum_configs)
         except Exception as e:
             current_app.logger.error(f'Error loading curricula: {e}', exc_info=True)
             curricula = []
-            curriculum_configs_json = '{}'
+            curriculum_configs = {}
         available_sessions = sorted(available_sessions)
 
         # Question setter roster (Exam Committee assignments, active semesters only)
@@ -1980,7 +1985,7 @@ def create_app():
                                batches=batches,
                                academic_sessions=available_sessions,
                                curricula=curricula,
-                               curriculum_configs_json=curriculum_configs_json,
+                               curriculum_configs=curriculum_configs,
                                scrutiny_entries=scrutiny_entries,
                                scrutiny_invites_map=scrutiny_invites_map,
                                hide_scrutinizer_info=hide_scrutinizer_info,
@@ -4169,7 +4174,8 @@ def create_app():
         if not row.file_path or not os.path.exists(row.file_path):
             flash('ফাইল পাওয়া যায়নি।', 'danger')
             return redirect(url_for('admin_answer_guideline'))
-        return send_file(
+        from utils.safe_files import send_confined_file
+        return send_confined_file(
             row.file_path,
             as_attachment=True,
             download_name=row.file_name or (row.title + '.pdf'),
