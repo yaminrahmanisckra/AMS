@@ -127,7 +127,70 @@
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
-.cm-course-list { display: flex; flex-direction: column; gap: 0.22rem; }
+.cm-course-list { display: flex; flex-direction: column; gap: 0.7rem; }
+.cm-course-level {
+    display: flex;
+    flex-direction: column;
+    gap: 0.42rem;
+    padding: 0.4rem 0.45rem 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--cm-line);
+}
+.cm-course-level[data-level="pg"] {
+    background: #f5f3ff;
+    border-color: #ddd6fe;
+}
+.cm-course-level[data-level="ug"] {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+}
+.cm-course-level-title {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0.16rem 0.52rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.cm-course-level[data-level="pg"] .cm-course-level-title {
+    color: #5b21b6;
+    background: #ddd6fe;
+}
+.cm-course-level[data-level="ug"] .cm-course-level-title {
+    color: #1e40af;
+    background: #bfdbfe;
+}
+.cm-course-group { display: flex; flex-direction: column; gap: 0.18rem; }
+.cm-course-group-title {
+    display: inline-flex;
+    align-items: baseline;
+    align-self: flex-start;
+    gap: 0.35rem;
+    margin: 0;
+    padding: 0.1rem 0.42rem;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 650;
+}
+.cm-course-group[data-group$="-theory"] .cm-course-group-title {
+    color: #115e59;
+    background: #99f6e4;
+}
+.cm-course-group[data-group$="-sessional"] .cm-course-group-title {
+    color: #9a3412;
+    background: #fed7aa;
+}
+.cm-course-group-count {
+    font-size: 0.62rem;
+    font-weight: 600;
+    opacity: 0.75;
+}
+.cm-course-group-list { display: flex; flex-direction: column; gap: 0.22rem; }
 .cm-course-card {
     display: flex;
     flex-direction: column;
@@ -137,11 +200,26 @@
     border: 1px solid var(--cm-line);
     border-radius: 7px;
     padding: 0.35rem 0.5rem;
+    border-left-width: 3px;
 }
-.cm-course-card:nth-child(odd) { background: #dbeafe !important; }
-.cm-course-card:nth-child(even) { background: #c5ccd6 !important; }
-.cm-course-card:nth-child(odd):hover { border-color: #60a5fa; background: #bfdbfe !important; }
-.cm-course-card:nth-child(even):hover { border-color: #64748b; background: #b4bcc8 !important; }
+.cm-course-group[data-group$="-theory"] .cm-course-card { border-left-color: #0d9488; }
+.cm-course-group[data-group$="-sessional"] .cm-course-card { border-left-color: #ea580c; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(odd) { background: #ede9fe !important; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(even) { background: #ddd6fe !important; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(odd):hover { border-color: #8b5cf6; background: #ddd6fe !important; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(even):hover { border-color: #7c3aed; background: #c4b5fd !important; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(odd) { background: #ffedd5 !important; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(even) { background: #fed7aa !important; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(odd):hover { border-color: #fb923c; background: #fed7aa !important; }
+.cm-course-level[data-level="pg"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(even):hover { border-color: #ea580c; background: #fdba74 !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(odd) { background: #dbeafe !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(even) { background: #bfdbfe !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(odd):hover { border-color: #60a5fa; background: #bfdbfe !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-theory"] .cm-course-card:nth-child(even):hover { border-color: #2563eb; background: #93c5fd !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(odd) { background: #ccfbf1 !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(even) { background: #99f6e4 !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(odd):hover { border-color: #2dd4bf; background: #99f6e4 !important; }
+.cm-course-level[data-level="ug"] .cm-course-group[data-group$="-sessional"] .cm-course-card:nth-child(even):hover { border-color: #0d9488; background: #5eead4 !important; }
 .cm-course-card-top { min-width: 0; }
 .cm-course-ident {
     display: flex;
@@ -322,89 +400,104 @@
             </div>
             {% if sessions %}
                 <div class="cm-course-list">
-                    {% for session in sessions %}
-                    {% set assignment = assignment_map.get(session.id, {}) %}
-                    {% set split_meta = split_context_map.get(session.id) %}
-                    <article class="cm-course-card session-row"
-                             data-session-id="{{ session.id }}"
-                             data-academic-session="{{ session.academic_session or '' }}"
-                             data-year="{{ session.year or '' }}"
-                             data-term="{{ session.term or '' }}"
-                             data-search="{{ session.course_name or '' }} {{ session.course_code or '' }}">
-                        <div class="cm-course-card-top">
-                            <div class="cm-course-ident">
-                                <h3 class="cm-course-title">{{ session.course_name or '-' }}</h3>
-                                <div class="cm-course-meta">
-                                    <span class="cm-pill cm-pill-code">{{ session.course_code or '-' }}</span>
-                                    <span class="cm-pill cm-pill-scope">{{ course_scope_labels.get(session.course_scope, 'Full') }}</span>
-                                    <span class="cm-pill cm-pill-year">{{ session.year }}</span>
-                                    <span class="cm-pill cm-pill-term">{{ session.term }}</span>
-                                    {% if assignment.get('academic_session') or session.academic_session %}
-                                    <span class="cm-pill cm-pill-session">{{ assignment.get('academic_session') or session.academic_session }}</span>
-                                    {% endif %}
-                                    {% if assignment.get('batch') %}
-                                    <span class="cm-pill cm-pill-batch">Batch {{ assignment.get('batch') }}</span>
-                                    {% endif %}
-                                    {% if split_meta and split_meta.peers %}
-                                    <span class="cm-pill cm-pill-partner">Partner: {{ split_meta.peers[0].teacher_name }}</span>
-                                    {% endif %}
-                                </div>
+                    {% for level in active_course_groups %}
+                    <section class="cm-course-level" data-level="{{ level.id }}">
+                        <h3 class="cm-course-level-title">{{ level.title }}</h3>
+                        {% for kind in level.kinds %}
+                        <div class="cm-course-group" data-group="{{ kind.id }}">
+                            <h4 class="cm-course-group-title">
+                                {{ kind.title }}
+                                <span class="cm-course-group-count">{{ kind.sessions|length }}</span>
+                            </h4>
+                            <div class="cm-course-group-list">
+                                {% for session in kind.sessions %}
+                                {% set assignment = assignment_map.get(session.id, {}) %}
+                                {% set split_meta = split_context_map.get(session.id) %}
+                                <article class="cm-course-card session-row"
+                                         data-session-id="{{ session.id }}"
+                                         data-academic-session="{{ session.academic_session or '' }}"
+                                         data-year="{{ session.year or '' }}"
+                                         data-term="{{ session.term or '' }}"
+                                         data-search="{{ session.course_name or '' }} {{ session.course_code or '' }}">
+                                    <div class="cm-course-card-top">
+                                        <div class="cm-course-ident">
+                                            <h3 class="cm-course-title">{{ session.course_name or '-' }}</h3>
+                                            <div class="cm-course-meta">
+                                                <span class="cm-pill cm-pill-code">{{ session.course_code or '-' }}</span>
+                                                <span class="cm-pill cm-pill-scope">{{ course_scope_labels.get(session.course_scope, 'Full') }}</span>
+                                                <span class="cm-pill cm-pill-year">{{ session.year }}</span>
+                                                <span class="cm-pill cm-pill-term">{{ session.term }}</span>
+                                                {% if assignment.get('academic_session') or session.academic_session %}
+                                                <span class="cm-pill cm-pill-session">{{ assignment.get('academic_session') or session.academic_session }}</span>
+                                                {% endif %}
+                                                {% if assignment.get('batch') %}
+                                                <span class="cm-pill cm-pill-batch">Batch {{ assignment.get('batch') }}</span>
+                                                {% endif %}
+                                                {% if split_meta and split_meta.peers %}
+                                                <span class="cm-pill cm-pill-partner">Partner: {{ split_meta.peers[0].teacher_name }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="cm-course-actions">
+                                        <div class="btn-group">
+                                            <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
+                                                <i class="fas fa-clipboard-check me-1"></i>Attendance
+                                            </a>
+                                            <button type="button" class="btn btn-success btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                                                <span class="visually-hidden">Toggle Dropdown</span>
+                                            </button>
+                                            <ul class="dropdown-menu">
+                                                <li>
+                                                    <a class="dropdown-item" href="{{ url_for('class_management.view_attendance', session_id=session.id) }}">
+                                                        <i class="fas fa-eye me-2"></i>View Report
+                                                    </a>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                        <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
+                                            <i class="fas fa-chart-line me-1"></i>Assessment
+                                        </a>
+                                        <a href="{{ url_for('academic_calendar.assessment_schedule', session_id=session.id) }}" class="btn btn-primary btn-sm">
+                                            <i class="fas fa-calendar-alt me-1"></i>Schedule
+                                        </a>
+                                        <div class="btn-group">
+                                            <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                                <i class="fas fa-ellipsis-v me-1"></i>More
+                                            </button>
+                                            <ul class="dropdown-menu">
+                                                <li>
+                                                    <a class="dropdown-item" href="{{ url_for('class_management.evaluation', session_id=session.id) }}">
+                                                        <i class="fas fa-clipboard-list me-2"></i>Evaluation
+                                                    </a>
+                                                </li>
+                                                <li>
+                                                    <a class="dropdown-item" href="{{ url_for('class_management.students_list', session_id=session.id) }}">
+                                                        <i class="fas fa-users me-2"></i>Students
+                                                    </a>
+                                                </li>
+                                                <li>
+                                                    <a class="dropdown-item" href="{{ url_for('class_management.course_file', session_id=session.id) }}">
+                                                        <i class="fas fa-folder me-2"></i>Course File
+                                                    </a>
+                                                </li>
+                                                <li>
+                                                    <a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('class_management.course_questions', session_id=session.id) }}">
+                                                        <span><i class="fas fa-comments me-2"></i>Questions</span>
+                                                        {% if qa_notification_map and qa_notification_map.get(session.id) %}
+                                                            <span class="badge bg-warning text-dark">{{ qa_notification_map.get(session.id) }}</span>
+                                                        {% endif %}
+                                                    </a>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </article>
+                                {% endfor %}
                             </div>
                         </div>
-                        <div class="cm-course-actions">
-                            <div class="btn-group">
-                                <a href="{{ url_for('class_management.take_attendance', session_id=session.id) }}" class="btn btn-success btn-sm">
-                                    <i class="fas fa-clipboard-check me-1"></i>Attendance
-                                </a>
-                                <button type="button" class="btn btn-success btn-sm dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <span class="visually-hidden">Toggle Dropdown</span>
-                                </button>
-                                <ul class="dropdown-menu">
-                                    <li>
-                                        <a class="dropdown-item" href="{{ url_for('class_management.view_attendance', session_id=session.id) }}">
-                                            <i class="fas fa-eye me-2"></i>View Report
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                            <a href="{{ url_for('class_management.assessment', session_id=session.id) }}" class="btn btn-warning btn-sm">
-                                <i class="fas fa-chart-line me-1"></i>Assessment
-                            </a>
-                            <a href="{{ url_for('academic_calendar.assessment_schedule', session_id=session.id) }}" class="btn btn-primary btn-sm">
-                                <i class="fas fa-calendar-alt me-1"></i>Schedule
-                            </a>
-                            <div class="btn-group">
-                                <button type="button" class="btn btn-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="fas fa-ellipsis-v me-1"></i>More
-                                </button>
-                                <ul class="dropdown-menu">
-                                    <li>
-                                        <a class="dropdown-item" href="{{ url_for('class_management.evaluation', session_id=session.id) }}">
-                                            <i class="fas fa-clipboard-list me-2"></i>Evaluation
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item" href="{{ url_for('class_management.students_list', session_id=session.id) }}">
-                                            <i class="fas fa-users me-2"></i>Students
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item" href="{{ url_for('class_management.course_file', session_id=session.id) }}">
-                                            <i class="fas fa-folder me-2"></i>Course File
-                                        </a>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item d-flex justify-content-between align-items-center" href="{{ url_for('class_management.course_questions', session_id=session.id) }}">
-                                            <span><i class="fas fa-comments me-2"></i>Questions</span>
-                                            {% if qa_notification_map and qa_notification_map.get(session.id) %}
-                                                <span class="badge bg-warning text-dark">{{ qa_notification_map.get(session.id) }}</span>
-                                            {% endif %}
-                                        </a>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </article>
+                        {% endfor %}
+                    </section>
                     {% endfor %}
                 </div>
             {% else %}
@@ -735,9 +828,6 @@
 @media (max-width: 991.98px) {
     .cm-course-card.session-row { cursor: pointer; }
 }
-.cm-course-card:hover {
-    border-color: rgba(45, 212, 191, 0.45);
-}
 </style>
 
 <script>
@@ -753,6 +843,20 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('.cm-course-card, .cm-external-entry').forEach(function(card) {
                 const hay = (card.getAttribute('data-search') || '').toLowerCase();
                 card.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
+            });
+            document.querySelectorAll('.cm-course-group').forEach(function(group) {
+                const visible = Array.prototype.some.call(
+                    group.querySelectorAll('.cm-course-card'),
+                    function(card) { return card.style.display !== 'none'; }
+                );
+                group.style.display = visible ? '' : 'none';
+            });
+            document.querySelectorAll('.cm-course-level').forEach(function(level) {
+                const visible = Array.prototype.some.call(
+                    level.querySelectorAll('.cm-course-group'),
+                    function(group) { return group.style.display !== 'none'; }
+                );
+                level.style.display = visible ? '' : 'none';
             });
         });
     }

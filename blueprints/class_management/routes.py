@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, current_app, Response, jsonify
 from flask_login import login_required, current_user
 from utils.timezone import format_bd
-from utils.tenant import current_tenant
+from utils.tenant import current_tenant, year_is_postgraduate, course_year_digit_is_pg
 from utils.academic_rules import (
     assessment_cfg,
     take_best_marks,
@@ -1213,6 +1213,100 @@ def _normalize_session_course_type(raw_course_type):
     if 'theory' in value:
         return 'theory'
     return value[:20]
+
+
+_YEAR_TERM_RANK = {
+    'first': 1, '1st': 1, '1': 1,
+    'second': 2, '2nd': 2, '2': 2,
+    'third': 3, '3rd': 3, '3': 3,
+    'fourth': 4, '4th': 4, '4': 4,
+    'fifth': 5, '5th': 5, '5': 5,
+    'llm': 6, 'pg': 6, 'postgraduate': 6, 'masters': 6, 'master': 6,
+    'mphil': 7, 'm.phil': 7, 'phd': 8,
+}
+
+
+def _year_term_rank(value):
+    """Numeric rank so Fourth/Second sorts above First. Unknown labels rank high."""
+    raw = str(value or '').strip().lower()
+    if raw.endswith(' year'):
+        raw = raw[:-5].strip()
+    if raw.endswith(' term'):
+        raw = raw[:-5].strip()
+    if raw in _YEAR_TERM_RANK:
+        return _YEAR_TERM_RANK[raw]
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 50 if raw else 0
+
+
+def _session_is_sessional(session):
+    course_type = _normalize_session_course_type(getattr(session, 'course_type', None))
+    return course_type in ('sessional', 'dissertation', 'thesis', 'viva')
+
+
+def _session_is_pg(session):
+    if (getattr(session, 'category', None) or '').strip().lower() == 'pg':
+        return True
+    if year_is_postgraduate(getattr(session, 'year', None)):
+        return True
+    return course_year_digit_is_pg(getattr(session, 'course_code', None) or '')
+
+
+def _active_session_sort_key(session):
+    """Highest year, then highest term, then newer academic session, then code."""
+    academic = (getattr(session, 'academic_session', None) or '').strip()
+    academic_year = 0
+    if academic[:4].isdigit():
+        academic_year = int(academic[:4])
+    scope = (getattr(session, 'course_scope', None) or '')
+    return (
+        -_year_term_rank(getattr(session, 'year', None)),
+        -_year_term_rank(getattr(session, 'term', None)),
+        -academic_year,
+        academic,
+        getattr(session, 'course_code', None) or '',
+        getattr(session, 'course_name', None) or '',
+        scope,
+        getattr(session, 'id', 0) or 0,
+    )
+
+
+def _group_active_sessions_for_dashboard(sessions):
+    """UG/PG × Theory/Sessional groups, each sorted by year-term descending."""
+    buckets = {
+        ('ug', 'theory'): [],
+        ('ug', 'sessional'): [],
+        ('pg', 'theory'): [],
+        ('pg', 'sessional'): [],
+    }
+    for session in sessions:
+        level = 'pg' if _session_is_pg(session) else 'ug'
+        kind = 'sessional' if _session_is_sessional(session) else 'theory'
+        buckets[(level, kind)].append(session)
+
+    for group in buckets.values():
+        group.sort(key=_active_session_sort_key)
+
+    grouped = []
+    for level_key, level_title in (('pg', 'Postgraduate'), ('ug', 'Undergraduate')):
+        kinds = []
+        for kind_key, kind_title in (('theory', 'Theory'), ('sessional', 'Sessional')):
+            items = buckets[(level_key, kind_key)]
+            if items:
+                kinds.append({
+                    'id': f'{level_key}-{kind_key}',
+                    'title': kind_title,
+                    'sessions': items,
+                })
+        if kinds:
+            grouped.append({
+                'id': level_key,
+                'title': level_title,
+                'kinds': kinds,
+            })
+    return grouped
 
 
 def _round_half_up_int(value):
@@ -2848,6 +2942,13 @@ def index():
     
     sessions = query.order_by(Session.created_at.desc()).all()
     sessions = _dedupe_active_sessions(sessions)
+    active_course_groups = _group_active_sessions_for_dashboard(sessions)
+    sessions = [
+        session
+        for level in active_course_groups
+        for kind in level['kinds']
+        for session in kind['sessions']
+    ]
 
     current_app.logger.info(f'[DEBUG] Teacher {teacher.id} ({teacher.name}): Found {len(sessions)} sessions AFTER filtering (was {len(sessions_before_filter)} before filtering)')
     for s in sessions:
@@ -3057,6 +3158,7 @@ def index():
     return render_template(
         'class_management/index.html',
         sessions=sessions,
+        active_course_groups=active_course_groups,
         external_sessions=external_sessions,
         external_archived_sessions=external_archived_sessions,
         credit_load=credit_load,

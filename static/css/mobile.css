@@ -932,6 +932,19 @@
         align-items: center !important;
     }
 
+    body.m-shell .cm-course-list {
+        gap: 0.55rem;
+    }
+
+    body.m-shell .cm-course-level-title {
+        font-size: 0.66rem;
+        padding: 0.12rem 0.45rem;
+    }
+
+    body.m-shell .cm-course-group-title {
+        font-size: 0.66rem;
+    }
+
     body.m-shell .cm-external-section {
         margin-top: 0.6rem !important;
     }
