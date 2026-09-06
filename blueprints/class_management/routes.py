@@ -9047,6 +9047,26 @@ def student_view_scores():
             except Exception as teacher_error:
                 current_app.logger.warning(f"Error building teacher options: {teacher_error}")
 
+            teachers = []
+            seen_teacher_ids = set()
+            for option in teacher_options:
+                teacher_id = option.get('teacher_id')
+                teacher_name = (option.get('teacher_name') or option.get('teacher_short') or '').strip()
+                if not teacher_name or teacher_id in seen_teacher_ids:
+                    continue
+                seen_teacher_ids.add(teacher_id)
+                teachers.append({
+                    'name': teacher_name,
+                    'scope': option.get('scope_label') if is_split_course else None,
+                })
+            if not teachers:
+                session_teacher = getattr(session_obj, 'teacher', None)
+                fallback_name = ''
+                if session_teacher:
+                    fallback_name = (session_teacher.name or session_teacher.short_name or '').strip()
+                if fallback_name:
+                    teachers.append({'name': fallback_name, 'scope': None})
+
             # Load Q&A threads for this course (student-specific)
             qa_threads = []
             qa_new_reply_count = 0
@@ -9104,7 +9124,8 @@ def student_view_scores():
                 'is_split_course': is_split_course,
                 'qa_threads': qa_threads,
                 'qa_new_reply_count': qa_new_reply_count,
-                'teacher_options': teacher_options
+                'teacher_options': teacher_options,
+                'teachers': teachers,
             })
         
         # Sort courses by course_name, then by year-term for consistent display

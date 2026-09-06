@@ -58,6 +58,14 @@
                         <span><i class="fas fa-graduation-cap"></i> {{ course.session.year }}-{{ course.session.term }}</span>
                         <span><i class="fas fa-book"></i> {{ course.session.course_type|title }}</span>
                         <span><i class="fas fa-layer-group"></i> {{ course.session.category|upper }}</span>
+                        {% if course.teachers %}
+                        <span class="sv-course-teachers">
+                            <i class="fas fa-chalkboard-teacher"></i>
+                            {% for teacher in course.teachers %}
+                                {{ teacher.name }}{% if teacher.scope %} ({{ teacher.scope }}){% endif %}{% if not loop.last %} · {% endif %}
+                            {% endfor %}
+                        </span>
+                        {% endif %}
                     </div>
                     {% if course.qa_new_reply_count and course.qa_new_reply_count > 0 %}
                         <span class="sv-reply-badge">{{ course.qa_new_reply_count }} new {{ 'reply' if course.qa_new_reply_count == 1 else 'replies' }}</span>
@@ -452,6 +460,11 @@
 .sv-course-meta i {
     margin-right: 0.2rem;
     opacity: 0.8;
+}
+
+.sv-course-teachers {
+    color: #4338ca;
+    font-weight: 600;
 }
 
 .sv-reply-badge {
